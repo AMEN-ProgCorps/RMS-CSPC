@@ -652,6 +652,7 @@ Route::middleware(['auth'])
 
                 Route::middleware(['dcs.module:settings'])->group(function () {
                     Route::post('/api/calendar/categories', fn (Request $request) => CalendarHelper::storeCategory($request));
+                    Route::put('/api/calendar/categories/{id}', fn (Request $request, int $id) => CalendarHelper::updateCategory($request, $id));
                     Route::delete('/api/calendar/categories/{id}', fn (int $id) => CalendarHelper::destroyCategory($id));
                     Route::post('/api/calendar/events', fn (Request $request) => CalendarHelper::storeEvent($request));
                     Route::put('/api/calendar/events/{id}', fn (Request $request, int $id) => CalendarHelper::updateEvent($request, $id));

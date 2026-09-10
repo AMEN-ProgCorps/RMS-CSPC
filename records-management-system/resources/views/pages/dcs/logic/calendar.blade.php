@@ -89,6 +89,31 @@ class CalendarHelper
         return response()->json(self::categoryRows()->firstWhere('id', $id));
     }
 
+    public static function updateCategory(Request $request, int $id): JsonResponse
+    {
+        RegisterQueryHelper::assertFullDcsUser('settings');
+        $category = DB::table('dcs_calendar_categories')->where('id', $id)->first();
+        if (! $category) {
+            abort(404);
+        }
+
+        $data = $request->validate([
+            'color' => ['required', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+        ]);
+
+        $color = mb_strtolower(trim($data['color']));
+        DB::table('dcs_calendar_categories')->where('id', $id)->update([
+            'color' => $color,
+            'updated_at' => now(),
+        ]);
+
+        RegisterPersistHelper::logAdminChange(
+            'Updated calendar category color — ' . $category->name . ' (' . $color . ')'
+        );
+
+        return response()->json(self::categoryRows()->firstWhere('id', $id));
+    }
+
     public static function storeEvent(Request $request): JsonResponse
     {
         RegisterQueryHelper::assertFullDcsUser('settings');

@@ -628,8 +628,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     <button type="button" class="ev-cat-icon-btn" title="Add category" :class="{ 'is-open': addingCategory }" @click="toggleAddCategory()">
                                         <i class="fa-solid fa-plus"></i>
                                     </button>
+                                    <button type="button" class="ev-cat-icon-btn" title="Change selected category color" x-show="form.category_id" :class="{ 'is-open': editingCategoryColor }" @click="toggleCategoryColorEditor()">
+                                        <i class="fa-solid fa-palette"></i>
+                                    </button>
                                     <button type="button" class="ev-cat-icon-btn ev-cat-row-del" title="Delete selected category" x-show="form.category_id" @click="removeSelectedCategory()">
                                         <i class="fa-solid fa-trash"></i>
+                                    </button>
+                                </div>
+                                <div class="ev-category-panel" x-show="editingCategoryColor" x-cloak>
+                                    <label class="ev-color-picker" title="Selected category color">
+                                        <span>Category color</span>
+                                        <input type="color" x-model="categoryColorDraft" aria-label="Selected category color">
+                                    </label>
+                                    <button type="button" class="ev-btn ev-btn-ghost" @click="editingCategoryColor = false">Cancel</button>
+                                    <button type="button" class="ev-btn ev-btn-primary" :disabled="categorySaving" @click="saveSelectedCategoryColor()">
+                                        <i class="fa-solid fa-check"></i> <span x-text="categorySaving ? 'Saving…' : 'Apply color'"></span>
                                     </button>
                                 </div>
                                 <div class="ev-cat-add" x-show="addingCategory" x-cloak>
@@ -660,10 +673,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <textarea class="ev-textarea" rows="2" x-model="form.description"></textarea>
                             </div>
                             <div class="ev-actions-row">
+                                <button type="button" class="ev-btn ev-btn-danger" x-show="editingId" @click="removeEvent(editingId, true)">
+                                    <i class="fa-solid fa-trash-can"></i> Delete
+                                </button>
                                 <button type="button" class="ev-btn ev-btn-ghost" x-on:click="openDay(form.date)">Cancel</button>
-                                <button type="submit" class="ev-btn ev-btn-primary">
+                                <button type="submit" class="ev-btn ev-btn-primary" :disabled="saving">
                                     <i class="fa-solid" :class="editingId ? 'fa-check' : 'fa-plus'"></i>
-                                    <span x-text="editingId ? 'Save' : 'Create'"></span>
+                                    <span x-text="saving ? 'Saving…' : (editingId ? 'Save changes' : 'Create event')"></span>
                                 </button>
                             </div>
                         </form>
@@ -886,6 +902,9 @@ document.addEventListener('alpine:init', () => {
         editingId: null,
         saving: false,
         addingCategory: false,
+        editingCategoryColor: false,
+        categoryColorDraft: '#0d2a7a',
+        categorySaving: false,
         newCategory: '',
         newCategoryColor: '#0369a1',
         form: { title: '', category_id: '', date: '', startTime: '09:00', endTime: '10:00', description: '' },
@@ -1034,6 +1053,8 @@ document.addEventListener('alpine:init', () => {
         },
         openAdd(iso) {
             this.editingId = null;
+            this.addingCategory = false;
+            this.editingCategoryColor = false;
             this.form = {
                 title: '',
                 category_id: this.categories[0]?.id || '',
@@ -1048,6 +1069,8 @@ document.addEventListener('alpine:init', () => {
             const ev = this.events.find(e => String(e.id) === String(id));
             if (!ev || ev.readonly) return;
             this.editingId = id;
+            this.addingCategory = false;
+            this.editingCategoryColor = false;
             this.form = {
                 title: ev.title,
                 category_id: ev.category_id,
@@ -1059,6 +1082,7 @@ document.addEventListener('alpine:init', () => {
             this.modal = 'form';
         },
         toggleAddCategory() {
+            this.editingCategoryColor = false;
             this.addingCategory = !this.addingCategory;
             if (this.addingCategory) {
                 this.$nextTick(() => this.$refs.newCatInput?.focus());
@@ -1066,6 +1090,12 @@ document.addEventListener('alpine:init', () => {
                 this.newCategory = '';
                 this.newCategoryColor = '#0369a1';
             }
+        },
+        toggleCategoryColorEditor() {
+            if (!this.form.category_id) return;
+            this.addingCategory = false;
+            this.categoryColorDraft = this.selectedCategoryColor();
+            this.editingCategoryColor = !this.editingCategoryColor;
         },
         async addCategory() {
             const name = (this.newCategory || '').trim();
@@ -1093,6 +1123,39 @@ document.addEventListener('alpine:init', () => {
         async removeSelectedCategory() {
             const cat = this.categories.find(c => String(c.id) === String(this.form.category_id));
             if (cat) await this.removeCategory(cat);
+        },
+        selectedCategoryColor() {
+            const category = this.categories.find(c => String(c.id) === String(this.form.category_id));
+            return this.categoryColor(category);
+        },
+        async saveSelectedCategoryColor() {
+            const category = this.categories.find(c => String(c.id) === String(this.form.category_id));
+            const color = this.categoryColorDraft;
+            if (!category || color === this.categoryColor(category)) return;
+
+            this.categorySaving = true;
+            try {
+                const res = await fetch('/dcs/api/calendar/categories/' + category.id, {
+                    method: 'PUT',
+                    headers: this.headers(true),
+                    body: JSON.stringify({ color }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    alert(data.errors?.color?.[0] || data.message || 'Could not update category color.');
+                    return;
+                }
+                const index = this.categories.findIndex(c => c.id === data.id);
+                if (index !== -1) this.categories.splice(index, 1, data);
+                this.events.forEach(event => {
+                    if (String(event.category_id) === String(data.id)) event.color = data.color;
+                });
+                this.editingCategoryColor = false;
+            } catch (e) {
+                alert('Could not update category color.');
+            } finally {
+                this.categorySaving = false;
+            }
         },
         async removeCategory(cat) {
             if (!cat) return;
@@ -1150,10 +1213,10 @@ document.addEventListener('alpine:init', () => {
                 this.saving = false;
             }
         },
-        async removeEvent(id) {
+        async removeEvent(id, fromForm = false) {
             const ev = this.events.find(e => String(e.id) === String(id));
             if (ev?.readonly) return;
-            if (!confirm('Delete this event?')) return;
+            if (!ev || !confirm('Delete “' + ev.title + '”? This cannot be undone.')) return;
             try {
                 const res = await fetch('/dcs/api/calendar/events/' + id, {
                     method: 'DELETE',
@@ -1164,6 +1227,7 @@ document.addEventListener('alpine:init', () => {
                     return;
                 }
                 this.events = this.events.filter(e => e.id !== id);
+                if (fromForm) this.openDay(String(ev.date).slice(0, 10));
             } catch (e) {
                 alert('Could not delete event.');
             }

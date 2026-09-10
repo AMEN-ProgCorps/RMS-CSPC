@@ -3814,9 +3814,6 @@ async function autoPopulateSyllabiCourses() {
             if (codeInput) {
                 codeInput.value = c.course_code || '';
             }
-            const faculties = c.faculties || [];
-            const splitCopies = faculties.length >= 2 && (courseIndex % 2 === 1);
-            applyCatalogFacultiesToRow(newRow, faculties, { splitCopies });
             cascadeDrfToNewRow(newRow);
             syncSyllabiMergedFields(groupId);
             syncSyllabiAvailability(groupId);

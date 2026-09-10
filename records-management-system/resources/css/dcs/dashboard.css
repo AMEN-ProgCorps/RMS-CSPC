@@ -2022,6 +2022,23 @@ body.dash-cl-open {
     padding: 0 12px;
 }
 
+.ev-category-panel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: var(--dash-surface-soft, #f8fafc);
+}
+
+.ev-category-panel .ev-btn {
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    font-size: 0.75rem;
+}
+
 .ev-color-picker {
     display: inline-flex;
     align-items: center;
@@ -2153,6 +2170,25 @@ body.dash-cl-open {
     border-color: #cbd5e1;
     background: var(--dash-border-light);
     color: var(--dash-text);
+}
+
+.ev-btn-danger {
+    flex: 0 0 auto;
+    border: 1.5px solid #fecaca;
+    background: #fff1f2;
+    color: #be123c;
+}
+
+.ev-btn-danger:hover {
+    border-color: #fda4af;
+    background: #ffe4e6;
+}
+
+.ev-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+    transform: none;
+    box-shadow: none;
 }
 
 /* ── Event Cards ── */

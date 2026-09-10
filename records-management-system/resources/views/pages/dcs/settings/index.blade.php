@@ -4,8 +4,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
+use Livewire\WithFileUploads;
 
 new #[Layout('layouts.dcs')] class extends Component {
+    use WithFileUploads;
 
     public string $modalKind = '';
     public ?int $editingId = null;
@@ -25,7 +27,10 @@ new #[Layout('layouts.dcs')] class extends Component {
     public string $semesterId = '';
     public string $courseName = '';
     public string $courseCode = '';
-    public array $courseFacultyIds = [];
+    public string $yearLevel = '';
+    public $originatorsCsv;
+    public $facultiesCsv;
+    public $coursesCsv;
 
     public string $deleteTitle = '';
     public string $deleteMessage = '';
@@ -43,7 +48,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->reset([
             'docTypeName', 'originatorName',
             'facultyName', 'collegeId', 'collegeName', 'officeId', 'programName', 'programCode',
-            'semesterName', 'schoolYear', 'programId', 'semesterId', 'courseName', 'courseCode', 'courseFacultyIds',
+            'semesterName', 'schoolYear', 'programId', 'semesterId', 'courseName', 'courseCode', 'yearLevel',
             'deleteTitle', 'deleteMessage',
         ]);
         $this->resetValidation();
@@ -146,7 +151,6 @@ new #[Layout('layouts.dcs')] class extends Component {
     public function openProgramCourse(?int $id = null): void
     {
         $this->resetFormFor('programCourse', $id);
-        $this->courseFacultyIds = [];
         if ($id) {
             $row = DB::table('dcs_program_courses')->where('id', $id)->first();
             abort_unless($row, 404);
@@ -154,13 +158,7 @@ new #[Layout('layouts.dcs')] class extends Component {
             $this->semesterId = (string) $row->semester_id;
             $this->courseName = $row->course_name;
             $this->courseCode = $row->course_code ?? '';
-            $this->courseFacultyIds = Schema::hasTable('dcs_program_course_faculties')
-                ? DB::table('dcs_program_course_faculties')
-                    ->where('program_course_id', $id)
-                    ->pluck('faculty_id')
-                    ->map(fn ($fid) => (string) $fid)
-                    ->all()
-                : [];
+            $this->yearLevel = $row->year_level ?? '';
         }
     }
 
@@ -205,6 +203,132 @@ new #[Layout('layouts.dcs')] class extends Component {
             'programCourse' => $this->destroyProgramCourse($id),
             default => null,
         };
+    }
+
+    public function importOriginators(): void { $this->importCsv('originators', 'originatorsCsv'); }
+    public function importFaculties(): void { $this->importCsv('faculties', 'facultiesCsv'); }
+    public function importCourses(): void { $this->importCsv('courses', 'coursesCsv'); }
+
+    private function importCsv(string $type, string $property): void
+    {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
+        $this->validate([$property => 'required|file|mimes:csv,txt|max:2048']);
+
+        try {
+            $rows = $this->csvRows($this->{$property}->getRealPath());
+            if ($rows === []) throw new \RuntimeException('The CSV contains no data rows.');
+            [$records, $skipped] = match ($type) {
+                'originators' => $this->originatorRows($rows),
+                'faculties' => $this->facultyRows($rows),
+                'courses' => $this->courseRows($rows),
+            };
+            DB::transaction(function () use ($type, $records): void {
+                $table = ['originators' => 'dcs_originators', 'faculties' => 'dcs_faculties', 'courses' => 'dcs_program_courses'][$type];
+                foreach ($records as $record) DB::table($table)->insert($record);
+            });
+            $this->reset($property);
+            $label = ['originators' => 'originator(s)', 'faculties' => 'faculty member(s)', 'courses' => 'course(s)'][$type];
+            $this->flashToast(count($records) . " {$label} imported" . ($skipped ? "; {$skipped} duplicate row(s) skipped." : '.'), 'success');
+            \App\Helpers\RegisterPersistHelper::logAdminChange("DCS settings: imported " . count($records) . " {$type} from CSV.");
+        } catch (\Throwable $e) {
+            report($e);
+            $this->addError($property, $e->getMessage());
+            $this->flashToast('CSV import was not completed. Please correct the file and try again.', 'error');
+        }
+    }
+
+    private function csvRows(string $path): array
+    {
+        $file = fopen($path, 'r');
+        if (! $file || ! ($header = fgetcsv($file))) throw new \RuntimeException('The CSV must include a header row.');
+        $headers = array_map(fn ($value) => strtolower(trim(preg_replace('/[^a-z0-9]+/i', '_', preg_replace('/^\xEF\xBB\xBF/', '', (string) $value)), '_')), $header);
+        if (in_array('', $headers, true) || count($headers) !== count(array_unique($headers))) throw new \RuntimeException('CSV headers must be present and unique.');
+        $rows = []; $line = 1;
+        while (($values = fgetcsv($file)) !== false) {
+            $line++;
+            if (count($values) === 1 && trim((string) $values[0]) === '') continue;
+            if (count($values) !== count($headers)) throw new \RuntimeException("Row {$line} has an incorrect number of columns.");
+            $row = array_combine($headers, array_map(fn ($value) => trim((string) $value), $values));
+            $row['_line'] = $line;
+            $rows[] = $row;
+        }
+        fclose($file);
+        return $rows;
+    }
+
+    private function requiredColumns(array $rows, array $columns): void
+    {
+        foreach ($columns as $column) if (! array_key_exists($column, $rows[0])) throw new \RuntimeException("CSV is missing required column: {$column}.");
+    }
+
+    private function originatorRows(array $rows): array
+    {
+        if (! Schema::hasTable('dcs_originators')) throw new \RuntimeException('Originators table is not available. Run pending migrations.');
+        $this->requiredColumns($rows, ['originator_name']);
+        $known = DB::table('dcs_originators')->pluck('originator_name')->mapWithKeys(fn ($name) => [mb_strtolower(trim($name)) => true])->all();
+        $records = []; $skipped = 0;
+        foreach ($rows as $row) {
+            $name = $row['originator_name'];
+            if ($name === '' || mb_strlen($name) > 255) throw new \RuntimeException("Row {$row['_line']}: originator_name is required (maximum 255 characters).");
+            $key = mb_strtolower($name);
+            if (isset($known[$key])) { $skipped++; continue; }
+            $known[$key] = true; $records[] = ['originator_name' => $name];
+        }
+        return [$records, $skipped];
+    }
+
+    private function facultyRows(array $rows): array
+    {
+        $this->requiredColumns($rows, ['college', 'faculty_name']);
+        $collegeMap = $this->lookup(DB::table('dcs_colleges')->get(['id', 'college_name', 'college_code']), 'college_name', 'college_code');
+        $known = DB::table('dcs_faculties')->get(['faculty_name', 'college_id'])->mapWithKeys(fn ($item) => [mb_strtolower(trim($item->faculty_name)) . '|' . ($item->college_id ?? '') => true])->all();
+        $records = []; $skipped = 0;
+        foreach ($rows as $row) {
+            if ($row['faculty_name'] === '' || mb_strlen($row['faculty_name']) > 255) throw new \RuntimeException("Row {$row['_line']}: faculty_name is required (maximum 255 characters).");
+            $collegeId = $row['college'] === '' ? null : ($collegeMap[mb_strtolower($row['college'])] ?? null);
+            if ($row['college'] !== '' && ! $collegeId) throw new \RuntimeException("Row {$row['_line']}: college '{$row['college']}' was not found.");
+            $key = mb_strtolower($row['faculty_name']) . '|' . ($collegeId ?? '');
+            if (isset($known[$key])) { $skipped++; continue; }
+            $known[$key] = true; $records[] = ['faculty_name' => $row['faculty_name'], 'college_id' => $collegeId];
+        }
+        return [$records, $skipped];
+    }
+
+    private function courseRows(array $rows): array
+    {
+        if (! Schema::hasColumn('dcs_program_courses', 'year_level')) throw new \RuntimeException('Year Level is not available yet. Run the pending course migration first.');
+        $hasCode = Schema::hasColumn('dcs_program_courses', 'course_code');
+        $this->requiredColumns($rows, array_merge(['college', 'program', 'semester', 'year_level', 'course_name'], $hasCode ? ['course_code'] : []));
+        $colleges = $this->lookup(DB::table('dcs_colleges')->get(['id', 'college_name', 'college_code']), 'college_name', 'college_code');
+        $semesters = $this->lookup(DB::table('dcs_semesters')->get(['id', 'semester_name']), 'semester_name');
+        $programs = DB::table('dcs_programs')->get(['id', 'college_id', 'program_name', 'program_code']);
+        $columns = ['program_id', 'semester_id', 'year_level', 'course_name']; if ($hasCode) $columns[] = 'course_code';
+        $current = DB::table('dcs_program_courses')->get($columns);
+        $names = $current->mapWithKeys(fn ($item) => [$item->program_id . '|' . $item->semester_id . '|' . mb_strtolower((string) $item->year_level) . '|' . mb_strtolower($item->course_name) => true])->all();
+        $codes = $hasCode ? $current->mapWithKeys(fn ($item) => [$item->program_id . '|' . $item->semester_id . '|' . mb_strtolower((string) $item->year_level) . '|' . mb_strtolower($item->course_code) => true])->all() : [];
+        $levels = ['1st year', '2nd year', '3rd year', '4th year', '5th year']; $records = []; $skipped = 0;
+        foreach ($rows as $row) {
+            $collegeId = $colleges[mb_strtolower($row['college'])] ?? null; $semesterId = $semesters[mb_strtolower($row['semester'])] ?? null;
+            $program = $programs->first(fn ($item) => (int) $item->college_id === (int) $collegeId && in_array(mb_strtolower($row['program']), [mb_strtolower($item->program_name), mb_strtolower((string) $item->program_code)], true));
+            $level = mb_strtolower($row['year_level']);
+            if (! $collegeId || ! $semesterId || ! $program) throw new \RuntimeException("Row {$row['_line']}: college, program, or semester was not found.");
+            if (! in_array($level, $levels, true)) throw new \RuntimeException("Row {$row['_line']}: year_level must be 1st Year through 5th Year.");
+            if ($row['course_name'] === '' || mb_strlen($row['course_name']) > 255) throw new \RuntimeException("Row {$row['_line']}: course_name is required (maximum 255 characters).");
+            if ($hasCode && ($row['course_code'] === '' || mb_strlen($row['course_code']) > 50)) throw new \RuntimeException("Row {$row['_line']}: course_code is required (maximum 50 characters).");
+            $base = $program->id . '|' . $semesterId . '|' . $level . '|'; $nameKey = $base . mb_strtolower($row['course_name']); $codeKey = $hasCode ? $base . mb_strtolower($row['course_code']) : null;
+            if (isset($names[$nameKey]) || ($hasCode && isset($codes[$codeKey]))) { $skipped++; continue; }
+            $names[$nameKey] = true; if ($hasCode) $codes[$codeKey] = true;
+            $record = ['program_id' => $program->id, 'semester_id' => $semesterId, 'year_level' => ucwords($level), 'course_name' => $row['course_name']];
+            if ($hasCode) $record['course_code'] = $row['course_code']; $records[] = $record;
+        }
+        return [$records, $skipped];
+    }
+
+    private function lookup(\Illuminate\Support\Collection $items, string ...$fields): array
+    {
+        $result = [];
+        foreach ($items as $item) foreach ($fields as $field) if (! empty($item->{$field})) $result[mb_strtolower(trim($item->{$field}))] = $item->id;
+        return $result;
     }
 
     private function saveDocType(): void
@@ -434,6 +558,7 @@ new #[Layout('layouts.dcs')] class extends Component {
             'programId' => 'required|integer|exists:dcs_programs,id',
             'semesterId' => 'required|integer|exists:dcs_semesters,id',
             'courseName' => 'required|string|max:255',
+            'yearLevel' => 'required|string|max:50',
         ];
         if ($hasCourseCode) {
             $rules['courseCode'] = 'required|string|max:50';
@@ -444,10 +569,11 @@ new #[Layout('layouts.dcs')] class extends Component {
             ->where('program_id', (int) $this->programId)
             ->where('semester_id', (int) $this->semesterId)
             ->where('course_name', $this->courseName)
+            ->where('year_level', $this->yearLevel)
             ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId));
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($existsQ, 'dcs_program_courses');
         if ($existsQ->exists()) {
-            $this->fail('This course is already listed for the selected program and semester.');
+            $this->fail('This course is already listed for the selected program, semester, and year level.');
             return;
         }
 
@@ -456,10 +582,11 @@ new #[Layout('layouts.dcs')] class extends Component {
                 ->where('program_id', (int) $this->programId)
                 ->where('semester_id', (int) $this->semesterId)
                 ->where('course_code', $this->courseCode)
+                ->where('year_level', $this->yearLevel)
                 ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId));
             \App\Helpers\SettingsRecycleHelper::applyNotDeleted($codeExistsQ, 'dcs_program_courses');
             if ($codeExistsQ->exists()) {
-                $this->fail('This course code is already used for the selected program and semester.');
+                $this->fail('This course code is already used for the selected program, semester, and year level.');
                 return;
             }
         }
@@ -468,51 +595,21 @@ new #[Layout('layouts.dcs')] class extends Component {
             'program_id' => (int) $this->programId,
             'semester_id' => (int) $this->semesterId,
             'course_name' => $this->courseName,
+            'year_level' => $this->yearLevel,
         ];
         if ($hasCourseCode) {
             $payload['course_code'] = $this->courseCode;
         }
 
-        $facultyIds = collect($this->courseFacultyIds)
-            ->map(fn ($fid) => (int) $fid)
-            ->filter()
-            ->unique()
-            ->values()
-            ->all();
-
-        if ($facultyIds !== []) {
-            $valid = DB::table('dcs_faculties')->whereIn('id', $facultyIds)->pluck('id')->all();
-            $facultyIds = array_values(array_intersect($facultyIds, array_map('intval', $valid)));
-        }
-
         if ($this->editingId) {
             $courseId = (int) $this->editingId;
             DB::table('dcs_program_courses')->where('id', $courseId)->update($payload);
-            $this->syncCourseFaculties($courseId, $facultyIds);
             $this->done('Course updated.');
             return;
         }
 
-        $courseId = DB::table('dcs_program_courses')->insertGetId($payload);
-        $this->syncCourseFaculties($courseId, $facultyIds);
+        DB::table('dcs_program_courses')->insertGetId($payload);
         $this->done('Course added.');
-    }
-
-    private function syncCourseFaculties(int $courseId, array $facultyIds): void
-    {
-        if (! Schema::hasTable('dcs_program_course_faculties')) {
-            return;
-        }
-        DB::table('dcs_program_course_faculties')->where('program_course_id', $courseId)->delete();
-        $now = now();
-        foreach ($facultyIds as $facultyId) {
-            DB::table('dcs_program_course_faculties')->insert([
-                'program_course_id' => $courseId,
-                'faculty_id' => $facultyId,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
-        }
     }
 
     private function destroyDocType(int $id): void
@@ -723,7 +820,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         $programs = $programsQ->get(['p.id', 'p.college_id', 'p.program_name', 'p.program_code', 'c.college_name']);
 
         $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
-        $courseCols = ['pc.id', 'pc.program_id', 'pc.semester_id', 'pc.course_name', 'p.program_name', 'c.college_name', 's.semester_name'];
+        $courseCols = ['pc.id', 'pc.program_id', 'pc.semester_id', 'pc.course_name', 'pc.year_level', 'p.program_name', 'c.college_name', 's.semester_name'];
         if ($hasCourseCode) {
             $courseCols[] = 'pc.course_code';
         }
@@ -732,27 +829,9 @@ new #[Layout('layouts.dcs')] class extends Component {
             ->leftJoin('dcs_programs as p', 'p.id', '=', 'pc.program_id')
             ->leftJoin('dcs_colleges as c', 'c.id', '=', 'p.college_id')
             ->leftJoin('dcs_semesters as s', 's.id', '=', 'pc.semester_id')
-            ->orderBy('pc.program_id')->orderBy('pc.semester_id')->orderBy('pc.course_name');
+            ->orderBy('pc.program_id')->orderBy('pc.year_level')->orderBy('pc.semester_id')->orderBy('pc.course_name');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($programCoursesQ, 'dcs_program_courses', 'pc');
         $programCourses = $programCoursesQ->get($courseCols);
-
-        $facultyNamesByCourse = collect();
-        if (Schema::hasTable('dcs_program_course_faculties')) {
-            $facultyNamesByCourse = DB::table('dcs_program_course_faculties as pcf')
-                ->join('dcs_faculties as f', 'f.id', '=', 'pcf.faculty_id')
-                ->orderBy('f.faculty_name');
-            \App\Helpers\SettingsRecycleHelper::applyNotDeleted($facultyNamesByCourse, 'dcs_faculties', 'f');
-            $facultyNamesByCourse = $facultyNamesByCourse
-                ->get(['pcf.program_course_id', 'f.faculty_name'])
-                ->groupBy('program_course_id')
-                ->map(fn ($rows) => $rows->pluck('faculty_name')->join(', '));
-        }
-
-        $programCourses->each(function ($course) use ($facultyNamesByCourse) {
-            $course->faculty_names = $facultyNamesByCourse->get($course->id)
-                ?? $facultyNamesByCourse->get((string) $course->id)
-                ?? null;
-        });
 
         $originatorsQ = Schema::hasTable('dcs_originators')
             ? DB::table('dcs_originators')->orderBy('originator_name')
@@ -934,8 +1013,16 @@ new #[Layout('layouts.dcs')] class extends Component {
     <section class="tab-panel" x-show="tab === 'originators'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Manage document originators (authors/creators)</span>
-            <button type="button" class="btn-primary" wire:click="openOriginator()"><i class="fa-solid fa-plus"></i> Add Originator</button>
+            <div class="panel-actions">
+                <form class="csv-import" wire:submit.prevent="importOriginators">
+                    <label class="csv-file"><i class="fa-solid fa-file-csv"></i><span>Choose CSV</span><input type="file" wire:model="originatorsCsv" accept=".csv,text/csv"></label>
+                    <button type="submit" class="btn-secondary" wire:loading.attr="disabled" wire:target="originatorsCsv,importOriginators">Import</button>
+                </form>
+                <button type="button" class="btn-primary" wire:click="openOriginator()"><i class="fa-solid fa-plus"></i> Add Originator</button>
+            </div>
         </div>
+        <p class="csv-help">CSV columns: <code>originator_name</code></p>
+        @error('originatorsCsv') <div class="field-error csv-error">{{ $message }}</div> @enderror
         <div class="table-wrap">
             <table class="settings-table">
                 <thead><tr><th>Originator Name</th><th style="width:140px;">Actions</th></tr></thead>
@@ -961,8 +1048,16 @@ new #[Layout('layouts.dcs')] class extends Component {
     <section class="tab-panel" x-show="tab === 'faculties'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Manage faculty members per college</span>
-            <button type="button" class="btn-primary" wire:click="openFaculty()"><i class="fa-solid fa-plus"></i> Add Faculty</button>
+            <div class="panel-actions">
+                <form class="csv-import" wire:submit.prevent="importFaculties">
+                    <label class="csv-file"><i class="fa-solid fa-file-csv"></i><span>Choose CSV</span><input type="file" wire:model="facultiesCsv" accept=".csv,text/csv"></label>
+                    <button type="submit" class="btn-secondary" wire:loading.attr="disabled" wire:target="facultiesCsv,importFaculties">Import</button>
+                </form>
+                <button type="button" class="btn-primary" wire:click="openFaculty()"><i class="fa-solid fa-plus"></i> Add Faculty</button>
+            </div>
         </div>
+        <p class="csv-help">CSV columns: <code>college</code>, <code>faculty_name</code>. College name or code is accepted; leave it blank for no college.</p>
+        @error('facultiesCsv') <div class="field-error csv-error">{{ $message }}</div> @enderror
         <div class="table-wrap">
             <table class="settings-table">
                 <thead><tr><th>College</th><th>Faculty Name</th><th style="width:140px;">Actions</th></tr></thead>
@@ -1119,20 +1214,28 @@ new #[Layout('layouts.dcs')] class extends Component {
     <section class="tab-panel" x-show="tab === 'coursenames'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Curriculum course list per program and semester — used to auto-fill Syllabi/TOS-Rubrics registration</span>
-            <button type="button" class="btn-primary" wire:click="openProgramCourse()"><i class="fa-solid fa-plus"></i> Add Course</button>
+            <div class="panel-actions">
+                <form class="csv-import" wire:submit.prevent="importCourses">
+                    <label class="csv-file"><i class="fa-solid fa-file-csv"></i><span>Choose CSV</span><input type="file" wire:model="coursesCsv" accept=".csv,text/csv"></label>
+                    <button type="submit" class="btn-secondary" wire:loading.attr="disabled" wire:target="coursesCsv,importCourses">Import</button>
+                </form>
+                <button type="button" class="btn-primary" wire:click="openProgramCourse()"><i class="fa-solid fa-plus"></i> Add Course</button>
+            </div>
         </div>
+        <p class="csv-help">CSV columns: <code>college</code>, <code>program</code>, <code>semester</code>, <code>year_level</code>, <code>course_code</code>, <code>course_name</code>. College/program can use their name or code.</p>
+        @error('coursesCsv') <div class="field-error csv-error">{{ $message }}</div> @enderror
         <div class="table-wrap">
             <table class="settings-table">
-                <thead><tr><th>College</th><th>Program</th><th>Semester</th><th>Course Code</th><th>Course Name</th><th>Faculty</th><th style="width:140px;">Actions</th></tr></thead>
+                <thead><tr><th>College</th><th>Program</th><th>Year Level</th><th>Semester</th><th>Course Code</th><th>Course Name</th><th style="width:140px;">Actions</th></tr></thead>
                 <tbody>
                     @forelse($programCourses as $course)
                         <tr wire:key="pc-{{ $course->id }}" data-id="{{ $course->id }}">
                             <td data-label="College">{{ $course->college_name ?? '—' }}</td>
                             <td data-label="Program">{{ $course->program_name ?? '—' }}</td>
+                            <td data-label="Year Level">{{ $course->year_level ?? '—' }}</td>
                             <td data-label="Semester">{{ $course->semester_name ?? '—' }}</td>
                             <td data-label="Code">{{ $course->course_code ?: '—' }}</td>
                             <td data-label="Course Name">{{ $course->course_name }}</td>
-                            <td data-label="Faculty">{{ $course->faculty_names ?: '—' }}</td>
                             <td>
                                 <div class="row-actions">
                                     <button type="button" class="icon-btn" title="Edit" wire:click="openProgramCourse({{ $course->id }})"><i class="fa-solid fa-pen"></i></button>
@@ -1141,7 +1244,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="7" class="empty-cell">No courses yet.</td></tr>
+                        <tr><td colspan="8" class="empty-cell">No courses yet.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -1284,6 +1387,18 @@ new #[Layout('layouts.dcs')] class extends Component {
                         @error('semesterId') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
                     <div class="st-field">
+                        <label class="st-label">Year Level</label>
+                        <select class="st-input @error('yearLevel') error @enderror" wire:model="yearLevel">
+                            <option value="">Select year level</option>
+                            <option value="1st Year">1st Year</option>
+                            <option value="2nd Year">2nd Year</option>
+                            <option value="3rd Year">3rd Year</option>
+                            <option value="4th Year">4th Year</option>
+                            <option value="5th Year">5th Year</option>
+                        </select>
+                        @error('yearLevel') <div class="field-error">{{ $message }}</div> @enderror
+                    </div>
+                    <div class="st-field">
                         <label class="st-label">Course Code</label>
                         <input type="text" class="st-input @error('courseCode') error @enderror" wire:model="courseCode" placeholder="e.g. CS 101">
                         @error('courseCode') <div class="field-error">{{ $message }}</div> @enderror
@@ -1292,27 +1407,6 @@ new #[Layout('layouts.dcs')] class extends Component {
                         <label class="st-label">Course Name</label>
                         <input type="text" class="st-input @error('courseName') error @enderror" wire:model="courseName">
                         @error('courseName') <div class="field-error">{{ $message }}</div> @enderror
-                    </div>
-                    <div class="st-field">
-                        <label class="st-label">Faculty <span class="st-optional">optional</span></label>
-                        @php
-                            $programCollegeId = optional($programs->firstWhere('id', (int) $programId))->college_id;
-                            $facultyChoices = $faculties->when($programCollegeId, fn ($col) => $col->where('college_id', $programCollegeId)->values());
-                        @endphp
-                        @if(!$programId)
-                            <p class="st-faculty-hint">Select a program to list faculty from that college.</p>
-                        @elseif($facultyChoices->isEmpty())
-                            <p class="st-faculty-hint">No faculty in this college yet. Add them in the Faculty tab.</p>
-                        @else
-                            <div class="st-faculty-picks">
-                                @foreach($facultyChoices as $fac)
-                                    <label class="st-faculty-pick">
-                                        <input type="checkbox" value="{{ $fac->id }}" wire:model="courseFacultyIds">
-                                        <span>{{ $fac->faculty_name }}</span>
-                                    </label>
-                                @endforeach
-                            </div>
-                        @endif
                     </div>
                 @endif
 
@@ -1328,4 +1422,3 @@ new #[Layout('layouts.dcs')] class extends Component {
 </div>
 
 </div>
-

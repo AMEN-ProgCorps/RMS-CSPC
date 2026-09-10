@@ -164,6 +164,37 @@ body {
     box-shadow: 0 4px 12px rgba(13, 42, 122, 0.2);
 }
 
+.panel-actions,
+.csv-import {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.csv-file,
+.btn-secondary {
+    min-height: 40px;
+    border: 1px solid var(--set-border);
+    border-radius: 9px;
+    background: var(--set-surface);
+    color: var(--set-text-muted);
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.csv-file { display: inline-flex; align-items: center; gap: 7px; }
+.csv-file input { display: none; }
+.csv-file:hover, .btn-secondary:hover { border-color: var(--set-accent); color: var(--set-accent); }
+.btn-secondary { cursor: pointer; }
+.btn-secondary:disabled { opacity: .55; cursor: wait; }
+.csv-help { margin: -7px 0 14px; color: var(--set-text-subtle); font-size: .75rem; line-height: 1.5; }
+.csv-help code { color: var(--set-text-muted); font-size: .73rem; }
+.csv-error { margin: -7px 0 14px; }
+
 @media (hover: none) {
     .btn-primary:hover {
         transform: none;

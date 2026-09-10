@@ -5720,17 +5720,6 @@ class RegisterQueryHelper
             ];
         }
 
-        $facultiesByCourse = collect();
-        if (Schema::hasTable('dcs_program_course_faculties')) {
-            $facQ = DB::table('dcs_program_course_faculties as pcf')
-                ->join('dcs_faculties as f', 'f.id', '=', 'pcf.faculty_id')
-                ->orderBy('f.faculty_name');
-            SettingsRecycleHelper::applyNotDeleted($facQ, 'dcs_faculties', 'f');
-            $facultiesByCourse = $facQ
-                ->get(['pcf.program_course_id', 'f.id', 'f.faculty_name'])
-                ->groupBy('program_course_id');
-        }
-
         $courseColumns = ['id', 'program_id', 'semester_id', 'course_name'];
         if (Schema::hasColumn('dcs_program_courses', 'course_code')) {
             $courseColumns[] = 'course_code';
@@ -5744,10 +5733,6 @@ class RegisterQueryHelper
                 'id' => $c->id,
                 'course_name' => $c->course_name,
                 'course_code' => $c->course_code ?? '',
-                'faculties' => collect($facultiesByCourse->get($c->id) ?? $facultiesByCourse->get((string) $c->id) ?? [])->map(fn ($f) => [
-                    'id' => $f->id,
-                    'faculty_name' => $f->faculty_name,
-                ])->values()->all(),
             ];
         }
 

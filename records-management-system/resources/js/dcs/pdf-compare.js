@@ -239,7 +239,7 @@ function tokensFromOcrLines(lines) {
 
 function tokensFromOcrPage(row) {
     const fromWords = tokensFromOcrWords(row?.words).slice(0, TOKEN_CAP);
-    const fromLines = tokensFromOcrLines(row?.lines).slice(0, TOKEN_CAP);
+        const fromLines = tokensFromOcrLines(row?.lines).slice(0, TOKEN_CAP);
     const wordPaint = fromWords.filter(tokenPaintable).length;
     // Prefer real word boxes so shared wording can cancel word-by-word.
     // Line tokens made "INTELLECTUAL PROPERTY" one unit and falsely highlighted
@@ -333,7 +333,7 @@ function explodePhraseTokenList(tokens) {
         const parts = String(token?.t || '').trim().split(/\s+/).filter(Boolean);
         if (parts.length <= 1) {
             if (token?.norm || normalizeWord(token?.t)) {
-                out.push({
+            out.push({
                     ...token,
                     t: parts[0] || token.t,
                     norm: token.norm || normalizeWord(token.t),
@@ -492,7 +492,7 @@ function linesForSectionTagging(tokens) {
         // Split before Article/Section tokens so multi-heading pages still group.
         const lines = [];
         let current = [];
-        for (const t of list) {
+    for (const t of list) {
             const word = String(t.t || '').trim();
             if (/^articles?$/i.test(word) || /^sections?$/i.test(word)) {
                 if (current.length) {
@@ -1488,12 +1488,12 @@ async function harmonizeCompareTokens(
         if (allowed(leftPages[i]?.page) && pageNeedsOcrForCompare(leftPages[i], rightPages[i])) {
             // Skip if this page already has OCR word boxes.
             if (!leftPages[i]?.usedOcr || !pageHasPaintableTokens(leftPages[i])) {
-                leftOcr.add(leftPages[i].page);
-            }
+            leftOcr.add(leftPages[i].page);
+        }
         }
         if (allowed(rightPages[i]?.page) && pageNeedsOcrForCompare(rightPages[i], leftPages[i])) {
             if (!rightPages[i]?.usedOcr || !pageHasPaintableTokens(rightPages[i])) {
-                rightOcr.add(rightPages[i].page);
+            rightOcr.add(rightPages[i].page);
             }
         }
     }
@@ -2246,9 +2246,9 @@ function pairUnmatchedTokens(leftUnmatched, rightSurplus) {
         if (usedLeft.has(li)) continue;
         const lt = leftUnmatched[li];
         if (isNoiseDiffToken(lt)) continue;
-        const lm = markFromToken('del', lt);
-        if (lm) leftMarks.push(lm);
-        del++;
+            const lm = markFromToken('del', lt);
+            if (lm) leftMarks.push(lm);
+            del++;
     }
 
     for (let ri = 0; ri < rightSurplus.length; ri++) {
@@ -2621,15 +2621,15 @@ function wordDiffMarksLineAware(leftTokens, rightTokens, lineEqThreshold = 0.78)
             for (const t of op.left.tokens) {
                 if (isNoiseDiffToken(t)) continue;
                 const lm = markFromToken('del', t);
-                if (lm) leftMarks.push(lm);
-                del++;
+            if (lm) leftMarks.push(lm);
+            del++;
             }
         } else if (op.k === 'ins') {
             for (const t of op.right.tokens) {
                 if (isNoiseDiffToken(t)) continue;
                 const rm = markFromToken('ins', t);
-                if (rm) rightMarks.push(rm);
-                ins++;
+            if (rm) rightMarks.push(rm);
+            ins++;
             }
         }
     }
@@ -2958,7 +2958,7 @@ async function findUnchangedPagePairs(leftDoc, rightDoc, onProgress) {
 
                     // Rich text on both sides + visual match + text agrees.
                     if (visualDiff <= VISUAL_UNCHANGED_THRESHOLD && textSame) {
-                        pairs.push({ leftPage: p, rightPage: p });
+                    pairs.push({ leftPage: p, rightPage: p });
                         return;
                     }
 
@@ -3279,14 +3279,14 @@ async function renderPdfPage(doc, pageNumber, width, marks, frameClass) {
         return wrap;
     }
     const page = await doc.getPage(pageNumber);
-    const base = page.getViewport({ scale: 1 });
-    const viewport = page.getViewport({ scale: width / base.width });
-    const canvas = document.createElement('canvas');
-    canvas.className = 'drr-pdf-canvas reg-compare-pdf-canvas';
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport }).promise;
+        const base = page.getViewport({ scale: 1 });
+        const viewport = page.getViewport({ scale: width / base.width });
+        const canvas = document.createElement('canvas');
+        canvas.className = 'drr-pdf-canvas reg-compare-pdf-canvas';
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
 
     const list = marks || [];
     if (list.length) {
@@ -3627,12 +3627,12 @@ export async function runPdfCompare(root, options = {}) {
         showStagePlaceholder(leftStage, 'Loading previous PDF…');
         showStagePlaceholder(rightStage, 'Loading latest PDF…');
 
-        let leftDoc = null;
-        let rightDoc = null;
+    let leftDoc = null;
+    let rightDoc = null;
         let leftLoadError = null;
         let rightLoadError = null;
 
-        try {
+    try {
             leftDoc = await pdfjsLib.getDocument({ url: leftUrl }).promise;
         } catch (err) {
             leftLoadError = err;
@@ -3923,88 +3923,88 @@ export async function runPdfCompare(root, options = {}) {
             setupCompareScrollSync(leftStage, rightStage);
             if (offset === 0) scrollToCompareStart(leftStage, rightStage);
             offset = end;
-            setupChangeNavigator(root, changeAnalysis, alignment, leftStage, rightStage, offset >= total);
-            root.__drrNavReady = true;
-        }
+                setupChangeNavigator(root, changeAnalysis, alignment, leftStage, rightStage, offset >= total);
+                root.__drrNavReady = true;
+            }
 
         while (offset < total) {
             if (root.__drrAbort) return;
             await renderChunk(CHUNK_SIZE);
         }
 
-        const ocrWarnings = [
-            ...(leftPages.__ocrWarnings || []),
-            ...(rightPages.__ocrWarnings || []),
-        ];
+            const ocrWarnings = [
+                ...(leftPages.__ocrWarnings || []),
+                ...(rightPages.__ocrWarnings || []),
+            ];
 
-        const leftMsg = [
-            `${changeAnalysis.stats.changed} page${changeAnalysis.stats.changed === 1 ? '' : 's'} with changes`,
+            const leftMsg = [
+                `${changeAnalysis.stats.changed} page${changeAnalysis.stats.changed === 1 ? '' : 's'} with changes`,
             skipCount ? `${skipCount} identical (skipped)` : '',
-            removedCount ? `${removedCount} previous-only` : '',
+                removedCount ? `${removedCount} previous-only` : '',
             ocrUsed ? 'OCR used' : '',
-        ].filter(Boolean).join(' · ');
-        const rightMsg = [
-            `${changeAnalysis.stats.changed} page${changeAnalysis.stats.changed === 1 ? '' : 's'} with changes`,
+            ].filter(Boolean).join(' · ');
+            const rightMsg = [
+                `${changeAnalysis.stats.changed} page${changeAnalysis.stats.changed === 1 ? '' : 's'} with changes`,
             skipCount ? `${skipCount} identical (skipped)` : '',
-            addedCount ? `${addedCount} current-only` : '',
+                addedCount ? `${addedCount} current-only` : '',
             ocrUsed ? 'OCR used' : '',
-        ].filter(Boolean).join(' · ');
-        if (leftNote) leftNote.textContent = leftMsg;
-        if (rightNote) rightNote.textContent = rightMsg;
+            ].filter(Boolean).join(' · ');
+            if (leftNote) leftNote.textContent = leftMsg;
+            if (rightNote) rightNote.textContent = rightMsg;
 
-        scrollToCompareStart(leftStage, rightStage);
+                scrollToCompareStart(leftStage, rightStage);
         root.dataset.cacheRestored = cacheKey;
 
-        if (highlightRows === 0) {
+                if (highlightRows === 0) {
             // Never call pages "identical" unless every page was verified unchanged.
             const trulyIdentical = skipCount === total && changedPages.length === 0;
-            setStatus(
-                root,
+                    setStatus(
+                        root,
                 trulyIdentical
                     ? 'Comparison complete — these revisions look identical.'
                     : 'Comparison finished but no word highlights could be painted. Hard-refresh and try again if text should differ.',
                 trulyIdentical ? 'success' : 'info'
-            );
-            return;
-        }
+                    );
+                    return;
+                }
 
         if (cacheKey && matchCount > 0) {
             try {
                 await putCompareCache({
-                    key: cacheKey,
-                    leftUrl: String(leftUrl || '').startsWith('blob:') ? '' : leftUrl,
-                    rightUrl: String(rightUrl || '').startsWith('blob:') ? '' : rightUrl,
-                    leftPages: leftBlobs,
-                    rightPages: rightBlobs,
-                    leftNote: leftMsg,
-                    rightNote: rightMsg,
-                    alignment: alignment.map((s) => ({
-                        type: s.type,
-                        leftPage: s.leftPage,
-                        rightPage: s.rightPage,
-                        pairedBy: s.pairedBy || 'content',
-                    })),
-                    alignMode,
-                    docSimilarity,
-                    pageOffset: offset,
-                    totalPages: total,
-                    version: CACHE_VERSION,
+                        key: cacheKey,
+                        leftUrl: String(leftUrl || '').startsWith('blob:') ? '' : leftUrl,
+                        rightUrl: String(rightUrl || '').startsWith('blob:') ? '' : rightUrl,
+                        leftPages: leftBlobs,
+                        rightPages: rightBlobs,
+                        leftNote: leftMsg,
+                        rightNote: rightMsg,
+                        alignment: alignment.map((s) => ({
+                            type: s.type,
+                            leftPage: s.leftPage,
+                            rightPage: s.rightPage,
+                            pairedBy: s.pairedBy || 'content',
+                        })),
+                        alignMode,
+                        docSimilarity,
+                        pageOffset: offset,
+                        totalPages: total,
+                        version: CACHE_VERSION,
                     hasHighlights: (changeAnalysis.stats.wordMarks || 0) > 0,
                     wordMarks: changeAnalysis.stats.wordMarks || 0,
-                    changedRows: changeAnalysis.changedRows,
-                    changeStats: changeAnalysis.stats,
-                });
-            } catch (err) {
-                console.warn('DRR cache save error', err);
+                        changedRows: changeAnalysis.changedRows,
+                        changeStats: changeAnalysis.stats,
+                    });
+                } catch (err) {
+                    console.warn('DRR cache save error', err);
+                }
             }
-        }
 
-        const warnBits = [];
-        if (ocrWarnings.length) warnBits.push(ocrWarnings[0]);
-        if (renderErrors) warnBits.push(`${renderErrors} page(s) failed to render.`);
+            const warnBits = [];
+            if (ocrWarnings.length) warnBits.push(ocrWarnings[0]);
+            if (renderErrors) warnBits.push(`${renderErrors} page(s) failed to render.`);
 
-        setStatus(
-            root,
+                setStatus(
+                    root,
             warnBits.length
                 ? `Comparison complete with warnings: ${warnBits.join(' ')}`
                 : `Comparison complete · ${changeAnalysis.stats.changed} page${changeAnalysis.stats.changed === 1 ? '' : 's'} differ`

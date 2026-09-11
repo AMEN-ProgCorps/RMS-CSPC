@@ -3808,11 +3808,6 @@
           if (heightDiff > 0) {
             const targetST = safePrevScrollTop + heightDiff;
             chatBox.scrollTop = targetST;
-            requestAnimationFrame(() => {
-              if (chatBox && Math.abs(chatBox.scrollTop - targetST) > 2 && Math.abs(chatBox.scrollTop - safePrevScrollTop) <= 5) {
-                chatBox.scrollTop = targetST;
-              }
-            });
           }
           trimWindowFromBottom(MAX_WINDOW);
 

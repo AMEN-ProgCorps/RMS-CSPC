@@ -471,19 +471,7 @@
       chatBox.addEventListener('touchmove', markUserScrollingActive, { passive: true });
       chatBox.addEventListener('touchend', markUserScrollingActive, { passive: true });
       chatBox.addEventListener('touchcancel', markUserScrollingActive, { passive: true });
-      chatBox.addEventListener('wheel', function(e) {
-        markUserScrollingActive();
-        // If already at the top or beginning of conversation and scrolling UP,
-        // or already at the bottom and scrolling DOWN, prevent the wheel event
-        // so the browser does not bounce or displace the scroll container.
-        const isAtTop = chatBox.scrollTop <= 1;
-        const isAtBottomLimit = (chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight) <= 2;
-        if (e.deltaY < 0 && isAtTop) {
-          e.preventDefault();
-        } else if (e.deltaY > 0 && isAtBottomLimit) {
-          e.preventDefault();
-        }
-      }, { passive: false });
+      chatBox.addEventListener('wheel', markUserScrollingActive, { passive: true });
     }
 
     // Enhanced scroll management
@@ -589,14 +577,20 @@
     const scrollIndicatorText = document.getElementById('scrollIndicatorText');
     const unreadBadge = document.getElementById('unreadBadge');
 
+    function isMobileVirtualKeyboardActive() {
+      const isTouch = (typeof isMobileViewport === 'function' ? isMobileViewport() : false) ||
+                      (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches);
+      return isTouch && document.activeElement === messageInput;
+    }
+
     function showScrollIndicator(newCount = 0) {
-      if (!chatBox || !chatFullyLoaded || document.activeElement === messageInput) {
+      if (!chatBox || !chatFullyLoaded || isMobileVirtualKeyboardActive()) {
         hideScrollIndicator();
         return;
       }
 
       const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
-      if (distance <= 200 && newCount === 0) {
+      if (distance <= 100 && newCount === 0) {
         hideScrollIndicator();
         return;
       }
@@ -1629,10 +1623,10 @@
       } else {
         shouldAutoScroll = false;
         userScrolledUp = true;
-        // Only show scroll button when initial load is done AND user has scrolled up > 250px away from bottom
-        if (chatFullyLoaded && isUserScrollingOrTouching && document.activeElement !== messageInput) {
+        // Show scroll button when initial load is done AND user has scrolled up > 200px away from bottom
+        if (chatFullyLoaded && !isMobileVirtualKeyboardActive()) {
           const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
-          if (distance > 250) {
+          if (distance > 200) {
             const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
             if (hasMessages) {
               showScrollIndicator(0);
@@ -2056,11 +2050,6 @@
         if (heightDiff > 0) {
           const targetST = safePrevScrollTop + heightDiff;
           chatBox.scrollTop = targetST;
-          requestAnimationFrame(() => {
-            if (chatBox && Math.abs(chatBox.scrollTop - targetST) > 2 && Math.abs(chatBox.scrollTop - safePrevScrollTop) <= 5) {
-              chatBox.scrollTop = targetST;
-            }
-          });
         }
         trimWindowFromBottom(MAX_WINDOW);
 
@@ -2360,11 +2349,6 @@
         if (heightDiff > 0) {
           const targetST = safePrevScrollTop + heightDiff;
           chatBox.scrollTop = targetST;
-          requestAnimationFrame(() => {
-            if (chatBox && Math.abs(chatBox.scrollTop - targetST) > 2 && Math.abs(chatBox.scrollTop - safePrevScrollTop) <= 5) {
-              chatBox.scrollTop = targetST;
-            }
-          });
         }
         trimWindowFromBottom(MAX_WINDOW);
 

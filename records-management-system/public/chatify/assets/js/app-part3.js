@@ -471,7 +471,19 @@
       chatBox.addEventListener('touchmove', markUserScrollingActive, { passive: true });
       chatBox.addEventListener('touchend', markUserScrollingActive, { passive: true });
       chatBox.addEventListener('touchcancel', markUserScrollingActive, { passive: true });
-      chatBox.addEventListener('wheel', markUserScrollingActive, { passive: true });
+      chatBox.addEventListener('wheel', function(e) {
+        markUserScrollingActive();
+        // If already at the top or beginning of conversation and scrolling UP,
+        // or already at the bottom and scrolling DOWN, prevent the wheel event
+        // so the browser does not bounce or displace the scroll container.
+        const isAtTop = chatBox.scrollTop <= 1;
+        const isAtBottomLimit = (chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight) <= 2;
+        if (e.deltaY < 0 && isAtTop) {
+          e.preventDefault();
+        } else if (e.deltaY > 0 && isAtBottomLimit) {
+          e.preventDefault();
+        }
+      }, { passive: false });
     }
 
     // Enhanced scroll management

@@ -872,6 +872,7 @@
       height: 100dvh;
       flex: 1;
       min-width: 0; /* Important for flex child to not overflow */
+      overflow: hidden;
       /* Matches .header/#chat-box/.input-area's own background (--bg-chat)
          instead of --bg-secondary (white). All three already paint over
          this in normal layout, but any 1px flex rounding gap between them
@@ -1208,13 +1209,11 @@
       padding: 16px 12px 20px 12px;
       background: var(--bg-chat);
       -webkit-overflow-scrolling: touch;
-      overscroll-behavior-y: contain;
+      overscroll-behavior: none;
+      overscroll-behavior-y: none;
       position: relative;
       scroll-behavior: auto;
       overflow-anchor: none;
-      touch-action: pan-y;
-      transform: translateZ(0);
-      will-change: scroll-position;
       transition: background-color 0.3s ease;
       /* Hide scrollbar but keep scroll functionality */
       scrollbar-width: none; /* Firefox */
@@ -2806,7 +2805,8 @@
         min-height: 0;
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
-        overscroll-behavior-y: contain;
+        overscroll-behavior: none;
+        overscroll-behavior-y: none;
       }
 
       .message-bubble {

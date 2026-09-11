@@ -205,8 +205,9 @@
           wsReconnectTimer = null;
         }
 
-        // Keep hybrid background polling running as safety net
-        startPollingFallback();
+        // WebSocket is connected: stop backup message polling
+        stopPollingFallback();
+        if (typeof window._startSidebarPoll === 'function') window._startSidebarPoll();
 
         // Authenticate connection
         ws.send(JSON.stringify({
@@ -464,6 +465,8 @@
         }
 
         if (data.type === 'auth_success') {
+          stopPollingFallback();
+          if (typeof window._startSidebarPoll === 'function') window._startSidebarPoll();
           // The socket is now actually authenticated as us, so any 'notify'
           // WS push from this point on will reach us live. But a mention
           // that landed WHILE we were offline/reconnecting only exists as
@@ -912,6 +915,7 @@
         
         // Start polling fallback immediately when connection is lost
         startPollingFallback();
+        if (typeof window._startSidebarPoll === 'function') window._startSidebarPoll();
 
         if (!wsReconnectTimer) {
           wsAttempts++;
@@ -923,6 +927,8 @@
 
       ws.onerror = function(err) {
         console.error('WebSocket connection error:', err);
+        startPollingFallback();
+        if (typeof window._startSidebarPoll === 'function') window._startSidebarPoll();
       };
     }
 
@@ -1183,9 +1189,14 @@
 
     function startPollingFallback() {
       if (wsPollInterval) return;
-      console.log('Starting hybrid message polling...');
+      if (ws && ws.readyState === WebSocket.OPEN) return; // Do not start if WebSocket is healthy!
+      console.log('Starting backup message polling (WebSocket offline)...');
       wsPollInterval = setInterval(function() {
         if (document.hidden) return; // skip each tick while hidden
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          stopPollingFallback();
+          return;
+        }
         if (isGlobalChat) {
           loadGlobalChat(true);
         } else if (activeDM) {
@@ -1194,8 +1205,9 @@
         if (activeAdminConv) {
           loadAdminConv(activeAdminConv, true);
         }
-      }, 4000);
+      }, 5000);
     }
+    window.startPollingFallback = startPollingFallback;
 
     function stopPollingFallback() {
       if (wsPollInterval) {
@@ -1204,6 +1216,7 @@
         wsPollInterval = null;
       }
     }
+    window.stopPollingFallback = stopPollingFallback;
 
 
 
@@ -1915,9 +1928,15 @@
       if (notificationPollInterval) return;
       notificationPollInterval = setInterval(function() {
         if (document.hidden) return;
-        catchUpMissedNotifications();
-      }, 2500);
+        // Primary path: WebSocket pushes 'notify' events in real-time.
+        // Only run HTTP catchup if WebSocket is disconnected.
+        const wsAlive = ws && ws.readyState === WebSocket.OPEN;
+        if (!wsAlive) {
+          catchUpMissedNotifications();
+        }
+      }, 15000);
     }
+    window.startNotificationPoll = startNotificationPoll;
 
     // Max characters to show in the toast preview before truncating with "..."
     const TOAST_PREVIEW_LIMIT = 80;

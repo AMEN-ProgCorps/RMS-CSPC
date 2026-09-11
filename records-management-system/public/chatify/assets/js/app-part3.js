@@ -5305,9 +5305,11 @@
           catchUpMissedNotifications();
         }
 
-        // 4. Resume the fallback poll if WebSocket is still down
+        // 4. Resume the fallback poll if WebSocket is still down, or stop it if connected
         if (!ws || ws.readyState !== WebSocket.OPEN) {
-          startPollingFallback();
+          if (typeof startPollingFallback === 'function') startPollingFallback();
+        } else {
+          if (typeof stopPollingFallback === 'function') stopPollingFallback();
         }
 
         // 5. Re-evaluate sidebar poll frequency now that we're visible again

@@ -246,7 +246,10 @@ try {
           <img src="cspc.webp" width="48" height="48" alt="CSPC logo" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
         </div>
         <div class="user-info">
-          <div class="user-name">Global Chat</div>
+          <div class="user-name-row" style="display:flex;align-items:center;justify-content:flex-start;gap:4px;min-width:0;">
+            <div class="user-name">Global Chat</div>
+            <span class="verified-badge"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </div>
           <div class="user-last-msg" id="gcLastMsg">Everyone can chat here</div>
         </div>
         <span class="user-unread-badge" id="gcUnreadBadge" style="display:none;"></span>

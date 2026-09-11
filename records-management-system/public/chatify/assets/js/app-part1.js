@@ -2789,7 +2789,7 @@
 
       localStorage.setItem('activeDM', '__global__');
       chatHeaderTitle.innerHTML = `Global Chat`;
-      applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge from the previous DM
+      applyHeaderAdminBadge(); // Adds check badge for Global Chat by default
       applyHeaderAvatar({ avatar_url: 'cspc.webp', name: 'Global Chat' });
       const cached = globalChatCache || (globalChatPrefetchedData ? { html: globalChatPrefetchedData.html || '', hasMore: globalChatPrefetchedData.hasMore || false, nextCursor: globalChatPrefetchedData.nextCursor || '', _raw: globalChatPrefetchedData } : null);
 

@@ -81,7 +81,7 @@
       if (!headerBadgeParent) return;
       const existing = headerBadgeParent.querySelector('.verified-badge');
       const vSet = (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) ? verifiedAccountIds : window.verifiedAccountIdsSet;
-      const shouldHave = !!(activeDMAccountId && vSet && vSet.has(Number(activeDMAccountId)));
+      const shouldHave = !!(isGlobalChat || (activeDMAccountId && vSet && vSet.has(Number(activeDMAccountId))));
       if (shouldHave) {
         if (!existing) injectBadge(headerBadgeParent);
       } else if (existing) {

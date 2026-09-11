@@ -572,6 +572,9 @@
 
       hideScrollIndicator();
       chatFullyLoaded = true;
+      if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) {
+        markRead(activeDM);
+      }
     }
 
     const scrollIndicatorText = document.getElementById('scrollIndicatorText');
@@ -1601,6 +1604,9 @@
         shouldAutoScroll = true;
         userScrolledUp = false;
         hideScrollIndicator();
+        if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) {
+          markRead(activeDM);
+        }
 
         // ── Bi-directional infinite scroll: snap back to latest window ────
         // If the user has scrolled back to the bottom of an older window
@@ -2385,7 +2391,7 @@
       if (typeof syncReactionsFromNewHtml === 'function') syncReactionsFromNewHtml(newMessages);
 
       if (rec.type === 'nochange') {
-        if (!document.hidden && activeDM) markRead(activeDM);
+        if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) markRead(activeDM);
         updateSeenIndicator();
         if (isFirstLoad) {
           isFirstLoad = false;
@@ -2412,7 +2418,7 @@
           chatBox.appendChild(el);
         });
         applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
-        if (!document.hidden && activeDM) markRead(activeDM);
+        if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) markRead(activeDM);
         updateSeenIndicator();
         // Only trim oldest messages from the top when the user is NOT backreading.
         if (!dmViewingOlder) {
@@ -2453,7 +2459,7 @@
       });
       
       applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
-      if (!document.hidden && activeDM) markRead(activeDM);
+      if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) markRead(activeDM);
       updateSeenIndicator();
       
       if (isFirstLoad) {
@@ -3314,6 +3320,7 @@
                 const existingInChatBox = chatBox.querySelector(`.message-container[data-msg-id="${confirmedMsg.id}"]`);
                 if (existingInChatBox) {
                   if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
+                  updateSeenIndicator();
                 } else {
                   sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
                   sendingBubble.setAttribute('data-created-at', new Date().toISOString());
@@ -5281,7 +5288,9 @@
         } else if (activeDM) {
           if (!dmViewingOlder) {
             loadChat(false);
-            markRead(activeDM);
+            if (typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) {
+              markRead(activeDM);
+            }
           }
         } else if (activeAdminConv) {
           if (!adminConvViewingOlder) loadAdminConv(activeAdminConv, false);
@@ -5320,14 +5329,14 @@
 
     // Window focus and interaction listeners to ensure instant markRead when reading
     window.addEventListener('focus', function() {
-      if (!document.hidden && activeDM) {
+      if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) {
         markRead(activeDM);
       }
     });
 
     if (typeof messageInput !== 'undefined' && messageInput) {
       messageInput.addEventListener('focus', function() {
-        if (!document.hidden && activeDM) {
+        if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) {
           markRead(activeDM);
         }
       });
@@ -5335,7 +5344,7 @@
 
     if (typeof chatBox !== 'undefined' && chatBox) {
       chatBox.addEventListener('click', function() {
-        if (!document.hidden && activeDM) {
+        if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) {
           markRead(activeDM);
         }
       });

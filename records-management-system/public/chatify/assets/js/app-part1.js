@@ -626,8 +626,15 @@
                       loadChatForced();
                     }
                   } else {
+                    const wasAtBottom = (typeof isAtBottom === 'function') ? isAtBottom() : true;
                     renderAndAppendWsMessage(data);
-                    if (!document.hidden) markRead(activeDM);
+                    if (wasAtBottom && shouldMarkReadNow()) {
+                      userScrolledUp = false;
+                      shouldAutoScroll = true;
+                      markRead(activeDM, data.msg_uuid || data.id);
+                    } else if (typeof showScrollIndicator === 'function' && !wasAtBottom) {
+                      showScrollIndicator(1);
+                    }
                   }
                 } else {
                   // This is an echo of our own sent message (WS server broadcasts back to sender).
@@ -686,7 +693,7 @@
           // update the Messenger-style "Seen" indicator instantly, no poll needed.
           if (activeDM && activeDMAccountId === Number(data.reader_id)) {
             let incomingReadUpTo = data.last_msg_uuid || null;
-            if (incomingReadUpTo && incomingReadUpTo !== dmReadUpTo) {
+            if (incomingReadUpTo && (incomingReadUpTo !== dmReadUpTo || !chatBox.querySelector('.seen-indicator'))) {
               dmReadUpTo = incomingReadUpTo;
               dmReadUpToMap.set(activeDM, dmReadUpTo);
               const cachedObj = dmMessageCache.get(activeDM);
@@ -982,11 +989,70 @@
         return `Active ${diffMin} ${diffMin === 1 ? 'minute' : 'minutes'} ago`;
       } else if (diffHour < 24) {
         return `Active ${diffHour} ${diffHour === 1 ? 'hour' : 'hours'} ago`;
+      } else if (diffDay >= 100) {
+        return 'Active 99+ days ago';
       } else {
         return `Active ${diffDay} ${diffDay === 1 ? 'day' : 'days'} ago`;
       }
     }
     window.formatActiveStatus = formatActiveStatus;
+
+    function isWidgetMinimizedOrHidden() {
+      try {
+        if (window.frameElement) {
+          if (window.frameElement.style.display === 'none') return true;
+          if (window.frameElement.offsetParent === null && window.frameElement.offsetWidth === 0 && window.frameElement.offsetHeight === 0) {
+            return true;
+          }
+          if (window.parent && window.parent.document) {
+            const card = window.parent.document.getElementById('chatify-widget-card');
+            if (card) {
+              const style = window.parent.getComputedStyle(card);
+              if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                return true;
+              }
+            }
+          }
+        }
+      } catch (e) {}
+      return false;
+    }
+
+    function shouldMarkReadNow() {
+      // 1. Must have an active DM
+      if (!activeDM) return false;
+
+      // 2. Browser tab must not be hidden/minimized
+      if (document.hidden) return false;
+      try {
+        if (window.parent && window.parent !== window && window.parent.document && window.parent.document.hidden) {
+          return false;
+        }
+      } catch (e) {}
+
+      // 3. Floating widget card must not be minimized or hidden
+      if (isWidgetMinimizedOrHidden()) return false;
+
+      // 4. On mobile/webview, if the sidebar is open, user is in contacts list, NOT in chat
+      if (isMobileViewport()) {
+        if (sidebar && sidebar.classList.contains('open')) return false;
+      }
+
+      // 5. ChatBox must not be on the empty-chat placeholder screen
+      if (chatBox && chatBox.querySelector('.empty-chat')) return false;
+
+      // 6. Must not be backreading older history
+      if (typeof dmViewingOlder !== 'undefined' && dmViewingOlder) return false;
+
+      // 7. Must be at the bottom of the conversation
+      if (typeof isAtBottom === 'function' && !isAtBottom()) return false;
+
+      if (typeof userScrolledUp !== 'undefined' && userScrolledUp) {
+        userScrolledUp = false;
+      }
+      return true;
+    }
+    window.shouldMarkReadNow = shouldMarkReadNow;
 
     function updateHeaderActiveStatus(user) {
       const el = document.getElementById('headerActiveStatus');
@@ -1032,8 +1098,7 @@
       // last-seen time also comes only from WS data now: either a
       // presence:offline event received live this session, or the
       // last_seen map handed over in presence_snapshot for someone who
-      // was already offline when we connected (see server.js).
-      const lastTime = wsLastOnlineTime.get(accId) || user.lastTimestamp;
+      const lastTime = isOnline ? null : (wsLastOnlineTime.get(accId) || user.last_online_time || user.lastTimestamp);
       el.textContent = formatActiveStatus(isOnline, lastTime);
     }
     window.updateHeaderActiveStatus = updateHeaderActiveStatus;
@@ -1276,7 +1341,7 @@
         // we deliberately have no last-seen time rather than falling back
         // to the DB-fetched last_online_time, which is what used to cause
         // stale/incorrect "Active X ago" text.
-        user.last_online_time = isOnline ? null : (wsLastOnlineTime.get(accId) || null);
+        user.last_online_time = isOnline ? null : (wsLastOnlineTime.get(accId) || user.last_online_time || null);
         user.lastTimestamp = user.last_online_time;
       });
     }
@@ -1291,15 +1356,10 @@
         serverIsAdmin = !!(data.currentUser && data.currentUser.is_admin);
       }
 
-      // Immediately strip whatever presence-ish fields the server response
-      // included — the active-status indicator no longer reads is_currently_online/
-      // last_online_time/status from a DB fetch at all, only from the WS
-      // layer (onlineAccountsSet / wsLastOnlineTime). Clearing them here
-      // means there's no leftover DB value anywhere in allUsersData for a
-      // pre-snapshot render to accidentally pick up.
+      // Online presence is WS-driven, but we preserve last_online_time from the DB
+      // so users who went offline before the WS session display their actual active status.
       allUsersData.forEach(user => {
         delete user.is_currently_online;
-        delete user.last_online_time;
         delete user.status;
       });
 
@@ -2472,7 +2532,7 @@
     let lastMarkedReadUser = null;
     let lastMarkedReadMsgId = null;
 
-    function markRead(targetUsername) {
+    function markRead(targetUsername, explicitMsgId = null) {
       if (!targetUsername) return;
       const u = allUsersData.find(x => x.username === targetUsername || (activeDMAccountId && Number(x.account_id) === activeDMAccountId));
       if (u) u.unreadCount = 0;
@@ -2485,13 +2545,13 @@
       const targetId = activeDMAccountId || (u ? Number(u.account_id) : 0);
       if (!targetId) return;
 
-      // Resolve newest message ID currently present in chatBox
-      let newestMsgId = null;
-      if (chatBox) {
-        chatBox.querySelectorAll('.message-container[data-msg-id]').forEach(el => {
-          const id = el.getAttribute('data-msg-id');
-          if (id && (!newestMsgId || id > newestMsgId)) newestMsgId = id;
-        });
+      // Resolve newest message ID currently present in chatBox (last in DOM order)
+      let newestMsgId = explicitMsgId || null;
+      if (!newestMsgId && chatBox) {
+        const containers = chatBox.querySelectorAll('.message-container[data-msg-id]');
+        if (containers.length > 0) {
+          newestMsgId = containers[containers.length - 1].getAttribute('data-msg-id');
+        }
       }
 
       // If we already marked read up through this exact message for this user, suppress redundant network pings
@@ -2578,7 +2638,9 @@
       }
 
       if (!target) {
-        if (existing) {
+        const hasPendingSend = chatBox.querySelector('.sending-bubble, [data-sending-uid]') ||
+          (document.getElementById('sending-overlay-container') && document.getElementById('sending-overlay-container').querySelector('.sending-bubble, [data-sending-uid]'));
+        if (!hasPendingSend && existing) {
           const prevST = chatBox.scrollTop;
           const prevSH = chatBox.scrollHeight;
           existing.remove();
@@ -2750,7 +2812,7 @@
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
       chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
       dmViewingOlder = false;
-      markRead(u.username);
+      u.unreadCount = 0;
       renderSidebarUsers();
       loadChat(false, false, true); // force: abort any in-flight request rather than drop this one
       // Global Chat item deactivate
@@ -4008,23 +4070,6 @@
     });
 
     function resetToHome() {
-      if (activeDM) {
-        const currentActive = activeDM;
-        const currentActiveId = activeDMAccountId;
-        const u = allUsersData.find(x => x.username === currentActive || (currentActiveId && Number(x.account_id) === currentActiveId));
-        if (u) u.unreadCount = 0;
-
-        if (currentActiveId) {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'mark_read', target_id: currentActiveId }));
-          }
-          const xhr = new XMLHttpRequest();
-          xhr.open('POST', 'mark_read.php', true);
-          xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-          xhr.send('target_id=' + encodeURIComponent(currentActiveId) + '&target_user=' + encodeURIComponent(currentActive));
-        }
-      }
-
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;

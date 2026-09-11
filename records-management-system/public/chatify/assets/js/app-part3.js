@@ -1871,7 +1871,7 @@
     //     fetch for this chat is already in flight, or there's nothing left
     //     to load — so the common case (scrolling anywhere but the very top)
     //     costs almost nothing.
-    const AUTO_LOAD_OLDER_THRESHOLD_PX = 40;
+    const AUTO_LOAD_OLDER_THRESHOLD_PX = 150;
     let autoLoadOlderTicking = false;
 
     function currentChatHasOlderMessages() {
@@ -2035,14 +2035,14 @@
           chatBox.appendChild(frag);
         }
 
-        trimWindowFromBottom(MAX_WINDOW);
-
+        if (!gcHasMore) showNoMoreOlderNotice();
         const heightDiff = chatBox.scrollHeight - prevScrollHeight;
         if (heightDiff > 0) {
           chatBox.scrollTop = prevScrollTop + heightDiff;
         }
+        trimWindowFromBottom(MAX_WINDOW);
 
-        if (!gcHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
+        if (gcHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges();
         applyEmojiOnly();
         attachImageLoadListeners();
@@ -2074,8 +2074,6 @@
       }
 
       if (rec.type === 'append') {
-        const prevScrollTop    = chatBox.scrollTop;
-        const prevScrollHeight = chatBox.scrollHeight;
         rec.items.forEach(el => {
           if (el.classList.contains('message-container')) {
             const msgId = el.getAttribute('data-msg-id');
@@ -2090,10 +2088,6 @@
           }
           chatBox.appendChild(el);
         });
-        if (gcViewingOlder) {
-          const scrollDiff = chatBox.scrollHeight - prevScrollHeight;
-          if (scrollDiff > 0) chatBox.scrollTop = prevScrollTop + scrollDiff;
-        }
         if (!gcViewingOlder) {
           if (isFirstLoad) {
             isFirstLoad = false;
@@ -2338,14 +2332,14 @@
           chatBox.appendChild(frag);
         }
 
-        trimWindowFromBottom(MAX_WINDOW);
-
+        if (!dmHasMore) showNoMoreOlderNotice();
         const heightDiff = chatBox.scrollHeight - prevScrollHeight;
         if (heightDiff > 0) {
           chatBox.scrollTop = prevScrollTop + heightDiff;
         }
+        trimWindowFromBottom(MAX_WINDOW);
 
-        if (!dmHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
+        if (dmHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges(); applyEmojiOnly();
         attachImageLoadListeners();
         return;
@@ -2390,8 +2384,6 @@
       }
 
       if (rec.type === 'append') {
-        const prevScrollTop    = chatBox.scrollTop;
-        const prevScrollHeight = chatBox.scrollHeight;
         rec.items.forEach(el => {
           if (el.classList.contains('message-container')) {
             const msgId = el.getAttribute('data-msg-id');
@@ -2406,12 +2398,6 @@
           }
           chatBox.appendChild(el);
         });
-        // Pin the user's reading position during backread so appended messages
-        // at the bottom don't shift the view.
-        if (dmViewingOlder) {
-          const scrollDiff = chatBox.scrollHeight - prevScrollHeight;
-          if (scrollDiff > 0) chatBox.scrollTop = prevScrollTop + scrollDiff;
-        }
         applyAdminBadges(); applyEmojiOnly(); attachImageLoadListeners();
         if (!document.hidden && activeDM) markRead(activeDM);
         updateSeenIndicator();

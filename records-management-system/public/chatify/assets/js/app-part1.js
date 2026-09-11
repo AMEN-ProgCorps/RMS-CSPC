@@ -326,9 +326,12 @@
       }
 
       // Cap the DOM at MAX_WINDOW visible messages so real-time
-      // WebSocket pushes never grow the chat window without bound.
-      const trimmed = trimChatMessages(MAX_WINDOW);
-      if (trimmed) refreshCursorAfterTopTrim();
+      // WebSocket pushes never grow the chat window without bound (only when NOT backreading).
+      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+      if (!viewingOlder) {
+        const trimmed = trimChatMessages(MAX_WINDOW);
+        if (trimmed) refreshCursorAfterTopTrim();
+      }
 
       applyAdminBadges();
       if (wasAtBottom || isSentByMe) {
@@ -614,7 +617,11 @@
                   // Incoming message from the other person — render it via WS
                   if (data.has_upload) {
                     if (typeof dmMessageCache !== 'undefined' && activeDM) dmMessageCache.delete(activeDM);
-                    loadChatForced();
+                    if (dmViewingOlder) {
+                      showScrollIndicator(1);
+                    } else {
+                      loadChatForced();
+                    }
                   } else {
                     renderAndAppendWsMessage(data);
                     if (!document.hidden) markRead(activeDM);
@@ -625,7 +632,7 @@
                   // to avoid duplicate bubbles. Only do a forced reload if somehow the optimistic
                   // bubble is missing (e.g. attachment upload where has_upload=true).
                   if (data.has_upload) {
-                    loadChatForced();
+                    if (!dmViewingOlder) loadChatForced();
                   }
                 }
               }
@@ -3776,14 +3783,14 @@
             chatBox.appendChild(frag);
           }
 
-          trimWindowFromBottom(MAX_WINDOW);
-
+          if (!adminConvHasMore) showNoMoreOlderNotice();
           const heightDiff = chatBox.scrollHeight - prevScrollHeight;
           if (heightDiff > 0) {
             chatBox.scrollTop = prevScrollTop + heightDiff;
           }
+          trimWindowFromBottom(MAX_WINDOW);
 
-          if (!adminConvHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
+          if (adminConvHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges();
           applyEmojiOnly();
           attachImageLoadListeners();
@@ -3820,11 +3827,6 @@
         }
 
         if (rec.type === 'append') {
-          // Snapshot scroll state BEFORE DOM mutation so the delta is real.
-          // Same ordering bug as GC/DM: capturing after appendChild made the
-          // compensation delta always zero, so the view jumped during backread.
-          const prevScrollTop    = chatBox.scrollTop;
-          const prevScrollHeight = chatBox.scrollHeight;
           rec.items.forEach(el => {
             if (el.classList.contains('message-container')) {
               const msgId = el.getAttribute('data-msg-id');
@@ -3839,11 +3841,6 @@
             }
             chatBox.appendChild(el);
           });
-          // Pin the user's reading position during backread.
-          if (adminConvViewingOlder) {
-            const scrollDiff = chatBox.scrollHeight - prevScrollHeight;
-            if (scrollDiff > 0) chatBox.scrollTop = prevScrollTop + scrollDiff;
-          }
           if (!adminConvViewingOlder) {
             if (isFirstLoad) {
               isFirstLoad = false;

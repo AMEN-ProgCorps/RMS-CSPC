@@ -469,6 +469,8 @@
     if (chatBox) {
       chatBox.addEventListener('touchstart', markUserScrollingActive, { passive: true });
       chatBox.addEventListener('touchmove', markUserScrollingActive, { passive: true });
+      chatBox.addEventListener('touchend', markUserScrollingActive, { passive: true });
+      chatBox.addEventListener('touchcancel', markUserScrollingActive, { passive: true });
       chatBox.addEventListener('wheel', markUserScrollingActive, { passive: true });
     }
 
@@ -490,8 +492,9 @@
     window.clearFirstLoadScrollTimers = clearFirstLoadScrollTimers;
 
     function isAtBottom() {
-      return (chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight) <= 25;
+      return (chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight) <= 35;
     }
+    window.isAtBottom = isAtBottom;
 
     function scrollToBottom(force = false, instant = false) {
       // Never snap or jump scroll position while the user is actively touch-dragging or scrolling
@@ -2036,9 +2039,16 @@
         }
 
         if (!gcHasMore) showNoMoreOlderNotice();
+        const safePrevScrollTop = Math.max(0, prevScrollTop);
         const heightDiff = chatBox.scrollHeight - prevScrollHeight;
         if (heightDiff > 0) {
-          chatBox.scrollTop = prevScrollTop + heightDiff;
+          const targetST = safePrevScrollTop + heightDiff;
+          chatBox.scrollTop = targetST;
+          requestAnimationFrame(() => {
+            if (chatBox && Math.abs(chatBox.scrollTop - targetST) > 2 && Math.abs(chatBox.scrollTop - safePrevScrollTop) <= 5) {
+              chatBox.scrollTop = targetST;
+            }
+          });
         }
         trimWindowFromBottom(MAX_WINDOW);
 
@@ -2333,9 +2343,16 @@
         }
 
         if (!dmHasMore) showNoMoreOlderNotice();
+        const safePrevScrollTop = Math.max(0, prevScrollTop);
         const heightDiff = chatBox.scrollHeight - prevScrollHeight;
         if (heightDiff > 0) {
-          chatBox.scrollTop = prevScrollTop + heightDiff;
+          const targetST = safePrevScrollTop + heightDiff;
+          chatBox.scrollTop = targetST;
+          requestAnimationFrame(() => {
+            if (chatBox && Math.abs(chatBox.scrollTop - targetST) > 2 && Math.abs(chatBox.scrollTop - safePrevScrollTop) <= 5) {
+              chatBox.scrollTop = targetST;
+            }
+          });
         }
         trimWindowFromBottom(MAX_WINDOW);
 

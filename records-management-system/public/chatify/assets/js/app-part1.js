@@ -3784,9 +3784,16 @@
           }
 
           if (!adminConvHasMore) showNoMoreOlderNotice();
+          const safePrevScrollTop = Math.max(0, prevScrollTop);
           const heightDiff = chatBox.scrollHeight - prevScrollHeight;
           if (heightDiff > 0) {
-            chatBox.scrollTop = prevScrollTop + heightDiff;
+            const targetST = safePrevScrollTop + heightDiff;
+            chatBox.scrollTop = targetST;
+            requestAnimationFrame(() => {
+              if (chatBox && Math.abs(chatBox.scrollTop - targetST) > 2 && Math.abs(chatBox.scrollTop - safePrevScrollTop) <= 5) {
+                chatBox.scrollTop = targetST;
+              }
+            });
           }
           trimWindowFromBottom(MAX_WINDOW);
 

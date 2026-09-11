@@ -1212,6 +1212,9 @@
       position: relative;
       scroll-behavior: auto;
       overflow-anchor: none;
+      touch-action: pan-y;
+      transform: translateZ(0);
+      will-change: scroll-position;
       transition: background-color 0.3s ease;
       /* Hide scrollbar but keep scroll functionality */
       scrollbar-width: none; /* Firefox */

@@ -58,21 +58,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
             <div class="reg-panel-bottom">
                 <div class="reg-checklist" id="dynamicCheckboxes"></div>
-                <div class="reg-approval-toggle">
-                    <span class="reg-toggle-label">Approval</span>
-                    <div class="reg-toggle-options">
-                        <label class="reg-radio">
-                            <input type="radio" name="approval_status" value="applicable"
-                                onchange="handleApprovalToggle(true)" disabled>
-                            <span>Applicable</span>
-                        </label>
-                        <label class="reg-radio">
-                            <input type="radio" name="approval_status" value="not_applicable"
-                                onchange="handleApprovalToggle(false)" checked disabled>
-                            <span>Not Applicable</span>
-                        </label>
-                    </div>
-                </div>
             </div>
         </section>
 
@@ -241,13 +226,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <thead>
                                 <tr>
                                     <th class="col-pinned">Course Name</th>
-                                    <th class="col-pinned">Course Code</th>
-                                    <th class="col-step1" id="syllabiAvailabilityHeader">Syllabi Availability</th>
-                                    <th class="col-step1">No. Copies</th>
+                                    <th class="col-pinned col-code">Course Code</th>
+                                    <th class="col-step1 col-avail" id="syllabiAvailabilityHeader">Syllabi Availability</th>
+                                    <th class="col-step1 col-copies">No. Copies</th>
                                     <th class="col-shared">Faculty</th>
-                                    <th class="col-step1">No. Pages</th>
-                                    <th class="col-step1">Date Received</th>
-                                    <th class="col-step1">Time Received</th>
+                                    <th class="col-step1 col-pages">No. Pages</th>
+                                    <th class="col-step1 col-date">Date Received</th>
+                                    <th class="col-step1 col-time">Time Received</th>
 
                                     <th class="col-step2">DRF Availability</th>
                                     <th class="col-step2">DRF No.</th>
@@ -255,7 +240,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     <th class="col-step2">DRF Received Date</th>
                                     <th class="col-step2">Scanned DRF</th>
 
-                                    <th class="col-pinned"></th>
+                                    <th class="col-pinned col-actions"></th>
                                 </tr>
                             </thead>
                             <tbody id="syllabiTableBody"></tbody>
@@ -335,6 +320,27 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <i class="fa-solid fa-cloud-arrow-up"></i>
                         <span>Choose scanned PDF</span>
                     </label>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══ APPROVAL (before Masterlist) ═══ -->
+        <section class="reg-card reg-approval-bar" id="section-approval-toggle" style="display: none;">
+            <div class="reg-card-body reg-approval-bar-body">
+                <div class="reg-approval-toggle">
+                    <span class="reg-toggle-label">Approval</span>
+                    <div class="reg-toggle-options">
+                        <label class="reg-radio">
+                            <input type="radio" name="approval_status" value="applicable"
+                                onchange="handleApprovalToggle(true)" disabled>
+                            <span>Applicable</span>
+                        </label>
+                        <label class="reg-radio">
+                            <input type="radio" name="approval_status" value="not_applicable"
+                                onchange="handleApprovalToggle(false)" checked disabled>
+                            <span>Not Applicable</span>
+                        </label>
+                    </div>
                 </div>
             </div>
         </section>
@@ -521,29 +527,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
             <div class="reg-card-body reg-split">
                 <div class="reg-split-left">
-                    <div class="reg-split-form-grid">
-                        <div class="reg-split-form-stack">
-                            <div class="reg-field">
-                                <label>Retrieval Form Date</label>
-                                <div class="reg-dual">
-                                    <input type="date" id="retrievalFormDate" name="retrievalFormDate" oninput="calcRetrievalTimeSpent()">
-                                    <input type="time" id="retrievalFormTime" name="retrievalFormTime" oninput="calcRetrievalTimeSpent()">
+                        <div class="reg-split-form-grid">
+                            <div class="reg-split-form-stack">
+                                <div class="reg-field">
+                                    <label>Retrieval Form Date</label>
+                                    <div class="reg-dual">
+                                        <input type="date" id="retrievalFormDate" name="retrievalFormDate">
+                                        <input type="time" id="retrievalFormTime" name="retrievalFormTime">
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="reg-field">
-                                <label>Retrieval Date & Time</label>
-                                <div class="reg-dual">
-                                    <input type="date" id="retrievalDate" name="retrievalDate" oninput="calcRetrievalTimeSpent()">
-                                    <input type="time" id="retrievalTime" name="retrievalTime" oninput="calcRetrievalTimeSpent()">
+                                <div class="reg-field">
+                                    <label>Retrieval Date & Time</label>
+                                    <div class="reg-dual">
+                                        <input type="date" id="retrievalDate" name="retrievalDate">
+                                        <input type="time" id="retrievalTime" name="retrievalTime">
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                        <div class="reg-field">
-                            <label>Time Spent/Minute(s)</label>
-                            <input type="text" id="retrievalTimeSpentDisplay" readonly placeholder="--" style="background: #f8fafc; cursor: default;">
-                            <input type="hidden" id="retrievalTimeSpent" name="retrievalTimeSpent">
-                        </div>
-                    </div>
                     <div class="reg-field">
                         <label>Remarks</label>
                         <input type="text" id="retrievalRemarks" name="retrievalRemarks" placeholder="Type here...">
@@ -666,6 +667,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <table class="reg-dist-table">
                             <thead>
                                 <tr>
+                                    <th class="reg-dist-check-head" style="width:36px;">
+                                        <input type="checkbox" id="distSelectAllHeader" title="Select all" onchange="toggleSelectAllDistOffices()">
+                                    </th>
                                     <th>Receiving Office(s)</th>
                                     <th style="width: 110px; text-align: center;">No. of Copies</th>
                                     <th style="width: 40px;"></th>
@@ -673,7 +677,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             </thead>
                             <tbody id="distBody">
                                 <tr class="reg-empty-row">
-                                    <td colspan="3">
+                                    <td colspan="4">
                                         <div class="reg-empty-state">
                                             <i class="fa-solid fa-building-circle-xmark"></i>
                                             <span>No offices added yet</span>
@@ -683,6 +687,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             </tbody>
                             <tfoot>
                                 <tr>
+                                    <td class="reg-dist-check-foot"></td>
                                     <td>Total No. of Copies</td>
                                     <td id="totalDistCopies" style="text-align: center; font-weight: 700;">0</td>
                                     <td></td>
@@ -930,12 +935,13 @@ function officeMatchesQuery(o, q) {
 }
 
 function findOfficeByLabelOrCode(part, list) {
-    const n = (part || '').trim().toLowerCase();
+    const n = String(part ?? '').trim().toLowerCase();
     if (!n) return null;
     const haystack = list || allOffices;
     return haystack.find(o =>
         (o.office_name || '').toLowerCase() === n ||
-        (o.office_code || '').toLowerCase() === n
+        (o.office_code || '').toLowerCase() === n ||
+        String(o.office_id ?? o.id ?? '') === n
     ) || null;
 }
 
@@ -946,7 +952,7 @@ function filterOffices(query) {
 }
 
 function emptyOfficeRowHTML(bodyId) {
-    const cols = bodyId === 'retrievalBody' ? 4 : 3;
+    const cols = bodyId === 'retrievalBody' ? 4 : (bodyId === 'distBody' ? 4 : 3);
     return '<tr class="reg-empty-row">' +
                 '<td colspan="' + cols + '">' +
                     '<div class="reg-empty-state">' +
@@ -1240,10 +1246,17 @@ function seedOfficeRow(tbodyId, totalId, officeId, officeName, copies) {
     const tr = document.createElement("tr");
     tr.className = "reg-office-added";
     tr.draggable = true;
-    tr.innerHTML = `
+    if (typeof buildDistOfficeRowHTML === 'function') {
+        tr.innerHTML = buildDistOfficeRowHTML(officeId, officeName, copies, totalId);
+    } else {
+        tr.innerHTML = `
+        <td class="reg-dist-check-cell">
+            <input type="checkbox" class="dist-office-check" onchange="onDistOfficeCheckChange()" title="Select to reorder">
+        </td>
         <td>
             <input type="hidden" name="${officeNameAttr}" value="${officeId}">
             <div class="reg-office-name">
+                <span class="reg-dist-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></span>
                 <div class="reg-office-icon"><i class="fa-solid fa-building"></i></div>
                 <span class="reg-office-text">${escapeHtml(officeName)}</span>
             </div>
@@ -1257,6 +1270,7 @@ function seedOfficeRow(tbodyId, totalId, officeId, officeName, copies) {
             </button>
         </td>
     `;
+    }
     tbody.appendChild(tr);
 }
 
@@ -2854,7 +2868,10 @@ function createSourceUnitWidget(opts) {
             const office = findOfficeByLabelOrCode(part, getList())
                 || getList().find(o => o[labelKey].toLowerCase() === part.toLowerCase());
             if (office) selected.push({ type: 'office', id: office[idKey], label: office[labelKey] });
-            else { idCounter++; selected.push({ type: 'name', id: 'n' + idCounter, label: part }); }
+            else if (opts.allowFreeText) {
+                idCounter++;
+                selected.push({ type: 'name', id: 'n' + idCounter, label: part });
+            }
         });
         render();
         syncInputText();
@@ -3354,22 +3371,42 @@ function triggerScanExtraction(input, file) {
     const originalLabelText = label ? label.textContent : '';
     if (label) label.textContent = 'Reading scanned document...';
 
+    // OCR is best-effort: never treat failure as a failed upload.
     fetch('/dcs/register/extract-scan', { method: 'POST', body: formData })
         .then(async r => {
             const data = await r.json().catch(() => ({}));
             if (label) label.textContent = originalLabelText;
-            if (!r.ok || !data.extracted) {
-                showUploadFieldError(container, 'Could not read DRF fields from this scan. Fill them in manually.');
-                return;
+            container?.classList.remove('reg-upload-error');
+            container?.classList.add('reg-upload-success');
+
+            if (data.extracted) {
+                const filled = autofillDrfFields(data.fields || {});
+                if (filled) {
+                    removeExistingError(container);
+                    return;
+                }
+                // Extracted OK but nothing new to write (fields already filled).
+                if (data.fields && (data.fields.drfNo || data.fields.drfTitle || data.fields.drfDate
+                    || (data.fields.sourceOffices || []).length)) {
+                    removeExistingError(container);
+                    return;
+                }
             }
-            const filled = autofillDrfFields(data.fields || {});
-            if (!filled) {
-                showUploadFieldError(container, 'Could not read DRF No, date, title, or source unit from this scan.');
-            }
+
+            showOcrSoftHint(
+                container,
+                data.message
+                    || 'Could not auto-fill DRF fields from this scan. Upload kept — fill them in manually.'
+            );
         })
         .catch(err => {
             if (label) label.textContent = originalLabelText;
-            showUploadFieldError(container, 'Could not read DRF fields from this scan. Fill them in manually.');
+            container?.classList.remove('reg-upload-error');
+            container?.classList.add('reg-upload-success');
+            showOcrSoftHint(
+                container,
+                'Could not auto-fill DRF fields from this scan. Upload kept — fill them in manually.'
+            );
             console.error('Extraction request failed:', err);
         });
 }
@@ -3384,7 +3421,7 @@ function autofillDrfFields(fields) {
     Object.entries(map).forEach(([fieldKey, elId]) => {
         const value = fields[fieldKey];
         const el = document.getElementById(elId);
-        if (value && el && !el.value) {
+        if (value && el && (!el.value || el.classList.contains('reg-autofilled'))) {
             el.value = value;
             el.classList.add('reg-autofilled');
             filled = true;
@@ -3395,15 +3432,57 @@ function autofillDrfFields(fields) {
         }
     });
     if (window.__sourceWidgets?.drf) {
-        if (fields.sourceOfficeId) {
-            window.__sourceWidgets.drf.pick(fields.sourceOfficeId);
-            filled = true;
-        } else if (fields.sourceOfficeCode || fields.sourceUnit) {
-            window.__sourceWidgets.drf.seedFromString(fields.sourceOfficeCode || fields.sourceUnit);
-            filled = true;
+        // Active offices only — never invent chips for inactive/unknown codes.
+        try {
+            const items = resolveActiveSourceUnitItems(fields);
+            if (items.length > 0) {
+                window.__sourceWidgets.drf.setSelectedItems(items);
+                syncSourceUnitsAcrossSections(items, 'drf');
+                filled = true;
+            }
+        } catch (err) {
+            console.error('Source Unit autofill failed:', err);
         }
     }
     return filled;
+}
+
+/** Map OCR office payload → active catalog offices only (no free-text / inactive). */
+function resolveActiveSourceUnitItems(fields) {
+    const items = [];
+    const seen = new Set();
+    const pushFromCatalog = (office) => {
+        if (!office) return;
+        const id = office.office_id ?? office.id;
+        const key = String(id);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        items.push({ type: 'office', id: office.office_id ?? office.id, label: office.office_name });
+    };
+    const findActive = (needle) => findOfficeByLabelOrCode(needle, allOffices)
+        || allOffices.find(o => String(o.office_id) === String(needle));
+
+    const offices = Array.isArray(fields.sourceOffices) ? fields.sourceOffices : [];
+    offices.forEach((office) => {
+        const id = office?.id ?? office?.sourceOfficeId;
+        const code = office?.office_code || office?.office_name;
+        pushFromCatalog(findActive(id) || (code ? findActive(code) : null));
+    });
+
+    if (items.length === 0 && Array.isArray(fields.sourceOfficeCodes)) {
+        fields.sourceOfficeCodes.forEach((code) => pushFromCatalog(findActive(code)));
+    }
+    if (items.length === 0 && fields.sourceOfficeId) {
+        pushFromCatalog(findActive(fields.sourceOfficeId));
+    }
+    if (items.length === 0 && (fields.sourceOfficeCode || fields.sourceUnit)) {
+        String(fields.sourceOfficeCode || fields.sourceUnit)
+            .split(/[,;\/|]+/)
+            .map(s => s.trim())
+            .filter(Boolean)
+            .forEach((part) => pushFromCatalog(findActive(part)));
+    }
+    return items;
 }
 
 function removeUploadFieldActions(container) {
@@ -3583,6 +3662,17 @@ function showUploadFieldError(container, message) {
     container.style.animation = 'shake 0.4s ease';
 }
 
+/** Soft OCR hint — does not mark the upload as failed. */
+function showOcrSoftHint(container, message) {
+    removeExistingError(container);
+    const parent = container?.closest('.reg-field') || container?.parentElement;
+    if (!parent) return;
+    const hint = document.createElement('div');
+    hint.className = 'reg-ocr-hint';
+    hint.innerHTML = '<i class="fa-solid fa-circle-info"></i> ' + escapeHtml(message);
+    parent.appendChild(hint);
+}
+
 function resetUploadArea(container, icon, label, originalText) {
     container.classList.remove('reg-upload-success', 'reg-upload-error', 'reg-upload-drag', 'reg-upload-has-file');
     container.style.borderColor = '';
@@ -3597,8 +3687,10 @@ function resetUploadArea(container, icon, label, originalText) {
 }
 
 function removeExistingError(container) {
-    const old = container.querySelector('.reg-file-error');
-    if (old) old.remove();
+    if (!container) return;
+    container.querySelectorAll('.reg-file-error, .reg-ocr-hint').forEach(el => el.remove());
+    const parent = container.closest('.reg-field') || container.parentElement;
+    parent?.querySelectorAll(':scope > .reg-file-error, :scope > .reg-ocr-hint').forEach(el => el.remove());
 }
 
 function resetUploadCell(cell, icon, label, originalText) {
@@ -3697,7 +3789,7 @@ async function handleVersionChange() {
     if (fromInput) fromInput.value = '';
     clearRevisedApprovalContext();
 
-    ["section-1", "section-2", "section-3", "section-4", "section-5", "section-approval", "section-syllabi", "formActions"].forEach(id => {
+    ["section-1", "section-2", "section-3", "section-4", "section-5", "section-approval", "section-approval-toggle", "section-syllabi", "formActions"].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
             el.style.display = "none";
@@ -3865,7 +3957,7 @@ function handleDocTypeChange() {
         hintEl.dataset.valid = '';
     }
 
-    ["section-1", "section-2", "section-3", "section-4", "section-5", "section-approval", "formActions"].forEach(id => {
+    ["section-1", "section-2", "section-3", "section-4", "section-5", "section-approval", "section-approval-toggle", "formActions"].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
             el.style.display = "none";
@@ -4203,6 +4295,21 @@ window.toggleSection = function (checklistId, show) {
     el.style.display = show ? "block" : "none";
     if (show) setTimeout(initFileInputs, 50);
 
+    if (checklistId === 3) {
+        const toggleBar = document.getElementById("section-approval-toggle");
+        if (toggleBar) toggleBar.style.display = show ? "block" : "none";
+        if (!show) {
+            const approval = document.getElementById("section-approval");
+            if (approval) approval.style.display = "none";
+        } else {
+            const applicable = document.querySelector('input[name="approval_status"][value="applicable"]');
+            if (applicable?.checked) {
+                const approval = document.getElementById("section-approval");
+                if (approval) approval.style.display = "block";
+            }
+        }
+    }
+
     if (checklistId === 3 && window.__isSyllabiMode) {
         const syllabiSection = document.getElementById("section-syllabi");
         if (syllabiSection) syllabiSection.style.display = show ? "block" : "none";
@@ -4259,7 +4366,8 @@ window.calcRetrievalTimeSpent = function () {
 };
 
 window.calcDistributionTimeSpent = function () {
-    calcTimeDiff("distributionFormDate", "distributionFormTime", "distributionDate", "distributionTime", "distributionTimeSpentDisplay", "distributionTimeSpent");
+    // Receipt (Masterlist) → Distribution date/time
+    calcTimeDiff("masterlistReceiptDate", "masterlistReceiptTime", "distributionDate", "distributionTime", "distributionTimeSpentDisplay", "distributionTimeSpent");
 };
 
 window.generateDistributionTemplate = function () {
@@ -4291,7 +4399,6 @@ window.generateDistributionTemplate = function () {
 
     const params = new URLSearchParams();
     params.set('date', document.getElementById('distributionDate')?.value || '');
-    params.set('template_id', '0');
     params.set('document_title', docTitle);
     params.set('effectivity_date', effectivityDate);
     params.set('revision_no', revisionNo);
@@ -4448,6 +4555,10 @@ function bindDistBodyDrag() {
 
 window.calcMasterlistTimeSpent = function () {
     calcTimeDiff("masterlistReceiptDate", "masterlistReceiptTime", "masterlistRegisteredDate", "masterlistRegisteredTime", "masterlistTimeSpentDisplay", "masterlistTimeSpent");
+    // Distribution time spent also starts from masterlist document receipt.
+    if (typeof window.calcDistributionTimeSpent === 'function') {
+        window.calcDistributionTimeSpent();
+    }
 };
 
 // ══════════════════════════════════════════════
@@ -4605,8 +4716,13 @@ function validateTimeSpentFields(errors) {
     }
 
     if (sectionVisible("section-4")) {
-        const ret = document.getElementById("retrievalTimeSpentDisplay");
-        if (ret && ret.value === "Invalid") {
+        const duration = computeDuration(
+            document.getElementById("retrievalFormDate")?.value,
+            document.getElementById("retrievalFormTime")?.value,
+            document.getElementById("retrievalDate")?.value,
+            document.getElementById("retrievalTime")?.value
+        );
+        if (duration && duration.invalid) {
             errors.push({
                 field: "retrievalDate",
                 message: "Retrieval: Retrieval Date must be after Form Date."
@@ -4621,9 +4737,9 @@ function validateTimeSpentFields(errors) {
         if (dist && dist.value === "Invalid") {
             errors.push({
                 field: "distributionDate",
-                message: "Distribution: Distribution Date must be after Form Date."
+                message: "Distribution: Distribution Date/Time must be after Masterlist Document Receipt."
             });
-            ["distributionFormDate", "distributionFormTime", "distributionDate", "distributionTime"]
+            ["masterlistReceiptDate", "masterlistReceiptTime", "distributionDate", "distributionTime"]
                 .forEach(id => document.getElementById(id)?.classList.add("reg-input-error"));
         }
     }
@@ -5030,8 +5146,8 @@ window.confirmSave = function () {
     buildSyllabiRowsReview(reviewContent);
     buildDrfReview(reviewContent);
     buildDcnReview(reviewContent);
-    buildMasterlistReview(reviewContent);
     buildApprovalReview(reviewContent);
+    buildMasterlistReview(reviewContent);
     buildRetrievalReview(reviewContent);
     buildDistributionReview(reviewContent);
 
@@ -5259,7 +5375,6 @@ function buildRetrievalReview(reviewContent) {
     addReviewSection(reviewContent, "Document Retrieval", [
         { label: "Form Date", value: formatInputDate("retrievalFormDate") + " " + getInputVal("retrievalFormTime") },
         { label: "Retrieval Date", value: formatInputDate("retrievalDate") + " " + getInputVal("retrievalTime") },
-        { label: "Time Spent", value: document.getElementById("retrievalTimeSpentDisplay").value || null },
         { label: "Remarks", value: getInputVal("retrievalRemarks") },
         { label: "File", value: f.length > 0 ? f[0].name : null, isFile: true },
     ]);
@@ -5410,6 +5525,8 @@ function disableApproval() {
     });
     const approval = document.getElementById("section-approval");
     if (approval) approval.style.display = "none";
+    const toggleBar = document.getElementById("section-approval-toggle");
+    if (toggleBar) toggleBar.style.display = "none";
 }
 
 // ══════════════════════════════════════════════
@@ -5594,10 +5711,7 @@ async function autoPopulateSyllabiCourses() {
                 codeInput.value = c.course_code || '';
             }
 
-            const faculties = c.faculties || [];
-            // Alternate real-world layouts: shared 1-copy/2-faculty, then 2-copies/1-faculty-each.
-            const splitCopies = faculties.length >= 2 && (courseIndex % 2 === 1);
-            applyCatalogFacultiesToRow(newRow, faculties, { splitCopies });
+            // Faculty is selected by the user for the chosen college — not prefilled from courses.
             cascadeDrfToNewRow(newRow);
             syncSyllabiMergedFields(groupId);
             syncSyllabiAvailability(groupId);
@@ -6162,9 +6276,9 @@ window.syncSyllabiDrfRow = function (tr) {
 // buildSyllabiPerRowCells — per-copy date/time/pages fields
 function buildSyllabiPerRowCells(uid) {
     return `
-        <td class="col-step1"><input type="number" name="syllabiNoPages[]" min="0" placeholder="0" class="syllabi-row-pages" oninput="updateSyllabiTotals()"></td>
-        <td class="col-step1"><input type="date" name="syllabiDateReceived[]" oninput="cascadeSyllabiReceived(this, 'syllabiDateReceived[]')"></td>
-        <td class="col-step1"><input type="time" name="syllabiTimeReceived[]" oninput="cascadeSyllabiReceived(this, 'syllabiTimeReceived[]')"></td>
+        <td class="col-step1 col-pages"><input type="number" name="syllabiNoPages[]" min="0" placeholder="0" class="syllabi-row-pages" oninput="updateSyllabiTotals()"></td>
+        <td class="col-step1 col-date"><input type="date" name="syllabiDateReceived[]" oninput="cascadeSyllabiReceived(this, 'syllabiDateReceived[]')"></td>
+        <td class="col-step1 col-time"><input type="time" name="syllabiTimeReceived[]" oninput="cascadeSyllabiReceived(this, 'syllabiTimeReceived[]')"></td>
 
         <td class="col-step2 syllabi-check-cell">
             <input type="hidden" name="syllabiDrfAvailability[]" value="not available" class="syllabi-hidden-toggle">
@@ -6534,24 +6648,24 @@ function buildSyllabiGroupFirstRow(groupId, rowspan) {
                 class="syllabi-merged-course"
                 oninput="syncSyllabiMergedFields('${groupId}'); autosizeSyllabiCourse(this);"></textarea>
         </td>
-        <td class="col-pinned" rowspan="${rowspan}">
+        <td class="col-pinned col-code" rowspan="${rowspan}">
             <input type="text" name="syllabiCourseCode[]" placeholder="e.g. CS 101"
                 class="syllabi-merged-code"
                 oninput="syncSyllabiMergedFields('${groupId}')">
         </td>
-        <td class="col-step1" rowspan="${rowspan}">
+        <td class="col-step1 col-avail" rowspan="${rowspan}">
             <input type="hidden" name="syllabiAvailability[]" value="not available" class="syllabi-merged-availability-hidden">
             <label class="reg-checkbox-wrap">
                 <input type="checkbox" class="syllabi-merged-availability" onchange="syncSyllabiMergedFields('${groupId}'); syncSyllabiAvailability('${groupId}')">
             </label>
         </td>
-        <td class="col-step1" rowspan="${rowspan}">
+        <td class="col-step1 col-copies" rowspan="${rowspan}">
             <input type="number" name="syllabiCopies[]" min="1" value="1"
                 class="syllabi-merged-copies" oninput="handleCopiesChange(this)">
         </td>
         ${buildSyllabiFacultyTd(uid)}
         ${buildSyllabiPerRowCells(uid)}
-        <td class="col-pinned" rowspan="${rowspan}">
+        <td class="col-pinned col-actions" rowspan="${rowspan}">
             <button type="button" class="reg-row-del" onclick="removeSyllabiGroup('${groupId}')" title="Remove course">
                 <i class="fa-solid fa-trash-can"></i>
             </button>
@@ -6742,10 +6856,17 @@ window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
     const tr = document.createElement("tr");
     tr.className = "reg-office-added";
     if (!isRetrieval) tr.draggable = true;
-    tr.innerHTML = `
+    if (!isRetrieval && typeof buildDistOfficeRowHTML === 'function') {
+        tr.innerHTML = buildDistOfficeRowHTML(officeId, officeName, 1, totalId);
+    } else {
+        tr.innerHTML = `
+        ${!isRetrieval ? `<td class="reg-dist-check-cell">
+            <input type="checkbox" class="dist-office-check" onchange="onDistOfficeCheckChange()" title="Select to reorder">
+        </td>` : ''}
         <td>
             <input type="hidden" name="${officeNameAttr}" value="${officeId}">
             <div class="reg-office-name">
+                ${!isRetrieval ? '<span class="reg-dist-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></span>' : ''}
                 <div class="reg-office-icon"><i class="fa-solid fa-building"></i></div>
                 <span class="reg-office-text">${escapeHtml(officeName)}</span>
             </div>
@@ -6759,6 +6880,7 @@ window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
             </button>
         </td>
     `;
+    }
     tbody.appendChild(tr);
 
     updateTotal(totalId, bodyId);

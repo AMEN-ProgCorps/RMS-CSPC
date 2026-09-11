@@ -1418,7 +1418,7 @@
 }
 
 [data-theme="dark"] #syllabiWizardTable[data-active-step="2"] td.col-pinned:first-child,
-[data-theme="dark"] #syllabiWizardTable[data-active-step="2"] td.col-pinned:has(.syllabi-merged-code),
+[data-theme="dark"] #syllabiWizardTable[data-active-step="2"] td.col-code,
 [data-theme="dark"] #syllabiWizardTable[data-active-step="2"] td.col-shared {
     background: #0f172a !important;
 }

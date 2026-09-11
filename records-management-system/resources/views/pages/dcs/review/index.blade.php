@@ -166,91 +166,145 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
     }
 }; ?>
 
+<div>
 <div class="drr-container main-content">
     <div class="drr-header">
         <div>
             <div class="drr-breadcrumb">Document Control System / <span>Document Review</span></div>
             <h1 class="drr-title">Document Review</h1>
+            @if($selectedDocNo === '')
+                <p class="drr-lead">Quick-compare any two PDFs, or open a registered document below to review consecutive revisions.</p>
+            @endif
         </div>
         @if($selectedDocNo !== '')
-            <button type="button" class="drr-btn-ghost" wire:click="clearDocument">
-                <i class="fa-solid fa-arrow-left"></i> Back to documents
-            </button>
+            <div class="drr-header-actions">
+                <button type="button" class="drr-btn-ghost" wire:click="clearDocument">
+                    <i class="fa-solid fa-arrow-left"></i> Back to documents
+                </button>
+            </div>
         @endif
     </div>
 
     @if($selectedDocNo === '')
-        <div class="drr-search-bar">
-            <div class="drr-search-wrapper">
-                <i class="fa-solid fa-magnifying-glass"></i>
-                <input type="text" class="drr-search-input" wire:model.live.debounce.400ms="search"
-                    placeholder="Search by title or document no..." autocomplete="off">
-            </div>
-            <select class="drr-filter-select" wire:model.live="docTypeId">
-                <option value="all">All Document Types</option>
-                @foreach($docTypes as $type)
-                    <option value="{{ $type->id }}">{{ $type->doc_type_name }}</option>
-                @endforeach
-            </select>
-            <button type="button" class="drr-btn-clear" wire:click="clearFilters" title="Reset filters">
-                <i class="fa-solid fa-xmark"></i> Clear
-            </button>
-        </div>
-        <p class="drr-hint">Each row shows the latest revision. Open a document, then pick a consecutive pair (Rev 0→1, 1→2, 3→5 when 4 is missing, …).</p>
-
-        <div class="drr-table-card">
-            <div class="drr-table-scroll" @if(count($list['rows']) === 0) style="display:none" @endif>
-                <table class="drr-table">
-                    <thead>
-                        <tr>
-                            <th>Doc Type</th>
-                            <th>Title</th>
-                            <th>Document No.</th>
-                            <th>Latest rev</th>
-                            <th>Revisions</th>
-                            <th style="width:110px;">Review</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach($list['rows'] as $doc)
-                            <tr>
-                                <td>{{ $doc['doc_type'] }}</td>
-                                <td class="drr-doc-title" title="{{ $doc['title'] }}">{{ $doc['title'] }}</td>
-                                <td class="drr-doc-no">{{ $doc['doc_no'] }}</td>
-                                <td><span class="drr-rev-pill">Rev {{ $doc['rev_no'] }}</span></td>
-                                <td>{{ $doc['rev_count'] }}</td>
-                                <td>
-                                    <button type="button" class="drr-btn-review" wire:click="selectDocument(@js($doc['doc_no']))">
-                                        Review
-                                    </button>
-                                </td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            </div>
-            <div class="drr-empty" @if(count($list['rows']) > 0) style="display:none" @endif>
-                <i class="fa-solid fa-folder-open"></i>
-                @if($list['filtered'])
-                    <p>No documents match these filters.</p>
-                    <span>Try another title or document number, or clear the filters.</span>
-                @else
-                    <p>No documents are available to review.</p>
-                    <span>Register a document to start reviewing scanned masterlist copies.</span>
-                @endif
-            </div>
-            <div class="drr-pagination" @if($list['total'] === 0) style="display:none" @endif>
-                <div>Page {{ $list['current_page'] }} of {{ $list['last_page'] }} ({{ $list['total'] }} total)</div>
-                <div class="drr-pagination-links">
-                    @if($list['current_page'] > 1)
-                        <button type="button" class="drr-pg" wire:click="goToPage({{ $list['current_page'] - 1 }})">Prev</button>
-                    @endif
-                    @if($list['current_page'] < $list['last_page'])
-                        <button type="button" class="drr-pg" wire:click="goToPage({{ $list['current_page'] + 1 }})">Next</button>
-                    @endif
+        <section class="drr-adhoc-card" id="drrAdhocCard" aria-labelledby="drrAdhocHeading">
+            <div class="drr-adhoc-head">
+                <div>
+                    <h2 id="drrAdhocHeading" class="drr-adhoc-title">
+                        <i class="fa-solid fa-file-pdf" aria-hidden="true"></i>
+                        Quick compare
+                    </h2>
+                    <p class="drr-adhoc-desc">Drop any two PDFs to highlight changes — no registration needed.</p>
                 </div>
             </div>
-        </div>
+            <div class="drr-adhoc-fields">
+                <label class="drr-drop" id="drrAdhocLeftDrop" for="drrAdhocLeftFile">
+                    <input type="file" id="drrAdhocLeftFile" class="drr-drop-input" accept="application/pdf,.pdf">
+                    <span class="drr-drop-icon" aria-hidden="true"><i class="fa-solid fa-file-arrow-up"></i></span>
+                    <span class="drr-drop-label">Older / original</span>
+                    <span class="drr-drop-hint">Click or drop a PDF</span>
+                    <span class="drr-drop-name" id="drrAdhocLeftName">No file chosen</span>
+                </label>
+                <div class="drr-adhoc-vs" aria-hidden="true">
+                    <i class="fa-solid fa-arrows-left-right"></i>
+                </div>
+                <label class="drr-drop" id="drrAdhocRightDrop" for="drrAdhocRightFile">
+                    <input type="file" id="drrAdhocRightFile" class="drr-drop-input" accept="application/pdf,.pdf">
+                    <span class="drr-drop-icon" aria-hidden="true"><i class="fa-solid fa-file-arrow-up"></i></span>
+                    <span class="drr-drop-label">Newer / revised</span>
+                    <span class="drr-drop-hint">Click or drop a PDF</span>
+                    <span class="drr-drop-name" id="drrAdhocRightName">No file chosen</span>
+                </label>
+                <button type="button" class="drr-btn-review drr-adhoc-run" id="drrAdhocRun" disabled>
+                    <i class="fa-solid fa-code-compare" aria-hidden="true"></i> Compare files
+                </button>
+            </div>
+            <p class="drr-adhoc-error" id="drrAdhocError" hidden role="alert"></p>
+        </section>
+
+        <section class="drr-list-block" aria-labelledby="drrListHeading">
+            <div class="drr-list-head">
+                <div>
+                    <h2 id="drrListHeading" class="drr-list-title">Registered documents</h2>
+                    <p class="drr-list-sub">Each row shows the latest revision. Open a document, then choose a consecutive pair (e.g. Rev 0→1, 1→2).</p>
+                </div>
+                @if(($list['total'] ?? 0) > 0)
+                    <span class="drr-count-pill">{{ $list['total'] }} {{ $list['total'] === 1 ? 'document' : 'documents' }}</span>
+                @endif
+            </div>
+
+            <div class="drr-search-bar">
+                <div class="drr-search-wrapper">
+                    <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+                    <input type="text" class="drr-search-input" wire:model.live.debounce.400ms="search"
+                        placeholder="Search by title or document no..." autocomplete="off" aria-label="Search documents">
+                </div>
+                <select class="drr-filter-select" wire:model.live="docTypeId" aria-label="Document type">
+                    <option value="all">All Document Types</option>
+                    @foreach($docTypes as $type)
+                        <option value="{{ $type->id }}">{{ $type->doc_type_name }}</option>
+                    @endforeach
+                </select>
+                <button type="button" class="drr-btn-clear" wire:click="clearFilters" title="Reset filters">
+                    <i class="fa-solid fa-xmark"></i> Clear
+                </button>
+            </div>
+
+            <div class="drr-table-card">
+                <div class="drr-table-scroll" @if(count($list['rows']) === 0) style="display:none" @endif>
+                    <table class="drr-table">
+                        <thead>
+                            <tr>
+                                <th>Doc Type</th>
+                                <th>Title</th>
+                                <th>Document No.</th>
+                                <th>Latest rev</th>
+                                <th>Revisions</th>
+                                <th style="width:120px;">Review</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach($list['rows'] as $doc)
+                                <tr class="drr-row" wire:key="drr-row-{{ $doc['doc_no'] }}">
+                                    <td>
+                                        <span class="drr-type-badge">{{ $doc['doc_type'] }}</span>
+                                    </td>
+                                    <td class="drr-doc-title" title="{{ $doc['title'] }}">{{ $doc['title'] }}</td>
+                                    <td class="drr-doc-no">{{ $doc['doc_no'] }}</td>
+                                    <td><span class="drr-rev-pill">Rev {{ $doc['rev_no'] }}</span></td>
+                                    <td class="drr-rev-count">{{ $doc['rev_count'] }}</td>
+                                    <td>
+                                        <button type="button" class="drr-btn-review" wire:click="selectDocument(@js($doc['doc_no']))">
+                                            <i class="fa-solid fa-code-compare" aria-hidden="true"></i> Review
+                                        </button>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+                <div class="drr-empty" @if(count($list['rows']) > 0) style="display:none" @endif>
+                    <i class="fa-solid fa-folder-open" aria-hidden="true"></i>
+                    @if($list['filtered'])
+                        <p>No documents match these filters.</p>
+                        <span>Try another title or document number, or clear the filters.</span>
+                    @else
+                        <p>No documents are available to review.</p>
+                        <span>Register a document to start reviewing scanned masterlist copies.</span>
+                    @endif
+                </div>
+                <div class="drr-pagination" @if($list['total'] === 0) style="display:none" @endif>
+                    <div>Page {{ $list['current_page'] }} of {{ $list['last_page'] }} ({{ $list['total'] }} total)</div>
+                    <div class="drr-pagination-links">
+                        @if($list['current_page'] > 1)
+                            <button type="button" class="drr-pg" wire:click="goToPage({{ $list['current_page'] - 1 }})">Prev</button>
+                        @endif
+                        @if($list['current_page'] < $list['last_page'])
+                            <button type="button" class="drr-pg" wire:click="goToPage({{ $list['current_page'] + 1 }})">Next</button>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        </section>
     @else
         @php
             $reviewErrors = [
@@ -305,15 +359,17 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                 <div class="drr-latest-lock">
                     <span class="drr-info-label">Older (left)</span>
                     <div class="drr-latest-value">
-                        <i class="fa-solid fa-file-lines"></i>
+                        <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
                         {{ $compare['left_label'] ?? '—' }}
                     </div>
                 </div>
 
+                <div class="drr-pair-arrow" aria-hidden="true"><i class="fa-solid fa-arrow-right"></i></div>
+
                 <div class="drr-latest-lock">
                     <span class="drr-info-label">Newer (right)</span>
-                    <div class="drr-latest-value">
-                        <i class="fa-solid fa-file-lines"></i>
+                    <div class="drr-latest-value is-newer">
+                        <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
                         {{ $compare['right_label'] ?? '—' }}
                     </div>
                 </div>
@@ -418,4 +474,36 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
             @endif
         </div>
     @endif
+</div>
+
+{{-- Ad-hoc compare: two local PDFs, no registration required --}}
+<div class="drr-adhoc-overlay" id="drrAdhocModal" aria-hidden="true" hidden>
+    <div class="drr-adhoc-modal" role="dialog" aria-modal="true" aria-labelledby="drrAdhocModalTitle">
+        <div class="drr-adhoc-modal-head">
+            <h3 id="drrAdhocModalTitle"><i class="fa-solid fa-code-compare"></i> Compare two files</h3>
+            <button type="button" class="drr-adhoc-modal-close" id="drrAdhocClose" aria-label="Close">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="drr-adhoc-modal-body">
+            <div class="drr-legend drr-adhoc-legend">
+                <span class="drr-leg drr-leg-del">Removed</span>
+                <span class="drr-leg drr-leg-ins">Added</span>
+                <span class="drr-leg drr-leg-chg">Changed</span>
+            </div>
+            <div class="drr-scans" id="drr-adhoc-pdf-compare">
+                <div class="drr-scan is-changed">
+                    <div class="drr-scan-label" id="drrAdhocLeftLabel">Older / original</div>
+                    <div class="drr-pdf-stage" data-review-side="left"></div>
+                    <p class="drr-pdf-note" data-review-note="left"></p>
+                </div>
+                <div class="drr-scan is-changed">
+                    <div class="drr-scan-label" id="drrAdhocRightLabel">Newer / revised</div>
+                    <div class="drr-pdf-stage" data-review-side="right"></div>
+                    <p class="drr-pdf-note" data-review-note="right"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 </div>

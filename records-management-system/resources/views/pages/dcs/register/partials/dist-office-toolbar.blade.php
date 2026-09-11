@@ -10,7 +10,7 @@
         <button type="button" class="reg-dist-tool-btn" id="distMoveDownBtn" title="Move selected down" onclick="moveSelectedDistOffices(1)">
             <i class="fa-solid fa-arrow-down"></i> Down
         </button>
-        <button type="button" class="reg-dist-tool-btn reg-dist-tool-btn--accent" id="distSaveGroupBtn" title="Save selected offices as a reusable group" onclick="openSaveDistOfficeGroupModal()">
+        <button type="button" class="reg-dist-tool-btn reg-dist-tool-btn--accent" id="distSaveGroupBtn" title="Save current list as a reusable group" onclick="openSaveDistOfficeGroupModal()">
             <i class="fa-solid fa-floppy-disk"></i> Save group
         </button>
     </div>
@@ -31,7 +31,7 @@
             </button>
         </div>
         <div class="reg-modal-body">
-            <p class="reg-field-hint" style="margin-top:0;">Name the selected offices so you can reuse this group on the next registration.</p>
+            <p class="reg-field-hint" style="margin-top:0;">Name this distribution list so you can reuse it on the next registration.</p>
             <div class="reg-field">
                 <label for="distOfficeGroupName">Group name</label>
                 <input type="text" id="distOfficeGroupName" maxlength="120" placeholder="e.g. Academic cluster pack" autocomplete="off">

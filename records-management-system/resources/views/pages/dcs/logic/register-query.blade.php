@@ -5724,15 +5724,31 @@ class RegisterQueryHelper
         if (Schema::hasColumn('dcs_program_courses', 'course_code')) {
             $courseColumns[] = 'course_code';
         }
+        if (Schema::hasColumn('dcs_program_courses', 'year_level')) {
+            $courseColumns[] = 'year_level';
+        }
 
         $coursesByProgramSemester = [];
-        $coursesQ = DB::table('dcs_program_courses')->orderBy('course_name');
+        $coursesQ = DB::table('dcs_program_courses');
+        if (Schema::hasColumn('dcs_program_courses', 'year_level')) {
+            $coursesQ->orderByRaw("CASE year_level
+                WHEN '1st Year' THEN 1
+                WHEN '2nd Year' THEN 2
+                WHEN '3rd Year' THEN 3
+                WHEN '4th Year' THEN 4
+                WHEN '5th Year' THEN 5
+                ELSE 99 END");
+        }
+        $coursesQ->orderBy('course_name');
         SettingsRecycleHelper::applyNotDeleted($coursesQ, 'dcs_program_courses');
         foreach ($coursesQ->get($courseColumns) as $c) {
             $coursesByProgramSemester[$c->program_id . ':' . $c->semester_id][] = [
                 'id' => $c->id,
                 'course_name' => $c->course_name,
                 'course_code' => $c->course_code ?? '',
+                'year_level' => $c->year_level ?? '',
+                // Faculty is chosen during Syllabi / TOS-Rubrics registration (college-scoped).
+                'faculties' => [],
             ];
         }
 

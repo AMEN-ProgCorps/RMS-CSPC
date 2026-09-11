@@ -2077,6 +2077,12 @@ body.dash-cl-open {
     border-radius: 4px;
 }
 
+.ev-cat-color-hint {
+    font-size: 0.72rem;
+    color: var(--dash-text-muted);
+    line-height: 1.3;
+}
+
 .ev-cat-select-row {
     display: flex;
     align-items: center;

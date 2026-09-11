@@ -399,6 +399,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 return ($b['parent']['request_id'] ?? 0) <=> ($a['parent']['request_id'] ?? 0);
             })->values();
 
+            // Sequential # restarts for each document type (Internal 1..n, External 1..n, …).
+            $typeCounters = [];
+            $groups = $groups->map(function (array $group) use (&$typeCounters) {
+                $catName = (string) ($group['parent']['doc_type_name'] ?? 'Uncategorized');
+                $typeCounters[$catName] = ($typeCounters[$catName] ?? 0) + 1;
+                $group['type_seq'] = $typeCounters[$catName];
+
+                return $group;
+            })->values();
+
             $total = $groups->count();
             $perPage = 50;
             $lastPage = max(1, (int) ceil($total / $perPage));
@@ -1077,7 +1087,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             $r = $group['parent'];
                             $catName = $r['doc_type_name'] ?? 'Uncategorized';
                             $catSlug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $catName));
-                            $itemNo = (($list['page'] ?? 1) - 1) * ($list['per_page'] ?? 50) + $i + 1;
+                            $itemNo = (int) ($group['type_seq'] ?? ((($list['page'] ?? 1) - 1) * ($list['per_page'] ?? 50) + $i + 1));
                             $revKey = 'rev-' . $r['request_id'];
                         @endphp
 

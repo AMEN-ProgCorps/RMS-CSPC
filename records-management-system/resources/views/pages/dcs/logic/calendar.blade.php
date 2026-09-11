@@ -92,23 +92,37 @@ class CalendarHelper
     public static function updateCategory(Request $request, int $id): JsonResponse
     {
         RegisterQueryHelper::assertFullDcsUser('settings');
-        $category = DB::table('dcs_calendar_categories')->where('id', $id)->first();
-        if (! $category) {
+        $cat = DB::table('dcs_calendar_categories')->where('id', $id)->first();
+        if (!$cat) {
             abort(404);
         }
 
         $data = $request->validate([
             'color' => ['required', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'name' => 'nullable|string|max:80',
         ]);
 
-        $color = mb_strtolower(trim($data['color']));
-        DB::table('dcs_calendar_categories')->where('id', $id)->update([
-            'color' => $color,
+        $payload = [
+            'color' => mb_strtolower(trim($data['color'])),
             'updated_at' => now(),
-        ]);
+        ];
+
+        if (array_key_exists('name', $data) && trim((string) $data['name']) !== '') {
+            $name = trim($data['name']);
+            $exists = DB::table('dcs_calendar_categories')
+                ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+                ->where('id', '!=', $id)
+                ->exists();
+            if ($exists) {
+                throw ValidationException::withMessages(['name' => 'That category already exists.']);
+            }
+            $payload['name'] = $name;
+        }
+
+        DB::table('dcs_calendar_categories')->where('id', $id)->update($payload);
 
         RegisterPersistHelper::logAdminChange(
-            'Updated calendar category color — ' . $category->name . ' (' . $color . ')'
+            'Updated calendar category #' . $id . ' — ' . ($payload['name'] ?? $cat->name)
         );
 
         return response()->json(self::categoryRows()->firstWhere('id', $id));

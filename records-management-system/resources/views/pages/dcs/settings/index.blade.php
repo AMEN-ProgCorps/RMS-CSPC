@@ -27,10 +27,12 @@ new #[Layout('layouts.dcs')] class extends Component {
     public string $semesterId = '';
     public string $courseName = '';
     public string $courseCode = '';
-    public string $yearLevel = '';
-    public $originatorsCsv;
-    public $facultiesCsv;
-    public $coursesCsv;
+    public string $courseYearLevel = '';
+    /** @var list<array{code: string, name: string}> */
+    public array $courseRows = [
+        ['code' => '', 'name' => ''],
+    ];
+    public $csvFile = null;
 
     public string $deleteTitle = '';
     public string $deleteMessage = '';
@@ -48,9 +50,11 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->reset([
             'docTypeName', 'originatorName',
             'facultyName', 'collegeId', 'collegeName', 'officeId', 'programName', 'programCode',
-            'semesterName', 'schoolYear', 'programId', 'semesterId', 'courseName', 'courseCode', 'yearLevel',
+            'semesterName', 'schoolYear', 'programId', 'semesterId', 'courseName', 'courseCode', 'courseYearLevel',
             'deleteTitle', 'deleteMessage',
         ]);
+        $this->courseRows = [['code' => '', 'name' => '']];
+        $this->csvFile = null;
         $this->resetValidation();
         $this->dispatch('settings-close-modal');
     }
@@ -151,15 +155,57 @@ new #[Layout('layouts.dcs')] class extends Component {
     public function openProgramCourse(?int $id = null): void
     {
         $this->resetFormFor('programCourse', $id);
+        $this->courseRows = [['code' => '', 'name' => '']];
+        $this->courseName = '';
+        $this->courseCode = '';
         if ($id) {
             $row = DB::table('dcs_program_courses')->where('id', $id)->first();
             abort_unless($row, 404);
             $this->programId = (string) $row->program_id;
             $this->semesterId = (string) $row->semester_id;
+            $this->courseYearLevel = $row->year_level ?? '';
             $this->courseName = $row->course_name;
             $this->courseCode = $row->course_code ?? '';
-            $this->yearLevel = $row->year_level ?? '';
         }
+    }
+
+    public function addCourseRow(): void
+    {
+        $this->courseRows[] = ['code' => '', 'name' => ''];
+        $this->dispatch('settings-focus-last-course-row');
+    }
+
+    public function removeCourseRow(int $index): void
+    {
+        if (count($this->courseRows) <= 1) {
+            $this->courseRows = [['code' => '', 'name' => '']];
+            return;
+        }
+        unset($this->courseRows[$index]);
+        $this->courseRows = array_values($this->courseRows);
+    }
+
+    public function openImportOriginators(): void
+    {
+        abort_unless(Schema::hasTable('dcs_originators'), 404);
+        $this->csvFile = null;
+        $this->resetFormFor('importOriginators', null);
+    }
+
+    public function openImportFaculties(): void
+    {
+        $this->csvFile = null;
+        $this->resetFormFor('importFaculties', null);
+    }
+
+    public function runCsvImport(): void
+    {
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
+        match ($this->modalKind) {
+            'importOriginators' => $this->importOriginatorsFromCsv(),
+            'importFaculties' => $this->importFacultiesFromCsv(),
+            default => null,
+        };
     }
 
     public function confirmDelete(string $kind, int $id, string $title, string $message): void
@@ -203,132 +249,6 @@ new #[Layout('layouts.dcs')] class extends Component {
             'programCourse' => $this->destroyProgramCourse($id),
             default => null,
         };
-    }
-
-    public function importOriginators(): void { $this->importCsv('originators', 'originatorsCsv'); }
-    public function importFaculties(): void { $this->importCsv('faculties', 'facultiesCsv'); }
-    public function importCourses(): void { $this->importCsv('courses', 'coursesCsv'); }
-
-    private function importCsv(string $type, string $property): void
-    {
-        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('settings');
-        $this->validate([$property => 'required|file|mimes:csv,txt|max:2048']);
-
-        try {
-            $rows = $this->csvRows($this->{$property}->getRealPath());
-            if ($rows === []) throw new \RuntimeException('The CSV contains no data rows.');
-            [$records, $skipped] = match ($type) {
-                'originators' => $this->originatorRows($rows),
-                'faculties' => $this->facultyRows($rows),
-                'courses' => $this->courseRows($rows),
-            };
-            DB::transaction(function () use ($type, $records): void {
-                $table = ['originators' => 'dcs_originators', 'faculties' => 'dcs_faculties', 'courses' => 'dcs_program_courses'][$type];
-                foreach ($records as $record) DB::table($table)->insert($record);
-            });
-            $this->reset($property);
-            $label = ['originators' => 'originator(s)', 'faculties' => 'faculty member(s)', 'courses' => 'course(s)'][$type];
-            $this->flashToast(count($records) . " {$label} imported" . ($skipped ? "; {$skipped} duplicate row(s) skipped." : '.'), 'success');
-            \App\Helpers\RegisterPersistHelper::logAdminChange("DCS settings: imported " . count($records) . " {$type} from CSV.");
-        } catch (\Throwable $e) {
-            report($e);
-            $this->addError($property, $e->getMessage());
-            $this->flashToast('CSV import was not completed. Please correct the file and try again.', 'error');
-        }
-    }
-
-    private function csvRows(string $path): array
-    {
-        $file = fopen($path, 'r');
-        if (! $file || ! ($header = fgetcsv($file))) throw new \RuntimeException('The CSV must include a header row.');
-        $headers = array_map(fn ($value) => strtolower(trim(preg_replace('/[^a-z0-9]+/i', '_', preg_replace('/^\xEF\xBB\xBF/', '', (string) $value)), '_')), $header);
-        if (in_array('', $headers, true) || count($headers) !== count(array_unique($headers))) throw new \RuntimeException('CSV headers must be present and unique.');
-        $rows = []; $line = 1;
-        while (($values = fgetcsv($file)) !== false) {
-            $line++;
-            if (count($values) === 1 && trim((string) $values[0]) === '') continue;
-            if (count($values) !== count($headers)) throw new \RuntimeException("Row {$line} has an incorrect number of columns.");
-            $row = array_combine($headers, array_map(fn ($value) => trim((string) $value), $values));
-            $row['_line'] = $line;
-            $rows[] = $row;
-        }
-        fclose($file);
-        return $rows;
-    }
-
-    private function requiredColumns(array $rows, array $columns): void
-    {
-        foreach ($columns as $column) if (! array_key_exists($column, $rows[0])) throw new \RuntimeException("CSV is missing required column: {$column}.");
-    }
-
-    private function originatorRows(array $rows): array
-    {
-        if (! Schema::hasTable('dcs_originators')) throw new \RuntimeException('Originators table is not available. Run pending migrations.');
-        $this->requiredColumns($rows, ['originator_name']);
-        $known = DB::table('dcs_originators')->pluck('originator_name')->mapWithKeys(fn ($name) => [mb_strtolower(trim($name)) => true])->all();
-        $records = []; $skipped = 0;
-        foreach ($rows as $row) {
-            $name = $row['originator_name'];
-            if ($name === '' || mb_strlen($name) > 255) throw new \RuntimeException("Row {$row['_line']}: originator_name is required (maximum 255 characters).");
-            $key = mb_strtolower($name);
-            if (isset($known[$key])) { $skipped++; continue; }
-            $known[$key] = true; $records[] = ['originator_name' => $name];
-        }
-        return [$records, $skipped];
-    }
-
-    private function facultyRows(array $rows): array
-    {
-        $this->requiredColumns($rows, ['college', 'faculty_name']);
-        $collegeMap = $this->lookup(DB::table('dcs_colleges')->get(['id', 'college_name', 'college_code']), 'college_name', 'college_code');
-        $known = DB::table('dcs_faculties')->get(['faculty_name', 'college_id'])->mapWithKeys(fn ($item) => [mb_strtolower(trim($item->faculty_name)) . '|' . ($item->college_id ?? '') => true])->all();
-        $records = []; $skipped = 0;
-        foreach ($rows as $row) {
-            if ($row['faculty_name'] === '' || mb_strlen($row['faculty_name']) > 255) throw new \RuntimeException("Row {$row['_line']}: faculty_name is required (maximum 255 characters).");
-            $collegeId = $row['college'] === '' ? null : ($collegeMap[mb_strtolower($row['college'])] ?? null);
-            if ($row['college'] !== '' && ! $collegeId) throw new \RuntimeException("Row {$row['_line']}: college '{$row['college']}' was not found.");
-            $key = mb_strtolower($row['faculty_name']) . '|' . ($collegeId ?? '');
-            if (isset($known[$key])) { $skipped++; continue; }
-            $known[$key] = true; $records[] = ['faculty_name' => $row['faculty_name'], 'college_id' => $collegeId];
-        }
-        return [$records, $skipped];
-    }
-
-    private function courseRows(array $rows): array
-    {
-        if (! Schema::hasColumn('dcs_program_courses', 'year_level')) throw new \RuntimeException('Year Level is not available yet. Run the pending course migration first.');
-        $hasCode = Schema::hasColumn('dcs_program_courses', 'course_code');
-        $this->requiredColumns($rows, array_merge(['college', 'program', 'semester', 'year_level', 'course_name'], $hasCode ? ['course_code'] : []));
-        $colleges = $this->lookup(DB::table('dcs_colleges')->get(['id', 'college_name', 'college_code']), 'college_name', 'college_code');
-        $semesters = $this->lookup(DB::table('dcs_semesters')->get(['id', 'semester_name']), 'semester_name');
-        $programs = DB::table('dcs_programs')->get(['id', 'college_id', 'program_name', 'program_code']);
-        $columns = ['program_id', 'semester_id', 'year_level', 'course_name']; if ($hasCode) $columns[] = 'course_code';
-        $current = DB::table('dcs_program_courses')->get($columns);
-        $names = $current->mapWithKeys(fn ($item) => [$item->program_id . '|' . $item->semester_id . '|' . mb_strtolower((string) $item->year_level) . '|' . mb_strtolower($item->course_name) => true])->all();
-        $codes = $hasCode ? $current->mapWithKeys(fn ($item) => [$item->program_id . '|' . $item->semester_id . '|' . mb_strtolower((string) $item->year_level) . '|' . mb_strtolower($item->course_code) => true])->all() : [];
-        $levels = ['1st year', '2nd year', '3rd year', '4th year', '5th year']; $records = []; $skipped = 0;
-        foreach ($rows as $row) {
-            $collegeId = $colleges[mb_strtolower($row['college'])] ?? null; $semesterId = $semesters[mb_strtolower($row['semester'])] ?? null;
-            $program = $programs->first(fn ($item) => (int) $item->college_id === (int) $collegeId && in_array(mb_strtolower($row['program']), [mb_strtolower($item->program_name), mb_strtolower((string) $item->program_code)], true));
-            $level = mb_strtolower($row['year_level']);
-            if (! $collegeId || ! $semesterId || ! $program) throw new \RuntimeException("Row {$row['_line']}: college, program, or semester was not found.");
-            if (! in_array($level, $levels, true)) throw new \RuntimeException("Row {$row['_line']}: year_level must be 1st Year through 5th Year.");
-            if ($row['course_name'] === '' || mb_strlen($row['course_name']) > 255) throw new \RuntimeException("Row {$row['_line']}: course_name is required (maximum 255 characters).");
-            if ($hasCode && ($row['course_code'] === '' || mb_strlen($row['course_code']) > 50)) throw new \RuntimeException("Row {$row['_line']}: course_code is required (maximum 50 characters).");
-            $base = $program->id . '|' . $semesterId . '|' . $level . '|'; $nameKey = $base . mb_strtolower($row['course_name']); $codeKey = $hasCode ? $base . mb_strtolower($row['course_code']) : null;
-            if (isset($names[$nameKey]) || ($hasCode && isset($codes[$codeKey]))) { $skipped++; continue; }
-            $names[$nameKey] = true; if ($hasCode) $codes[$codeKey] = true;
-            $record = ['program_id' => $program->id, 'semester_id' => $semesterId, 'year_level' => ucwords($level), 'course_name' => $row['course_name']];
-            if ($hasCode) $record['course_code'] = $row['course_code']; $records[] = $record;
-        }
-        return [$records, $skipped];
-    }
-
-    private function lookup(\Illuminate\Support\Collection $items, string ...$fields): array
-    {
-        $result = [];
-        foreach ($items as $item) foreach ($fields as $field) if (! empty($item->{$field})) $result[mb_strtolower(trim($item->{$field}))] = $item->id;
-        return $result;
     }
 
     private function saveDocType(): void
@@ -422,6 +342,174 @@ new #[Layout('layouts.dcs')] class extends Component {
 
         DB::table('dcs_faculties')->insert($payload);
         $this->done('Faculty added.');
+    }
+
+    private function importOriginatorsFromCsv(): void
+    {
+        if (! Schema::hasTable('dcs_originators')) {
+            $this->fail('Originators table is not available. Run pending migrations.');
+            return;
+        }
+
+        $this->validate([
+            'csvFile' => 'required|file|mimes:csv,txt|max:2048',
+        ], [
+            'csvFile.required' => 'Please choose a CSV file.',
+            'csvFile.mimes' => 'Upload a .csv file.',
+        ]);
+
+        $rows = $this->readCsvRows($this->csvFile->getRealPath());
+        if ($rows === []) {
+            $this->fail('The CSV file is empty.');
+            return;
+        }
+
+        $added = 0;
+        $skipped = 0;
+        foreach ($rows as $cols) {
+            $name = trim((string) ($cols[0] ?? ''));
+            if ($name === '' || $this->isCsvHeaderValue($name, ['originator', 'originator_name', 'name'])) {
+                continue;
+            }
+            if (mb_strlen($name) > 255) {
+                $skipped++;
+                continue;
+            }
+            $existsQ = DB::table('dcs_originators')->where('originator_name', $name);
+            \App\Helpers\SettingsRecycleHelper::applyNotDeleted($existsQ, 'dcs_originators');
+            if ($existsQ->exists()) {
+                $skipped++;
+                continue;
+            }
+            DB::table('dcs_originators')->insert([
+                'originator_name' => $name,
+            ]);
+            $added++;
+        }
+
+        if ($added === 0 && $skipped === 0) {
+            $this->fail('No originator names found in the CSV.');
+            return;
+        }
+
+        $this->csvFile = null;
+        $this->done($this->csvImportSummary('originator', $added, $skipped));
+    }
+
+    private function importFacultiesFromCsv(): void
+    {
+        $this->validate([
+            'csvFile' => 'required|file|mimes:csv,txt|max:2048',
+        ], [
+            'csvFile.required' => 'Please choose a CSV file.',
+            'csvFile.mimes' => 'Upload a .csv file.',
+        ]);
+
+        $rows = $this->readCsvRows($this->csvFile->getRealPath());
+        if ($rows === []) {
+            $this->fail('The CSV file is empty.');
+            return;
+        }
+
+        $collegeMap = [];
+        $collegesQ = DB::table('dcs_colleges')->select('id', 'college_name');
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($collegesQ, 'dcs_colleges');
+        foreach ($collegesQ->get() as $college) {
+            $collegeMap[mb_strtolower(trim($college->college_name))] = (int) $college->id;
+        }
+
+        $added = 0;
+        $skipped = 0;
+        foreach ($rows as $cols) {
+            $name = trim((string) ($cols[0] ?? ''));
+            $collegeName = trim((string) ($cols[1] ?? ''));
+            if ($name === '' || $this->isCsvHeaderValue($name, ['faculty', 'faculty_name', 'name'])) {
+                continue;
+            }
+            if (mb_strlen($name) > 255) {
+                $skipped++;
+                continue;
+            }
+
+            $collegeId = null;
+            if ($collegeName !== '' && ! $this->isCsvHeaderValue($collegeName, ['college', 'college_name'])) {
+                $collegeId = $collegeMap[mb_strtolower($collegeName)] ?? null;
+                if ($collegeId === null) {
+                    $skipped++;
+                    continue;
+                }
+            }
+
+            $existsQ = DB::table('dcs_faculties')
+                ->where('faculty_name', $name)
+                ->where('college_id', $collegeId);
+            \App\Helpers\SettingsRecycleHelper::applyNotDeleted($existsQ, 'dcs_faculties');
+            if ($existsQ->exists()) {
+                $skipped++;
+                continue;
+            }
+
+            try {
+                DB::table('dcs_faculties')->insert([
+                    'faculty_name' => $name,
+                    'college_id' => $collegeId,
+                ]);
+                $added++;
+            } catch (\Throwable) {
+                $skipped++;
+            }
+        }
+
+        if ($added === 0 && $skipped === 0) {
+            $this->fail('No faculty names found in the CSV.');
+            return;
+        }
+
+        $this->csvFile = null;
+        $this->done($this->csvImportSummary('faculty', $added, $skipped));
+    }
+
+    /** @return list<list<string>> */
+    private function readCsvRows(string $path): array
+    {
+        $handle = fopen($path, 'r');
+        if ($handle === false) {
+            return [];
+        }
+
+        $rows = [];
+        while (($data = fgetcsv($handle)) !== false) {
+            if (! is_array($data)) {
+                continue;
+            }
+            $cols = array_map(fn ($v) => trim((string) $v), $data);
+            if (count(array_filter($cols, fn ($v) => $v !== '')) === 0) {
+                continue;
+            }
+            $rows[] = $cols;
+        }
+        fclose($handle);
+
+        return $rows;
+    }
+
+    /** @param list<string> $headers */
+    private function isCsvHeaderValue(string $value, array $headers): bool
+    {
+        $normalized = mb_strtolower(str_replace([' ', '-'], '_', $value));
+
+        return in_array($normalized, $headers, true);
+    }
+
+    private function csvImportSummary(string $singular, int $added, int $skipped): string
+    {
+        $plural = $singular === 'faculty' ? 'faculties' : ($singular . 's');
+        $msg = $added === 1 ? "1 {$singular} imported." : "{$added} {$plural} imported.";
+        if ($skipped > 0) {
+            $msg .= " {$skipped} skipped (duplicate, unknown college, or invalid).";
+        }
+
+        return $msg;
     }
 
     private function saveCollege(): void
@@ -553,63 +641,210 @@ new #[Layout('layouts.dcs')] class extends Component {
     private function saveProgramCourse(): void
     {
         $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
+        $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
 
+        if ($this->editingId) {
+            $this->saveSingleProgramCourse($hasCourseCode, $hasYearLevel);
+            return;
+        }
+
+        $this->saveBulkProgramCourses($hasCourseCode, $hasYearLevel);
+    }
+
+    private function saveSingleProgramCourse(bool $hasCourseCode, bool $hasYearLevel): void
+    {
         $rules = [
             'programId' => 'required|integer|exists:dcs_programs,id',
             'semesterId' => 'required|integer|exists:dcs_semesters,id',
             'courseName' => 'required|string|max:255',
-            'yearLevel' => 'required|string|max:50',
         ];
+        if ($hasYearLevel) {
+            $rules['courseYearLevel'] = 'required|string|max:50|in:1st Year,2nd Year,3rd Year,4th Year,5th Year';
+        }
         if ($hasCourseCode) {
             $rules['courseCode'] = 'required|string|max:50';
         }
         $this->validate($rules);
 
-        $existsQ = DB::table('dcs_program_courses')
-            ->where('program_id', (int) $this->programId)
-            ->where('semester_id', (int) $this->semesterId)
-            ->where('course_name', $this->courseName)
-            ->where('year_level', $this->yearLevel)
-            ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId));
-        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($existsQ, 'dcs_program_courses');
-        if ($existsQ->exists()) {
+        $yearLevel = $hasYearLevel ? $this->courseYearLevel : null;
+
+        if ($this->programCourseNameTaken((int) $this->programId, (int) $this->semesterId, $this->courseName, $yearLevel, $hasYearLevel, (int) $this->editingId)) {
             $this->fail('This course is already listed for the selected program, semester, and year level.');
             return;
         }
 
-        if ($hasCourseCode) {
-            $codeExistsQ = DB::table('dcs_program_courses')
-                ->where('program_id', (int) $this->programId)
-                ->where('semester_id', (int) $this->semesterId)
-                ->where('course_code', $this->courseCode)
-                ->where('year_level', $this->yearLevel)
-                ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId));
-            \App\Helpers\SettingsRecycleHelper::applyNotDeleted($codeExistsQ, 'dcs_program_courses');
-            if ($codeExistsQ->exists()) {
-                $this->fail('This course code is already used for the selected program, semester, and year level.');
-                return;
-            }
+        if ($hasCourseCode && $this->programCourseCodeTaken((int) $this->programId, (int) $this->semesterId, $this->courseCode, $yearLevel, $hasYearLevel, (int) $this->editingId)) {
+            $this->fail('This course code is already used for the selected program, semester, and year level.');
+            return;
         }
 
         $payload = [
             'program_id' => (int) $this->programId,
             'semester_id' => (int) $this->semesterId,
             'course_name' => $this->courseName,
-            'year_level' => $this->yearLevel,
         ];
+        if ($hasYearLevel) {
+            $payload['year_level'] = $yearLevel;
+        }
         if ($hasCourseCode) {
             $payload['course_code'] = $this->courseCode;
         }
 
-        if ($this->editingId) {
-            $courseId = (int) $this->editingId;
-            DB::table('dcs_program_courses')->where('id', $courseId)->update($payload);
-            $this->done('Course updated.');
+        DB::table('dcs_program_courses')->where('id', (int) $this->editingId)->update($payload);
+        $this->done('Course updated.');
+    }
+
+    private function saveBulkProgramCourses(bool $hasCourseCode, bool $hasYearLevel): void
+    {
+        $rules = [
+            'programId' => 'required|integer|exists:dcs_programs,id',
+            'semesterId' => 'required|integer|exists:dcs_semesters,id',
+            'courseRows' => 'required|array|min:1',
+            'courseRows.*.name' => 'nullable|string|max:255',
+            'courseRows.*.code' => 'nullable|string|max:50',
+        ];
+        if ($hasYearLevel) {
+            $rules['courseYearLevel'] = 'required|string|max:50|in:1st Year,2nd Year,3rd Year,4th Year,5th Year';
+        }
+        $this->validate($rules);
+
+        $yearLevel = $hasYearLevel ? $this->courseYearLevel : null;
+        $programId = (int) $this->programId;
+        $semesterId = (int) $this->semesterId;
+
+        $entries = [];
+        foreach ($this->courseRows as $i => $row) {
+            $name = trim((string) ($row['name'] ?? ''));
+            $code = trim((string) ($row['code'] ?? ''));
+            if ($name === '' && $code === '') {
+                continue;
+            }
+            if ($name === '') {
+                $this->addError("courseRows.{$i}.name", 'Course name is required.');
+                continue;
+            }
+            if ($hasCourseCode && $code === '') {
+                $this->addError("courseRows.{$i}.code", 'Course code is required.');
+                continue;
+            }
+            $entries[] = ['index' => $i, 'name' => $name, 'code' => $code];
+        }
+
+        if ($this->getErrorBag()->isNotEmpty()) {
             return;
         }
 
-        DB::table('dcs_program_courses')->insertGetId($payload);
-        $this->done('Course added.');
+        if ($entries === []) {
+            $this->addError('courseRows.0.name', 'Add at least one course.');
+            return;
+        }
+
+        $seenNames = [];
+        $seenCodes = [];
+        foreach ($entries as $entry) {
+            $nameKey = mb_strtolower($entry['name']);
+            if (isset($seenNames[$nameKey])) {
+                $this->addError("courseRows.{$entry['index']}.name", 'Duplicate course name in this list.');
+                continue;
+            }
+            $seenNames[$nameKey] = true;
+
+            if ($hasCourseCode) {
+                $codeKey = mb_strtolower($entry['code']);
+                if (isset($seenCodes[$codeKey])) {
+                    $this->addError("courseRows.{$entry['index']}.code", 'Duplicate course code in this list.');
+                    continue;
+                }
+                $seenCodes[$codeKey] = true;
+            }
+        }
+
+        if ($this->getErrorBag()->isNotEmpty()) {
+            return;
+        }
+
+        foreach ($entries as $entry) {
+            if ($this->programCourseNameTaken($programId, $semesterId, $entry['name'], $yearLevel, $hasYearLevel)) {
+                $this->addError("courseRows.{$entry['index']}.name", 'Already listed for this program, semester, and year level.');
+            }
+            if ($hasCourseCode && $this->programCourseCodeTaken($programId, $semesterId, $entry['code'], $yearLevel, $hasYearLevel)) {
+                $this->addError("courseRows.{$entry['index']}.code", 'Code already used for this program, semester, and year level.');
+            }
+        }
+
+        if ($this->getErrorBag()->isNotEmpty()) {
+            return;
+        }
+
+        $now = now();
+        foreach ($entries as $entry) {
+            $payload = [
+                'program_id' => $programId,
+                'semester_id' => $semesterId,
+                'course_name' => $entry['name'],
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+            if ($hasYearLevel) {
+                $payload['year_level'] = $yearLevel;
+            }
+            if ($hasCourseCode) {
+                $payload['course_code'] = $entry['code'];
+            }
+            DB::table('dcs_program_courses')->insert($payload);
+        }
+
+        $count = count($entries);
+        $this->courseRows = [['code' => '', 'name' => '']];
+        $this->resetValidation();
+        \App\Helpers\RegisterPersistHelper::logAdminChange(
+            'DCS settings: ' . ($count === 1 ? 'Course added.' : "{$count} courses added.")
+        );
+        $this->flashToast(
+            $count === 1
+                ? 'Course added. Keep going or close when finished.'
+                : "{$count} courses added. Keep going or close when finished.",
+            'success'
+        );
+        $this->dispatch('settings-focus-course-row');
+    }
+
+    private function programCourseNameTaken(
+        int $programId,
+        int $semesterId,
+        string $courseName,
+        ?string $yearLevel,
+        bool $hasYearLevel,
+        ?int $exceptId = null
+    ): bool {
+        $q = DB::table('dcs_program_courses')
+            ->where('program_id', $programId)
+            ->where('semester_id', $semesterId)
+            ->where('course_name', $courseName)
+            ->when($hasYearLevel, fn ($query) => $query->where('year_level', $yearLevel))
+            ->when($exceptId, fn ($query) => $query->where('id', '!=', $exceptId));
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($q, 'dcs_program_courses');
+
+        return $q->exists();
+    }
+
+    private function programCourseCodeTaken(
+        int $programId,
+        int $semesterId,
+        string $courseCode,
+        ?string $yearLevel,
+        bool $hasYearLevel,
+        ?int $exceptId = null
+    ): bool {
+        $q = DB::table('dcs_program_courses')
+            ->where('program_id', $programId)
+            ->where('semester_id', $semesterId)
+            ->where('course_code', $courseCode)
+            ->when($hasYearLevel, fn ($query) => $query->where('year_level', $yearLevel))
+            ->when($exceptId, fn ($query) => $query->where('id', '!=', $exceptId));
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($q, 'dcs_program_courses');
+
+        return $q->exists();
     }
 
     private function destroyDocType(int $id): void
@@ -820,7 +1055,11 @@ new #[Layout('layouts.dcs')] class extends Component {
         $programs = $programsQ->get(['p.id', 'p.college_id', 'p.program_name', 'p.program_code', 'c.college_name']);
 
         $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
-        $courseCols = ['pc.id', 'pc.program_id', 'pc.semester_id', 'pc.course_name', 'pc.year_level', 'p.program_name', 'c.college_name', 's.semester_name'];
+        $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
+        $courseCols = ['pc.id', 'pc.program_id', 'pc.semester_id', 'pc.course_name', 'p.program_name', 'c.college_name', 's.semester_name'];
+        if ($hasYearLevel) {
+            $courseCols[] = 'pc.year_level';
+        }
         if ($hasCourseCode) {
             $courseCols[] = 'pc.course_code';
         }
@@ -829,7 +1068,11 @@ new #[Layout('layouts.dcs')] class extends Component {
             ->leftJoin('dcs_programs as p', 'p.id', '=', 'pc.program_id')
             ->leftJoin('dcs_colleges as c', 'c.id', '=', 'p.college_id')
             ->leftJoin('dcs_semesters as s', 's.id', '=', 'pc.semester_id')
-            ->orderBy('pc.program_id')->orderBy('pc.year_level')->orderBy('pc.semester_id')->orderBy('pc.course_name');
+            ->orderBy('pc.program_id')->orderBy('pc.semester_id');
+        if ($hasYearLevel) {
+            $programCoursesQ->orderBy('pc.year_level');
+        }
+        $programCoursesQ->orderBy('pc.course_name');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($programCoursesQ, 'dcs_program_courses', 'pc');
         $programCourses = $programCoursesQ->get($courseCols);
 
@@ -947,6 +1190,11 @@ new #[Layout('layouts.dcs')] class extends Component {
     }"
     @settings-open-modal.window="openUi()"
     @settings-close-modal.window="closeUi()"
+    @settings-focus-course-row.window="$nextTick(() => document.querySelector('[data-course-first-input]')?.focus())"
+    @settings-focus-last-course-row.window="$nextTick(() => {
+        const rows = document.querySelectorAll('.st-course-row:not(.st-course-row-head) .st-input');
+        rows[rows.length - 2]?.focus();
+    })"
     @keydown.escape.window="if (modalOpen) dismiss()"
 >
 <main class="settings-main">
@@ -961,7 +1209,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         @foreach ([
             'doctypes' => ['fa-tags', 'Document Types'],
             'originators' => ['fa-user-pen', 'Originators'],
-            'faculties' => ['fa-chalkboard-user', 'Faculties'],
+            'faculties' => ['fa-chalkboard-user', 'Faculty'],
             'colleges' => ['fa-graduation-cap', 'Colleges'],
             'programs' => ['fa-book-open', 'Programs'],
             'semesters' => ['fa-calendar-week', 'Semesters'],
@@ -1014,15 +1262,10 @@ new #[Layout('layouts.dcs')] class extends Component {
         <div class="panel-toolbar">
             <span class="panel-subtitle">Manage document originators (authors/creators)</span>
             <div class="panel-actions">
-                <form class="csv-import" wire:submit.prevent="importOriginators">
-                    <label class="csv-file"><i class="fa-solid fa-file-csv"></i><span>Choose CSV</span><input type="file" wire:model="originatorsCsv" accept=".csv,text/csv"></label>
-                    <button type="submit" class="btn-secondary" wire:loading.attr="disabled" wire:target="originatorsCsv,importOriginators">Import</button>
-                </form>
+                <button type="button" class="btn-secondary" wire:click="openImportOriginators()"><i class="fa-solid fa-file-csv"></i> Import CSV</button>
                 <button type="button" class="btn-primary" wire:click="openOriginator()"><i class="fa-solid fa-plus"></i> Add Originator</button>
             </div>
         </div>
-        <p class="csv-help">CSV columns: <code>originator_name</code></p>
-        @error('originatorsCsv') <div class="field-error csv-error">{{ $message }}</div> @enderror
         <div class="table-wrap">
             <table class="settings-table">
                 <thead><tr><th>Originator Name</th><th style="width:140px;">Actions</th></tr></thead>
@@ -1049,15 +1292,10 @@ new #[Layout('layouts.dcs')] class extends Component {
         <div class="panel-toolbar">
             <span class="panel-subtitle">Manage faculty members per college</span>
             <div class="panel-actions">
-                <form class="csv-import" wire:submit.prevent="importFaculties">
-                    <label class="csv-file"><i class="fa-solid fa-file-csv"></i><span>Choose CSV</span><input type="file" wire:model="facultiesCsv" accept=".csv,text/csv"></label>
-                    <button type="submit" class="btn-secondary" wire:loading.attr="disabled" wire:target="facultiesCsv,importFaculties">Import</button>
-                </form>
+                <button type="button" class="btn-secondary" wire:click="openImportFaculties()"><i class="fa-solid fa-file-csv"></i> Import CSV</button>
                 <button type="button" class="btn-primary" wire:click="openFaculty()"><i class="fa-solid fa-plus"></i> Add Faculty</button>
             </div>
         </div>
-        <p class="csv-help">CSV columns: <code>college</code>, <code>faculty_name</code>. College name or code is accepted; leave it blank for no college.</p>
-        @error('facultiesCsv') <div class="field-error csv-error">{{ $message }}</div> @enderror
         <div class="table-wrap">
             <table class="settings-table">
                 <thead><tr><th>College</th><th>Faculty Name</th><th style="width:140px;">Actions</th></tr></thead>
@@ -1213,27 +1451,19 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     <section class="tab-panel" x-show="tab === 'coursenames'" x-cloak>
         <div class="panel-toolbar">
-            <span class="panel-subtitle">Curriculum course list per program and semester — used to auto-fill Syllabi/TOS-Rubrics registration</span>
-            <div class="panel-actions">
-                <form class="csv-import" wire:submit.prevent="importCourses">
-                    <label class="csv-file"><i class="fa-solid fa-file-csv"></i><span>Choose CSV</span><input type="file" wire:model="coursesCsv" accept=".csv,text/csv"></label>
-                    <button type="submit" class="btn-secondary" wire:loading.attr="disabled" wire:target="coursesCsv,importCourses">Import</button>
-                </form>
-                <button type="button" class="btn-primary" wire:click="openProgramCourse()"><i class="fa-solid fa-plus"></i> Add Course</button>
-            </div>
+            <span class="panel-subtitle">Curriculum course list per program, semester, and year level — used to auto-fill Syllabi/TOS-Rubrics registration. Faculty is assigned during registration.</span>
+            <button type="button" class="btn-primary" wire:click="openProgramCourse()"><i class="fa-solid fa-plus"></i> Add Course</button>
         </div>
-        <p class="csv-help">CSV columns: <code>college</code>, <code>program</code>, <code>semester</code>, <code>year_level</code>, <code>course_code</code>, <code>course_name</code>. College/program can use their name or code.</p>
-        @error('coursesCsv') <div class="field-error csv-error">{{ $message }}</div> @enderror
         <div class="table-wrap">
             <table class="settings-table">
-                <thead><tr><th>College</th><th>Program</th><th>Year Level</th><th>Semester</th><th>Course Code</th><th>Course Name</th><th style="width:140px;">Actions</th></tr></thead>
+                <thead><tr><th>College</th><th>Program</th><th>Semester</th><th>Year Level</th><th>Course Code</th><th>Course Name</th><th style="width:140px;">Actions</th></tr></thead>
                 <tbody>
                     @forelse($programCourses as $course)
                         <tr wire:key="pc-{{ $course->id }}" data-id="{{ $course->id }}">
                             <td data-label="College">{{ $course->college_name ?? '—' }}</td>
                             <td data-label="Program">{{ $course->program_name ?? '—' }}</td>
-                            <td data-label="Year Level">{{ $course->year_level ?? '—' }}</td>
                             <td data-label="Semester">{{ $course->semester_name ?? '—' }}</td>
+                            <td data-label="Year Level">{{ $course->year_level ?? '—' }}</td>
                             <td data-label="Code">{{ $course->course_code ?: '—' }}</td>
                             <td data-label="Course Name">{{ $course->course_name }}</td>
                             <td>
@@ -1244,7 +1474,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="8" class="empty-cell">No courses yet.</td></tr>
+                        <tr><td colspan="7" class="empty-cell">No courses yet.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -1253,7 +1483,7 @@ new #[Layout('layouts.dcs')] class extends Component {
 </main>
 
 <div class="overlay" id="settingsOverlay" x-show="modalOpen" x-cloak x-transition.opacity @click.self="dismiss()">
-    <div class="modal" id="settingsModalBox" @click.stop>
+    <div class="modal{{ $modalKind === 'programCourse' ? ' modal--courses' : '' }}" id="settingsModalBox" @click.stop>
         @if(str_ends_with($modalKind, ':delete'))
             <div class="st-modal delete-modal">
                 <div class="st-modal-top">
@@ -1270,24 +1500,40 @@ new #[Layout('layouts.dcs')] class extends Component {
                 </div>
             </div>
         @else
-            <form class="st-modal" wire:submit.prevent="save">
+            <form class="st-modal" wire:submit.prevent="{{ str_starts_with($modalKind, 'import') ? 'runCsvImport' : 'save' }}">
                 <div class="st-modal-top">
-                    <div class="st-modal-icon"><i class="fa-solid fa-pen-to-square"></i></div>
+                    <div class="st-modal-icon"><i class="fa-solid {{ str_starts_with($modalKind, 'import') ? 'fa-file-csv' : 'fa-pen-to-square' }}"></i></div>
                     <button type="button" class="st-modal-close" @click="dismiss()"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 <div class="st-modal-title">
                     @if($modalKind === 'docType') {{ $editingId ? 'Edit Document Type' : ($parentId ? 'Add Sub-type' : 'Add Document Type') }}
                     @elseif($modalKind === 'originator') {{ $editingId ? 'Edit Originator' : 'Add Originator' }}
                     @elseif($modalKind === 'faculty') {{ $editingId ? 'Edit Faculty' : 'Add Faculty' }}
+                    @elseif($modalKind === 'importOriginators') Import Originators (CSV)
+                    @elseif($modalKind === 'importFaculties') Import Faculties (CSV)
                     @elseif($modalKind === 'college') {{ $editingId ? 'Edit College' : 'Add College' }}
                     @elseif($modalKind === 'program') {{ $editingId ? 'Edit Program' : 'Add Program' }}
                     @elseif($modalKind === 'semester') {{ $editingId ? 'Edit Semester' : 'Add Semester' }}
                     @elseif($modalKind === 'schoolYear') {{ $editingId ? 'Edit School Year' : 'Add School Year' }}
-                    @elseif($modalKind === 'programCourse') {{ $editingId ? 'Edit Course' : 'Add Course' }}
+                    @elseif($modalKind === 'programCourse') {{ $editingId ? 'Edit Course' : 'Add Courses' }}
                     @endif
                 </div>
 
-                @if($modalKind === 'docType')
+                @if($modalKind === 'importOriginators' || $modalKind === 'importFaculties')
+                    <p class="csv-help">
+                        @if($modalKind === 'importOriginators')
+                            One originator name per line. Optional header: <code>originator_name</code>
+                        @else
+                            Columns: <code>faculty_name,college_name</code>. College must match an existing college name. Optional header row is fine.
+                        @endif
+                    </p>
+                    <div class="st-field">
+                        <label class="st-label">CSV File</label>
+                        <input type="file" class="st-input @error('csvFile') error @enderror" wire:model="csvFile" accept=".csv,text/csv">
+                        @error('csvFile') <div class="field-error csv-error">{{ $message }}</div> @enderror
+                        <div wire:loading wire:target="csvFile" class="st-faculty-hint">Uploading…</div>
+                    </div>
+                @elseif($modalKind === 'docType')
                     <div class="st-field">
                         <label class="st-label">Name</label>
                         <input type="text" class="st-input @error('docTypeName') error @enderror" wire:model="docTypeName" placeholder="e.g. Internal, Syllabi">
@@ -1368,7 +1614,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                 @elseif($modalKind === 'programCourse')
                     <div class="st-field">
                         <label class="st-label">Program</label>
-                        <select class="st-input @error('programId') error @enderror" wire:model.live="programId">
+                        <select class="st-input @error('programId') error @enderror" wire:model="programId">
                             <option value="">Select program</option>
                             @foreach($programs as $prog)
                                 <option value="{{ $prog->id }}">{{ $prog->college_name }} — {{ $prog->program_name }}</option>
@@ -1388,7 +1634,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                     </div>
                     <div class="st-field">
                         <label class="st-label">Year Level</label>
-                        <select class="st-input @error('yearLevel') error @enderror" wire:model="yearLevel">
+                        <select class="st-input @error('courseYearLevel') error @enderror" wire:model="courseYearLevel">
                             <option value="">Select year level</option>
                             <option value="1st Year">1st Year</option>
                             <option value="2nd Year">2nd Year</option>
@@ -1396,24 +1642,84 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <option value="4th Year">4th Year</option>
                             <option value="5th Year">5th Year</option>
                         </select>
-                        @error('yearLevel') <div class="field-error">{{ $message }}</div> @enderror
+                        @error('courseYearLevel') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
-                    <div class="st-field">
-                        <label class="st-label">Course Code</label>
-                        <input type="text" class="st-input @error('courseCode') error @enderror" wire:model="courseCode" placeholder="e.g. CS 101">
-                        @error('courseCode') <div class="field-error">{{ $message }}</div> @enderror
-                    </div>
-                    <div class="st-field">
-                        <label class="st-label">Course Name</label>
-                        <input type="text" class="st-input @error('courseName') error @enderror" wire:model="courseName">
-                        @error('courseName') <div class="field-error">{{ $message }}</div> @enderror
-                    </div>
+
+                    @if($editingId)
+                        <div class="st-field">
+                            <label class="st-label">Course Code</label>
+                            <input type="text" class="st-input @error('courseCode') error @enderror" wire:model="courseCode" placeholder="e.g. CS 101">
+                            @error('courseCode') <div class="field-error">{{ $message }}</div> @enderror
+                        </div>
+                        <div class="st-field">
+                            <label class="st-label">Course Name</label>
+                            <input type="text" class="st-input @error('courseName') error @enderror" wire:model="courseName">
+                            @error('courseName') <div class="field-error">{{ $message }}</div> @enderror
+                        </div>
+                    @else
+                        <div class="st-field">
+                            <label class="st-label">Courses</label>
+                            <p class="st-faculty-hint" style="margin-top:0;">Set program, semester, and year level once, then add as many courses as you need.</p>
+                            <div class="st-course-rows">
+                                <div class="st-course-row st-course-row-head">
+                                    <span>Code</span>
+                                    <span>Course name</span>
+                                    <span></span>
+                                </div>
+                                @foreach($courseRows as $i => $row)
+                                    <div class="st-course-row" wire:key="course-row-{{ $i }}">
+                                        <div>
+                                            <input
+                                                type="text"
+                                                class="st-input @error('courseRows.'.$i.'.code') error @enderror"
+                                                wire:model="courseRows.{{ $i }}.code"
+                                                placeholder="e.g. CS 101"
+                                                @if($i === 0) data-course-first-input @endif
+                                            >
+                                            @error('courseRows.'.$i.'.code') <div class="field-error">{{ $message }}</div> @enderror
+                                        </div>
+                                        <div>
+                                            <input
+                                                type="text"
+                                                class="st-input @error('courseRows.'.$i.'.name') error @enderror"
+                                                wire:model="courseRows.{{ $i }}.name"
+                                                placeholder="Course name"
+                                                wire:keydown.enter.prevent="addCourseRow"
+                                            >
+                                            @error('courseRows.'.$i.'.name') <div class="field-error">{{ $message }}</div> @enderror
+                                        </div>
+                                        <button
+                                            type="button"
+                                            class="icon-btn icon-btn-danger"
+                                            title="Remove row"
+                                            wire:click="removeCourseRow({{ $i }})"
+                                            @disabled(count($courseRows) <= 1)
+                                        >
+                                            <i class="fa-solid fa-trash"></i>
+                                        </button>
+                                    </div>
+                                @endforeach
+                            </div>
+                            <button type="button" class="st-add-row-btn" wire:click="addCourseRow">
+                                <i class="fa-solid fa-plus"></i> Add another course
+                            </button>
+                            @error('courseRows') <div class="field-error">{{ $message }}</div> @enderror
+                        </div>
+                    @endif
+                    <p class="st-faculty-hint">Faculty is selected when registering Syllabi or TOS/Rubrics for a college.</p>
                 @endif
 
                 <div class="st-actions-row">
-                    <button type="button" class="st-btn st-btn-ghost" @click="dismiss()">Cancel</button>
+                    <button type="button" class="st-btn st-btn-ghost" @click="dismiss()">{{ $modalKind === 'programCourse' && ! $editingId ? 'Done' : 'Cancel' }}</button>
                     <button type="submit" class="st-btn st-btn-primary" wire:loading.attr="disabled">
-                        <i class="fa-solid fa-check"></i> Save
+                        <i class="fa-solid fa-check"></i>
+                        @if(str_starts_with($modalKind, 'import'))
+                            Import
+                        @elseif($modalKind === 'programCourse' && ! $editingId)
+                            Save courses
+                        @else
+                            Save
+                        @endif
                     </button>
                 </div>
             </form>
@@ -1422,3 +1728,4 @@ new #[Layout('layouts.dcs')] class extends Component {
 </div>
 
 </div>
+

@@ -107,21 +107,19 @@
         const table = document.querySelector('#distBody')?.closest('table');
         if (!table) return;
         const headRow = table.querySelector('thead tr');
-        if (!headRow) return;
-        if (!headRow.querySelector('.reg-dist-check-head')) {
-            const th = document.createElement('th');
-            th.className = 'reg-dist-check-head';
-            th.style.width = '36px';
-            th.innerHTML = '<input type="checkbox" id="distSelectAllHeader" title="Select all" onchange="toggleSelectAllDistOffices()">';
-            headRow.insertBefore(th, headRow.firstElementChild);
-            const footRow = table.querySelector('tfoot tr');
-            if (footRow && !footRow.querySelector('.reg-dist-check-foot')) {
-                const td = document.createElement('td');
-                td.className = 'reg-dist-check-foot';
-                footRow.insertBefore(td, footRow.firstElementChild);
-            }
+        if (!headRow || headRow.querySelector('.reg-dist-check-head')) return;
+        const th = document.createElement('th');
+        th.className = 'reg-dist-check-head';
+        th.style.width = '36px';
+        th.innerHTML = '<input type="checkbox" id="distSelectAllHeader" title="Select all" onchange="toggleSelectAllDistOffices()">';
+        headRow.insertBefore(th, headRow.firstElementChild);
+        const footRow = table.querySelector('tfoot tr');
+        if (footRow && !footRow.querySelector('.reg-dist-check-foot')) {
+            const td = document.createElement('td');
+            td.className = 'reg-dist-check-foot';
+            footRow.insertBefore(td, footRow.firstElementChild);
         }
-        // Upgrade every existing or newly added distribution row with a checkbox.
+        // Existing edit rows may lack checkbox cells — upgrade them.
         getDistRows().forEach((tr) => {
             if (tr.querySelector('.dist-office-check')) return;
             const first = tr.firstElementChild;
@@ -228,8 +226,8 @@
     };
 
     window.openSaveDistOfficeGroupModal = function () {
-        if (!getSelectedDistRows().length) {
-            alert('Select one or more distribution offices before saving a group.');
+        if (!getDistRows().length) {
+            alert('Add offices to the distribution list before saving a group.');
             return;
         }
         const modal = document.getElementById('distOfficeGroupModal');
@@ -264,14 +262,14 @@
             showErr('Enter a group name.');
             return;
         }
-        const offices = getSelectedDistRows().map((tr) => {
+        const offices = getDistRows().map((tr) => {
             const id = tr.querySelector('input[name="distOffice[]"]')?.value;
             const copies = tr.querySelector('input[name="distCopies[]"]')?.value || 1;
             return { office_id: Number(id), copies: Number(copies) || 1 };
         }).filter((o) => o.office_id > 0);
 
         if (!offices.length) {
-            showErr('Select at least one office.');
+            showErr('Add at least one office.');
             return;
         }
 

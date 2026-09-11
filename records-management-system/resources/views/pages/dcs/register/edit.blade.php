@@ -58,7 +58,7 @@ window.__registerCatalog = @json($catalog);
             <div>
                 <div class="reg-breadcrumb">Document Control System / Update / <span>Edit</span></div>
                 <div style="display:flex; align-items:center; gap:12px;">
-                    <div class="reg-title">Edit Document #{{ $docRequest->id }}</div>
+                    <div class="reg-title">{{ trim((string) ($masterlist->doc_no ?? '')) !== '' ? $masterlist->doc_no : 'Document #' . $docRequest->id }}</div>
                     <span class="edit-badge"><i class="fa-solid fa-pen"></i> Editing</span>
                 </div>
             </div>
@@ -180,13 +180,13 @@ window.__registerCatalog = @json($catalog);
                                 <thead>
                                     <tr>
                                         <th class="col-pinned">Course Name</th>
-                                        <th class="col-pinned">Course Code</th>
-                                        <th class="col-step1" id="syllabiAvailabilityHeader">Syllabi Availability</th>
-                                        <th class="col-step1">No. Copies</th>
+                                        <th class="col-pinned col-code">Course Code</th>
+                                        <th class="col-step1 col-avail" id="syllabiAvailabilityHeader">Syllabi Availability</th>
+                                        <th class="col-step1 col-copies">No. Copies</th>
                                         <th class="col-shared">Faculty</th>
-                                        <th class="col-step1">No. Pages</th>
-                                        <th class="col-step1">Date Received</th>
-                                        <th class="col-step1">Time Received</th>
+                                        <th class="col-step1 col-pages">No. Pages</th>
+                                        <th class="col-step1 col-date">Date Received</th>
+                                        <th class="col-step1 col-time">Time Received</th>
 
                                         <th class="col-step2">DRF Availability</th>
                                         <th class="col-step2">DRF No.</th>
@@ -194,7 +194,7 @@ window.__registerCatalog = @json($catalog);
                                         <th class="col-step2">DRF Received Date</th>
                                         <th class="col-step2">Scanned DRF</th>
 
-                                        <th class="col-pinned"></th>
+                                        <th class="col-pinned col-actions"></th>
                                     </tr>
                                 </thead>
                                 <tbody id="syllabiTableBody"></tbody>
@@ -419,20 +419,18 @@ window.__registerCatalog = @json($catalog);
             <!-- ═══ APPROVAL (before Masterlist) ═══ -->
             <section class="reg-card reg-approval-bar" id="section-approval-toggle" style="display: {{ $masterlist ? 'block' : 'none' }};">
                 <div class="reg-card-body reg-approval-bar-body">
-                    <div class="reg-approval-toggle {{ $docRequest->approval_status ? 'is-locked' : '' }}">
+                    <div class="reg-approval-toggle">
                         <span class="reg-toggle-label">Approval</span>
                         <div class="reg-toggle-options">
                             <label class="reg-radio">
                                 <input type="radio" name="approval_status" value="applicable"
                                     {{ $docRequest->approval_status === 'applicable' ? 'checked' : '' }}
-                                    disabled
                                     onchange="handleApprovalToggle(true)">
                                 <span>Applicable</span>
                             </label>
                             <label class="reg-radio">
                                 <input type="radio" name="approval_status" value="not_applicable"
                                     {{ $docRequest->approval_status !== 'applicable' ? 'checked' : '' }}
-                                    disabled
                                     onchange="handleApprovalToggle(false)">
                                 <span>Not Applicable</span>
                             </label>
@@ -442,7 +440,7 @@ window.__registerCatalog = @json($catalog);
             </section>
 
             <!-- ═══ APPROVAL ═══ -->
-            <section class="reg-card" id="section-approval" style="display: {{ $approval ? 'block' : 'none' }};">
+            <section class="reg-card" id="section-approval" style="display: {{ ($approval || ($docRequest->approval_status ?? '') === 'applicable') ? 'block' : 'none' }};">
                 <div class="reg-card-header">
                     <span>Approval Details</span>
                 </div>
@@ -450,17 +448,17 @@ window.__registerCatalog = @json($catalog);
                     <div class="reg-grid-3">
                         <div class="reg-field">
                             <label>Approving Body</label>
-                            <select id="approvalBody" name="approvalBody" autocomplete="off" disabled>
+                            <select id="approvalBody" name="approvalBody" autocomplete="off">
                                 <option value="" selected disabled>Select approving body</option>
                             </select>
                         </div>
                         <div class="reg-field">
                             <label>Approval Date</label>
-                            <input type="date" id="approvalDate" name="approvalDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($approval->approval_date ?? '') }}" disabled>
+                            <input type="date" id="approvalDate" name="approvalDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($approval->approval_date ?? '') }}">
                         </div>
                         <div class="reg-field">
                             <label>Approval No.</label>
-                            <input type="text" id="approvalNo" name="approvalNo" placeholder="Approval number" value="{{ $approval->approval_no ?? '' }}" disabled>
+                            <input type="text" id="approvalNo" name="approvalNo" placeholder="Approval number" value="{{ $approval->approval_no ?? '' }}">
                         </div>
                     </div>
                 </div>
@@ -622,22 +620,17 @@ window.__registerCatalog = @json($catalog);
                                 <div class="reg-field">
                                     <label>Retrieval Form Date</label>
                                     <div class="reg-dual">
-                                        <input type="date" id="retrievalFormDate" name="retrievalFormDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($retrieval->doc_retrieval_date_file ?? '') }}" oninput="calcRetrievalTimeSpent()">
-                                        <input type="time" id="retrievalFormTime" name="retrievalFormTime" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($retrieval->doc_retrieval_time_file ?? '') }}" oninput="calcRetrievalTimeSpent()">
+                                        <input type="date" id="retrievalFormDate" name="retrievalFormDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($retrieval->doc_retrieval_date_file ?? '') }}">
+                                        <input type="time" id="retrievalFormTime" name="retrievalFormTime" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($retrieval->doc_retrieval_time_file ?? '') }}">
                                     </div>
                                 </div>
                                 <div class="reg-field">
                                     <label>Retrieval Date & Time</label>
                                     <div class="reg-dual">
-                                        <input type="date" id="retrievalDate" name="retrievalDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($retrieval->doc_retrieval_date_actual ?? '') }}" oninput="calcRetrievalTimeSpent()">
-                                        <input type="time" id="retrievalTime" name="retrievalTime" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($retrieval->doc_retrieval_time_actual ?? '') }}" oninput="calcRetrievalTimeSpent()">
+                                        <input type="date" id="retrievalDate" name="retrievalDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($retrieval->doc_retrieval_date_actual ?? '') }}">
+                                        <input type="time" id="retrievalTime" name="retrievalTime" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($retrieval->doc_retrieval_time_actual ?? '') }}">
                                     </div>
                                 </div>
-                            </div>
-                            <div class="reg-field">
-                                <label>Time Spent/Minute(s)</label>
-                                <input type="text" id="retrievalTimeSpentDisplay" readonly placeholder="--" style="background: #f8fafc; cursor: default;">
-                                <input type="hidden" id="retrievalTimeSpent" name="retrievalTimeSpent">
                             </div>
                         </div>
                         <div class="reg-field">
@@ -1566,7 +1559,11 @@ document.addEventListener("DOMContentLoaded", async function () {
         initDocNoLookup(revField);
         wireSyllabiMasterlistSync();
         wireApprovalDeadlineSync();
-        lockApprovalForEdit();
+        enableApproval();
+        const applicableOnLoad = document.querySelector('input[name="approval_status"][value="applicable"]');
+        if (typeof window.handleApprovalToggle === 'function') {
+            window.handleApprovalToggle(!!applicableOnLoad?.checked);
+        }
 
         // ── Auto-copy DRF title to Masterlist title ──
         const drfTitle = document.getElementById('drfTitle');
@@ -3720,17 +3717,18 @@ function wireApprovalDeadlineSync() {
 }
 
 function enableApproval() {
-    // Edit page: approval is always locked (view-only).
-    lockApprovalForEdit();
+    document.querySelectorAll('input[name="approval_status"]').forEach(r => {
+        r.disabled = false;
+    });
+    ['approvalBody', 'approvalDate', 'approvalNo'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = false;
+    });
+    const toggle = document.querySelector('.reg-approval-toggle');
+    if (toggle) toggle.classList.remove('is-locked');
 }
 
 function disableApproval() {
-    // Keep current Applicable / Not Applicable — do not force Not Applicable on edit.
-    lockApprovalForEdit();
-}
-
-/** Lock approval radios + details on edit; preserve saved values. */
-function lockApprovalForEdit() {
     document.querySelectorAll('input[name="approval_status"]').forEach(r => {
         r.disabled = true;
     });
@@ -3738,8 +3736,10 @@ function lockApprovalForEdit() {
         const el = document.getElementById(id);
         if (el) el.disabled = true;
     });
-    const toggle = document.querySelector('.reg-approval-toggle');
-    if (toggle) toggle.classList.add('is-locked');
+    const approval = document.getElementById("section-approval");
+    if (approval) approval.style.display = "none";
+    const toggleBar = document.getElementById("section-approval-toggle");
+    if (toggleBar) toggleBar.style.display = "none";
 }
 
 // ══════════════════════════════════════════════
@@ -3814,6 +3814,7 @@ async function autoPopulateSyllabiCourses() {
             if (codeInput) {
                 codeInput.value = c.course_code || '';
             }
+            // Faculty is selected by the user for the chosen college — not prefilled from courses.
             cascadeDrfToNewRow(newRow);
             syncSyllabiMergedFields(groupId);
             syncSyllabiAvailability(groupId);
@@ -4585,8 +4586,8 @@ window.syncSyllabiDrfRow = function (tr) {
 
 function buildSyllabiPerRowCells(uid) {
     return `
-        <td class="col-step1"><input type="date" name="syllabiDateReceived[]" oninput="cascadeSyllabiReceived(this, 'syllabiDateReceived[]')"></td>
-        <td class="col-step1"><input type="time" name="syllabiTimeReceived[]" oninput="cascadeSyllabiReceived(this, 'syllabiTimeReceived[]')"></td>
+        <td class="col-step1 col-date"><input type="date" name="syllabiDateReceived[]" oninput="cascadeSyllabiReceived(this, 'syllabiDateReceived[]')"></td>
+        <td class="col-step1 col-time"><input type="time" name="syllabiTimeReceived[]" oninput="cascadeSyllabiReceived(this, 'syllabiTimeReceived[]')"></td>
 
         <td class="col-step2 syllabi-check-cell">
             <input type="hidden" name="syllabiDrfAvailability[]" value="not available" class="syllabi-hidden-toggle">
@@ -4881,28 +4882,28 @@ function buildSyllabiGroupFirstRow(groupId, rowspan) {
                 class="syllabi-merged-course"
                 oninput="syncSyllabiMergedFields('${groupId}'); autosizeSyllabiCourse(this);"></textarea>
         </td>
-        <td class="col-pinned" rowspan="${rowspan}">
+        <td class="col-pinned col-code" rowspan="${rowspan}">
             <input type="text" name="syllabiCourseCode[]" placeholder="e.g. CS 101"
                 class="syllabi-merged-code"
                 oninput="syncSyllabiMergedFields('${groupId}')">
         </td>
-        <td class="col-step1" rowspan="${rowspan}">
+        <td class="col-step1 col-avail" rowspan="${rowspan}">
             <input type="hidden" name="syllabiAvailability[]" value="not available" class="syllabi-merged-availability-hidden">
             <label class="reg-checkbox-wrap">
                 <input type="checkbox" class="syllabi-merged-availability" onchange="syncSyllabiMergedFields('${groupId}'); syncSyllabiAvailability('${groupId}')">
             </label>
         </td>
-        <td class="col-step1" rowspan="${rowspan}">
+        <td class="col-step1 col-copies" rowspan="${rowspan}">
             <input type="number" name="syllabiCopies[]" min="1" value="${rowspan}"
                 class="syllabi-merged-copies" oninput="handleCopiesChange(this)">
         </td>
         ${buildSyllabiFacultyTd(uid)}
-        <td class="col-step1" rowspan="${rowspan}">
+        <td class="col-step1 col-pages" rowspan="${rowspan}">
             <input type="number" name="syllabiNoPages[]" min="0" placeholder="0"
                 class="syllabi-merged-pages" oninput="syncSyllabiMergedFields('${groupId}')">
         </td>
         ${buildSyllabiPerRowCells(uid)}
-        <td class="col-pinned" rowspan="${rowspan}">
+        <td class="col-pinned col-actions" rowspan="${rowspan}">
             <button type="button" class="reg-row-del" onclick="removeSyllabiGroup('${groupId}')" title="Remove course">
                 <i class="fa-solid fa-trash-can"></i>
             </button>
@@ -5130,7 +5131,6 @@ window.generateDistributionTemplate = function () {
 
     const params = new URLSearchParams();
     params.set('date', document.getElementById('distributionDate')?.value || '');
-    params.set('template_id', '0');
     params.set('document_title', docTitle);
     params.set('effectivity_date', effectivityDate);
     params.set('revision_no', revisionNo);
@@ -5385,9 +5385,16 @@ function validateTimeSpentFields(errors) {
         }
     }
     if (sectionVisible("section-4")) {
-        const ret = document.getElementById("retrievalTimeSpentDisplay");
-        if (ret && ret.value === "Invalid") {
+        const duration = computeDuration(
+            document.getElementById("retrievalFormDate")?.value,
+            document.getElementById("retrievalFormTime")?.value,
+            document.getElementById("retrievalDate")?.value,
+            document.getElementById("retrievalTime")?.value
+        );
+        if (duration && duration.invalid) {
             errors.push({ field: "retrievalDate", message: "Retrieval: Retrieval Date must be after Form Date." });
+            ["retrievalFormDate", "retrievalFormTime", "retrievalDate", "retrievalTime"]
+                .forEach(id => document.getElementById(id)?.classList.add("reg-input-error"));
         }
     }
     if (sectionVisible("section-5")) {
@@ -5898,7 +5905,6 @@ function buildRetrievalReview(reviewContent) {
     addReviewSection(reviewContent, "Document Retrieval", [
         { label: "Form Date", value: formatInputDate("retrievalFormDate") + " " + getInputVal("retrievalFormTime") },
         { label: "Retrieval Date", value: formatInputDate("retrievalDate") + " " + getInputVal("retrievalTime") },
-        { label: "Time Spent", value: document.getElementById("retrievalTimeSpentDisplay")?.value || null },
         { label: "Remarks", value: getInputVal("retrievalRemarks") },
         { label: "File", value: f && f.length > 0 ? f[0].name : null, isFile: true },
     ]);

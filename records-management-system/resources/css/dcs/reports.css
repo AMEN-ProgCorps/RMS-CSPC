@@ -257,13 +257,13 @@ body {
     justify-content: center;
     min-height: 36px;
     padding: 8px 16px;
-    border: 1.5px solid var(--rpt-border);
+    border: 1.5px solid #C7D2FE;
     border-radius: var(--rpt-radius);
     font-family: inherit;
     font-size: 0.78rem;
     font-weight: 600;
-    color: var(--rpt-text);
-    background: var(--rpt-bg);
+    color: #043899;
+    background: #EEF2FF;
     cursor: pointer;
     white-space: nowrap;
     flex-shrink: 0;
@@ -271,9 +271,9 @@ body {
     transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
 .rpt-sub:hover {
-    background: var(--rpt-border-light);
-    border-color: #cbd5e1;
-    color: var(--rpt-text);
+    background: #E0E7FF;
+    border-color: #A5B4FC;
+    color: #043899;
     transform: translateY(-1px);
     box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
 }

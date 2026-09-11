@@ -90,21 +90,22 @@ body {
     left: 14px;
     top: 50%;
     transform: translateY(-50%);
-    color: var(--st-text-subtle);
+    color: #64748b;
     font-size: 0.82rem;
     pointer-events: none;
     transition: color 0.2s;
+    z-index: 1;
 }
 
 .st-search {
     width: 100%;
     height: 44px;
-    border: 1.5px solid var(--st-border);
+    border: 1.5px solid #94a3b8;
     border-radius: var(--st-radius-sm);
     padding: 0 14px 0 40px;
     font-size: 0.85rem;
-    color: var(--st-text);
-    background: var(--st-surface);
+    color: #0f172a;
+    background: #ffffff;
     outline: none;
     transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -121,18 +122,18 @@ body {
 
 .st-filter {
     height: 44px;
-    border: 1.5px solid var(--st-border);
+    border: 1.5px solid #94a3b8;
     border-radius: var(--st-radius-sm);
     padding: 0 14px;
     font-size: 0.85rem;
-    color: var(--st-text);
-    background: var(--st-surface);
+    color: #0f172a;
+    background-color: #ffffff;
     outline: none;
     cursor: pointer;
     min-width: 190px;
     transition: border-color 0.2s;
     appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 12px center;
     padding-right: 32px;
@@ -143,10 +144,10 @@ body {
 .st-btn-clear {
     height: 44px;
     padding: 0 20px;
-    border: 1.5px solid var(--st-border);
+    border: 1.5px solid #94a3b8;
     border-radius: var(--st-radius-sm);
-    background: var(--st-surface);
-    color: var(--st-text-muted);
+    background: #ffffff;
+    color: #334155;
     font-size: 0.85rem;
     font-weight: 600;
     cursor: pointer;
@@ -158,8 +159,8 @@ body {
 
 .st-btn-clear:hover {
     background: #f1f5f9;
-    color: var(--st-text);
-    border-color: #cbd5e1;
+    color: #0f172a;
+    border-color: #64748b;
 }
 
 /* ═══════════════════════════════════════════

@@ -99,27 +99,27 @@ body {
 .db-type-grid { display: flex; gap: 6px; flex-wrap: wrap; }
 .db-type-btn {
     height: 34px; padding: 0 14px;
-    border: 1px solid var(--db-border); border-radius: var(--db-radius);
-    background: var(--db-white); color: var(--db-text-sec);
+    border: 1.5px solid #94a3b8; border-radius: var(--db-radius);
+    background: #ffffff; color: #334155;
     font-size: 12px; font-weight: 600;
     cursor: pointer; transition: all 0.15s; letter-spacing: 0.03em;
 }
-.db-type-btn:hover { border-color: var(--db-border-hover); background: var(--db-bg); }
+.db-type-btn:hover { border-color: #64748b; background: #f8fafc; color: #0f172a; }
 .db-type-btn.active { background: var(--db-primary); color: #fff; border-color: var(--db-primary); }
 
 .db-controls-right { display: flex; align-items: center; gap: 8px; }
 .db-search-wrap { position: relative; width: 240px; }
-.db-search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--db-text-muted); pointer-events: none; }
+.db-search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b; pointer-events: none; z-index: 1; }
 .db-search-wrap input {
     width: 100%; height: 34px; padding: 0 12px 0 32px;
-    border: 1px solid var(--db-border); border-radius: var(--db-radius);
-    font-size: 13px; color: var(--db-text); background: var(--db-white);
+    border: 1.5px solid #94a3b8; border-radius: var(--db-radius);
+    font-size: 13px; color: #0f172a; background: #ffffff;
     transition: border-color 0.2s;
 }
 .db-search-wrap input:focus {
     outline: none;
     border-color: var(--db-accent);
-    box-shadow: 0 0 0 3px rgba(13, 42, 122, 0.08);
+    box-shadow: 0 0 0 3px rgba(13, 42, 122, 0.12);
 }
 
 .db-search-wrap input::placeholder { color: var(--db-text-muted); }
@@ -127,14 +127,14 @@ body {
 .db-filter-btn, .db-export-btn, .db-collapse-btn {
     display: inline-flex; align-items: center; gap: 6px;
     height: 34px; min-width: 100px; padding: 0 14px;
-    border: 1px solid var(--db-border); border-radius: var(--db-radius);
-    background: var(--db-white); color: var(--db-text-sec);
+    border: 1.5px solid #94a3b8; border-radius: var(--db-radius);
+    background: #ffffff; color: #334155;
     font-size: 12px; font-weight: 600;
     cursor: pointer; transition: all 0.15s;
     justify-content: center; flex-shrink: 0; white-space: nowrap;
 }
 .db-filter-btn:hover, .db-export-btn:hover, .db-collapse-btn:hover {
-    border-color: var(--db-border-hover); background: var(--db-bg);
+    border-color: #64748b; background: #f8fafc; color: #0f172a;
 }
 .db-collapse-btn.is-collapsed {
     background: var(--db-accent-light);

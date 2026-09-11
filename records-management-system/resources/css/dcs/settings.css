@@ -565,6 +565,10 @@ body {
     animation: modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.modal.modal--courses {
+    width: min(780px, 96vw);
+}
+
 .st-modal {
     padding: clamp(18px, 3vw, 24px);
 }
@@ -665,6 +669,59 @@ body {
     margin: 0;
     font-size: 0.82rem;
     color: var(--set-text-muted);
+}
+
+.st-course-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: min(40vh, 320px);
+    overflow-y: auto;
+    padding-right: 2px;
+    margin-top: 8px;
+}
+
+.st-course-row {
+    display: grid;
+    grid-template-columns: minmax(100px, 0.55fr) minmax(240px, 2.4fr) 36px;
+    gap: 8px;
+    align-items: start;
+}
+
+.st-course-row-head {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--set-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0 2px;
+}
+
+.st-course-row .st-input {
+    padding: 10px 12px;
+}
+
+.st-course-row .icon-btn {
+    margin-top: 4px;
+}
+
+.st-add-row-btn {
+    margin-top: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    background: transparent;
+    color: var(--set-accent);
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 4px 0;
+}
+
+.st-add-row-btn:hover {
+    text-decoration: underline;
 }
 
 .st-faculty-picks {

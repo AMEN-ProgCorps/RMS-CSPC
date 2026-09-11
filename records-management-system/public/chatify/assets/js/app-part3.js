@@ -4125,6 +4125,16 @@
       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS
 
     messageInput.addEventListener('keydown', function(e) {
+      if (imageStagingModal && imageStagingModal.classList.contains('active')) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (imageStagingSendBtn && !imageStagingSendBtn.disabled) {
+            imageStagingSendBtn.click();
+          }
+        }
+        return;
+      }
       if (e.key === 'Enter' && !e.shiftKey && !isMobileInputDevice) {
         e.preventDefault();
         document.getElementById('sendButton').click();
@@ -4579,6 +4589,13 @@
         imageStagingModal.style.display = 'flex';
         imageStagingModal.classList.add('active');
         imageStagingModal.setAttribute('aria-hidden', 'false');
+        if (imageStagingSendBtn) {
+          setTimeout(function() {
+            if (imageStagingSendBtn && !imageStagingSendBtn.disabled) {
+              imageStagingSendBtn.focus();
+            }
+          }, 50);
+        }
       }
     }
 
@@ -4624,6 +4641,23 @@
         closeImageStagingModal(true);
       });
     }
+
+    // Keyboard shortcut: Press Enter to send files while imageStagingModal is open, Esc to cancel
+    document.addEventListener('keydown', function(e) {
+      if (!imageStagingModal || !imageStagingModal.classList.contains('active')) return;
+
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (imageStagingSendBtn && !imageStagingSendBtn.disabled) {
+          imageStagingSendBtn.click();
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeImageStagingModal(true);
+      }
+    }, true);
 
     if (imageStagingFileInput) {
       imageStagingFileInput.addEventListener('change', function() {

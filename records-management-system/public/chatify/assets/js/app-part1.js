@@ -2210,17 +2210,84 @@
       });
     }
 
+    // ── Auto-linkify URLs inside message text ──
+    const URL_REGEX = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
+
+    function linkifyContent(contentEl) {
+      if (!contentEl || contentEl.dataset.linkified === '1') return;
+      contentEl.dataset.linkified = '1';
+
+      const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT, null);
+      const textNodes = [];
+      let node;
+      while ((node = walker.nextNode())) {
+        if (node.parentElement && node.parentElement.closest('a')) continue;
+        textNodes.push(node);
+      }
+
+      textNodes.forEach(function(textNode) {
+        const text = textNode.nodeValue;
+        URL_REGEX.lastIndex = 0;
+        if (!URL_REGEX.test(text)) return;
+        URL_REGEX.lastIndex = 0;
+
+        const frag = document.createDocumentFragment();
+        let lastIndex = 0;
+        let match;
+        while ((match = URL_REGEX.exec(text)) !== null) {
+          let url = match[0];
+          const trailingPunct = /[.,:;!?'")\]}]+$/;
+          const trimmedMatch = trailingPunct.exec(url);
+          let trailing = '';
+          if (trimmedMatch) {
+            trailing = trimmedMatch[0];
+            url = url.slice(0, url.length - trailing.length);
+          }
+          if (!url) continue;
+
+          const start = match.index;
+          frag.appendChild(document.createTextNode(text.slice(lastIndex, start)));
+
+          const a = document.createElement('a');
+          a.href = /^https?:\/\//i.test(url) ? url : 'https://' + url;
+          a.textContent = url;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.className = 'chat-link';
+          frag.appendChild(a);
+
+          if (trailing) {
+            frag.appendChild(document.createTextNode(trailing));
+          }
+          lastIndex = start + match[0].length;
+        }
+
+        if (lastIndex < text.length) {
+          frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+        }
+
+        if (textNode.parentNode) {
+          textNode.parentNode.replaceChild(frag, textNode);
+        }
+      });
+    }
+    window.linkifyContent = linkifyContent;
+
     // ── Modal shown when tapping "Read more..." on a long chat message ──
     // Renders the complete message (with clickable links) — used for both
     // Global Chat and Private (DM) chat, since both feed the same bubbles.
     function openReadMoreModal(fullText) {
       if (!readMoreModal || !readMoreModalBody) return;
+      const prevST = chatBox ? chatBox.scrollTop : null;
       readMoreModalBody.textContent = fullText || '';
       delete readMoreModalBody.dataset.linkified; // allow re-linkifying on every open
       linkifyContent(readMoreModalBody);
       readMoreModal.classList.add('active');
       readMoreModal.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
+      if (chatBox && prevST !== null && Math.abs(chatBox.scrollTop - prevST) > 0) {
+        chatBox.scrollTop = prevST;
+      }
     }
 
     function closeReadMoreModal() {
@@ -2290,14 +2357,23 @@
       link.setAttribute('role', 'button');
       link.setAttribute('tabindex', '0');
       link.addEventListener('click', function(e) {
+        e.preventDefault();
         e.stopPropagation();
+        const savedST = chatBox ? chatBox.scrollTop : null;
         openReadMoreModal(contentEl.dataset.fullText || '');
+        if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
+          chatBox.scrollTop = savedST;
+        }
       });
       link.addEventListener('keydown', function(e) {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           e.stopPropagation();
+          const savedST = chatBox ? chatBox.scrollTop : null;
           openReadMoreModal(contentEl.dataset.fullText || '');
+          if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
+            chatBox.scrollTop = savedST;
+          }
         }
       });
       contentEl.appendChild(link);
@@ -2422,6 +2498,8 @@
     // Messenger-style "Seen" indicator: shown under the newest message WE sent
     // that the other participant has actually read (dmReadUpTo).
     function updateSeenIndicator() {
+      if (!chatBox) return;
+
       // Resolve the effective readUpTo: use dmReadUpTo if set, otherwise check
       // dmReadUpToMap directly.
       let effectiveReadUpTo = dmReadUpTo;
@@ -2429,15 +2507,23 @@
         effectiveReadUpTo = dmReadUpToMap.get(activeDM);
       }
 
+      const existing = chatBox.querySelector('.seen-indicator');
+
       if (!effectiveReadUpTo || !activeDM || isGlobalChat) {
-        const existing = chatBox ? chatBox.querySelector('.seen-indicator') : null;
-        if (existing) existing.remove();
+        if (existing) {
+          const prevST = chatBox.scrollTop;
+          const prevSH = chatBox.scrollHeight;
+          existing.remove();
+          if (userScrolledUp) {
+            const diff = chatBox.scrollHeight - prevSH;
+            if (diff !== 0) chatBox.scrollTop = prevST + diff;
+          }
+        }
         return;
       }
 
       const allMessages = Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'));
       if (allMessages.length === 0) {
-        const existing = chatBox ? chatBox.querySelector('.seen-indicator') : null;
         if (existing) existing.remove();
         return;
       }
@@ -2456,53 +2542,52 @@
 
       let target = null;
       if (readMarkerIndex !== -1) {
-        // The read marker message was found in DOM.
-        // Target is the last SENT message at or before readMarkerIndex.
+        // Target is the last SENT message at or before readMarkerIndex
         for (let i = readMarkerIndex; i >= 0; i--) {
           if (allMessages[i].classList.contains('sent')) {
             target = allMessages[i];
             break;
           }
         }
-      } else {
-        // Read marker is not found in the current DOM slice (it belongs to an older
-        // message scrolled off-screen, or is invalid/cleared).
-        // NEVER target the latest sent message or assume unread/offline messages were read.
-        target = null;
       }
-
-      const existing = chatBox ? chatBox.querySelector('.seen-indicator') : null;
 
       if (!target) {
-        if (existing) existing.remove();
+        if (existing) {
+          const prevST = chatBox.scrollTop;
+          const prevSH = chatBox.scrollHeight;
+          existing.remove();
+          if (userScrolledUp) {
+            const diff = chatBox.scrollHeight - prevSH;
+            if (diff !== 0) chatBox.scrollTop = prevST + diff;
+          }
+        }
         return;
       }
 
-      // If the seen indicator is already the immediate next sibling of the target, nothing to do.
-      const nextSib = target.nextElementSibling;
-      if (nextSib && nextSib.classList && nextSib.classList.contains('seen-indicator')) {
+      // If existing indicator is already immediately after target, do nothing (no DOM mutation, no jump!)
+      if (existing && target.nextElementSibling === existing) {
         return;
       }
 
-      // Capture scroll state BEFORE any DOM mutation so we can restore it below.
       const preScrollTop    = chatBox.scrollTop;
       const preScrollHeight = chatBox.scrollHeight;
-      const wasNearBottom = (preScrollHeight - preScrollTop - chatBox.clientHeight) <= 60;
+      const wasNearBottom   = !userScrolledUp && ((preScrollHeight - preScrollTop - chatBox.clientHeight) <= 40);
 
-      if (existing) existing.remove();
-
-      const indicator = document.createElement('div');
+      const indicator = existing || document.createElement('div');
       indicator.className = 'seen-indicator';
       indicator.innerHTML = '<span class="seen-indicator-text">seen</span>';
       target.insertAdjacentElement('afterend', indicator);
 
-      // If the user was at (or near) the bottom before the indicator was
-      // inserted/moved, re-snap so the layout shift is invisible to them.
-      if (wasNearBottom) {
-        chatBox.scrollTop = chatBox.scrollHeight;
-        requestAnimationFrame(() => {
+      // Only adjust scroll if NOT on initial load (handleFirstLoadScroll handles initial load)
+      if (!isFirstLoad) {
+        if (wasNearBottom) {
           chatBox.scrollTop = chatBox.scrollHeight;
-        });
+        } else if (userScrolledUp) {
+          const heightDiff = chatBox.scrollHeight - preScrollHeight;
+          if (heightDiff !== 0) {
+            chatBox.scrollTop = preScrollTop + heightDiff;
+          }
+        }
       }
     }
 
@@ -2621,9 +2706,8 @@
       updateHeaderActiveStatus(u);
       
       const cached = dmMessageCache.get(u.username);
-      if (!cached) {
-        chatBox.innerHTML = '';
-      }
+      chatBox.innerHTML = '';
+      chatBox.scrollTop = 0;
       removePaginationBtn();
       hideScrollIndicator();
       const _htp = document.getElementById('headerTypingPreview');
@@ -3665,24 +3749,39 @@
           adminConvCursor = data.nextCursor || '';
           adminConvViewingOlder = true;
 
-          const anchor = captureScrollAnchor();
+          const prevScrollHeight = chatBox.scrollHeight;
+          const prevScrollTop = chatBox.scrollTop;
 
           const temp = document.createElement('div');
           temp.innerHTML = newHtml;
           const oldItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
-          const btn = document.getElementById('loadOlderBtn');
-          const firstChild = chatBox.firstChild;
-          oldItems.reverse().forEach(el => {
-            if (el.classList.contains('message-container')) {
-              el.classList.add('msg-animate-older');
-              el.addEventListener('animationend', () => el.classList.remove('msg-animate-older'), { once: true });
+
+          const existingIds = new Set(
+            Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'))
+              .map(el => el.getAttribute('data-msg-id'))
+          );
+
+          const frag = document.createDocumentFragment();
+          oldItems.forEach(el => {
+            const msgId = el.getAttribute('data-msg-id');
+            if (!msgId || !existingIds.has(msgId)) {
+              frag.appendChild(el);
             }
-            if (btn) chatBox.insertBefore(el, btn.nextSibling);
-            else chatBox.insertBefore(el, firstChild);
           });
 
+          const insertRef = chatBox.querySelector('.message-container, .date-divider') || chatBox.firstChild;
+          if (insertRef) {
+            chatBox.insertBefore(frag, insertRef);
+          } else {
+            chatBox.appendChild(frag);
+          }
+
           trimWindowFromBottom(MAX_WINDOW);
-          restoreScrollAnchor(anchor, oldItems);
+
+          const heightDiff = chatBox.scrollHeight - prevScrollHeight;
+          if (heightDiff > 0) {
+            chatBox.scrollTop = prevScrollTop + heightDiff;
+          }
 
           if (!adminConvHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges();

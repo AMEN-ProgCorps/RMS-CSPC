@@ -91,8 +91,12 @@ if ($searchQuery !== '') {
             'lastMessage'         => $lastMessageText,
             'lastTimestamp'       => $lastTimestamp,
             'unreadCount'         => $unreadCount,
-            'allow_typing_preview'     => isset($user['allow_typing_preview']) ? (bool) $user['allow_typing_preview'] : true,
-            'allow_see_typing_preview' => isset($user['allow_see_typing_preview']) ? (bool) $user['allow_see_typing_preview'] : true,
+            'allow_typing_preview'     => (isset($user['allow_typing_preview']) && $user['allow_typing_preview'] !== null)
+                ? (!in_array($user['allow_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
+                : true,
+            'allow_see_typing_preview' => (isset($user['allow_see_typing_preview']) && $user['allow_see_typing_preview'] !== null)
+                ? (!in_array($user['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
+                : true,
             'is_chatify_verified' => (bool) ($user['is_chatify_verified'] ?? false),
             'avatar_url'          => $user['avatar_url'] ?? null,
         ];
@@ -143,8 +147,12 @@ if ($searchQuery !== '') {
             'lastMessage'         => $lastMessageText,
             'lastTimestamp'       => (int) ($conv['last_ts'] ?? 0),
             'unreadCount'         => (int) ($conv['unread_count'] ?? 0),
-            'allow_typing_preview'     => isset($userInfo['allow_typing_preview']) ? (bool) $userInfo['allow_typing_preview'] : true,
-            'allow_see_typing_preview' => isset($userInfo['allow_see_typing_preview']) ? (bool) $userInfo['allow_see_typing_preview'] : true,
+            'allow_typing_preview'     => (isset($userInfo['allow_typing_preview']) && $userInfo['allow_typing_preview'] !== null)
+                ? (!in_array($userInfo['allow_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
+                : true,
+            'allow_see_typing_preview' => (isset($userInfo['allow_see_typing_preview']) && $userInfo['allow_see_typing_preview'] !== null)
+                ? (!in_array($userInfo['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
+                : true,
             'is_chatify_verified' => (bool) ($userInfo['is_chatify_verified'] ?? false),
             'avatar_url'          => $userInfo['avatar_url'] ?? null,
         ];

@@ -117,8 +117,12 @@ try {
     $stmt->execute([$_current_account_id]);
     $cRow = $stmt->fetch();
     if ($cRow) {
-        $user_comm_settings['allow_typing_preview']     = isset($cRow['allow_typing_preview']) ? (bool) $cRow['allow_typing_preview'] : true;
-        $user_comm_settings['allow_see_typing_preview'] = isset($cRow['allow_see_typing_preview']) ? (bool) $cRow['allow_see_typing_preview'] : true;
+        $user_comm_settings['allow_typing_preview'] = (isset($cRow['allow_typing_preview']) && $cRow['allow_typing_preview'] !== null)
+            ? (!in_array($cRow['allow_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
+            : true;
+        $user_comm_settings['allow_see_typing_preview'] = (isset($cRow['allow_see_typing_preview']) && $cRow['allow_see_typing_preview'] !== null)
+            ? (!in_array($cRow['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
+            : true;
     }
 } catch (Throwable $e) {
     // Non-fatal
@@ -560,7 +564,7 @@ try {
         <p style="margin:0 0 10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary);">Communication</p>
         <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;padding:8px 0;">
           <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--text-primary);font-size:14px;">
-            <input type="checkbox" id="chkAllowTypingPreview" style="accent-color:var(--primary-color);width:18px;height:18px;">
+            <input type="checkbox" id="chkAllowTypingPreview" <?php echo !empty($user_comm_settings['allow_typing_preview']) ? 'checked' : ''; ?> style="accent-color:var(--primary-color);width:18px;height:18px;">
             <span>Allow Real-Time Typing Preview</span>
           </div>
           <span style="font-size:12px;color:var(--text-secondary);margin-left:26px;line-height:1.4;">
@@ -570,7 +574,7 @@ try {
 
         <label style="display:flex;flex-direction:column;gap:4px;cursor:pointer;padding:8px 0;">
           <div style="display:flex;align-items:center;gap:8px;font-weight:600;color:var(--text-primary);font-size:14px;">
-            <input type="checkbox" id="chkAllowSeeTypingPreview" style="accent-color:var(--primary-color);width:18px;height:18px;">
+            <input type="checkbox" id="chkAllowSeeTypingPreview" <?php echo !empty($user_comm_settings['allow_see_typing_preview']) ? 'checked' : ''; ?> style="accent-color:var(--primary-color);width:18px;height:18px;">
             <span>Show Live Typing Previews</span>
           </div>
           <span style="font-size:12px;color:var(--text-secondary);margin-left:26px;line-height:1.4;">

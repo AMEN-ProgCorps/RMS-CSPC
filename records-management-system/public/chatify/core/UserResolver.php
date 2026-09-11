@@ -100,8 +100,12 @@ class UserResolver
             'office_code'         => $row['office_code'] ?? null,
             'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
             'last_online_time'    => $row['last_online_time'] ?? null,
-            'allow_typing_preview' => isset($row['allow_typing_preview']) ? (bool) $row['allow_typing_preview'] : true,
-            'allow_see_typing_preview' => isset($row['allow_see_typing_preview']) ? (bool) $row['allow_see_typing_preview'] : true,
+            'allow_typing_preview' => (isset($row['allow_typing_preview']) && $row['allow_typing_preview'] !== null)
+                ? (!in_array($row['allow_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
+                : true,
+            'allow_see_typing_preview' => (isset($row['allow_see_typing_preview']) && $row['allow_see_typing_preview'] !== null)
+                ? (!in_array($row['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
+                : true,
             'is_chatify_verified' => (bool) ($row['is_chatify_verified'] ?? false),
             'avatar_url'          => $row['avatar_url'] ?? null,
         ];
@@ -161,8 +165,12 @@ class UserResolver
                 'office_code'         => $row['office_code'] ?? null,
                 'is_currently_online' => (bool) ($row['is_currently_online'] ?? false),
                 'last_online_time'    => $row['last_online_time'] ?? null,
-                'allow_typing_preview' => isset($row['allow_typing_preview']) ? (bool) $row['allow_typing_preview'] : true,
-                'allow_see_typing_preview' => isset($row['allow_see_typing_preview']) ? (bool) $row['allow_see_typing_preview'] : true,
+                'allow_typing_preview' => (isset($row['allow_typing_preview']) && $row['allow_typing_preview'] !== null)
+                    ? (!in_array($row['allow_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
+                    : true,
+                'allow_see_typing_preview' => (isset($row['allow_see_typing_preview']) && $row['allow_see_typing_preview'] !== null)
+                    ? (!in_array($row['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
+                    : true,
                 'is_chatify_verified' => (bool) ($row['is_chatify_verified'] ?? false),
                 'avatar_url'          => $row['avatar_url'] ?? null,
             ];

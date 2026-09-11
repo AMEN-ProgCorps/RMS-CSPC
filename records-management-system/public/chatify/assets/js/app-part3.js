@@ -1603,33 +1603,12 @@
         // latest window re-appears automatically.
         if (isGlobalChat && gcViewingOlder) {
           gcViewingOlder = false;
-          gcCursor = '';
-          removePaginationBtn();
-          chatBox.innerHTML = '';
-          isFirstLoad = true;
-          chatFullyLoaded = false;
-          loadGlobalChat(false, false);
-          return;
         }
         if (!isGlobalChat && activeAdminConv && adminConvViewingOlder) {
           adminConvViewingOlder = false;
-          adminConvCursor = '';
-          removePaginationBtn();
-          chatBox.innerHTML = '';
-          isFirstLoad = true;
-          chatFullyLoaded = false;
-          loadAdminConv(activeAdminConv, false, false);
-          return;
         }
         if (!isGlobalChat && !activeAdminConv && activeDM && dmViewingOlder) {
           dmViewingOlder = false;
-          dmCursor = '';
-          removePaginationBtn();
-          chatBox.innerHTML = '';
-          isFirstLoad = true;
-          chatFullyLoaded = false;
-          loadChat(false, false, true);
-          return;
         }
         // ─────────────────────────────────────────────────────────────────
       } else {
@@ -1955,64 +1934,9 @@
     // and marks each content element once it's been processed so re-running
     // this on every poll/reconcile never double-wraps an already-linkified
     // message.
-    const URL_REGEX = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
-
-    function linkifyContent(contentEl) {
-      if (!contentEl || contentEl.dataset.linkified === '1') return;
-      contentEl.dataset.linkified = '1';
-
-      const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT, null);
-      const textNodes = [];
-      let node;
-      while ((node = walker.nextNode())) {
-        // Skip text that's already inside a link (e.g. from a future
-        // server-rendered link) to avoid nesting anchors.
-        if (node.parentElement && node.parentElement.closest('a')) continue;
-        textNodes.push(node);
-      }
-
-      textNodes.forEach(function(textNode) {
-        const text = textNode.nodeValue;
-        URL_REGEX.lastIndex = 0;
-        if (!URL_REGEX.test(text)) return;
-        URL_REGEX.lastIndex = 0;
-
-        const frag = document.createDocumentFragment();
-        let lastIndex = 0;
-        let match;
-        while ((match = URL_REGEX.exec(text)) !== null) {
-          let url = match[0];
-          // Trim common trailing punctuation that's likely part of the
-          // sentence rather than the URL itself (e.g. "check this out: https://x.com/foo.")
-          const trailingPunct = /[.,:;!?'")\]}]+$/;
-          const trimmedMatch = trailingPunct.exec(url);
-          let trailing = '';
-          if (trimmedMatch) {
-            trailing = trimmedMatch[0];
-            url = url.slice(0, url.length - trailing.length);
-          }
-          if (!url) continue;
-
-          const start = match.index;
-          frag.appendChild(document.createTextNode(text.slice(lastIndex, start)));
-
-          const a = document.createElement('a');
-          a.href = /^https?:\/\//i.test(url) ? url : 'https://' + url;
-          a.textContent = url;
-          a.target = '_blank';
-          a.rel = 'noopener noreferrer';
-          a.className = 'chat-link';
-          frag.appendChild(a);
-
-          lastIndex = start + url.length;
-          if (trailing) {
-            frag.appendChild(document.createTextNode(trailing));
-            lastIndex += trailing.length;
-          }
-        }
-        frag.appendChild(document.createTextNode(text.slice(lastIndex)));
-        textNode.parentNode.replaceChild(frag, textNode);
-      });
+    // URL_REGEX and linkifyContent are defined in app-part1.js
+    if (typeof linkifyContent === 'undefined' && typeof window.linkifyContent === 'function') {
+      var linkifyContent = window.linkifyContent;
     }
 
     // Walk all rendered bubbles and apply / remove the emoji-only class.
@@ -2084,24 +2008,39 @@
         gcCursor = data.nextCursor || '';
         gcViewingOlder = true;
 
-        const anchor = captureScrollAnchor();
+        const prevScrollHeight = chatBox.scrollHeight;
+        const prevScrollTop = chatBox.scrollTop;
 
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
         const oldItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
-        const firstChild = chatBox.firstChild;
-        const btn = document.getElementById('loadOlderBtn');
-        oldItems.reverse().forEach(el => {
-          if (el.classList.contains('message-container')) {
-            el.classList.add('msg-animate-older');
-            el.addEventListener('animationend', () => el.classList.remove('msg-animate-older'), { once: true });
+
+        const existingIds = new Set(
+          Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'))
+            .map(el => el.getAttribute('data-msg-id'))
+        );
+
+        const frag = document.createDocumentFragment();
+        oldItems.forEach(el => {
+          const msgId = el.getAttribute('data-msg-id');
+          if (!msgId || !existingIds.has(msgId)) {
+            frag.appendChild(el);
           }
-          if (btn) chatBox.insertBefore(el, btn.nextSibling);
-          else chatBox.insertBefore(el, firstChild);
         });
 
+        const insertRef = chatBox.querySelector('.message-container, .date-divider') || chatBox.firstChild;
+        if (insertRef) {
+          chatBox.insertBefore(frag, insertRef);
+        } else {
+          chatBox.appendChild(frag);
+        }
+
         trimWindowFromBottom(MAX_WINDOW);
-        restoreScrollAnchor(anchor, oldItems);
+
+        const heightDiff = chatBox.scrollHeight - prevScrollHeight;
+        if (heightDiff > 0) {
+          chatBox.scrollTop = prevScrollTop + heightDiff;
+        }
 
         if (!gcHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges();
@@ -2372,24 +2311,39 @@
         const existingSeen = chatBox.querySelector('.seen-indicator');
         if (existingSeen) existingSeen.remove();
 
-        const anchor = captureScrollAnchor();
+        const prevScrollHeight = chatBox.scrollHeight;
+        const prevScrollTop = chatBox.scrollTop;
 
         const temp = document.createElement('div');
         temp.innerHTML = newHtml;
         const oldItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
-        const btn = document.getElementById('loadOlderBtn');
-        const firstChild = chatBox.firstChild;
-        oldItems.reverse().forEach(el => {
-          if (el.classList.contains('message-container')) {
-            el.classList.add('msg-animate-older');
-            el.addEventListener('animationend', () => el.classList.remove('msg-animate-older'), { once: true });
+
+        const existingIds = new Set(
+          Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'))
+            .map(el => el.getAttribute('data-msg-id'))
+        );
+
+        const frag = document.createDocumentFragment();
+        oldItems.forEach(el => {
+          const msgId = el.getAttribute('data-msg-id');
+          if (!msgId || !existingIds.has(msgId)) {
+            frag.appendChild(el);
           }
-          if (btn) chatBox.insertBefore(el, btn.nextSibling);
-          else chatBox.insertBefore(el, firstChild);
         });
 
+        const insertRef = chatBox.querySelector('.message-container, .date-divider') || chatBox.firstChild;
+        if (insertRef) {
+          chatBox.insertBefore(frag, insertRef);
+        } else {
+          chatBox.appendChild(frag);
+        }
+
         trimWindowFromBottom(MAX_WINDOW);
-        restoreScrollAnchor(anchor, oldItems);
+
+        const heightDiff = chatBox.scrollHeight - prevScrollHeight;
+        if (heightDiff > 0) {
+          chatBox.scrollTop = prevScrollTop + heightDiff;
+        }
 
         if (!dmHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges(); applyEmojiOnly();
@@ -2517,7 +2471,6 @@
         }
       }
       dmCursor = data.nextCursor || '';
-      dmViewingOlder = false;
       if (dmHasMore && !document.getElementById('loadOlderBtn') && !document.getElementById('noMoreOlderNotice')) insertLoadOlderBtn();
     }
 
@@ -3562,15 +3515,34 @@
       });
     }
 
+    let lastInputLength = 0;
     function autoResizeMessageInput() {
       if (!messageInput) return;
-      if (!messageInput.value || messageInput.value.trim() === '') {
-        messageInput.style.height = '40px';
+      const val = messageInput.value || '';
+      if (!val.trim()) {
+        lastInputLength = 0;
+        if (messageInput.style.height !== '40px') {
+          messageInput.style.height = '40px';
+        }
         return;
       }
-      messageInput.style.height = 'auto';
-      const newHeight = Math.min(Math.max(messageInput.scrollHeight, 40), 120);
-      messageInput.style.height = newHeight + 'px';
+
+      const currentHeight = messageInput.offsetHeight || 40;
+      if (val.length >= lastInputLength) {
+        if (messageInput.scrollHeight > currentHeight && currentHeight < 120) {
+          const newHeight = Math.min(Math.max(messageInput.scrollHeight, 40), 120);
+          messageInput.style.height = newHeight + 'px';
+        }
+      } else {
+        const prevST = chatBox ? chatBox.scrollTop : null;
+        messageInput.style.height = 'auto';
+        const newHeight = Math.min(Math.max(messageInput.scrollHeight, 40), 120);
+        messageInput.style.height = newHeight + 'px';
+        if (chatBox && prevST !== null && Math.abs(chatBox.scrollTop - prevST) > 1) {
+          chatBox.scrollTop = prevST;
+        }
+      }
+      lastInputLength = val.length;
     }
 
     // On a fresh (uncached) page load, the 'Inter' webfont swaps in a beat
@@ -3593,14 +3565,6 @@
     messageInput.addEventListener('input', function() {
       autoResizeMessageInput();
       // Keep overflow-y:scroll always (scrollbar hidden via CSS, not JS toggle)
-      // iOS: recalculate layout whenever textarea height changes.
-      // Double-rAF ensures we read offsetHeight AFTER the browser has fully
-      // reflowed the textarea — otherwise footerH is stale → white gap appears.
-      if (isIOS && window.visualViewport) {
-        requestAnimationFrame(function() {
-          requestAnimationFrame(applyIOSViewport);
-        });
-      }
 
       // Typing indicator: only fire for private DMs (not global, not admin spy)
       if (activeDM && activeDMAccountId && !isGlobalChat && !activeAdminConv) {
@@ -3821,8 +3785,8 @@
       const chk2 = document.getElementById('chkAllowSeeTypingPreview');
 
       const s = window.currentUserCommSettings || {};
-      if (chk1) chk1.checked = s.allow_typing_preview !== false;
-      if (chk2) chk2.checked = s.allow_see_typing_preview !== false;
+      if (chk1) chk1.checked = s.allow_typing_preview !== false && s.allow_typing_preview !== 'f' && s.allow_typing_preview !== 0 && s.allow_typing_preview !== '0';
+      if (chk2) chk2.checked = s.allow_see_typing_preview !== false && s.allow_see_typing_preview !== 'f' && s.allow_see_typing_preview !== 0 && s.allow_see_typing_preview !== '0';
 
       // Live toggle: apply change immediately on every checkbox click
       if (chk1 && !chk1._commListener) {
@@ -5160,25 +5124,27 @@
     }
 
     function resetIOSViewport() {
-      smoothKeepScrollAtBottom(250);
+      if (!userScrolledUp && isAtBottom()) {
+        smoothKeepScrollAtBottom(250);
+      }
     }
 
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', function() {
-        smoothKeepScrollAtBottom(250);
-      });
-      window.visualViewport.addEventListener('scroll', function() {
-        smoothKeepScrollAtBottom(200);
+        if (!userScrolledUp && isAtBottom()) {
+          smoothKeepScrollAtBottom(250);
+        }
       });
     }
 
     messageInput.addEventListener('focus', function () {
-      smoothKeepScrollAtBottom(450);
+      if (!userScrolledUp && isAtBottom()) {
+        smoothKeepScrollAtBottom(350);
+      }
     });
 
     messageInput.addEventListener('blur', function () {
-      if (iosBlurSuppressed) return;
-      smoothKeepScrollAtBottom(300);
+      // Intentionally do not force scroll on blur: keeps conversation steady when tapping Read More or scrolling
     });
 
     // ── Mobile keyboard: keep input-area always above the virtual keyboard ──
@@ -5276,14 +5242,16 @@
           connectWebSocket();
         }
 
-        // 2. Immediately catch up on any messages missed while hidden
+        // 2. Immediately catch up on any messages missed while hidden (only if not backreading)
         if (isGlobalChat) {
-          loadGlobalChat(false);
+          if (!gcViewingOlder) loadGlobalChat(false);
         } else if (activeDM) {
-          loadChat(false);
-          markRead(activeDM);
+          if (!dmViewingOlder) {
+            loadChat(false);
+            markRead(activeDM);
+          }
         } else if (activeAdminConv) {
-          loadAdminConv(activeAdminConv, false);
+          if (!adminConvViewingOlder) loadAdminConv(activeAdminConv, false);
         }
 
         // 3. Also refresh sidebar so unread badges are current

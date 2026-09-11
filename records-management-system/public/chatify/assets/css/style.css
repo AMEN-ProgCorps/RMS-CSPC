@@ -1580,8 +1580,8 @@
     }
 
     @keyframes msgOlderFadeIn {
-      from { opacity: 0; transform: translateY(-6px); }
-      to   { opacity: 1; transform: translateY(0); }
+      from { opacity: 0; }
+      to   { opacity: 1; }
     }
 
     /* Optimistic "sending" bubble — snappy entrance, then a gentle
@@ -1679,6 +1679,8 @@
       margin-bottom: 4px;
       box-sizing: border-box;
       pointer-events: none;
+      min-height: 14px;
+      contain: layout;
     }
 
     .seen-indicator-text {

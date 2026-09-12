@@ -32,11 +32,14 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
 
         $revisions = OfficeIntakeHelper::dcnRevisions($this->id);
         $firstRev = $revisions->first();
+        $departmentParts = OfficeIntakeHelper::parseDepartmentDate($dcn->department_date ?? null);
 
         return [
             'dcn' => $dcn,
             'docNo' => trim((string) ($dcn->document_no ?? '')) ?: trim((string) ($firstRev->document_no ?? '')),
             'docTitle' => trim((string) ($dcn->document_title ?? '')) ?: trim((string) ($firstRev->title ?? '')),
+            'departmentLabel' => $departmentParts['department_label'],
+            'departmentDateLabel' => $departmentParts['date_label'],
             'immutableMessage' => OfficeIntakeHelper::IMMUTABLE_MESSAGE,
             'isIntakeReviewer' => RegisterQueryHelper::canBrowseAllOfficeIntake(),
         ];
@@ -73,12 +76,12 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                     <div class="ofi-dcn-box-section">
                         <div class="ofi-dcn-doc-fields">
                             <div class="reg-field">
-                                <label>Document no.</label>
-                                <div class="ofi-show-value">{{ $docNo ?: '—' }}</div>
+                                <label>Document Title</label>
+                                <div class="ofi-show-value">{{ $docTitle ?: '—' }}</div>
                             </div>
                             <div class="reg-field">
-                                <label>Title</label>
-                                <div class="ofi-show-value">{{ $docTitle ?: '—' }}</div>
+                                <label>Document no. (optional)</label>
+                                <div class="ofi-show-value">{{ $docNo ?: '—' }}</div>
                             </div>
                         </div>
                     </div>
@@ -87,11 +90,11 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                         <label class="ofi-dcn-section-label">Detailed Description of Change:</label>
                         <div class="reg-field">
                             <label>From</label>
-                            <div class="ofi-show-value is-multiline">{{ $dcn->change_from ?? '—' }}</div>
+                            <div class="ofi-show-value is-multiline">{{ $dcn->change_from ?: '—' }}</div>
                         </div>
                         <div class="reg-field">
                             <label>To</label>
-                            <div class="ofi-show-value is-multiline">{{ $dcn->change_to ?? '—' }}</div>
+                            <div class="ofi-show-value is-multiline">{{ $dcn->change_to ?: '—' }}</div>
                         </div>
                     </div>
 
@@ -107,9 +110,15 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                             <label>Originator/ Signature</label>
                             <div class="ofi-show-value">{{ $dcn->originator_name ?: '—' }}</div>
                         </div>
-                        <div class="reg-field">
-                            <label>Department/ Date</label>
-                            <div class="ofi-show-value">{{ $dcn->department_date ?: '—' }}</div>
+                        <div class="reg-grid-2-1">
+                            <div class="reg-field">
+                                <label>Department</label>
+                                <div class="ofi-show-value">{{ $departmentLabel ?: '—' }}</div>
+                            </div>
+                            <div class="reg-field">
+                                <label>Date</label>
+                                <div class="ofi-show-value">{{ $departmentDateLabel ?: '—' }}</div>
+                            </div>
                         </div>
                         <div class="reg-field">
                             <label>Reviewed by/ Date</label>

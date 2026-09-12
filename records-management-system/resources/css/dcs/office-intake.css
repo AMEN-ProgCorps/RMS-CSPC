@@ -241,10 +241,18 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 .ofi-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     gap: 16px;
     margin-bottom: 18px;
     flex-wrap: wrap;
+}
+.ofi-header .header-date.dash-calendar-trigger {
+    cursor: default;
+    flex-shrink: 0;
+}
+.ofi-header .header-date.dash-calendar-trigger:hover {
+    border-color: var(--dash-border, #e2e8f0);
+    box-shadow: none;
 }
 .ofi-header h1 {
     font-size: 22px;

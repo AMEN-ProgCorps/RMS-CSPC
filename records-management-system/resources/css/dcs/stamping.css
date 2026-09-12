@@ -574,7 +574,9 @@ body {
 .st-modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(15,23,42,0.5);
+    background: rgba(15,23,42,0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1262,6 +1264,8 @@ body {
     position: fixed;
     inset: 0;
     background: rgba(15,23,42,0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1409,4 +1413,29 @@ body {
     .st-btn-cancel { width: 100%; justify-content: center; }
     .st-btn-download, .st-btn-apply { flex: 1; }
     .col-files { min-width: 160px; }
+}
+
+/* Dark mode: unify toolbar surfaces (loads after dark.css) */
+[data-theme="dark"] .st-toolbar {
+    background: transparent !important;
+}
+
+[data-theme="dark"] .st-container .st-search,
+[data-theme="dark"] .st-container .st-filter,
+[data-theme="dark"] .st-container .st-btn-clear {
+    background: #0b0f19 !important;
+    background-color: #0b0f19 !important;
+    color: #f8fafc !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .st-container .st-filter {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: right 12px center !important;
+}
+
+[data-theme="dark"] .st-container .st-btn-clear:hover {
+    background: #131c2e !important;
+    color: #60a5fa !important;
 }

@@ -74,7 +74,7 @@ body {
     font-size: 0.82rem;
     line-height: 1.4;
     color: var(--dcs-text-muted);
-    max-width: 40rem;
+    max-width: 50rem;
 }
 
 .drr-count-pill {
@@ -1301,6 +1301,18 @@ body {
     opacity: 0;
     cursor: pointer;
     font-size: 0;
+    background: transparent !important;
+    background-color: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    color: transparent !important;
+}
+
+.drr-drop-input::file-selector-button,
+.drr-drop-input::-webkit-file-upload-button {
+    display: none;
+    background: transparent !important;
+    border: 0 !important;
 }
 
 .drr-drop-icon {
@@ -1378,6 +1390,8 @@ body {
     inset: 0;
     z-index: 30000;
     background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
     display: flex;
     align-items: stretch;
     justify-content: center;
@@ -1481,4 +1495,38 @@ body {
     .drr-pair-arrow {
         display: none;
     }
+}
+
+/* Dark mode: kill light icon/control padding boxes (loads after dark.css) */
+[data-theme="dark"] .drr-container .drr-lead,
+[data-theme="dark"] .drr-container .drr-adhoc-desc,
+[data-theme="dark"] .drr-container .drr-list-sub {
+    background: transparent !important;
+    background-color: transparent !important;
+}
+
+[data-theme="dark"] .drr-container .drr-adhoc-card,
+[data-theme="dark"] .drr-container .drr-drop {
+    background: #0b0f19 !important;
+    background-color: #0b0f19 !important;
+}
+
+[data-theme="dark"] .drr-container .drr-drop-icon,
+[data-theme="dark"] .drr-container .drr-drop-icon i,
+[data-theme="dark"] .drr-container .drr-drop-icon svg {
+    background: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+}
+
+[data-theme="dark"] .drr-container .drr-drop-icon {
+    border-color: #475569 !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .drr-container .drr-drop-input,
+[data-theme="dark"] .drr-container .drr-drop-input::file-selector-button,
+[data-theme="dark"] .drr-container .drr-drop-input::-webkit-file-upload-button {
+    background: transparent !important;
+    background-color: transparent !important;
 }

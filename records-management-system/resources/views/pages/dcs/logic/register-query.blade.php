@@ -18,6 +18,20 @@ class RegisterQueryHelper
     /** Soft-deleted DCS documents are kept in the Recycle Bin for this many years (same as Admin Console). */
     public const RECYCLE_BIN_RETENTION_YEARS = 1;
 
+    /** DTS routing placeholders — hidden in Admin Offices management and all DCS office pickers. */
+    public const SYSTEM_OFFICE_CODES = ['ORIGIN', '[H]', '[HUB]', 'HUB'];
+
+    /**
+     * Keep only real offices (same set Admin shows in Offices management).
+     *
+     * @param  \Illuminate\Database\Query\Builder|\Illuminate\Database\Eloquent\Builder  $query
+     * @return \Illuminate\Database\Query\Builder|\Illuminate\Database\Eloquent\Builder
+     */
+    public static function applySelectableOfficesFilter($query, string $officeCodeColumn = 'office_code')
+    {
+        return $query->whereNotIn($officeCodeColumn, self::SYSTEM_OFFICE_CODES);
+    }
+
     public static function recycleBinExpiresAt(\DateTimeInterface|string $deletedAt): Carbon
     {
         return Carbon::parse($deletedAt)->addYears(self::RECYCLE_BIN_RETENTION_YEARS);
@@ -5753,8 +5767,10 @@ class RegisterQueryHelper
         }
 
         return $cache = [
-            'offices' => DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
-                ->where('is_active', true)
+            'offices' => self::applySelectableOfficesFilter(
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
+                    ->where('is_active', true)
+            )
                 ->orderBy('office_name')
                 ->get(['id', 'office_name', 'office_code', 'cluster'])
                 ->map(fn ($o) => [

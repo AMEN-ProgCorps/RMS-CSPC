@@ -1031,6 +1031,7 @@ new #[Layout('layouts.dcs')] class extends Component {
             $linkedOfficeIds = $linkedOfficeIds->reject(fn ($id) => $id === $currentOfficeId);
         }
         $collegeOfficesQuery = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true);
+        \App\Helpers\RegisterQueryHelper::applySelectableOfficesFilter($collegeOfficesQuery);
         if ($linkedOfficeIds->isNotEmpty()) {
             $collegeOfficesQuery->whereNotIn('id', $linkedOfficeIds->values()->all());
         }

@@ -18,19 +18,19 @@
 </td>
 
 <td class="col-group-summary-body col-group-summary-approval" x-show="visible.approval && !open.approval">
-    @if($r['approval_no'] || $r['approval_date'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">✗</span>@endif
+    @if($r['approval_no'] || $r['approval_date'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
 <td class="col-group-approval" x-show="visible.approval && open.approval">{{ $r['approval_no'] ?: '—' }}</td>
 <td class="col-group-approval" x-show="visible.approval && open.approval">{{ $r['approval_date'] ?: '—' }}</td>
 
 <td class="col-group-summary-body col-group-summary-deadline" x-show="visible.deadline && !open.deadline">
-    @if($r['deadline_date'] || $r['deadline_diff'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">✗</span>@endif
+    @if($r['deadline_date'] || $r['deadline_diff'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
 <td class="col-group-deadline" x-show="visible.deadline && open.deadline">{{ $r['deadline_date'] ?: '—' }}</td>
 <td class="col-group-deadline" x-show="visible.deadline && open.deadline">{{ $r['deadline_diff'] ?: '—' }}</td>
 
 <td class="col-group-summary-body col-group-summary-masterlist" x-show="visible.masterlist && !open.masterlist">
-    @if($r['ml_receipt_date'] || $r['ml_receipt_time'] || $r['ml_register_date'] || $r['ml_register_time'] || $r['ml_time_spent'] !== null)<span class="db-summary-check">✓</span>@else<span class="db-summary-x">✗</span>@endif
+    @if($r['ml_receipt_date'] || $r['ml_receipt_time'] || $r['ml_register_date'] || $r['ml_register_time'] || $r['ml_time_spent'] !== null)<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
 <td class="col-group-masterlist" x-show="visible.masterlist && open.masterlist">{{ $r['ml_receipt_date'] ?: '—' }}</td>
 <td class="col-group-masterlist" x-show="visible.masterlist && open.masterlist">{{ $r['ml_receipt_time'] ?: '—' }}</td>
@@ -39,7 +39,7 @@
 <td class="col-group-masterlist" x-show="visible.masterlist && open.masterlist">{{ $r['ml_time_spent'] !== null ? $r['ml_time_spent'] : '—' }}</td>
 
 <td class="col-group-summary-body col-group-summary-dcn" x-show="visible.dcn && !open.dcn">
-    @if($r['dcn_no'] || $r['dcn_date'] || $r['dcn_receipt_date'] || $r['dcn_receipt_time'] || $r['dcn_purpose'] || $r['dcn_scan'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">✗</span>@endif
+    @if($r['dcn_no'] || $r['dcn_date'] || $r['dcn_receipt_date'] || $r['dcn_receipt_time'] || $r['dcn_purpose'] || $r['dcn_scan'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
 <td class="col-group-dcn" x-show="visible.dcn && open.dcn">{{ $r['dcn_no'] ?: '—' }}</td>
 <td class="col-group-dcn" x-show="visible.dcn && open.dcn">{{ $r['dcn_date'] ?: '—' }}</td>
@@ -49,7 +49,7 @@
 <td class="col-group-dcn" x-show="visible.dcn && open.dcn">@include('pages.dcs.database._scan', ['url' => $r['dcn_scan'] ?? null])</td>
 
 <td class="col-group-summary-body col-group-summary-drf" x-show="visible.drf && !open.drf">
-    @if($r['drf_no'] || $r['drf_date'] || $r['drf_receipt_date'] || $r['drf_receipt_time'] || $r['drf_scan'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">✗</span>@endif
+    @if($r['drf_no'] || $r['drf_date'] || $r['drf_receipt_date'] || $r['drf_receipt_time'] || $r['drf_scan'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
 <td class="col-group-drf" x-show="visible.drf && open.drf">{{ $r['drf_no'] ?: '—' }}</td>
 <td class="col-group-drf" x-show="visible.drf && open.drf">{{ $r['drf_date'] ?: '—' }}</td>
@@ -58,7 +58,7 @@
 <td class="col-group-drf" x-show="visible.drf && open.drf">@include('pages.dcs.database._scan', ['url' => $r['drf_scan'] ?? null])</td>
 
 <td class="col-group-summary-body col-group-summary-distribution" x-show="visible.distribution && !open.distribution">
-    @if($r['dist_onfile_date'] || $r['dist_onfile_time'] || $r['dist_actual_date'] || $r['dist_actual_time'] || $r['dist_offices'] || $r['dist_scan'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">✗</span>@endif
+    @if($r['dist_onfile_date'] || $r['dist_onfile_time'] || $r['dist_actual_date'] || $r['dist_actual_time'] || $r['dist_offices'] || $r['dist_scan'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_onfile_date'] ?: '—' }}</td>
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_onfile_time'] ?: '—' }}</td>
@@ -68,7 +68,7 @@
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">@include('pages.dcs.database._scan', ['url' => $r['dist_scan'] ?? null])</td>
 
 <td class="col-group-summary-body col-group-summary-retrieval" x-show="visible.retrieval && !open.retrieval">
-    @if($r['ret_onfile'] || $r['ret_actual'] || $r['ret_offices'] || $r['ret_scan'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">✗</span>@endif
+    @if($r['ret_onfile'] || $r['ret_actual'] || $r['ret_offices'] || $r['ret_scan'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
 <td class="col-group-retrieval" x-show="visible.retrieval && open.retrieval">{{ $r['ret_onfile'] ?: '—' }}</td>
 <td class="col-group-retrieval" x-show="visible.retrieval && open.retrieval">{{ $r['ret_actual'] ?: '—' }}</td>

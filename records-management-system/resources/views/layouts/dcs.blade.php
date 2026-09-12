@@ -87,7 +87,7 @@
     @if(request()->routeIs('dcs', 'dcs.dashboard'))
         @vite(['resources/css/dcs/dashboard.css'])
         @if(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser())
-            <link rel="stylesheet" href="{{ asset('css/dcs/office-intake.css') }}">
+            @vite(['resources/css/dcs/office-intake.css'])
         @endif
     @elseif(request()->routeIs('dcs.office.*'))
         @vite(['resources/css/dcs/register.css'])

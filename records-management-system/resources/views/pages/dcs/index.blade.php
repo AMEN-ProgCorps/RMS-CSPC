@@ -16,8 +16,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 'officeDrfCount' => OfficeIntakeHelper::listMyDrf()->count(),
                 'officeDcnCount' => OfficeIntakeHelper::listMyDcn()->count(),
                 'headerDate' => now('Asia/Manila')->format('l, F j, Y'),
+                'headerTime' => now('Asia/Manila')->format('g:i:s A'),
                 'stats' => [],
-                'typeIds' => [],
                 'holidays' => [],
             ];
         }
@@ -105,12 +105,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 }; ?>
 
 @if(!empty($isLimitedDcs))
-<div class="ofi-page">
+<div class="ofi-page" x-data="ofiDashboardClock()">
     <div class="ofi-inner">
         <div class="ofi-header">
             <div>
                 <h1>Document Control System</h1>
-                <p>{{ $headerDate }} — Create and print your Document Request Forms and Document Change Notices, then submit the printed copies to RFIO.</p>
+                <p>Create and print your Document Request Forms and Document Change Notices, then submit the printed copies to RFIO.</p>
+            </div>
+            <div class="header-date dash-calendar-trigger" aria-live="polite">
+                <i class="fa-regular fa-calendar"></i>
+                <span class="dash-calendar-trigger-text">
+                    <span class="dash-calendar-trigger-date">{{ $headerDate }}</span>
+                    <span class="dash-calendar-trigger-time" x-text="nowClock" x-cloak>{{ $headerTime }}</span>
+                </span>
             </div>
         </div>
         @if(session('error'))
@@ -134,6 +141,33 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
     </div>
 </div>
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('ofiDashboardClock', () => ({
+        nowClock: @json($headerTime),
+        _timer: null,
+        tick() {
+            try {
+                this.nowClock = new Date().toLocaleTimeString([], {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    second: '2-digit',
+                });
+            } catch (e) {
+                const n = new Date();
+                this.nowClock = n.toTimeString().slice(0, 8);
+            }
+        },
+        init() {
+            this.tick();
+            this._timer = setInterval(() => this.tick(), 1000);
+        },
+        destroy() {
+            if (this._timer) clearInterval(this._timer);
+        },
+    }));
+});
+</script>
 @else
 <main class="dashboard-main" wire:ignore x-data="dcsDashboardCalendar()">
     <div

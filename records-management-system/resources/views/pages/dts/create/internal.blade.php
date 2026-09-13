@@ -1181,7 +1181,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                             <input type="text" wire:model.live="requestor_name" wire:focus="$set('showRequestorDropdown', true)" class="text-input" placeholder="Type or select Requestor Name" autocomplete="off" style="padding-right: 32px;">
                             <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
                             @if($showRequestorDropdown)
-                                <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); max-height: 200px; overflow-y: auto; z-index: 50;">
+                                <div class="dts-custom-dropdown">
                                     @php
                                         $targetOffice = $unit_college;
                                         $existingRequestors = \DB::table('dts_requestor_history')
@@ -1197,7 +1197,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                                         @php
                                             $canEditReqThis = $isSuperAdminForReq || ($req->office === $userOfficeCodeForReq);
                                         @endphp
-                                        <div wire:click="selectRequestor('{{ addslashes($req->requestor_name) }}', '{{ addslashes($req->requestor_position) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                        <div class="dts-dropdown-item" wire:click="selectRequestor('{{ addslashes($req->requestor_name) }}', '{{ addslashes($req->requestor_position) }}')">
                                             <div>
                                                 <div style="font-weight: 600;">{{ $req->requestor_name }}</div>
                                                 @if(!empty($req->requestor_position))
@@ -1211,7 +1211,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                                             @endif
                                         </div>
                                     @empty
-                                        <div style="padding: 10px 14px; font-size: 12px; color: #64748b; font-style: italic;">
+                                        <div class="dts-dropdown-empty" style="font-style: italic;">
                                             No existing requestor found. Typing a new requestor...
                                         </div>
                                     @endforelse
@@ -1228,12 +1228,30 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                 <div class="form-row">
                     <div class="form-col small-input">
                         <label class="input-label">Requestor Job Position <span style="font-size: 11px; color: #94a3b8; font-weight: normal;">(Optional)</span></label>
-                        <input type="text" wire:model="requestor_label" class="text-input" placeholder="Requestor Job Position">
-                        @error('requestor_label')
+                        <input type="text" wire:model="requestor_position" class="text-input" placeholder="e.g. Dean, Faculty, Staff">
+                        @error('requestor_position')
                             <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
                         @enderror
                     </div>
                 </div>
+
+                <!-- Originating Unit / College field -->
+                @if(auth()->user()?->permissions?->is_sadm)
+                <div class="form-row">
+                    <div class="form-col medium-input">
+                        <label class="input-label">Originating Unit / College</label>
+                        <select wire:model.live="unit_college" class="select-input">
+                            <option value="">Select Unit / College</option>
+                            @foreach($offices as $office)
+                                <option value="{{ $office['office_code'] }}">{{ $office['office_name'] }} ({{ $office['office_code'] }})</option>
+                            @endforeach
+                        </select>
+                        @error('unit_college')
+                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                        @enderror
+                    </div>
+                </div>
+                @endif
 
 
 
@@ -1256,7 +1274,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                             <input type="text" wire:model.live="type_of_document" wire:focus="$set('showDocTypeDropdown', true)" class="text-input" placeholder="Type of Document" autocomplete="off" style="padding-right: 32px;">
                             <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
                             @if($showDocTypeDropdown)
-                                <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 220px; overflow-y: auto; z-index: 50;">
+                                <div class="dts-custom-dropdown">
                                     @php
                                         $searchTerm = strtolower($type_of_document);
                                         $filteredFlows = array_filter($flows, fn($f) => empty($searchTerm) || str_contains(strtolower($f['flow_name']), $searchTerm));
@@ -1265,25 +1283,25 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                                     @endphp
                                     
                                     @if(count($predefinedFlows) > 0)
-                                        <div style="padding: 6px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748b; background: #f8fafc; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0;">Predefined Flows</div>
+                                        <div class="dts-dropdown-header">Predefined Flows</div>
                                         @foreach($predefinedFlows as $flow)
-                                            <div wire:click="selectDocumentType('{{ addslashes($flow['flow_name']) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; transition: background 0.1s; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
-                                                {{ $flow['flow_name'] }}
+                                            <div class="dts-dropdown-item" wire:click="selectDocumentType('{{ addslashes($flow['flow_name']) }}')">
+                                                <span>{{ $flow['flow_name'] }}</span>
                                             </div>
                                         @endforeach
                                     @endif
 
                                     @if(count($customFlows) > 0)
-                                        <div style="padding: 6px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748b; background: #f8fafc; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; @if(count($predefinedFlows) > 0) border-top: 1px solid #e2e8f0; @endif">Custom Flows</div>
+                                        <div class="dts-dropdown-header" @if(count($predefinedFlows) > 0) style="border-top: 1px solid #e2e8f0;" @endif>Custom Flows</div>
                                         @foreach($customFlows as $flow)
-                                            <div wire:click="selectDocumentType('{{ addslashes($flow['flow_name']) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; transition: background 0.1s; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
-                                                {{ $flow['flow_name'] }}
+                                            <div class="dts-dropdown-item" wire:click="selectDocumentType('{{ addslashes($flow['flow_name']) }}')">
+                                                <span>{{ $flow['flow_name'] }}</span>
                                             </div>
                                         @endforeach
                                     @endif
 
                                     @if(count($predefinedFlows) === 0 && count($customFlows) === 0)
-                                        <div style="padding: 12px 14px; font-size: 13px; color: #94a3b8; text-align: center;">No matching documents found</div>
+                                        <div class="dts-dropdown-empty">No matching documents found</div>
                                     @endif
                                 </div>
                             @endif
@@ -1359,20 +1377,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                                     });
                                 @endphp
 
-                                <div style="position: absolute; top: 38px; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 4px; max-height: 200px; overflow-y: auto; z-index: 50; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+                                <div class="dts-custom-dropdown" style="top: 38px;">
                                     @if(count($filteredOffices) > 0)
                                         @foreach($filteredOffices as $office)
                                             <button type="button" 
+                                                class="dts-dropdown-item"
                                                 wire:click="selectCfOffice('{{ $office['office_code'] }}')" 
-                                                style="width: 100%; text-align: left; padding: 8px 12px; border: none; background: none; font-size: 12px; cursor: pointer; color: #333; border-bottom: 1px solid #f1f5f9; display: block;"
-                                                onmouseover="this.style.backgroundColor='#f1f5f9'" 
-                                                onmouseout="this.style.backgroundColor='transparent'"
+                                                style="width: 100%; text-align: left; border: none; background: none; font-size: 12px; display: block;"
                                             >
                                                 <strong>{{ $office['office_code'] }}</strong> - {{ $office['office_name'] }}
                                             </button>
                                         @endforeach
                                     @else
-                                        <div style="padding: 8px 12px; font-size: 12px; color: #64748b;">
+                                        <div class="dts-dropdown-empty" style="padding: 8px 12px; font-size: 12px;">
                                             No matching offices found.
                                         </div>
                                     @endif
@@ -1804,50 +1821,50 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
 
     <!-- Success Modal with Print QR Code -->
     @if($showSuccessModal && !empty($createdTransactionSummary))
-        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 10000; font-family: 'Inter', sans-serif;">
-            <div style="background: #ffffff; border-radius: 16px; width: 100%; max-width: 480px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #e2e8f0;">
+        <div class="dts-success-modal-backdrop">
+            <div class="dts-success-modal-card">
                 
                 <!-- Success Header -->
-                <div style="padding: 24px 24px 16px 24px; text-align: center; background: #f0fdf4; border-bottom: 1px solid #dcfce7;">
-                    <div style="width: 56px; height: 56px; border-radius: 50%; background: #22c55e; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 28px; margin: 0 auto 12px auto; box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);">
+                <div class="dts-success-header">
+                    <div class="dts-success-icon">
                         <i class="fa-solid fa-check"></i>
                     </div>
-                    <h3 style="font-size: 18px; font-weight: 700; color: #15803d; margin: 0 0 4px 0;">Transaction Created Successfully!</h3>
-                    <p style="font-size: 12px; color: #166534; margin: 0;">Control No: <strong>{{ $createdTransactionSummary['control_number'] }}</strong></p>
+                    <h3 class="dts-success-title">Transaction Created Successfully!</h3>
+                    <p class="dts-success-control-no">Control No: <strong>{{ $createdTransactionSummary['control_number'] }}</strong></p>
                 </div>
 
                 <!-- Modal Content Details -->
-                <div style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; align-items: center;">
+                <div class="dts-success-body">
                     <!-- QR Code Image -->
-                    <div style="padding: 12px; background: #ffffff; border: 2px solid #e2e8f0; border-radius: 12px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <div class="dts-success-qr-box">
                         <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={{ urlencode($createdTransactionSummary['qr_code']) }}" alt="QR Code" style="width: 160px; height: 160px; display: block; margin: 0 auto 8px auto;">
-                        <div style="font-size: 13px; font-weight: 700; color: #0f172a; font-family: monospace;">{{ $createdTransactionSummary['control_number'] }}</div>
-                        <div style="font-size: 11px; color: #64748b; margin-top: 2px;">{{ $createdTransactionSummary['office'] }} • {{ $createdTransactionSummary['type'] }}</div>
+                        <div class="dts-success-qr-code">{{ $createdTransactionSummary['control_number'] }}</div>
+                        <div class="dts-success-qr-meta">{{ $createdTransactionSummary['office'] }} • {{ $createdTransactionSummary['type'] }}</div>
                     </div>
 
                     <!-- Summary Table -->
-                    <div style="width: 100%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 12px;">
-                        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f5f9;">
-                            <span style="color: #64748b; font-weight: 500;">Requestor:</span>
-                            <span style="color: #0f172a; font-weight: 600;">{{ $createdTransactionSummary['requestor'] }} @if(!empty($createdTransactionSummary['requestor_position'])) ({{ $createdTransactionSummary['requestor_position'] }}) @endif</span>
+                    <div class="dts-success-summary-box">
+                        <div class="dts-success-summary-row">
+                            <span class="dts-success-summary-label">Requestor:</span>
+                            <span class="dts-success-summary-value">{{ $createdTransactionSummary['requestor'] }} @if(!empty($createdTransactionSummary['requestor_position'])) ({{ $createdTransactionSummary['requestor_position'] }}) @endif</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f5f9;">
-                            <span style="color: #64748b; font-weight: 500;">Origin Office:</span>
-                            <span style="color: #0f172a; font-weight: 600;">{{ $createdTransactionSummary['office'] }}</span>
+                        <div class="dts-success-summary-row">
+                            <span class="dts-success-summary-label">Origin Office:</span>
+                            <span class="dts-success-summary-value">{{ $createdTransactionSummary['office'] }}</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between; padding: 4px 0;">
-                            <span style="color: #64748b; font-weight: 500;">Subject:</span>
-                            <span style="color: #0f172a; font-weight: 600; max-width: 260px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $createdTransactionSummary['subject'] }}</span>
+                        <div class="dts-success-summary-row">
+                            <span class="dts-success-summary-label">Subject:</span>
+                            <span class="dts-success-summary-value">{{ $createdTransactionSummary['subject'] }}</span>
                         </div>
                     </div>
                 </div>
 
                 <!-- Footer Actions -->
-                <div style="padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; background: #fafafa;">
-                    <button type="button" onclick="if(window.openDynamicPrintModal) { openDynamicPrintModal('{{ $createdTransactionSummary['qr_code'] }}'); } else { printQrCodeOnly(); }" style="background: #0284c7; border: none; color: #ffffff; padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                <div class="dts-success-footer">
+                    <button type="button" onclick="if(window.openDynamicPrintModal) { openDynamicPrintModal('{{ $createdTransactionSummary['qr_code'] }}'); } else { printQrCodeOnly(); }" class="dts-success-btn-print">
                         <i class="fa-solid fa-print"></i> Print QR Code
                     </button>
-                    <button type="button" wire:click="closeSuccessModal" style="background: #475569; border: none; color: #ffffff; padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">
+                    <button type="button" wire:click="closeSuccessModal" class="dts-success-btn-done">
                         Done / Create Another
                     </button>
                 </div>

@@ -512,7 +512,239 @@
     display: block;
 }
 
-/* Dark Mode Overrides for Create Transaction */
+/* ==========================================================================
+   DTS Custom Autocomplete Dropdowns
+   ========================================================================== */
+.dts-custom-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 4px;
+    background: #ffffff;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    max-height: 220px;
+    overflow-y: auto;
+    z-index: 50;
+}
+
+.dts-dropdown-header {
+    padding: 6px 12px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #64748b;
+    background: #f8fafc;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.dts-dropdown-item {
+    padding: 9px 14px;
+    font-size: 13px;
+    color: #334155;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+    border-bottom: 1px solid #f1f5f9;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-sizing: border-box;
+    text-align: left;
+}
+
+.dts-dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.dts-dropdown-item:hover {
+    background-color: #f1f5f9;
+    color: #0f172a;
+}
+
+.dts-dropdown-empty {
+    padding: 12px 14px;
+    font-size: 13px;
+    color: #94a3b8;
+    text-align: center;
+}
+
+/* ==========================================================================
+   DTS Transaction Success Modal
+   ========================================================================== */
+.dts-success-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    font-family: 'Inter', sans-serif;
+}
+
+.dts-success-modal-card {
+    background: #ffffff;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+}
+
+.dts-success-header {
+    padding: 24px 24px 16px 24px;
+    text-align: center;
+    background: #f0fdf4;
+    border-bottom: 1px solid #dcfce7;
+}
+
+.dts-success-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: #22c55e;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    margin: 0 auto 12px auto;
+    box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+}
+
+.dts-success-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #15803d;
+    margin: 0 0 4px 0;
+}
+
+.dts-success-control-no {
+    font-size: 12px;
+    color: #166534;
+    margin: 0;
+}
+
+.dts-success-body {
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    align-items: center;
+}
+
+.dts-success-qr-box {
+    padding: 12px;
+    background: #ffffff;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.dts-success-qr-code {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    font-family: monospace;
+}
+
+.dts-success-qr-meta {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 2px;
+}
+
+.dts-success-summary-box {
+    width: 100%;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 12px;
+    box-sizing: border-box;
+}
+
+.dts-success-summary-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.dts-success-summary-row:last-child {
+    border-bottom: none;
+}
+
+.dts-success-summary-label {
+    color: #64748b;
+    font-weight: 500;
+}
+
+.dts-success-summary-value {
+    color: #0f172a;
+    font-weight: 600;
+    max-width: 260px;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dts-success-footer {
+    padding: 16px 24px;
+    border-top: 1px solid #f1f5f9;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #fafafa;
+}
+
+.dts-success-btn-print {
+    background: #0284c7;
+    border: none;
+    color: #ffffff;
+    padding: 9px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.15s ease;
+}
+
+.dts-success-btn-print:hover {
+    background: #0369a1;
+}
+
+.dts-success-btn-done {
+    background: #475569;
+    border: none;
+    color: #ffffff;
+    padding: 9px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.dts-success-btn-done:hover {
+    background: #334155;
+}
+
+/* ==========================================================================
+   Dark Mode Overrides for Create Transaction
+   ========================================================================== */
 [data-theme="dark"] .rms-container,
 [data-theme="dark"] .beta-create-card,
 [data-theme="dark"] .copy-furnished-card,
@@ -554,11 +786,167 @@
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2) !important;
 }
 
+[data-theme="dark"] select,
+[data-theme="dark"] select option,
+[data-theme="dark"] select optgroup,
+[data-theme="dark"] .select-input,
+[data-theme="dark"] .select-input option {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+    border-color: #334155 !important;
+}
+
 [data-theme="dark"] .beta-form-footer {
     border-top-color: #1e293b !important;
 }
 
-/* Custom Flow / Sequence Path Modal & Elements */
+/* Dark Mode Overrides for Dropdowns */
+[data-theme="dark"] .dts-custom-dropdown {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6) !important;
+}
+
+[data-theme="dark"] .dts-dropdown-header {
+    background: #1e293b !important;
+    color: #94a3b8 !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .dts-dropdown-item {
+    color: #f1f5f9 !important;
+    border-bottom-color: #1e293b !important;
+    background-color: transparent !important;
+}
+
+[data-theme="dark"] .dts-dropdown-item:hover {
+    background-color: #1e293b !important;
+    color: #60a5fa !important;
+}
+
+[data-theme="dark"] .dts-dropdown-item span[style*="color: #64748b"],
+[data-theme="dark"] .dts-dropdown-item div[style*="color: #64748b"],
+[data-theme="dark"] .dts-dropdown-item span[style*="color:#64748b"],
+[data-theme="dark"] .dts-dropdown-item div[style*="color:#64748b"] {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .dts-dropdown-empty {
+    color: #64748b !important;
+}
+
+/* Dark Mode Overrides for Success Modal */
+[data-theme="dark"] .dts-success-modal-card {
+    background: #0f172a !important;
+    border-color: #1e293b !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7) !important;
+}
+
+[data-theme="dark"] .dts-success-header {
+    background: rgba(34, 197, 94, 0.12) !important;
+    border-bottom-color: rgba(34, 197, 94, 0.25) !important;
+}
+
+[data-theme="dark"] .dts-success-title {
+    color: #4ade80 !important;
+}
+
+[data-theme="dark"] .dts-success-control-no {
+    color: #86efac !important;
+}
+
+[data-theme="dark"] .dts-success-control-no strong {
+    color: #ffffff !important;
+}
+
+[data-theme="dark"] .dts-success-qr-box {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .dts-success-qr-code {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .dts-success-qr-meta {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .dts-success-summary-box {
+    background: #131c2e !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .dts-success-summary-row {
+    border-bottom-color: #1e293b !important;
+}
+
+[data-theme="dark"] .dts-success-summary-label {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .dts-success-summary-value {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .dts-success-footer {
+    background: #0b0f19 !important;
+    border-top-color: #1e293b !important;
+}
+
+[data-theme="dark"] .dts-success-btn-done {
+    background: #334155 !important;
+}
+
+[data-theme="dark"] .dts-success-btn-done:hover {
+    background: #475569 !important;
+}
+
+/* Fallback inline overrides for dark mode in DTS create/edit pages */
+[data-theme="dark"] div[style*="background: #ffffff"],
+[data-theme="dark"] div[style*="background:#ffffff"],
+[data-theme="dark"] div[style*="background: #fff"],
+[data-theme="dark"] div[style*="background:#fff"] {
+    background-color: #0f172a !important;
+    border-color: #1e293b !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] div[style*="background: #f8fafc"],
+[data-theme="dark"] div[style*="background:#f8fafc"] {
+    background-color: #131c2e !important;
+    border-color: #1e293b !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] div[style*="background: #f0fdf4"],
+[data-theme="dark"] div[style*="background:#f0fdf4"] {
+    background-color: rgba(34, 197, 94, 0.12) !important;
+    border-color: rgba(34, 197, 94, 0.25) !important;
+}
+
+[data-theme="dark"] div[style*="color: #334155"],
+[data-theme="dark"] div[style*="color:#334155"],
+[data-theme="dark"] button[style*="color: #333"],
+[data-theme="dark"] button[style*="color:#333"] {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] h3[style*="color: #15803d"],
+[data-theme="dark"] h3[style*="color:#15803d"] {
+    color: #4ade80 !important;
+}
+
+[data-theme="dark"] p[style*="color: #166534"],
+[data-theme="dark"] p[style*="color:#166534"] {
+    color: #86efac !important;
+}
+
+[data-theme="dark"] p[style*="color: #166534"] strong,
+[data-theme="dark"] p[style*="color:#166534"] strong {
+    color: #ffffff !important;
+}
+
 [data-theme="dark"] label[style*="color: #334155"],
 [data-theme="dark"] label[style*="color:#334155"] {
     color: #f8fafc !important;
@@ -581,10 +969,6 @@
     border-color: #334155 !important;
 }
 
-[data-theme="dark"] select option {
-    background-color: #0f172a !important;
-    color: #f8fafc !important;
-}
 
 
 

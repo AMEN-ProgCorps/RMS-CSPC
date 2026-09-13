@@ -102,6 +102,48 @@
     color: #002873;
 }
 
+/* View Mode Segmented Control (Cards vs Table) */
+.view-mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    background: #f1f5f9;
+    padding: 3px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    box-sizing: border-box;
+}
+
+.view-mode-btn {
+    padding: 4px 10px;
+    border-radius: 5px;
+    border: none;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    background: transparent;
+    color: #64748b;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: 'Inter', sans-serif;
+    transition: all 0.15s ease;
+    user-select: none;
+    line-height: 1.4;
+    outline: none;
+}
+
+.view-mode-btn:hover:not(.active) {
+    color: #0f172a;
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.view-mode-btn.active {
+    background: #ffffff;
+    color: #003699;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
 /* 2-column mode controls stacking */
 .admin-users-container.has-selection .directory-controls-bar {
     flex-direction: column;
@@ -197,7 +239,8 @@
     font-size: 14px;
 }
 
-.users-list {
+.users-list,
+.directory-list {
     overflow-y: auto;
     flex: 1;
     min-height: 0;
@@ -205,7 +248,8 @@
 }
 
 /* Grid layout when filling full page (no user selected): account | account | account */
-.admin-users-container.no-selection .users-list {
+.admin-users-container.no-selection .users-list,
+.admin-users-container.no-selection .directory-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
     gap: 14px;
@@ -213,28 +257,34 @@
 }
 
 /* Single column stack when a user account or New User is selected */
-.admin-users-container.has-selection .users-list {
+.admin-users-container.has-selection .users-list,
+.admin-users-container.has-selection .directory-list {
     display: flex;
     flex-direction: column;
     gap: 8px;
 }
 
-/* User Directory Scrollbar */
-.users-list::-webkit-scrollbar {
+/* User & Directory Scrollbar */
+.users-list::-webkit-scrollbar,
+.directory-list::-webkit-scrollbar {
     width: 6px;
 }
-.users-list::-webkit-scrollbar-track {
+.users-list::-webkit-scrollbar-track,
+.directory-list::-webkit-scrollbar-track {
     background: transparent;
 }
-.users-list::-webkit-scrollbar-thumb {
+.users-list::-webkit-scrollbar-thumb,
+.directory-list::-webkit-scrollbar-thumb {
     background: #cbd5e1;
     border-radius: 10px;
 }
-.users-list::-webkit-scrollbar-thumb:hover {
+.users-list::-webkit-scrollbar-thumb:hover,
+.directory-list::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
 }
 
-.user-item-card {
+.user-item-card,
+.directory-item {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -245,9 +295,11 @@
     transition: all 0.2s ease;
     background: #ffffff;
     user-select: none;
+    box-sizing: border-box;
 }
 
-.user-item-card:hover {
+.user-item-card:hover,
+.directory-item:hover {
     background: #f8fafc;
     border-color: #e2e8f0;
     transform: translateY(-1px);
@@ -257,6 +309,54 @@
     background: rgba(0, 54, 153, 0.04);
     border-color: #003699;
     box-shadow: 0 4px 12px rgba(0, 54, 153, 0.03);
+}
+
+.directory-item.selected {
+    background: rgba(2, 132, 199, 0.06);
+    border-color: #0284c7;
+    box-shadow: 0 4px 12px rgba(2, 132, 199, 0.08);
+}
+
+.directory-item .item-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    background: #0284c7;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    flex-shrink: 0;
+    border: 1px solid rgba(2, 132, 199, 0.2);
+}
+
+.directory-item .item-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+
+.directory-item .item-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e293b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: 'Inter', sans-serif;
+}
+
+.directory-item .item-subtitle {
+    font-size: 12px;
+    color: #64748b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: 'Inter', sans-serif;
 }
 
 .user-avatar-small {
@@ -1020,18 +1120,24 @@ input:checked + .slider:before {
 
 [data-theme="dark"] .view-mode-toggle {
     background: #0f172a !important;
-    border-color: #1e293b !important;
+    border-color: #334155 !important;
 }
 
 [data-theme="dark"] .view-mode-btn {
     color: #94a3b8 !important;
     background: transparent !important;
+    border: none !important;
+}
+
+[data-theme="dark"] .view-mode-btn:hover:not(.active) {
+    color: #f8fafc !important;
+    background: rgba(255, 255, 255, 0.06) !important;
 }
 
 [data-theme="dark"] .view-mode-btn.active {
-    background: #1e293b !important;
-    color: #f8fafc !important;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
+    background: #2563eb !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4) !important;
 }
 
 [data-theme="dark"] .user-tbl-row,
@@ -1197,28 +1303,81 @@ input:checked + .slider:before {
     color: #ffffff !important;
 }
 
+/* Status Badges */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.badge-active {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.badge-inactive {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
 [data-theme="dark"] .directory-item {
-    background: #0f172a !important;
-    border-color: #1e293b !important;
+    background: #131c2e !important;
+    border: 1px solid #1e293b !important;
     color: #cbd5e1 !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
 }
 
 [data-theme="dark"] .directory-item:hover {
-    background: #1e293b !important;
-    border-color: #334155 !important;
+    background: #1a253c !important;
+    border-color: #3b82f6 !important;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35) !important;
 }
 
 [data-theme="dark"] .directory-item.selected {
-    background: rgba(37, 99, 235, 0.15) !important;
+    background: rgba(37, 99, 235, 0.18) !important;
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 1px #3b82f6 !important;
+}
+
+[data-theme="dark"] .directory-item .item-avatar {
+    background: #0284c7 !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(14, 165, 233, 0.4) !important;
+}
+
+[data-theme="dark"] .directory-item.selected .item-avatar {
+    background: #2563eb !important;
+    color: #ffffff !important;
     border-color: #3b82f6 !important;
 }
 
 [data-theme="dark"] .item-title {
     color: #f8fafc !important;
+    font-weight: 600 !important;
 }
 
 [data-theme="dark"] .item-subtitle {
     color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .badge-active {
+    background: rgba(16, 185, 129, 0.2) !important;
+    color: #34d399 !important;
+    border-color: rgba(16, 185, 129, 0.4) !important;
+}
+
+[data-theme="dark"] .badge-inactive {
+    background: rgba(239, 68, 68, 0.2) !important;
+    color: #f87171 !important;
+    border-color: rgba(239, 68, 68, 0.4) !important;
 }
 
 /* Requestor specific elements */
@@ -1275,6 +1434,114 @@ input:checked + .slider:before {
     color: #fbbf24 !important;
     border: 1px solid rgba(245, 158, 11, 0.3) !important;
 }
+
+/* Custom Dropdown for Roles & Offices */
+.users-custom-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 4px;
+    background: #ffffff;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    max-height: 180px;
+    overflow-y: auto;
+    z-index: 50;
+    font-family: 'Inter', sans-serif;
+}
+
+.users-custom-dropdown::-webkit-scrollbar {
+    width: 6px;
+}
+.users-custom-dropdown::-webkit-scrollbar-track {
+    background: transparent;
+}
+.users-custom-dropdown::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+}
+.users-custom-dropdown::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+.users-dropdown-item {
+    padding: 9px 14px;
+    font-size: 13px;
+    color: #334155;
+    cursor: pointer;
+    border-bottom: 1px solid #f1f5f9;
+    transition: background-color 0.15s ease, color 0.15s ease;
+    user-select: none;
+}
+
+.users-dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.users-dropdown-item:hover {
+    background-color: #f1f5f9;
+    color: #0f172a;
+}
+
+.users-dropdown-item.placeholder-item {
+    color: #64748b;
+    font-style: italic;
+}
+
+.users-dropdown-item.selected {
+    background-color: #e0f2fe;
+    color: #0284c7;
+    font-weight: 600;
+}
+
+.users-dropdown-empty {
+    padding: 12px 14px;
+    font-size: 13px;
+    color: #94a3b8;
+    text-align: center;
+    font-style: italic;
+}
+
+/* Dark Theme for Custom Dropdown */
+[data-theme="dark"] .users-custom-dropdown {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-theme="dark"] .users-custom-dropdown::-webkit-scrollbar-thumb {
+    background: #334155 !important;
+}
+
+[data-theme="dark"] .users-custom-dropdown::-webkit-scrollbar-thumb:hover {
+    background: #475569 !important;
+}
+
+[data-theme="dark"] .users-dropdown-item {
+    color: #cbd5e1 !important;
+    border-bottom-color: #1e293b !important;
+}
+
+[data-theme="dark"] .users-dropdown-item:hover {
+    background-color: #1e293b !important;
+    color: #38bdf8 !important;
+}
+
+[data-theme="dark"] .users-dropdown-item.placeholder-item {
+    color: #64748b !important;
+}
+
+[data-theme="dark"] .users-dropdown-item.selected {
+    background-color: rgba(2, 132, 199, 0.2) !important;
+    color: #38bdf8 !important;
+}
+
+[data-theme="dark"] .users-dropdown-empty {
+    color: #64748b !important;
+}
+
 
 
 

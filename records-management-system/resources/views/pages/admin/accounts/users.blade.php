@@ -792,11 +792,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             </div>
 
             <!-- View Mode Toggle -->
-            <div class="view-mode-toggle" style="display: flex; gap: 2px; padding: 2px; border-radius: 6px; margin-left: auto;">
-                <button type="button" wire:click="$set('viewMode', 'grid')" title="Cards Grid Layout" class="view-mode-btn {{ $viewMode === 'grid' ? 'active' : '' }}" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+            <div class="view-mode-toggle" style="margin-left: auto;">
+                <button type="button" wire:click="$set('viewMode', 'grid')" title="Cards Grid Layout" class="view-mode-btn {{ $viewMode === 'grid' ? 'active' : '' }}">
                     <i class="fa-solid fa-border-all"></i> Cards
                 </button>
-                <button type="button" wire:click="$set('viewMode', 'table')" title="Table Layout" class="view-mode-btn {{ $viewMode === 'table' ? 'active' : '' }}" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                <button type="button" wire:click="$set('viewMode', 'table')" title="Table Layout" class="view-mode-btn {{ $viewMode === 'table' ? 'active' : '' }}">
                     <i class="fa-solid fa-table-list"></i> Table
                 </button>
             </div>
@@ -996,12 +996,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                    wire:model.live="roleSearch" 
                                    wire:focus="$set('showRoleDropdown', true)" 
                                    autocomplete="off" 
-                                   style="padding-right: 32px; background-color: white; font-family: 'Inter', sans-serif;">
+                                   style="padding-right: 32px; font-family: 'Inter', sans-serif;">
                             <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
                             
                             @if($showRoleDropdown)
-                                <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 160px; overflow-y: auto; z-index: 50; font-family: 'Inter', sans-serif;">
-                                    <div wire:click="selectRole(null, '')" style="padding: 9px 14px; font-size: 13px; color: #64748b; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-style: italic;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                <div class="users-custom-dropdown">
+                                    <div class="users-dropdown-item placeholder-item" wire:click="selectRole(null, '')">
                                         Select Role
                                     </div>
                                     @php
@@ -1011,11 +1011,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                         });
                                     @endphp
                                     @forelse($filteredRoles as $role)
-                                        <div wire:click="selectRole({{ $role->id }}, '{{ addslashes($role->key_name) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                        <div class="users-dropdown-item {{ $roleId === $role->id ? 'selected' : '' }}" wire:click="selectRole({{ $role->id }}, '{{ addslashes($role->key_name) }}')">
                                             {{ $role->key_name }}
                                         </div>
                                     @empty
-                                        <div style="padding: 12px 14px; font-size: 13px; color: #94a3b8; text-align: center;">No matching roles found</div>
+                                        <div class="users-dropdown-empty">No matching roles found</div>
                                     @endforelse
                                 </div>
                             @endif
@@ -1033,12 +1033,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                    wire:model.live="officeSearch" 
                                    wire:focus="$set('showOfficeDropdown', true)" 
                                    autocomplete="off" 
-                                   style="padding-right: 32px; background-color: white; font-family: 'Inter', sans-serif;">
+                                   style="padding-right: 32px; font-family: 'Inter', sans-serif;">
                             <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
                             
                             @if($showOfficeDropdown)
-                                <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); max-height: 160px; overflow-y: auto; z-index: 50; font-family: 'Inter', sans-serif;">
-                                    <div wire:click="selectOffice(null, '')" style="padding: 9px 14px; font-size: 13px; color: #64748b; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-style: italic;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                <div class="users-custom-dropdown">
+                                    <div class="users-dropdown-item placeholder-item" wire:click="selectOffice(null, '')">
                                         No Office Assigned
                                     </div>
                                     @php
@@ -1050,11 +1050,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                         });
                                     @endphp
                                     @forelse($filteredOffices as $office)
-                                        <div wire:click="selectOffice({{ $office->id }}, '{{ addslashes($office->office_name) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                        <div class="users-dropdown-item {{ $officeId === $office->id ? 'selected' : '' }}" wire:click="selectOffice({{ $office->id }}, '{{ addslashes($office->office_name) }}')">
                                             {{ $office->office_name }} ({{ $office->office_code }})
                                         </div>
                                     @empty
-                                        <div style="padding: 12px 14px; font-size: 13px; color: #94a3b8; text-align: center;">No matching offices found</div>
+                                        <div class="users-dropdown-empty">No matching offices found</div>
                                     @endforelse
                                 </div>
                             @endif
@@ -1137,7 +1137,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     </div>
 
                     <!-- View Mode Toggle -->
-                    <div class="view-mode-toggle">
+                    <div class="view-mode-toggle" style="margin-left: auto;">
                         <button type="button" wire:click="$set('reqViewMode', 'grid')" class="view-mode-btn {{ $reqViewMode === 'grid' ? 'active' : '' }}" title="Cards Grid Layout">
                             <i class="fa-solid fa-border-all"></i> Cards
                         </button>
@@ -1207,7 +1207,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     <div class="directory-list" style="margin-top: 12px;">
                         @forelse($requestors as $req)
                             <div class="directory-item {{ $selectedRequestorId === $req->id ? 'selected' : '' }}" wire:click="selectRequestorItem({{ $req->id }})" wire:key="req-item-{{ $req->id }}">
-                                <div class="item-avatar" style="background-color: #0284c7; color: white;">
+                                <div class="item-avatar">
                                     <i class="fa-solid fa-user-pen"></i>
                                 </div>
                                 <div class="item-details">
@@ -1216,7 +1216,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                         @if(!empty($req->requestor_position)) {{ $req->requestor_position }} • @endif {{ $req->office_display_name }} ({{ $req->office }})
                                     </span>
                                 </div>
-                                <div style="margin-left: auto; display: flex; align-items: center; gap: 6px;">
+                                <div class="item-badges" style="margin-left: auto; display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
                                     <span class="req-cat-badge req-cat-{{ strtolower($req->office_category) }}">
                                         {{ $req->office_category }}
                                     </span>
@@ -1239,7 +1239,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 <div class="details-panel" wire:key="req-details-panel-{{ $selectedRequestorId }}">
                     <!-- Header -->
                     <div class="details-header">
-                        <div class="details-header-avatar" style="background-color: #0284c7; color: white;">
+                        <div class="details-header-avatar">
                             @if($selectedRequestorId === -1)
                                 <i class="fa-solid fa-user-plus" style="font-size: 20px;"></i>
                             @else

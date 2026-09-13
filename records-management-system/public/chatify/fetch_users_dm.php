@@ -81,18 +81,16 @@ if ($searchQuery !== '') {
             'office_id'           => $user['office_id'],
             'office_name'         => $user['office_name'],
             'office_code'         => $user['office_code'],
-            // Deliberately NOT sending is_currently_online / last_online_time /
-            // status here anymore. The active-status indicator is now fully
-            // WS-driven (see ws-server/server.js's presence_snapshot +
-            // assets/js/app-part1.js) — those DB columns could sit stale for
-            // anyone who closed the tab without a clean logout, which used to
-            // cause a brief incorrect "online" flash on page refresh before
-            // the WebSocket's presence data corrected it.
+            'last_online_time'    => $user['last_online_time'] ?? null,
             'lastMessage'         => $lastMessageText,
             'lastTimestamp'       => $lastTimestamp,
             'unreadCount'         => $unreadCount,
-            'allow_typing_preview'     => isset($user['allow_typing_preview']) ? (bool) $user['allow_typing_preview'] : true,
-            'allow_see_typing_preview' => isset($user['allow_see_typing_preview']) ? (bool) $user['allow_see_typing_preview'] : true,
+            'allow_typing_preview'     => (isset($user['allow_typing_preview']) && $user['allow_typing_preview'] !== null)
+                ? (!in_array($user['allow_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
+                : true,
+            'allow_see_typing_preview' => (isset($user['allow_see_typing_preview']) && $user['allow_see_typing_preview'] !== null)
+                ? (!in_array($user['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
+                : true,
             'is_chatify_verified' => (bool) ($user['is_chatify_verified'] ?? false),
             'avatar_url'          => $user['avatar_url'] ?? null,
         ];
@@ -138,13 +136,16 @@ if ($searchQuery !== '') {
             'office_id'           => $userInfo['office_id'],
             'office_name'         => $userInfo['office_name'],
             'office_code'         => $userInfo['office_code'],
-            // See note above — presence fields intentionally omitted;
-            // WS is the sole source for active status now.
+            'last_online_time'    => $userInfo['last_online_time'] ?? null,
             'lastMessage'         => $lastMessageText,
             'lastTimestamp'       => (int) ($conv['last_ts'] ?? 0),
             'unreadCount'         => (int) ($conv['unread_count'] ?? 0),
-            'allow_typing_preview'     => isset($userInfo['allow_typing_preview']) ? (bool) $userInfo['allow_typing_preview'] : true,
-            'allow_see_typing_preview' => isset($userInfo['allow_see_typing_preview']) ? (bool) $userInfo['allow_see_typing_preview'] : true,
+            'allow_typing_preview'     => (isset($userInfo['allow_typing_preview']) && $userInfo['allow_typing_preview'] !== null)
+                ? (!in_array($userInfo['allow_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
+                : true,
+            'allow_see_typing_preview' => (isset($userInfo['allow_see_typing_preview']) && $userInfo['allow_see_typing_preview'] !== null)
+                ? (!in_array($userInfo['allow_see_typing_preview'], [false, 0, '0', 'f', 'false', 'off', 'no'], true))
+                : true,
             'is_chatify_verified' => (bool) ($userInfo['is_chatify_verified'] ?? false),
             'avatar_url'          => $userInfo['avatar_url'] ?? null,
         ];

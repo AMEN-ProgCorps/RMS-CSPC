@@ -657,7 +657,142 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
             justify-content: flex-end;
         }
 
+        .rdp-unit-name {
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .rdp-rule-std {
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .rdp-rule-conv {
+            font-weight: 600;
+            color: #003699;
+        }
+        .rdp-rule-num {
+            color: #003699;
+            font-family: monospace;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .badge-unit-in-use {
+            display: inline-block;
+            padding: 3px 8px;
+            background: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #bfdbfe;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .badge-unit-converts {
+            display: inline-block;
+            padding: 3px 10px;
+            background: #ecfdf5;
+            color: #047857;
+            border: 1px solid #a7f3d0;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .badge-rule-active {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            background: #ecfdf5;
+            color: #047857;
+            border: 1px solid #a7f3d0;
+            border-radius: 99px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .badge-rule-inactive {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            background: #f1f5f9;
+            color: #64748b;
+            border: 1px solid #cbd5e1;
+            border-radius: 99px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .rdp-alert-success {
+            padding: 12px 16px;
+            background-color: #f0fdf4;
+            color: #15803d;
+            border: 1px solid #bbf7d0;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .rdp-alert-error {
+            padding: 12px 16px;
+            background-color: #fef2f2;
+            color: #b91c1c;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .rdp-folder-icon {
+            color: #2563eb;
+        }
+
         /* Dark Mode Overrides */
+        [data-theme="dark"] .rdp-unit-name {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .rdp-rule-std {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .rdp-rule-conv {
+            color: #60a5fa !important;
+        }
+        [data-theme="dark"] .rdp-rule-num {
+            color: #38bdf8 !important;
+        }
+        [data-theme="dark"] .badge-unit-in-use {
+            background: rgba(37, 99, 235, 0.15) !important;
+            color: #60a5fa !important;
+            border-color: rgba(37, 99, 235, 0.3) !important;
+        }
+        [data-theme="dark"] .badge-unit-converts {
+            background: rgba(16, 185, 129, 0.15) !important;
+            color: #34d399 !important;
+            border-color: rgba(16, 185, 129, 0.3) !important;
+        }
+        [data-theme="dark"] .badge-rule-active {
+            background: rgba(16, 185, 129, 0.15) !important;
+            color: #34d399 !important;
+            border-color: rgba(16, 185, 129, 0.3) !important;
+        }
+        [data-theme="dark"] .badge-rule-inactive {
+            background: #0f172a !important;
+            color: #94a3b8 !important;
+            border-color: #334155 !important;
+        }
+        [data-theme="dark"] .rdp-alert-success {
+            background-color: rgba(16, 185, 129, 0.15) !important;
+            color: #34d399 !important;
+            border-color: rgba(16, 185, 129, 0.3) !important;
+        }
+        [data-theme="dark"] .rdp-alert-error {
+            background-color: rgba(239, 68, 68, 0.15) !important;
+            color: #f87171 !important;
+            border-color: rgba(239, 68, 68, 0.3) !important;
+        }
+        [data-theme="dark"] .rdp-folder-icon {
+            color: #60a5fa !important;
+        }
         [data-theme="dark"] .rdp-card {
             background: #131c2e !important;
             border-color: #1e293b !important;
@@ -771,20 +906,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
             <p class="rdp-header-sub" style="font-size: 14px; color: #64748b; margin: 4px 0 0 0;">Manage standard volume units and conversion rules for RDP records (e.g. 100 Pages = 1 Folder).</p>
         </div>
         <button type="button" class="rdp-btn-manage" wire:click="toggleUnitsModal">
-            <i class="fa-solid fa-folder-open" style="color: #60a5fa;"></i>
+            <i class="fa-solid fa-folder-open rdp-folder-icon"></i>
             <span>Manage Volume Units ({{ count($allUnits) }})</span>
         </button>
     </div>
 
     @if($successMessage)
-        <div style="padding: 12px 16px; background-color: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; margin-bottom: 20px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+        <div class="rdp-alert-success">
             <i class="fa-solid fa-circle-check"></i>
             {{ $successMessage }}
         </div>
     @endif
 
     @if($errorMessage)
-        <div style="padding: 12px 16px; background-color: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; margin-bottom: 20px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+        <div class="rdp-alert-error">
             <i class="fa-solid fa-circle-xmark"></i>
             {{ $errorMessage }}
         </div>
@@ -883,21 +1018,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
                                     </div>
                                 </td>
                             @else
-                                <td style="padding: 12px 16px; font-weight: 700; color: #f8fafc;">
-                                    <span style="color: #38bdf8; font-family: monospace; font-size: 14px;">{{ $rule->amount_standard }}</span> 
+                                <td style="padding: 12px 16px;" class="rdp-rule-std">
+                                    <span class="rdp-rule-num">{{ $rule->amount_standard }}</span> 
                                     {{ Str::plural($rule->std_name, $rule->amount_standard) }}
                                 </td>
-                                <td style="padding: 12px 16px; color: #60a5fa; font-weight: 600;">
-                                    <span style="color: #38bdf8; font-family: monospace; font-size: 14px;">{{ $rule->amount_converted }}</span> 
+                                <td style="padding: 12px 16px;" class="rdp-rule-conv">
+                                    <span class="rdp-rule-num">{{ $rule->amount_converted }}</span> 
                                     {{ Str::plural($rule->conv_name, $rule->amount_converted) }}
                                 </td>
                                 <td style="padding: 12px 16px;">
                                     @if($rule->is_active)
-                                        <span style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 99px; font-size: 11px; font-weight: 700;">
+                                        <span class="badge-rule-active">
                                             <i class="fa-solid fa-circle" style="font-size: 6px;"></i> ACTIVE
                                         </span>
                                     @else
-                                        <span style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: #0f172a; color: #94a3b8; border: 1px solid #334155; border-radius: 99px; font-size: 11px; font-weight: 700;">
+                                        <span class="badge-rule-inactive">
                                             <i class="fa-solid fa-circle" style="font-size: 6px;"></i> INACTIVE
                                         </span>
                                     @endif
@@ -937,7 +1072,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
             <div class="rdp-modal-dialog">
                 <div class="rdp-modal-header">
                     <h3 class="rdp-modal-title">
-                        <i class="fa-solid fa-boxes-stacked" style="color: #60a5fa; margin-right: 6px;"></i>
+                        <i class="fa-solid fa-boxes-stacked" style="color: #2563eb; margin-right: 6px;"></i>
                         Manage Volume Units
                     </h3>
                     <button type="button" wire:click="toggleUnitsModal" class="rdp-modal-close">&times;</button>
@@ -968,26 +1103,26 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
                                 <tr wire:key="unit-{{ $unit->volume_id }}">
                                     @if($editingUnitId === $unit->volume_id)
                                         <td style="padding: 10px 12px;" colspan="3">
-                                            <div style="display: flex; gap: 6px;">
+                                             <div style="display: flex; gap: 6px;">
                                                 <input type="text" wire:model.live="editingUnitName" class="rdp-input">
                                                 <button type="button" wire:click="updateVolumeUnit" class="rdp-btn-action" style="background: #10b981; color: #fff; padding: 6px 12px;">SAVE</button>
                                                 <button type="button" wire:click="cancelEditUnit" class="rdp-btn-action rdp-btn-toggle" style="padding: 6px 12px;">CANCEL</button>
                                             </div>
                                         </td>
                                     @else
-                                        <td style="padding: 10px 12px; font-weight: 700; color: #f8fafc;">
+                                        <td style="padding: 10px 12px;" class="rdp-unit-name">
                                             {{ $unit->value_standard }}
                                         </td>
                                         <td style="padding: 10px 12px; text-align: center;">
                                             @if($unit->cur_used_standard)
-                                                <span style="display: inline-block; padding: 3px 8px; background: rgba(37, 99, 235, 0.15); color: #60a5fa; border: 1px solid rgba(37, 99, 235, 0.3); border-radius: 6px; font-size: 11px; font-weight: 700;">IN USE</span>
+                                                <span class="badge-unit-in-use">IN USE</span>
                                             @else
                                                 <span style="font-size: 11px; color: #64748b;">--</span>
                                             @endif
                                         </td>
                                         <td style="padding: 10px 12px; text-align: center;">
                                             @if($unit->converts_to_name)
-                                                <span style="display: inline-block; padding: 3px 10px; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; font-size: 12px; font-weight: 700;">
+                                                <span class="badge-unit-converts">
                                                     {{ $unit->converts_to_name }}
                                                 </span>
                                             @else

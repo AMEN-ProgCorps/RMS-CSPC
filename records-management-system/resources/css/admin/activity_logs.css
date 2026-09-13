@@ -396,6 +396,124 @@
     white-space: nowrap;
 }
 
+.badge-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.badge-created   { background-color: rgba(37, 99, 235, 0.1); color: #1d4ed8; border: 1px solid rgba(37, 99, 235, 0.25); }
+.badge-in-transit { background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+.badge-holding   { background-color: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd; }
+.badge-forwarded { background-color: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+.badge-received  { background-color: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+.badge-returned  { background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+.badge-completed { background-color: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+.badge-default   { background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
+
+.log-notes-cell {
+    font-size: 12.5px;
+    color: #334155;
+    min-width: 220px;
+    max-width: 320px;
+    line-height: 1.45;
+    word-break: normal;
+    overflow-wrap: break-word;
+    white-space: normal;
+}
+
+.actor-badge-sub {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-top: 3px;
+    width: fit-content;
+    background: #fffbeb;
+    color: #b45309;
+    border: 1px solid #fde68a;
+}
+
+.control-num-text {
+    font-weight: 700;
+    color: #003699;
+    font-family: monospace;
+    font-size: 13.5px;
+}
+
+.control-num-id {
+    font-size: 10.5px;
+    color: #64748b;
+}
+
+.office-code-tag {
+    color: #003699;
+    font-weight: 700;
+}
+
+.time-label {
+    font-weight: 700;
+    color: #475569;
+}
+
+.time-val {
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.time-pending {
+    color: #64748b;
+    font-style: italic;
+}
+
+.badge-pending {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    background: #fffbeb;
+    color: #b45309;
+    border: 1px solid #fde68a;
+}
+
+.flow-log-desc {
+    font-size: 13px;
+    font-weight: 500;
+    color: #1e293b;
+}
+
+.admin-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.admin-name {
+    font-weight: 600;
+    color: #334155;
+    font-size: 13px;
+}
+
+.admin-role {
+    font-size: 11px;
+    color: #64748b;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
 /* Empty State */
 .empty-state {
     padding: 60px 20px;
@@ -812,5 +930,58 @@
 [data-theme="dark"] .activity-logs-container p[style*="color:#64748b"] {
     color: #94a3b8 !important;
 }
+
+[data-theme="dark"] .log-notes-cell {
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .actor-badge-sub {
+    background: rgba(245, 158, 11, 0.15) !important;
+    color: #fbbf24 !important;
+    border-color: rgba(245, 158, 11, 0.3) !important;
+}
+
+[data-theme="dark"] .control-num-text {
+    color: #38bdf8 !important;
+}
+
+[data-theme="dark"] .control-num-id {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .office-code-tag {
+    color: #60a5fa !important;
+}
+
+[data-theme="dark"] .time-label {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .time-val {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .time-pending {
+    color: #64748b !important;
+}
+
+[data-theme="dark"] .badge-pending {
+    background: rgba(245, 158, 11, 0.15) !important;
+    color: #fbbf24 !important;
+    border-color: rgba(245, 158, 11, 0.3) !important;
+}
+
+[data-theme="dark"] .flow-log-desc {
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .admin-name {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .admin-role {
+    color: #94a3b8 !important;
+}
+
 
 

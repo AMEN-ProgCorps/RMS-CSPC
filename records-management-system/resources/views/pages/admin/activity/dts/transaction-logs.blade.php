@@ -172,16 +172,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transactions Logs')]
             letter-spacing: 0.02em;
             white-space: nowrap;
         }
-        .badge-created { background-color: rgba(37, 99, 235, 0.12); color: #60a5fa; border: 1px solid rgba(37, 99, 235, 0.3); }
-        .badge-in-transit { background-color: rgba(245, 158, 11, 0.12); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
-        .badge-holding { background-color: rgba(14, 165, 233, 0.12); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.3); }
-        .badge-forwarded { background-color: rgba(16, 185, 129, 0.12); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
-        .badge-returned { background-color: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
-        .badge-default { background-color: rgba(148, 163, 184, 0.1); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.2); }
+        .badge-created { background-color: rgba(37, 99, 235, 0.1); color: #1d4ed8; border: 1px solid rgba(37, 99, 235, 0.25); }
+        .badge-in-transit { background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+        .badge-holding { background-color: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd; }
+        .badge-forwarded { background-color: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+        .badge-returned { background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+        .badge-default { background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
 
         .log-notes-cell {
             font-size: 12.5px;
-            color: #cbd5e1;
+            color: #334155;
             min-width: 220px;
             max-width: 320px;
             line-height: 1.45;
@@ -195,11 +195,77 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transactions Logs')]
             align-items: center;
             gap: 4px;
             font-size: 10.5px;
+            font-weight: 600;
             padding: 2px 6px;
             border-radius: 4px;
             margin-top: 3px;
             width: fit-content;
+            background: #fffbeb;
+            color: #b45309;
+            border: 1px solid #fde68a;
         }
+
+        .control-num-text {
+            font-weight: 700;
+            color: #003699;
+            font-family: monospace;
+            font-size: 13.5px;
+        }
+
+        .control-num-id {
+            font-size: 10.5px;
+            color: #64748b;
+        }
+
+        .office-code-tag {
+            color: #003699;
+            font-weight: 700;
+        }
+
+        .time-label {
+            font-weight: 700;
+            color: #475569;
+        }
+
+        .time-val {
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        .time-pending {
+            color: #64748b;
+            font-style: italic;
+        }
+
+        .badge-pending {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 10.5px;
+            font-weight: 600;
+            background: #fffbeb;
+            color: #b45309;
+            border: 1px solid #fde68a;
+        }
+
+        /* Dark Mode Overrides */
+        [data-theme="dark"] .badge-created { background-color: rgba(37, 99, 235, 0.15); color: #60a5fa; border-color: rgba(37, 99, 235, 0.3); }
+        [data-theme="dark"] .badge-in-transit { background-color: rgba(245, 158, 11, 0.15); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
+        [data-theme="dark"] .badge-holding { background-color: rgba(14, 165, 233, 0.15); color: #38bdf8; border-color: rgba(14, 165, 233, 0.3); }
+        [data-theme="dark"] .badge-forwarded { background-color: rgba(16, 185, 129, 0.15); color: #34d399; border-color: rgba(16, 185, 129, 0.3); }
+        [data-theme="dark"] .badge-returned { background-color: rgba(239, 68, 68, 0.15); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
+        [data-theme="dark"] .badge-default { background-color: #0f172a; color: #94a3b8; border-color: #334155; }
+        [data-theme="dark"] .log-notes-cell { color: #cbd5e1; }
+        [data-theme="dark"] .actor-badge-sub { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
+        [data-theme="dark"] .control-num-text { color: #38bdf8; }
+        [data-theme="dark"] .control-num-id { color: #94a3b8; }
+        [data-theme="dark"] .office-code-tag { color: #60a5fa; }
+        [data-theme="dark"] .time-label { color: #94a3b8; }
+        [data-theme="dark"] .time-val { color: #f8fafc; }
+        [data-theme="dark"] .time-pending { color: #64748b; }
+        [data-theme="dark"] .badge-pending { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
     </style>
 @endpush
 
@@ -339,8 +405,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transactions Logs')]
                         <tr wire:key="dts-log-{{ $log->id }}">
                             <td>
                                 <div style="display: flex; flex-direction: column; gap: 2px;">
-                                    <span style="font-weight: 700; color: #38bdf8; font-family: monospace; font-size: 13.5px;">{{ $log->control_number ?? $log->transaction_id }}</span>
-                                    <span style="font-size: 10.5px; color: #64748b;">ID #{{ $log->id }}</span>
+                                    <span class="control-num-text">{{ $log->control_number ?? $log->transaction_id }}</span>
+                                    <span class="control-num-id">ID #{{ $log->id }}</span>
                                 </div>
                             </td>
                             <td>
@@ -350,9 +416,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transactions Logs')]
                             </td>
                             <td>
                                 <div class="admin-name-cell">
-                                    <span class="name" style="font-size: 13px; font-weight: 700; color: #f8fafc;">{{ $log->office_name ?? ($log->office_code ?: 'N/A') }}</span>
+                                    <span class="name" style="font-size: 13px; font-weight: 700;">{{ $log->office_name ?? ($log->office_code ?: 'N/A') }}</span>
                                     @if($log->office_code)
-                                        <span class="email-sub" style="color: #94a3b8; font-size: 11.5px;">Code: <strong style="color: #60a5fa;">{{ $log->office_code }}</strong></span>
+                                        <span class="email-sub" style="font-size: 11.5px;">Code: <strong class="office-code-tag">{{ $log->office_code }}</strong></span>
                                     @endif
                                 </div>
                             </td>
@@ -369,18 +435,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transactions Logs')]
                                     </div>
                                     <div class="admin-name-cell">
                                         @if($isInTransit)
-                                            <span class="name" style="font-weight: 600; color: #f8fafc; font-size: 13px;">{{ $log->first_name ? trim($log->first_name . ' ' . $log->last_name) : ($log->username ?: 'Staff') }}</span>
-                                            <span class="actor-badge-sub" style="background: rgba(245, 158, 11, 0.12); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.25);">
+                                            <span class="name" style="font-weight: 600; font-size: 13px;">{{ $log->first_name ? trim($log->first_name . ' ' . $log->last_name) : ($log->username ?: 'Staff') }}</span>
+                                            <span class="actor-badge-sub">
                                                 <i class="fa-solid fa-paper-plane" style="font-size: 9px;"></i> Dispatched by Sender
                                             </span>
-                                            <span class="email-sub" style="color: #64748b; font-size: 11px; margin-top: 2px;">(Awaiting receipt at {{ $log->office_code }})</span>
+                                            <span class="email-sub" style="font-size: 11px; margin-top: 2px;">(Awaiting receipt at {{ $log->office_code }})</span>
                                         @else
                                             @if($log->first_name || $log->last_name)
-                                                <span class="name" style="font-weight: 600; color: #f8fafc; font-size: 13px;">{{ $log->first_name }} {{ $log->last_name }}</span>
-                                                <span class="email-sub" style="color: #94a3b8; font-size: 11.5px;">@ {{ $log->username }}</span>
+                                                <span class="name" style="font-weight: 600; font-size: 13px;">{{ $log->first_name }} {{ $log->last_name }}</span>
+                                                <span class="email-sub" style="font-size: 11.5px;">@ {{ $log->username }}</span>
                                             @elseif($log->username)
-                                                <span class="name" style="font-weight: 600; color: #f8fafc; font-size: 13px;">{{ $log->username }}</span>
-                                                <span class="email-sub" style="color: #94a3b8; font-size: 11.5px;">System Account</span>
+                                                <span class="name" style="font-weight: 600; font-size: 13px;">{{ $log->username }}</span>
+                                                <span class="email-sub" style="font-size: 11.5px;">System Account</span>
                                             @else
                                                 <span class="name" style="color: #94a3b8; font-style: italic; font-size: 12.5px;">System Automatic</span>
                                             @endif
@@ -392,23 +458,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transactions Logs')]
                                 <div style="display: flex; flex-direction: column; gap: 6px;">
                                     <!-- Time In -->
                                     <div class="log-timestamp">
-                                        <div style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #94a3b8;">
-                                            <span style="font-weight: 600; color: #cbd5e1;">IN:</span>
+                                        <div style="display: flex; align-items: center; gap: 4px; font-size: 11px;">
+                                            <span class="time-label">IN:</span>
                                             @if($log->date_in)
-                                                <span style="font-weight: 600; color: #f8fafc;">{{ \Carbon\Carbon::parse($log->date_in)->format('M d, Y h:i A') }}</span>
+                                                <span class="time-val">{{ \Carbon\Carbon::parse($log->date_in)->format('M d, Y h:i A') }}</span>
                                             @else
-                                                <span style="color: #64748b; font-style: italic;">Not yet received</span>
+                                                <span class="time-pending">Not yet received</span>
                                             @endif
                                         </div>
                                     </div>
                                     <!-- Time Out -->
                                     <div class="log-timestamp">
-                                        <div style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #94a3b8;">
-                                            <span style="font-weight: 600; color: #cbd5e1;">OUT:</span>
+                                        <div style="display: flex; align-items: center; gap: 4px; font-size: 11px;">
+                                            <span class="time-label">OUT:</span>
                                             @if($log->date_out)
-                                                <span style="font-weight: 600; color: #f8fafc;">{{ \Carbon\Carbon::parse($log->date_out)->format('M d, Y h:i A') }}</span>
+                                                <span class="time-val">{{ \Carbon\Carbon::parse($log->date_out)->format('M d, Y h:i A') }}</span>
                                             @else
-                                                <span style="display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: rgba(245, 158, 11, 0.12); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.25);">
+                                                <span class="badge-pending">
                                                     <i class="fa-solid fa-clock" style="font-size: 9px;"></i> Pending
                                                 </span>
                                             @endif

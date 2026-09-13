@@ -56,6 +56,43 @@
       const xBtn = document.getElementById('cancelEditXBtn');
       if (xBtn) xBtn.style.display = 'none';
     }
+
+    function updateRepliesForEditedMessage(msgUuid, newText) {
+      if (!msgUuid || typeof newText !== 'string' || !chatBox) return;
+      const cleanSnippet = newText.replace(/\s+/g, ' ').trim();
+      const truncated = cleanSnippet.length <= 120 ? cleanSnippet : cleanSnippet.slice(0, 120).trim() + '...';
+
+      const quotes = chatBox.querySelectorAll(
+        `.reply-quote[data-reply-to="${msgUuid}"], .message-container[data-reply-to="${msgUuid}"] .reply-quote`
+      );
+
+      quotes.forEach(function(rq) {
+        const textEl = rq.querySelector('.reply-quote-text');
+        if (textEl) {
+          textEl.textContent = truncated;
+        } else if (!rq.querySelector('img')) {
+          rq.innerHTML = `<div class="reply-quote-text">${escapeHtml(truncated)}</div>`;
+        }
+      });
+    }
+    window.updateRepliesForEditedMessage = updateRepliesForEditedMessage;
+
+    function showGeneralToast(message, isError) {
+      const container = document.getElementById('notifyToastContainer');
+      if (!container) return;
+      const toast = document.createElement('div');
+      toast.className = 'notify-toast' + (isError ? ' error' : '');
+      if (isError) {
+        toast.style.cssText = 'background:#ef4444;color:#ffffff;border:none;box-shadow:0 4px 12px rgba(239,68,68,0.4);font-weight:600;font-size:13px;padding:10px 16px;border-radius:10px;';
+      }
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.classList.add('hide');
+        setTimeout(() => toast.remove(), 250);
+      }, 3500);
+    }
+    window.showGeneralToast = showGeneralToast;
     const notifyModal        = document.getElementById('notifyModal');
     const notifyTargetName   = document.getElementById('notifyTargetName');
     const notifyMessageInput = document.getElementById('notifyMessageInput');
@@ -168,8 +205,9 @@
           wsReconnectTimer = null;
         }
 
-        // Keep hybrid background polling running as safety net
-        startPollingFallback();
+        // WebSocket is connected: stop backup message polling
+        stopPollingFallback();
+        if (typeof window._startSidebarPoll === 'function') window._startSidebarPoll();
 
         // Authenticate connection
         ws.send(JSON.stringify({
@@ -210,6 +248,9 @@
       container.className = 'message-container ' + (isSentByMe ? 'sent' : 'received') + ' msg-animate-' + (isSentByMe ? 'sent' : 'received');
       if (msgId) container.setAttribute('data-msg-id', msgId);
       if (msgData.sender_id) container.setAttribute('data-sender-id', String(msgData.sender_id));
+      if (msgData.created_at) container.setAttribute('data-created-at', String(msgData.created_at));
+      if (msgData.reply_to_msg_uuid) container.setAttribute('data-reply-to', String(msgData.reply_to_msg_uuid));
+      container.setAttribute('data-edit-count', String(msgData.edit_count || 0));
       container.addEventListener('animationend', () => container.classList.remove('msg-animate-sent', 'msg-animate-received'), { once: true });
 
       const msgText = msgData.message || msgData.plaintext || '';
@@ -257,9 +298,9 @@
         if (String(replySnippetText).startsWith('image:')) {
           const imgFile = String(replySnippetText).slice(6);
           const imgSrc  = 'uploads/' + imgFile;
-          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
+          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(msgData.reply_to_msg_uuid)}"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
         } else {
-          replyQuoteHtml = `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
+          replyQuoteHtml = `<div class="reply-quote" data-reply-to="${escapeHtml(msgData.reply_to_msg_uuid)}"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
         }
       }
 
@@ -286,9 +327,12 @@
       }
 
       // Cap the DOM at MAX_WINDOW visible messages so real-time
-      // WebSocket pushes never grow the chat window without bound.
-      const trimmed = trimChatMessages(MAX_WINDOW);
-      if (trimmed) refreshCursorAfterTopTrim();
+      // WebSocket pushes never grow the chat window without bound (only when NOT backreading).
+      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+      if (!viewingOlder) {
+        const trimmed = trimChatMessages(MAX_WINDOW);
+        if (trimmed) refreshCursorAfterTopTrim();
+      }
 
       applyAdminBadges();
       if (wasAtBottom || isSentByMe) {
@@ -332,6 +376,9 @@
       container.className = 'message-container received msg-animate-received';
       if (msgId) container.setAttribute('data-msg-id', msgId);
       if (msgData.sender_id) container.setAttribute('data-sender-id', String(msgData.sender_id));
+      if (msgData.created_at) container.setAttribute('data-created-at', String(msgData.created_at));
+      if (msgData.reply_to_msg_uuid) container.setAttribute('data-reply-to', String(msgData.reply_to_msg_uuid));
+      container.setAttribute('data-edit-count', String(msgData.edit_count || 0));
       container.addEventListener('animationend', () => container.classList.remove('msg-animate-received'), { once: true });
 
       const msgText = msgData.message || msgData.plaintext || '';
@@ -366,9 +413,9 @@
         if (String(replySnippetText).startsWith('image:')) {
           const imgFile = String(replySnippetText).slice(6);
           const imgSrc  = 'uploads/' + imgFile;
-          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
+          replyQuoteHtml = `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(msgData.reply_to_msg_uuid)}"><img src="${escapeHtml(imgSrc)}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
         } else {
-          replyQuoteHtml = `<div class="reply-quote"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
+          replyQuoteHtml = `<div class="reply-quote" data-reply-to="${escapeHtml(msgData.reply_to_msg_uuid)}"><div class="reply-quote-text">${escapeHtml(String(replySnippetText).slice(0, 120))}</div></div>`;
         }
       }
 
@@ -418,6 +465,8 @@
         }
 
         if (data.type === 'auth_success') {
+          stopPollingFallback();
+          if (typeof window._startSidebarPoll === 'function') window._startSidebarPoll();
           // The socket is now actually authenticated as us, so any 'notify'
           // WS push from this point on will reach us live. But a mention
           // that landed WHILE we were offline/reconnecting only exists as
@@ -445,6 +494,13 @@
             `.message-container[data-msg-id="${data.msg_uuid}"]`
           );
           if (targetContainer) {
+            if (typeof data.edit_count !== 'undefined') {
+              targetContainer.setAttribute('data-edit-count', String(data.edit_count));
+            } else {
+              const prevCount = parseInt(targetContainer.getAttribute('data-edit-count') || '0', 10);
+              targetContainer.setAttribute('data-edit-count', String(prevCount + 1));
+            }
+
             const contentEl = targetContainer.querySelector('.message-bubble .message-content');
             if (contentEl) {
               contentEl.textContent = data.message;
@@ -461,6 +517,23 @@
               label.textContent = 'edited';
               bubbleWrapper.insertBefore(label, bubbleWrapper.firstChild);
             }
+          }
+
+          // Real-time reply reflection: update any reply bubbles referencing this message
+          if (typeof updateRepliesForEditedMessage === 'function') {
+            updateRepliesForEditedMessage(data.msg_uuid, data.message);
+          }
+
+          // If current user is in the middle of replying to this message, update reply banner
+          if (typeof replyState !== 'undefined' && replyState && replyState.msgId === data.msg_uuid) {
+            replyState.snippet = data.message;
+            if (typeof showReplyBanner === 'function') {
+              showReplyBanner(data.message);
+            }
+          }
+
+          if (typeof dmMessageCache !== 'undefined') {
+            dmMessageCache.clear();
           }
         } else if (data.type === 'reaction_updated') {
           // Another client (or our own second tab) toggled a reaction —
@@ -547,10 +620,21 @@
                   // Incoming message from the other person — render it via WS
                   if (data.has_upload) {
                     if (typeof dmMessageCache !== 'undefined' && activeDM) dmMessageCache.delete(activeDM);
-                    loadChatForced();
+                    if (dmViewingOlder) {
+                      showScrollIndicator(1);
+                    } else {
+                      loadChatForced();
+                    }
                   } else {
+                    const wasAtBottom = (typeof isAtBottom === 'function') ? isAtBottom() : true;
                     renderAndAppendWsMessage(data);
-                    if (!document.hidden) markRead(activeDM);
+                    if (wasAtBottom && shouldMarkReadNow()) {
+                      userScrolledUp = false;
+                      shouldAutoScroll = true;
+                      markRead(activeDM, data.msg_uuid || data.id);
+                    } else if (typeof showScrollIndicator === 'function' && !wasAtBottom) {
+                      showScrollIndicator(1);
+                    }
                   }
                 } else {
                   // This is an echo of our own sent message (WS server broadcasts back to sender).
@@ -558,7 +642,7 @@
                   // to avoid duplicate bubbles. Only do a forced reload if somehow the optimistic
                   // bubble is missing (e.g. attachment upload where has_upload=true).
                   if (data.has_upload) {
-                    loadChatForced();
+                    if (!dmViewingOlder) loadChatForced();
                   }
                 }
               }
@@ -608,20 +692,8 @@
           // The other participant just read up through data.last_msg_uuid —
           // update the Messenger-style "Seen" indicator instantly, no poll needed.
           if (activeDM && activeDMAccountId === Number(data.reader_id)) {
-            let incomingReadUpTo = null;
-            if (data.last_msg_uuid) {
-              incomingReadUpTo = data.last_msg_uuid;
-            } else {
-              let newestSentId = null;
-              chatBox.querySelectorAll('.message-container.sent[data-msg-id]').forEach(el => {
-                const id = el.getAttribute('data-msg-id');
-                if (id && (!newestSentId || id > newestSentId)) newestSentId = id;
-              });
-              if (newestSentId && (!dmReadUpTo || newestSentId > dmReadUpTo)) {
-                incomingReadUpTo = newestSentId;
-              }
-            }
-            if (incomingReadUpTo && incomingReadUpTo !== dmReadUpTo) {
+            let incomingReadUpTo = data.last_msg_uuid || null;
+            if (incomingReadUpTo && (incomingReadUpTo !== dmReadUpTo || !chatBox.querySelector('.seen-indicator'))) {
               dmReadUpTo = incomingReadUpTo;
               dmReadUpToMap.set(activeDM, dmReadUpTo);
               const cachedObj = dmMessageCache.get(activeDM);
@@ -850,6 +922,7 @@
         
         // Start polling fallback immediately when connection is lost
         startPollingFallback();
+        if (typeof window._startSidebarPoll === 'function') window._startSidebarPoll();
 
         if (!wsReconnectTimer) {
           wsAttempts++;
@@ -861,6 +934,8 @@
 
       ws.onerror = function(err) {
         console.error('WebSocket connection error:', err);
+        startPollingFallback();
+        if (typeof window._startSidebarPoll === 'function') window._startSidebarPoll();
       };
     }
 
@@ -914,11 +989,70 @@
         return `Active ${diffMin} ${diffMin === 1 ? 'minute' : 'minutes'} ago`;
       } else if (diffHour < 24) {
         return `Active ${diffHour} ${diffHour === 1 ? 'hour' : 'hours'} ago`;
+      } else if (diffDay >= 100) {
+        return 'Active 99+ days ago';
       } else {
         return `Active ${diffDay} ${diffDay === 1 ? 'day' : 'days'} ago`;
       }
     }
     window.formatActiveStatus = formatActiveStatus;
+
+    function isWidgetMinimizedOrHidden() {
+      try {
+        if (window.frameElement) {
+          if (window.frameElement.style.display === 'none') return true;
+          if (window.frameElement.offsetParent === null && window.frameElement.offsetWidth === 0 && window.frameElement.offsetHeight === 0) {
+            return true;
+          }
+          if (window.parent && window.parent.document) {
+            const card = window.parent.document.getElementById('chatify-widget-card');
+            if (card) {
+              const style = window.parent.getComputedStyle(card);
+              if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                return true;
+              }
+            }
+          }
+        }
+      } catch (e) {}
+      return false;
+    }
+
+    function shouldMarkReadNow() {
+      // 1. Must have an active DM
+      if (!activeDM) return false;
+
+      // 2. Browser tab must not be hidden/minimized
+      if (document.hidden) return false;
+      try {
+        if (window.parent && window.parent !== window && window.parent.document && window.parent.document.hidden) {
+          return false;
+        }
+      } catch (e) {}
+
+      // 3. Floating widget card must not be minimized or hidden
+      if (isWidgetMinimizedOrHidden()) return false;
+
+      // 4. On mobile/webview, if the sidebar is open, user is in contacts list, NOT in chat
+      if (isMobileViewport()) {
+        if (sidebar && sidebar.classList.contains('open')) return false;
+      }
+
+      // 5. ChatBox must not be on the empty-chat placeholder screen
+      if (chatBox && chatBox.querySelector('.empty-chat')) return false;
+
+      // 6. Must not be backreading older history
+      if (typeof dmViewingOlder !== 'undefined' && dmViewingOlder) return false;
+
+      // 7. Must be at the bottom of the conversation
+      if (typeof isAtBottom === 'function' && !isAtBottom()) return false;
+
+      if (typeof userScrolledUp !== 'undefined' && userScrolledUp) {
+        userScrolledUp = false;
+      }
+      return true;
+    }
+    window.shouldMarkReadNow = shouldMarkReadNow;
 
     function updateHeaderActiveStatus(user) {
       const el = document.getElementById('headerActiveStatus');
@@ -964,8 +1098,7 @@
       // last-seen time also comes only from WS data now: either a
       // presence:offline event received live this session, or the
       // last_seen map handed over in presence_snapshot for someone who
-      // was already offline when we connected (see server.js).
-      const lastTime = wsLastOnlineTime.get(accId) || user.lastTimestamp;
+      const lastTime = isOnline ? null : (wsLastOnlineTime.get(accId) || user.last_online_time || user.lastTimestamp);
       el.textContent = formatActiveStatus(isOnline, lastTime);
     }
     window.updateHeaderActiveStatus = updateHeaderActiveStatus;
@@ -1121,9 +1254,14 @@
 
     function startPollingFallback() {
       if (wsPollInterval) return;
-      console.log('Starting hybrid message polling...');
+      if (ws && ws.readyState === WebSocket.OPEN) return; // Do not start if WebSocket is healthy!
+      console.log('Starting backup message polling (WebSocket offline)...');
       wsPollInterval = setInterval(function() {
         if (document.hidden) return; // skip each tick while hidden
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          stopPollingFallback();
+          return;
+        }
         if (isGlobalChat) {
           loadGlobalChat(true);
         } else if (activeDM) {
@@ -1132,8 +1270,9 @@
         if (activeAdminConv) {
           loadAdminConv(activeAdminConv, true);
         }
-      }, 4000);
+      }, 5000);
     }
+    window.startPollingFallback = startPollingFallback;
 
     function stopPollingFallback() {
       if (wsPollInterval) {
@@ -1142,6 +1281,7 @@
         wsPollInterval = null;
       }
     }
+    window.stopPollingFallback = stopPollingFallback;
 
 
 
@@ -1201,7 +1341,7 @@
         // we deliberately have no last-seen time rather than falling back
         // to the DB-fetched last_online_time, which is what used to cause
         // stale/incorrect "Active X ago" text.
-        user.last_online_time = isOnline ? null : (wsLastOnlineTime.get(accId) || null);
+        user.last_online_time = isOnline ? null : (wsLastOnlineTime.get(accId) || user.last_online_time || null);
         user.lastTimestamp = user.last_online_time;
       });
     }
@@ -1216,15 +1356,10 @@
         serverIsAdmin = !!(data.currentUser && data.currentUser.is_admin);
       }
 
-      // Immediately strip whatever presence-ish fields the server response
-      // included — the active-status indicator no longer reads is_currently_online/
-      // last_online_time/status from a DB fetch at all, only from the WS
-      // layer (onlineAccountsSet / wsLastOnlineTime). Clearing them here
-      // means there's no leftover DB value anywhere in allUsersData for a
-      // pre-snapshot render to accidentally pick up.
+      // Online presence is WS-driven, but we preserve last_online_time from the DB
+      // so users who went offline before the WS session display their actual active status.
       allUsersData.forEach(user => {
         delete user.is_currently_online;
-        delete user.last_online_time;
         delete user.status;
       });
 
@@ -1340,10 +1475,10 @@
 
     function cacheDmSnapshot(username, data) {
       if (!username || !data) return;
-      let readUpToVal = (typeof data.readUpTo !== 'undefined' && data.readUpTo !== null)
-        ? data.readUpTo
-        : ((typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(username)) ? dmReadUpToMap.get(username) : null);
-      if (readUpToVal && typeof dmReadUpToMap !== 'undefined') {
+      let readUpToVal = (typeof data.readUpTo !== 'undefined')
+        ? (data.readUpTo || null)
+        : ((typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(username)) ? (dmReadUpToMap.get(username) || null) : null);
+      if (typeof dmReadUpToMap !== 'undefined') {
         dmReadUpToMap.set(username, readUpToVal);
       }
       if (typeof data === 'object' && data !== null) {
@@ -1483,12 +1618,21 @@
         if (activeUser) activeUser.unreadCount = 0;
       }
 
+      latestTotalUnread = (allUsersData || []).reduce((sum, u) => {
+        const isAct = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
+        return sum + (isAct ? 0 : (u.unreadCount || 0));
+      }, 0);
+      updateTabTitle(latestTotalUnread);
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({
+            type: 'CHATIFY_REFRESH_BADGE',
+            unread_count: latestTotalUnread
+          }, '*');
+        } catch (e) {}
+      }
+
       if (query === '') {
-        latestTotalUnread = (allUsersData || []).reduce((sum, u) => {
-          const isAct = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
-          return sum + (isAct ? 0 : (u.unreadCount || 0));
-        }, 0);
-        updateTabTitle(latestTotalUnread);
 
         if (!allUsersData || allUsersData.length === 0) {
           sidebarUsers.innerHTML = `<div class="sidebar-empty-state" style="padding:32px 16px;text-align:center;font-size:13px;color:var(--text-secondary);opacity:0.85;">
@@ -1844,9 +1988,15 @@
       if (notificationPollInterval) return;
       notificationPollInterval = setInterval(function() {
         if (document.hidden) return;
-        catchUpMissedNotifications();
-      }, 2500);
+        // Primary path: WebSocket pushes 'notify' events in real-time.
+        // Only run HTTP catchup if WebSocket is disconnected.
+        const wsAlive = ws && ws.readyState === WebSocket.OPEN;
+        if (!wsAlive) {
+          catchUpMissedNotifications();
+        }
+      }, 15000);
     }
+    window.startNotificationPoll = startNotificationPoll;
 
     // Max characters to show in the toast preview before truncating with "..."
     const TOAST_PREVIEW_LIMIT = 80;
@@ -2146,17 +2296,84 @@
       });
     }
 
+    // ── Auto-linkify URLs inside message text ──
+    const URL_REGEX = /((?:https?:\/\/|www\.)[^\s<]+)/gi;
+
+    function linkifyContent(contentEl) {
+      if (!contentEl || contentEl.dataset.linkified === '1') return;
+      contentEl.dataset.linkified = '1';
+
+      const walker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT, null);
+      const textNodes = [];
+      let node;
+      while ((node = walker.nextNode())) {
+        if (node.parentElement && node.parentElement.closest('a')) continue;
+        textNodes.push(node);
+      }
+
+      textNodes.forEach(function(textNode) {
+        const text = textNode.nodeValue;
+        URL_REGEX.lastIndex = 0;
+        if (!URL_REGEX.test(text)) return;
+        URL_REGEX.lastIndex = 0;
+
+        const frag = document.createDocumentFragment();
+        let lastIndex = 0;
+        let match;
+        while ((match = URL_REGEX.exec(text)) !== null) {
+          let url = match[0];
+          const trailingPunct = /[.,:;!?'")\]}]+$/;
+          const trimmedMatch = trailingPunct.exec(url);
+          let trailing = '';
+          if (trimmedMatch) {
+            trailing = trimmedMatch[0];
+            url = url.slice(0, url.length - trailing.length);
+          }
+          if (!url) continue;
+
+          const start = match.index;
+          frag.appendChild(document.createTextNode(text.slice(lastIndex, start)));
+
+          const a = document.createElement('a');
+          a.href = /^https?:\/\//i.test(url) ? url : 'https://' + url;
+          a.textContent = url;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.className = 'chat-link';
+          frag.appendChild(a);
+
+          if (trailing) {
+            frag.appendChild(document.createTextNode(trailing));
+          }
+          lastIndex = start + match[0].length;
+        }
+
+        if (lastIndex < text.length) {
+          frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+        }
+
+        if (textNode.parentNode) {
+          textNode.parentNode.replaceChild(frag, textNode);
+        }
+      });
+    }
+    window.linkifyContent = linkifyContent;
+
     // ── Modal shown when tapping "Read more..." on a long chat message ──
     // Renders the complete message (with clickable links) — used for both
     // Global Chat and Private (DM) chat, since both feed the same bubbles.
     function openReadMoreModal(fullText) {
       if (!readMoreModal || !readMoreModalBody) return;
+      const prevST = chatBox ? chatBox.scrollTop : null;
       readMoreModalBody.textContent = fullText || '';
       delete readMoreModalBody.dataset.linkified; // allow re-linkifying on every open
       linkifyContent(readMoreModalBody);
       readMoreModal.classList.add('active');
       readMoreModal.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
+      if (chatBox && prevST !== null && Math.abs(chatBox.scrollTop - prevST) > 0) {
+        chatBox.scrollTop = prevST;
+      }
     }
 
     function closeReadMoreModal() {
@@ -2226,14 +2443,23 @@
       link.setAttribute('role', 'button');
       link.setAttribute('tabindex', '0');
       link.addEventListener('click', function(e) {
+        e.preventDefault();
         e.stopPropagation();
+        const savedST = chatBox ? chatBox.scrollTop : null;
         openReadMoreModal(contentEl.dataset.fullText || '');
+        if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
+          chatBox.scrollTop = savedST;
+        }
       });
       link.addEventListener('keydown', function(e) {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           e.stopPropagation();
+          const savedST = chatBox ? chatBox.scrollTop : null;
           openReadMoreModal(contentEl.dataset.fullText || '');
+          if (chatBox && savedST !== null && Math.abs(chatBox.scrollTop - savedST) > 0) {
+            chatBox.scrollTop = savedST;
+          }
         }
       });
       contentEl.appendChild(link);
@@ -2306,7 +2532,7 @@
     let lastMarkedReadUser = null;
     let lastMarkedReadMsgId = null;
 
-    function markRead(targetUsername) {
+    function markRead(targetUsername, explicitMsgId = null) {
       if (!targetUsername) return;
       const u = allUsersData.find(x => x.username === targetUsername || (activeDMAccountId && Number(x.account_id) === activeDMAccountId));
       if (u) u.unreadCount = 0;
@@ -2319,13 +2545,13 @@
       const targetId = activeDMAccountId || (u ? Number(u.account_id) : 0);
       if (!targetId) return;
 
-      // Resolve newest message ID currently present in chatBox
-      let newestMsgId = null;
-      if (chatBox) {
-        chatBox.querySelectorAll('.message-container[data-msg-id]').forEach(el => {
-          const id = el.getAttribute('data-msg-id');
-          if (id && (!newestMsgId || id > newestMsgId)) newestMsgId = id;
-        });
+      // Resolve newest message ID currently present in chatBox (last in DOM order)
+      let newestMsgId = explicitMsgId || null;
+      if (!newestMsgId && chatBox) {
+        const containers = chatBox.querySelectorAll('.message-container[data-msg-id]');
+        if (containers.length > 0) {
+          newestMsgId = containers[containers.length - 1].getAttribute('data-msg-id');
+        }
       }
 
       // If we already marked read up through this exact message for this user, suppress redundant network pings
@@ -2358,6 +2584,8 @@
     // Messenger-style "Seen" indicator: shown under the newest message WE sent
     // that the other participant has actually read (dmReadUpTo).
     function updateSeenIndicator() {
+      if (!chatBox) return;
+
       // Resolve the effective readUpTo: use dmReadUpTo if set, otherwise check
       // dmReadUpToMap directly.
       let effectiveReadUpTo = dmReadUpTo;
@@ -2365,15 +2593,23 @@
         effectiveReadUpTo = dmReadUpToMap.get(activeDM);
       }
 
+      const existing = chatBox.querySelector('.seen-indicator');
+
       if (!effectiveReadUpTo || !activeDM || isGlobalChat) {
-        const existing = chatBox ? chatBox.querySelector('.seen-indicator') : null;
-        if (existing) existing.remove();
+        if (existing) {
+          const prevST = chatBox.scrollTop;
+          const prevSH = chatBox.scrollHeight;
+          existing.remove();
+          if (userScrolledUp) {
+            const diff = chatBox.scrollHeight - prevSH;
+            if (diff !== 0) chatBox.scrollTop = prevST + diff;
+          }
+        }
         return;
       }
 
       const allMessages = Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'));
       if (allMessages.length === 0) {
-        const existing = chatBox ? chatBox.querySelector('.seen-indicator') : null;
         if (existing) existing.remove();
         return;
       }
@@ -2392,57 +2628,54 @@
 
       let target = null;
       if (readMarkerIndex !== -1) {
-        // The read marker message was found in DOM.
-        // Target is the last SENT message at or before readMarkerIndex.
+        // Target is the last SENT message at or before readMarkerIndex
         for (let i = readMarkerIndex; i >= 0; i--) {
           if (allMessages[i].classList.contains('sent')) {
             target = allMessages[i];
             break;
           }
         }
-      } else {
-        // Read marker is set for this conversation but not explicitly found in current DOM slice.
-        // Target the latest SENT message rendered in chatBox.
-        for (let i = allMessages.length - 1; i >= 0; i--) {
-          if (allMessages[i].classList.contains('sent')) {
-            target = allMessages[i];
-            break;
-          }
-        }
       }
-
-      const existing = chatBox ? chatBox.querySelector('.seen-indicator') : null;
 
       if (!target) {
-        if (existing) existing.remove();
+        const hasPendingSend = chatBox.querySelector('.sending-bubble, [data-sending-uid]') ||
+          (document.getElementById('sending-overlay-container') && document.getElementById('sending-overlay-container').querySelector('.sending-bubble, [data-sending-uid]'));
+        if (!hasPendingSend && existing) {
+          const prevST = chatBox.scrollTop;
+          const prevSH = chatBox.scrollHeight;
+          existing.remove();
+          if (userScrolledUp) {
+            const diff = chatBox.scrollHeight - prevSH;
+            if (diff !== 0) chatBox.scrollTop = prevST + diff;
+          }
+        }
         return;
       }
 
-      // If the seen indicator is already the immediate next sibling of the target, nothing to do.
-      const nextSib = target.nextElementSibling;
-      if (nextSib && nextSib.classList && nextSib.classList.contains('seen-indicator')) {
+      // If existing indicator is already immediately after target, do nothing (no DOM mutation, no jump!)
+      if (existing && target.nextElementSibling === existing) {
         return;
       }
 
-      // Capture scroll state BEFORE any DOM mutation so we can restore it below.
       const preScrollTop    = chatBox.scrollTop;
       const preScrollHeight = chatBox.scrollHeight;
-      const wasNearBottom = (preScrollHeight - preScrollTop - chatBox.clientHeight) <= 60;
+      const wasNearBottom   = !userScrolledUp && ((preScrollHeight - preScrollTop - chatBox.clientHeight) <= 40);
 
-      if (existing) existing.remove();
-
-      const indicator = document.createElement('div');
+      const indicator = existing || document.createElement('div');
       indicator.className = 'seen-indicator';
       indicator.innerHTML = '<span class="seen-indicator-text">seen</span>';
       target.insertAdjacentElement('afterend', indicator);
 
-      // If the user was at (or near) the bottom before the indicator was
-      // inserted/moved, re-snap so the layout shift is invisible to them.
-      if (wasNearBottom) {
-        chatBox.scrollTop = chatBox.scrollHeight;
-        requestAnimationFrame(() => {
+      // Only adjust scroll if NOT on initial load (handleFirstLoadScroll handles initial load)
+      if (!isFirstLoad) {
+        if (wasNearBottom) {
           chatBox.scrollTop = chatBox.scrollHeight;
-        });
+        } else if (userScrolledUp) {
+          const heightDiff = chatBox.scrollHeight - preScrollHeight;
+          if (heightDiff !== 0) {
+            chatBox.scrollTop = preScrollTop + heightDiff;
+          }
+        }
       }
     }
 
@@ -2561,9 +2794,8 @@
       updateHeaderActiveStatus(u);
       
       const cached = dmMessageCache.get(u.username);
-      if (!cached) {
-        chatBox.innerHTML = '';
-      }
+      chatBox.innerHTML = '';
+      chatBox.scrollTop = 0;
       removePaginationBtn();
       hideScrollIndicator();
       const _htp = document.getElementById('headerTypingPreview');
@@ -2580,7 +2812,7 @@
       isFirstLoad = true; // snap straight to bottom once the new conversation's messages arrive
       chatFullyLoaded = false; // suppress scroll buttons until new chat finishes loading
       dmViewingOlder = false;
-      markRead(u.username);
+      u.unreadCount = 0;
       renderSidebarUsers();
       loadChat(false, false, true); // force: abort any in-flight request rather than drop this one
       // Global Chat item deactivate
@@ -2645,7 +2877,7 @@
 
       localStorage.setItem('activeDM', '__global__');
       chatHeaderTitle.innerHTML = `Global Chat`;
-      applyHeaderAdminBadge(); // activeDMAccountId is null here — clears any leftover badge from the previous DM
+      applyHeaderAdminBadge(); // Adds check badge for Global Chat by default
       applyHeaderAvatar({ avatar_url: 'cspc.webp', name: 'Global Chat' });
       const cached = globalChatCache || (globalChatPrefetchedData ? { html: globalChatPrefetchedData.html || '', hasMore: globalChatPrefetchedData.hasMore || false, nextCursor: globalChatPrefetchedData.nextCursor || '', _raw: globalChatPrefetchedData } : null);
 
@@ -3605,26 +3837,43 @@
           adminConvCursor = data.nextCursor || '';
           adminConvViewingOlder = true;
 
-          const anchor = captureScrollAnchor();
+          const prevScrollHeight = chatBox.scrollHeight;
+          const prevScrollTop = chatBox.scrollTop;
 
           const temp = document.createElement('div');
           temp.innerHTML = newHtml;
           const oldItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
-          const btn = document.getElementById('loadOlderBtn');
-          const firstChild = chatBox.firstChild;
-          oldItems.reverse().forEach(el => {
-            if (el.classList.contains('message-container')) {
-              el.classList.add('msg-animate-older');
-              el.addEventListener('animationend', () => el.classList.remove('msg-animate-older'), { once: true });
+
+          const existingIds = new Set(
+            Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'))
+              .map(el => el.getAttribute('data-msg-id'))
+          );
+
+          const frag = document.createDocumentFragment();
+          oldItems.forEach(el => {
+            const msgId = el.getAttribute('data-msg-id');
+            if (!msgId || !existingIds.has(msgId)) {
+              frag.appendChild(el);
             }
-            if (btn) chatBox.insertBefore(el, btn.nextSibling);
-            else chatBox.insertBefore(el, firstChild);
           });
 
-          trimWindowFromBottom(MAX_WINDOW);
-          restoreScrollAnchor(anchor, oldItems);
+          const insertRef = chatBox.querySelector('.message-container, .date-divider') || chatBox.firstChild;
+          if (insertRef) {
+            chatBox.insertBefore(frag, insertRef);
+          } else {
+            chatBox.appendChild(frag);
+          }
 
-          if (!adminConvHasMore) showNoMoreOlderNotice(); else if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
+          if (!adminConvHasMore) showNoMoreOlderNotice();
+          const safePrevScrollTop = Math.max(0, prevScrollTop);
+          const heightDiff = chatBox.scrollHeight - prevScrollHeight;
+          if (heightDiff > 0) {
+            const targetST = safePrevScrollTop + heightDiff;
+            chatBox.scrollTop = targetST;
+          }
+          trimWindowFromBottom(MAX_WINDOW);
+
+          if (adminConvHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges();
           applyEmojiOnly();
           attachImageLoadListeners();
@@ -3661,11 +3910,6 @@
         }
 
         if (rec.type === 'append') {
-          // Snapshot scroll state BEFORE DOM mutation so the delta is real.
-          // Same ordering bug as GC/DM: capturing after appendChild made the
-          // compensation delta always zero, so the view jumped during backread.
-          const prevScrollTop    = chatBox.scrollTop;
-          const prevScrollHeight = chatBox.scrollHeight;
           rec.items.forEach(el => {
             if (el.classList.contains('message-container')) {
               const msgId = el.getAttribute('data-msg-id');
@@ -3680,11 +3924,6 @@
             }
             chatBox.appendChild(el);
           });
-          // Pin the user's reading position during backread.
-          if (adminConvViewingOlder) {
-            const scrollDiff = chatBox.scrollHeight - prevScrollHeight;
-            if (scrollDiff > 0) chatBox.scrollTop = prevScrollTop + scrollDiff;
-          }
           if (!adminConvViewingOlder) {
             if (isFirstLoad) {
               isFirstLoad = false;
@@ -3831,23 +4070,6 @@
     });
 
     function resetToHome() {
-      if (activeDM) {
-        const currentActive = activeDM;
-        const currentActiveId = activeDMAccountId;
-        const u = allUsersData.find(x => x.username === currentActive || (currentActiveId && Number(x.account_id) === currentActiveId));
-        if (u) u.unreadCount = 0;
-
-        if (currentActiveId) {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'mark_read', target_id: currentActiveId }));
-          }
-          const xhr = new XMLHttpRequest();
-          xhr.open('POST', 'mark_read.php', true);
-          xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-          xhr.send('target_id=' + encodeURIComponent(currentActiveId) + '&target_user=' + encodeURIComponent(currentActive));
-        }
-      }
-
       activeDM = null;
       activeDMAccountId = null;
       activeAdminConv = null;

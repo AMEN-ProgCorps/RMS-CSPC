@@ -23,17 +23,36 @@ if (!is_array($data)) {
     $data = $_POST;
 }
 
-$allowTypingPreview   = !empty($data['allow_typing_preview']);
-$allowSeeTypingPreview = !empty($data['allow_see_typing_preview']);
+$helperParseBool = function ($val, $fallback = true) {
+    if ($val === null) return $fallback;
+    if (is_bool($val)) return $val;
+    if (in_array($val, [false, 0, '0', 'f', 'false', 'off', 'no'], true)) return false;
+    if (in_array($val, [true, 1, '1', 't', 'true', 'on', 'yes'], true)) return true;
+    return filter_var($val, FILTER_VALIDATE_BOOLEAN);
+};
 
 try {
     $pdo = Database::getConnection();
-    
-    // Ensure columns exist just in case
-    @$pdo->exec("
-        ALTER TABLE ' . Database::t('account_details') . ' ADD COLUMN IF NOT EXISTS allow_typing_preview BOOLEAN DEFAULT TRUE;
-        ALTER TABLE ' . Database::t('account_details') . ' ADD COLUMN IF NOT EXISTS allow_see_typing_preview BOOLEAN DEFAULT TRUE;
-    ");
+
+    // Fetch existing settings first so partial updates don't overwrite the other setting
+    $currentStmt = $pdo->prepare('SELECT allow_typing_preview, allow_see_typing_preview FROM ' . Database::t('account_details') . ' WHERE account_id = ? LIMIT 1');
+    $currentStmt->execute([$accountId]);
+    $curr = $currentStmt->fetch();
+
+    $currTyping = true;
+    $currSee    = true;
+    if ($curr) {
+        $currTyping = $helperParseBool($curr['allow_typing_preview'] ?? null, true);
+        $currSee    = $helperParseBool($curr['allow_see_typing_preview'] ?? null, true);
+    }
+
+    $allowTypingPreview   = array_key_exists('allow_typing_preview', $data)
+        ? $helperParseBool($data['allow_typing_preview'], true)
+        : $currTyping;
+
+    $allowSeeTypingPreview = array_key_exists('allow_see_typing_preview', $data)
+        ? $helperParseBool($data['allow_see_typing_preview'], true)
+        : $currSee;
 
     $stmt = $pdo->prepare('
         UPDATE ' . Database::t('account_details') . '

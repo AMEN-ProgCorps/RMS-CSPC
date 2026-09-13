@@ -37,25 +37,11 @@ def stdout_to_stderr():
 
 
 def ensure_model_home() -> None:
-    """Use a writable model cache so PHP-FPM (appuser) does not fail on /opt."""
-    candidates = []
-    env_home = os.environ.get("PADDLEOCR_HOME") or os.environ.get("PADDLE_HOME")
-    if env_home:
-        candidates.append(env_home)
-    candidates.extend(["/opt/paddleocr", "/tmp/paddleocr"])
-
-    for model_home in candidates:
-        try:
-            path = Path(model_home)
-            path.mkdir(parents=True, exist_ok=True)
-            probe = path / ".write_test"
-            probe.write_text("ok", encoding="utf-8")
-            probe.unlink(missing_ok=True)
-            os.environ["HOME"] = model_home
-            os.environ["PADDLEOCR_HOME"] = model_home
-            return
-        except OSError:
-            continue
+    """Use shared model cache (Docker: /opt/paddleocr) so appuser does not re-download."""
+    model_home = os.environ.get("PADDLEOCR_HOME") or os.environ.get("PADDLE_HOME")
+    if model_home:
+        Path(model_home).mkdir(parents=True, exist_ok=True)
+        os.environ["HOME"] = model_home
 
 
 def load_image_size(path: str) -> tuple[int, int]:
@@ -83,49 +69,6 @@ def box_to_norm(box, img_w: int, img_h: int) -> dict[str, float]:
         "w": w / img_w,
         "h": h / img_h,
     }
-
-
-def visual_text_width(text: str) -> float:
-    """Approximate glyph width so phrase boxes split at the printed words."""
-    width = 0.0
-    for char in text:
-        if char in "ilI1|!.,:;'`":
-            width += 0.48
-        elif char in "mwMW@%&":
-            width += 1.35
-        elif char.isupper() or char.isdigit():
-            width += 1.08
-        else:
-            width += 0.95
-    return max(width, 0.5)
-
-
-def split_phrase_geometry(geom: dict[str, float], parts: list[str]) -> list[dict[str, float]]:
-    """Split one Paddle phrase box into word boxes, retaining space gaps."""
-    if not parts:
-        return []
-
-    weights = [visual_text_width(part) for part in parts]
-    gap = 0.30
-    total = sum(weights) + gap * max(len(parts) - 1, 0)
-    if total <= 0:
-        return []
-
-    unit = geom["w"] / total
-    cursor = geom["x"]
-    boxes = []
-    for index, weight in enumerate(weights):
-        word_w = max(unit * weight, 0.002)
-        boxes.append(
-            {
-                "x": cursor,
-                "y": geom["y"],
-                "w": max(word_w * 0.98, 0.002),
-                "h": geom["h"],
-            }
-        )
-        cursor += word_w + (unit * gap if index < len(parts) - 1 else 0.0)
-    return boxes
 
 
 def run_paddle(image_path: str):
@@ -218,12 +161,15 @@ def main() -> None:
             lines.append({"t": text, **geom})
             continue
 
-        word_boxes = split_phrase_geometry(geom, parts)
-        for part, word_geom in zip(parts, word_boxes):
+        slice_w = geom["w"] / len(parts)
+        for i, part in enumerate(parts):
             words.append(
                 {
                     "t": part,
-                    **word_geom,
+                    "x": geom["x"] + slice_w * i,
+                    "y": geom["y"],
+                    "w": max(slice_w * 0.92, 0.002),
+                    "h": geom["h"],
                     "conf": conf,
                 }
             )

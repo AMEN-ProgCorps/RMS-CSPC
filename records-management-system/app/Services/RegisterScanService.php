@@ -8,26 +8,15 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Symfony\Component\Process\Process;
 
 class RegisterScanService
 {
     public static function extract(Request $request)
     {
-        try {
-            $request->validate([
-                'scan' => 'required|file|mimes:pdf|max:10240',
-                'section' => 'required|string|in:drf',
-            ]);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            // Soft-fail validation so the upload UI is never blocked by extract-scan.
-            return [
-                'extracted' => false,
-                'reason' => 'validation_failed',
-                'message' => collect($e->errors())->flatten()->first() ?: 'Invalid scan upload.',
-                'fields' => self::emptyFields(),
-            ];
-        }
+        $request->validate([
+            'scan' => 'required|file|mimes:pdf|max:10240',
+            'section' => 'required|string|in:drf',
+        ]);
 
         $file = $request->file('scan');
         $tempPath = $file->store('temp/scans', 'local');
@@ -35,170 +24,59 @@ class RegisterScanService
 
         try {
             $rawText = '';
-            $fields = self::emptyFields();
-            $engine = null;
+            $fields = [
+                'drfNo' => null,
+                'drfDate' => null,
+                'drfTitle' => null,
+                'sourceUnit' => null,
+                'sourceOfficeId' => null,
+                'sourceOfficeCode' => null,
+            ];
 
-            // 1) Native PDF text (digital / PDF/A with text layer) — no Paddle required.
-            $native = self::extractPdfText($fullPath);
-            if (trim($native) !== '') {
-                $rawText = $native;
-                $engine = 'pdftotext';
-                $fields = self::parseDrfFields($rawText);
-            }
-
-            // 2) OCR raster pages when native text is missing or unparseable.
-            if (! self::hasParsedValue($fields)) {
-                $ocrText = self::ocrPdfPages($fullPath);
-                if (trim($ocrText) !== '') {
-                    $rawText = trim($rawText) !== '' ? ($rawText . "\n" . $ocrText) : $ocrText;
-                    $engine = $engine ? ($engine . '+paddle') : 'paddle';
+            $maxPages = 2;
+            for ($page = 1; $page <= $maxPages; $page++) {
+                $imagePath = Storage::disk('local')->path('temp/scans/' . uniqid('ocr_', true) . '.jpg');
+                try {
+                    PdfPageRenderer::savePage($fullPath, $imagePath, $page);
+                    $ocr = PaddleOcrRunner::recognize($imagePath);
+                    $pageText = trim((string) ($ocr['text'] ?? ''));
+                    if ($pageText === '' && ! empty($ocr['error'])) {
+                        throw new \RuntimeException((string) $ocr['error']);
+                    }
+                    $rawText .= ($rawText === '' ? '' : "\n") . $pageText;
                     $fields = self::parseDrfFields($rawText);
+                    if (self::hasParsedValue($fields)) {
+                        break;
+                    }
+                } catch (\Throwable $pageError) {
+                    if ($page === 1) {
+                        throw $pageError;
+                    }
+                    break;
+                } finally {
+                    if (isset($imagePath) && file_exists($imagePath)) {
+                        @unlink($imagePath);
+                    }
                 }
             }
 
-            $ok = self::hasParsedValue($fields);
-
             return [
-                'extracted' => $ok,
-                'reason' => $ok ? 'ok' : (trim($rawText) === '' ? 'no_text' : 'parse_miss'),
-                'engine' => $engine,
+                'extracted' => true,
                 'fields' => $fields,
                 'raw_text_preview' => Str::limit($rawText, 500),
             ];
         } catch (\Throwable $e) {
-            Log::warning('OCR extraction failed: ' . $e->getMessage(), [
-                'exception' => $e::class,
-            ]);
+            Log::warning('OCR extraction failed: ' . $e->getMessage());
 
-            // Never hard-fail the client upload flow.
-            return [
-                'extracted' => false,
-                'reason' => 'ocr_failed',
-                'message' => 'Could not auto-read this scan. Upload kept — fill fields manually.',
-                'fields' => self::emptyFields(),
-            ];
+            return ['extracted' => false, 'reason' => 'ocr_failed'];
         } finally {
             Storage::disk('local')->delete($tempPath);
         }
     }
 
-    /** @return array<string, mixed> */
-    private static function emptyFields(): array
-    {
-        return [
-            'drfNo' => null,
-            'drfDate' => null,
-            'drfTitle' => null,
-            'sourceUnit' => null,
-            'sourceOfficeId' => null,
-            'sourceOfficeCode' => null,
-            'sourceOffices' => [],
-            'sourceOfficeCodes' => [],
-            'sourceOfficeUnmatched' => [],
-        ];
-    }
-
     private static function hasParsedValue(array $fields): bool
     {
-        return (bool) ($fields['drfNo'] || $fields['drfDate'] || $fields['drfTitle'] || $fields['sourceUnit'] || $fields['sourceOfficeId'] || ! empty($fields['sourceOffices']));
-    }
-
-    /** Extract embedded text from the first pages (pdftotext / poppler). */
-    private static function extractPdfText(string $pdfPath): string
-    {
-        $bin = self::pdftotextBinary();
-        if ($bin === null) {
-            return '';
-        }
-
-        try {
-            $process = new Process([
-                $bin,
-                '-layout',
-                '-f', '1',
-                '-l', '2',
-                $pdfPath,
-                '-',
-            ]);
-            $process->setTimeout(30);
-            $process->run();
-            if (! $process->isSuccessful()) {
-                return '';
-            }
-
-            return trim($process->getOutput());
-        } catch (\Throwable $e) {
-            Log::info('pdftotext skipped: ' . $e->getMessage());
-
-            return '';
-        }
-    }
-
-    private static function pdftotextBinary(): ?string
-    {
-        foreach (['/usr/bin/pdftotext', '/usr/local/bin/pdftotext', 'pdftotext'] as $bin) {
-            if (str_contains($bin, '/')) {
-                if (is_executable($bin)) {
-                    return $bin;
-                }
-                continue;
-            }
-            try {
-                $which = new Process(['which', $bin]);
-                $which->setTimeout(5);
-                $which->run();
-                $path = trim($which->getOutput());
-                if ($path !== '' && is_executable($path)) {
-                    return $path;
-                }
-            } catch (\Throwable) {
-            }
-        }
-
-        return null;
-    }
-
-    private static function ocrPdfPages(string $pdfPath): string
-    {
-        $rawText = '';
-        $maxPages = 2;
-        for ($page = 1; $page <= $maxPages; $page++) {
-            $imagePath = Storage::disk('local')->path('temp/scans/' . uniqid('ocr_', true) . '.jpg');
-            try {
-                // Slightly higher DPI helps form labels on deploy scans.
-                PdfPageRenderer::savePage($pdfPath, $imagePath, $page, 220);
-                $ocr = PaddleOcrRunner::recognize($imagePath);
-                $pageText = trim((string) ($ocr['text'] ?? ''));
-                if ($pageText === '') {
-                    if ($page === 1 && ! empty($ocr['error'])) {
-                        Log::warning('DRF OCR page empty: ' . $ocr['error']);
-                    }
-                    if ($page === 1 && $pageText === '') {
-                        // Keep trying page 2 if page 1 blank.
-                        continue;
-                    }
-                    break;
-                }
-                $rawText .= ($rawText === '' ? '' : "\n") . $pageText;
-                $probe = self::parseDrfFields($rawText);
-                if (self::hasParsedValue($probe)) {
-                    break;
-                }
-            } catch (\Throwable $pageError) {
-                Log::warning('DRF OCR page ' . $page . ' failed: ' . $pageError->getMessage());
-                if ($page === 1) {
-                    // Soft: try next page / return whatever we have.
-                    continue;
-                }
-                break;
-            } finally {
-                if (isset($imagePath) && file_exists($imagePath)) {
-                    @unlink($imagePath);
-                }
-            }
-        }
-
-        return $rawText;
+        return (bool) ($fields['drfNo'] || $fields['drfDate'] || $fields['drfTitle'] || $fields['sourceUnit'] || $fields['sourceOfficeId']);
     }
 
     private static function parseDrfFields(string $text): array
@@ -223,24 +101,15 @@ class RegisterScanService
             'Unit',
             'Office',
         ]);
-        $matchedOffices = self::resolveSourceOffices($sourceRaw, $text, $lines);
-        $first = $matchedOffices['offices'][0] ?? null;
+        $matched = self::resolveSourceOffice($sourceRaw, $text, $lines);
 
         return [
             'drfNo' => $drfNo,
             'drfDate' => $drfDate,
             'drfTitle' => $drfTitle,
-            'sourceUnit' => $first['office_name'] ?? $sourceRaw,
-            'sourceOfficeId' => $first['id'] ?? null,
-            'sourceOfficeCode' => $first['office_code'] ?? null,
-            // All matched source units (DRF scans often list several codes).
-            'sourceOffices' => $matchedOffices['offices'],
-            'sourceOfficeCodes' => array_values(array_filter(array_map(
-                fn (array $o) => $o['office_code'] ?? null,
-                $matchedOffices['offices']
-            ))),
-            // Codes found on the scan that did not map to an office row.
-            'sourceOfficeUnmatched' => $matchedOffices['unmatched'],
+            'sourceUnit' => $matched['office_name'] ?? $sourceRaw,
+            'sourceOfficeId' => $matched['id'] ?? null,
+            'sourceOfficeCode' => $matched['office_code'] ?? null,
         ];
     }
 
@@ -314,106 +183,31 @@ class RegisterScanService
     }
 
     /**
-     * Resolve every source office mentioned on the scan (codes / names).
+     * Prefer labeled value → office code/name match; else scan full OCR for office codes
+     * (users often write only the code, e.g. "CAS" / "ICTU").
      *
      * @param  list<string>  $lines
-     * @return array{offices: list<array{id: int, office_name: string, office_code: string}>, unmatched: list<string>}
+     * @return array{id: int, office_name: string, office_code: string}|null
      */
-    private static function resolveSourceOffices(?string $labeled, string $fullText, array $lines): array
+    private static function resolveSourceOffice(?string $labeled, string $fullText, array $lines): ?array
     {
-        $found = [];
-        $seen = [];
-        $candidateTokens = [];
-
-        $push = function (?array $office) use (&$found, &$seen): void {
-            if (! $office) {
-                return;
-            }
-            $id = (int) ($office['id'] ?? 0);
-            if ($id < 1 || isset($seen[$id])) {
-                return;
-            }
-            $seen[$id] = true;
-            $found[] = $office;
-        };
-
-        $collectTokens = function (string $raw) use (&$candidateTokens): void {
-            foreach (preg_split('/[,;\/|]+/', $raw) ?: [] as $token) {
-                $token = trim($token);
-                if ($token !== '') {
-                    $candidateTokens[] = $token;
-                }
-            }
-        };
-
         if ($labeled !== null && trim($labeled) !== '') {
-            $collectTokens($labeled);
-            foreach (self::matchAllSourceOffices($labeled) as $office) {
-                $push($office);
+            $matched = self::matchSourceOffice($labeled);
+            if ($matched) {
+                return $matched;
             }
         }
 
-        foreach (self::matchAllOfficeCodesInText($fullText, $lines, $labeled !== null && trim($labeled) !== '') as $office) {
-            $push($office);
-        }
-
-        // Bare comma/space-separated code lines (e.g. "AIDCD, ACCESS, BUDG, CCS").
-        foreach ($lines as $line) {
-            if (! preg_match('/^[A-Za-z0-9][A-Za-z0-9\s,;\/|&.-]{2,120}$/', $line)) {
-                continue;
-            }
-            if (self::looksLikeLabel($line)) {
-                continue;
-            }
-            if (! str_contains($line, ',') && ! str_contains($line, ';') && ! str_contains($line, '/')) {
-                $parts = preg_split('/\s+/', trim($line)) ?: [];
-                if (count($parts) < 2) {
-                    continue;
-                }
-            }
-            $collectTokens($line);
-            foreach (self::matchAllSourceOffices($line) as $office) {
-                $push($office);
-            }
-        }
-
-        $matchedNeedles = [];
-        foreach ($found as $office) {
-            $matchedNeedles[self::normalizeOfficeToken((string) ($office['office_code'] ?? ''))] = true;
-            $matchedNeedles[self::normalizeOfficeToken((string) ($office['office_name'] ?? ''))] = true;
-        }
-
-        $unmatched = [];
-        $unseen = [];
-        foreach ($candidateTokens as $token) {
-            $needle = self::normalizeOfficeToken($token);
-            if ($needle === '' || isset($matchedNeedles[$needle]) || isset($unseen[$needle])) {
-                continue;
-            }
-            // Ignore long prose tokens — keep short code-like leftovers.
-            if (strlen($needle) > 16 || str_contains($token, ' ')) {
-                continue;
-            }
-            $unseen[$needle] = true;
-            $unmatched[] = strtoupper(trim($token));
-        }
-
-        return [
-            'offices' => $found,
-            'unmatched' => $unmatched,
-        ];
+        return self::matchOfficeCodeInText($fullText, $lines, $labeled !== null && trim($labeled) !== '');
     }
 
     /**
-     * @return list<array{id: int, office_name: string, office_code: string}>
+     * @return array{id: int, office_name: string, office_code: string}|null
      */
-    private static function matchAllSourceOffices(string $raw): array
+    private static function matchSourceOffice(string $raw): ?array
     {
         $tokens = preg_split('/[,;\/|]+/', $raw) ?: [$raw];
-        // Source Unit autofill: active offices only (inactive codes stay unmatched).
         $offices = self::activeOffices();
-        $found = [];
-        $seen = [];
 
         foreach ($tokens as $token) {
             $needle = self::normalizeOfficeToken($token);
@@ -421,51 +215,41 @@ class RegisterScanService
                 continue;
             }
 
+            // Exact office code first (what users put on DRF scans).
             $byCode = $offices->first(function ($office) use ($needle) {
                 $code = self::normalizeOfficeToken((string) $office->office_code);
 
                 return $code !== '' && $code === $needle;
             });
             if ($byCode) {
-                $payload = self::officePayload($byCode);
-                if (! isset($seen[$payload['id']])) {
-                    $seen[$payload['id']] = true;
-                    $found[] = $payload;
-                }
-                continue;
+                return self::officePayload($byCode);
             }
 
-            // Name match: exact only (avoid "Unit" substring false positives).
             $byName = $offices->first(function ($office) use ($needle) {
                 $name = self::normalizeOfficeToken((string) $office->office_name);
 
-                return $name !== '' && $name === $needle;
+                return $name !== '' && ($name === $needle || str_contains($name, $needle) || str_contains($needle, $name));
             });
             if ($byName) {
-                $payload = self::officePayload($byName);
-                if (! isset($seen[$payload['id']])) {
-                    $seen[$payload['id']] = true;
-                    $found[] = $payload;
-                }
+                return self::officePayload($byName);
             }
         }
 
-        return $found;
+        return null;
     }
 
     /**
+     * Scan OCR text for known office codes (longest codes first to avoid partials).
+     *
      * @param  list<string>  $lines
-     * @return list<array{id: int, office_name: string, office_code: string}>
+     * @return array{id: int, office_name: string, office_code: string}|null
      */
-    private static function matchAllOfficeCodesInText(string $fullText, array $lines, bool $hadLabeledValue): array
+    private static function matchOfficeCodeInText(string $fullText, array $lines, bool $hadLabeledValue): ?array
     {
         $offices = self::activeOffices()
             ->filter(fn ($o) => trim((string) $o->office_code) !== '')
             ->sortByDesc(fn ($o) => strlen(trim((string) $o->office_code)))
             ->values();
-
-        $found = [];
-        $seen = [];
 
         foreach ($offices as $office) {
             $code = strtoupper(trim((string) $office->office_code));
@@ -477,6 +261,8 @@ class RegisterScanService
                 continue;
             }
 
+            // Short codes (BC, DC, GS…) are easy false positives — require a label
+            // nearby, a labeled value we already saw, or a standalone line.
             if (strlen($code) <= 2) {
                 $safe = $hadLabeledValue
                     || self::codeIsStandaloneLine($lines, $code)
@@ -486,15 +272,10 @@ class RegisterScanService
                 }
             }
 
-            $payload = self::officePayload($office);
-            if (isset($seen[$payload['id']])) {
-                continue;
-            }
-            $seen[$payload['id']] = true;
-            $found[] = $payload;
+            return self::officePayload($office);
         }
 
-        return $found;
+        return null;
     }
 
     /** @param  list<string>  $lines */
@@ -502,9 +283,6 @@ class RegisterScanService
     {
         foreach ($lines as $line) {
             if (strcasecmp(trim($line), $code) === 0) {
-                return true;
-            }
-            if (preg_match('/(?:^|[,;\/|\s])' . preg_quote($code, '/') . '(?:$|[,;\/|\s])/i', $line)) {
                 return true;
             }
         }
@@ -533,35 +311,15 @@ class RegisterScanService
 
     private static function activeOffices()
     {
-        return self::officesForScanMatch()
-            ->filter(fn ($o) => self::officeIsActive($o))
-            ->values();
-    }
-
-    private static function officeIsActive(object $office): bool
-    {
-        $raw = $office->is_active ?? false;
-        if (is_bool($raw)) {
-            return $raw;
-        }
-        if (is_int($raw) || is_float($raw)) {
-            return (int) $raw === 1;
-        }
-        $s = strtolower(trim((string) $raw));
-
-        return in_array($s, ['1', 'true', 't', 'yes', 'y'], true);
-    }
-
-    /** Office catalog used for DRF scan matching. */
-    private static function officesForScanMatch()
-    {
         static $cache = null;
         if ($cache !== null) {
             return $cache;
         }
 
         $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
-        $cache = DB::table($officeTbl)->get(['id', 'office_name', 'office_code', 'is_active']);
+        $cache = DB::table($officeTbl)
+            ->where('is_active', true)
+            ->get(['id', 'office_name', 'office_code']);
 
         return $cache;
     }

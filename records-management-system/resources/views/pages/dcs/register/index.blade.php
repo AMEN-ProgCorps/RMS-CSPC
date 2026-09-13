@@ -3432,12 +3432,16 @@ function autofillDrfFields(fields) {
         }
     });
     if (window.__sourceWidgets?.drf) {
-        if (fields.sourceOfficeId) {
-            window.__sourceWidgets.drf.pick(fields.sourceOfficeId);
-            filled = true;
-        } else if (fields.sourceOfficeCode || fields.sourceUnit) {
-            window.__sourceWidgets.drf.seedFromString(fields.sourceOfficeCode || fields.sourceUnit);
-            filled = true;
+        // Active offices only — never invent chips for inactive/unknown codes.
+        try {
+            const items = resolveActiveSourceUnitItems(fields);
+            if (items.length > 0) {
+                window.__sourceWidgets.drf.setSelectedItems(items);
+                syncSourceUnitsAcrossSections(items, 'drf');
+                filled = true;
+            }
+        } catch (err) {
+            console.error('Source Unit autofill failed:', err);
         }
     }
     return filled;

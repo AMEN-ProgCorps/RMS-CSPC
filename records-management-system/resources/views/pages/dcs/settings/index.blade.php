@@ -312,11 +312,14 @@ new #[Layout('layouts.dcs')] class extends Component {
 
     private function saveFaculty(): void
     {
-        $collegeId = $this->collegeId !== '' ? (int) $this->collegeId : null;
         $this->validate([
             'facultyName' => 'required|string|max:255',
-            'collegeId' => 'nullable|integer|exists:dcs_colleges,id',
+            'collegeId' => 'required|integer|exists:dcs_colleges,id',
+        ], [
+            'collegeId.required' => 'Please select a college for this faculty.',
         ]);
+
+        $collegeId = (int) $this->collegeId;
 
         $existsQ = DB::table('dcs_faculties')
             ->where('faculty_name', $this->facultyName)
@@ -432,12 +435,14 @@ new #[Layout('layouts.dcs')] class extends Component {
             }
 
             $collegeId = null;
-            if ($collegeName !== '' && ! $this->isCsvHeaderValue($collegeName, ['college', 'college_name'])) {
-                $collegeId = $collegeMap[mb_strtolower($collegeName)] ?? null;
-                if ($collegeId === null) {
-                    $skipped++;
-                    continue;
-                }
+            if ($collegeName === '' || $this->isCsvHeaderValue($collegeName, ['college', 'college_name'])) {
+                $skipped++;
+                continue;
+            }
+            $collegeId = $collegeMap[mb_strtolower($collegeName)] ?? null;
+            if ($collegeId === null) {
+                $skipped++;
+                continue;
             }
 
             $existsQ = DB::table('dcs_faculties')
@@ -506,7 +511,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         $plural = $singular === 'faculty' ? 'faculties' : ($singular . 's');
         $msg = $added === 1 ? "1 {$singular} imported." : "{$added} {$plural} imported.";
         if ($skipped > 0) {
-            $msg .= " {$skipped} skipped (duplicate, unknown college, or invalid).";
+            $msg .= " {$skipped} skipped (duplicate, missing/unknown college, or invalid).";
         }
 
         return $msg;
@@ -1057,7 +1062,7 @@ new #[Layout('layouts.dcs')] class extends Component {
 
         $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
         $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
-        $courseCols = ['pc.id', 'pc.program_id', 'pc.semester_id', 'pc.course_name', 'p.program_name', 'c.college_name', 's.semester_name'];
+        $courseCols = ['pc.id', 'pc.program_id', 'pc.semester_id', 'pc.course_name', 'p.program_name', 'c.id as college_id', 'c.college_name', 'c.college_code', 's.semester_name'];
         if ($hasYearLevel) {
             $courseCols[] = 'pc.year_level';
         }
@@ -1084,7 +1089,10 @@ new #[Layout('layouts.dcs')] class extends Component {
             \App\Helpers\SettingsRecycleHelper::applyNotDeleted($originatorsQ, 'dcs_originators');
         }
 
-        $facultiesQ = DB::table('dcs_faculties as f')->leftJoin('dcs_colleges as c', 'c.id', '=', 'f.college_id')->orderBy('f.faculty_name');
+        $facultiesQ = DB::table('dcs_faculties as f')
+            ->leftJoin('dcs_colleges as c', 'c.id', '=', 'f.college_id')
+            ->orderBy('c.college_name')
+            ->orderBy('f.faculty_name');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($facultiesQ, 'dcs_faculties', 'f');
 
         $semestersQ = DB::table('dcs_semesters')->orderBy('id');
@@ -1099,7 +1107,7 @@ new #[Layout('layouts.dcs')] class extends Component {
             'originators' => $originatorsQ
                 ? $originatorsQ->get(['id', 'originator_name'])
                 : collect(),
-            'faculties' => $facultiesQ->get(['f.id', 'f.faculty_name', 'f.college_id', 'c.college_name']),
+            'faculties' => $facultiesQ->get(['f.id', 'f.faculty_name', 'f.college_id', 'c.college_name', 'c.college_code']),
             'colleges' => $colleges,
             'collegeOffices' => $collegeOffices,
             'programCounts' => $programCounts,
@@ -1290,6 +1298,7 @@ new #[Layout('layouts.dcs')] class extends Component {
     </section>
 
     <section class="tab-panel" x-show="tab === 'faculties'" x-cloak>
+        <div x-data="{ collegeFilter: 'all' }">
         <div class="panel-toolbar">
             <span class="panel-subtitle">Manage faculty members per college</span>
             <div class="panel-actions">
@@ -1297,12 +1306,34 @@ new #[Layout('layouts.dcs')] class extends Component {
                 <button type="button" class="btn-primary" wire:click="openFaculty()"><i class="fa-solid fa-plus"></i> Add Faculty</button>
             </div>
         </div>
+        @if($colleges->isNotEmpty())
+            <div class="st-college-filters" role="group" aria-label="Filter faculties by college">
+                <button type="button" class="st-college-chip" :class="{ 'is-active': collegeFilter === 'all' }" @click="collegeFilter = 'all'">All</button>
+                @foreach($colleges as $college)
+                    @php
+                        $chipLabel = trim((string) ($college->college_code ?? '')) ?: trim((string) ($college->college_name ?? ''));
+                    @endphp
+                    <button
+                        type="button"
+                        class="st-college-chip"
+                        title="{{ $college->college_name }}"
+                        :class="{ 'is-active': collegeFilter === '{{ $college->id }}' }"
+                        @click="collegeFilter = '{{ $college->id }}'"
+                    >{{ $chipLabel }}</button>
+                @endforeach
+            </div>
+        @endif
         <div class="table-wrap">
             <table class="settings-table">
                 <thead><tr><th>College</th><th>Faculty Name</th><th style="width:140px;">Actions</th></tr></thead>
                 <tbody>
                     @forelse($faculties as $fac)
-                        <tr wire:key="fc-{{ $fac->id }}" data-id="{{ $fac->id }}">
+                        @php $facCollegeKey = $fac->college_id ? (string) $fac->college_id : 'none'; @endphp
+                        <tr
+                            wire:key="fc-{{ $fac->id }}"
+                            data-id="{{ $fac->id }}"
+                            x-show="collegeFilter === 'all' || collegeFilter === '{{ $facCollegeKey }}'"
+                        >
                             <td data-label="College">{{ $fac->college_name ?? '—' }}</td>
                             <td data-label="Faculty">{{ $fac->faculty_name }}</td>
                             <td>
@@ -1317,6 +1348,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                     @endforelse
                 </tbody>
             </table>
+        </div>
         </div>
     </section>
 
@@ -1451,16 +1483,39 @@ new #[Layout('layouts.dcs')] class extends Component {
     </section>
 
     <section class="tab-panel" x-show="tab === 'coursenames'" x-cloak>
+        <div x-data="{ collegeFilter: 'all' }">
         <div class="panel-toolbar">
             <span class="panel-subtitle">Curriculum course list per program, semester, and year level — used to auto-fill Syllabi/TOS-Rubrics registration. Faculty is assigned during registration.</span>
             <button type="button" class="btn-primary" wire:click="openProgramCourse()"><i class="fa-solid fa-plus"></i> Add Course</button>
         </div>
+        @if($colleges->isNotEmpty())
+            <div class="st-college-filters" role="group" aria-label="Filter courses by college">
+                <button type="button" class="st-college-chip" :class="{ 'is-active': collegeFilter === 'all' }" @click="collegeFilter = 'all'">All</button>
+                @foreach($colleges as $college)
+                    @php
+                        $chipLabel = trim((string) ($college->college_code ?? '')) ?: trim((string) ($college->college_name ?? ''));
+                    @endphp
+                    <button
+                        type="button"
+                        class="st-college-chip"
+                        title="{{ $college->college_name }}"
+                        :class="{ 'is-active': collegeFilter === '{{ $college->id }}' }"
+                        @click="collegeFilter = '{{ $college->id }}'"
+                    >{{ $chipLabel }}</button>
+                @endforeach
+            </div>
+        @endif
         <div class="table-wrap">
             <table class="settings-table">
                 <thead><tr><th>College</th><th>Program</th><th>Semester</th><th>Year Level</th><th>Course Code</th><th>Course Name</th><th style="width:140px;">Actions</th></tr></thead>
                 <tbody>
                     @forelse($programCourses as $course)
-                        <tr wire:key="pc-{{ $course->id }}" data-id="{{ $course->id }}">
+                        @php $courseCollegeKey = !empty($course->college_id) ? (string) $course->college_id : 'none'; @endphp
+                        <tr
+                            wire:key="pc-{{ $course->id }}"
+                            data-id="{{ $course->id }}"
+                            x-show="collegeFilter === 'all' || collegeFilter === '{{ $courseCollegeKey }}'"
+                        >
                             <td data-label="College">{{ $course->college_name ?? '—' }}</td>
                             <td data-label="Program">{{ $course->program_name ?? '—' }}</td>
                             <td data-label="Semester">{{ $course->semester_name ?? '—' }}</td>
@@ -1479,6 +1534,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                     @endforelse
                 </tbody>
             </table>
+        </div>
         </div>
     </section>
 </main>
@@ -1525,7 +1581,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                         @if($modalKind === 'importOriginators')
                             One originator name per line. Optional header: <code>originator_name</code>
                         @else
-                            Columns: <code>faculty_name,college_name</code>. College must match an existing college name. Optional header row is fine.
+                            Columns: <code>faculty_name,college_name</code>. College is required and must match an existing college name. Optional header row is fine.
                         @endif
                     </p>
                     <div class="st-field">
@@ -1549,8 +1605,8 @@ new #[Layout('layouts.dcs')] class extends Component {
                 @elseif($modalKind === 'faculty')
                     <div class="st-field">
                         <label class="st-label">College</label>
-                        <select class="st-input @error('collegeId') error @enderror" wire:model="collegeId">
-                            <option value="">— None —</option>
+                        <select class="st-input @error('collegeId') error @enderror" wire:model="collegeId" required>
+                            <option value="" disabled @selected($collegeId === '')>Select college…</option>
                             @foreach($colleges as $college)
                                 <option value="{{ $college->id }}">{{ $college->college_name }}</option>
                             @endforeach

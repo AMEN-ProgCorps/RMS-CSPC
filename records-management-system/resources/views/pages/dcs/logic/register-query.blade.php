@@ -324,22 +324,6 @@ class RegisterQueryHelper
         return !self::isFullDcsUser();
     }
 
-    /**
-     * Module keys used by admin clearances / dcs.module middleware.
-     * Only sensitive modules are gated; other full-DCS screens are included with full access.
-     *
-     * @return array<string, string> module => condition_details column
-     */
-    public static function dcsModuleColumns(): array
-    {
-        return [
-            'register' => 'dcs_can_register',
-            'settings' => 'dcs_can_settings',
-            'recycle_bin' => 'dcs_can_recycle_bin',
-            'review_intake' => 'dcs_can_review_intake',
-        ];
-    }
-
     /** Full DCS users get all gated modules; limited intake users get none. */
     public static function canAccessDcsModule(string $module): bool
     {

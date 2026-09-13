@@ -1553,6 +1553,21 @@
     background: #1e293b !important;
 }
 
+[data-theme="dark"] .st-college-chip {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #94a3b8 !important;
+}
+[data-theme="dark"] .st-college-chip:hover {
+    border-color: #60a5fa !important;
+    color: #93c5fd !important;
+}
+[data-theme="dark"] .st-college-chip.is-active {
+    background: rgba(59, 130, 246, 0.18) !important;
+    border-color: #3b82f6 !important;
+    color: #93c5fd !important;
+}
+
 [data-theme="dark"] .upd-action:hover,
 [data-theme="dark"] .rb-btn:hover,
 [data-theme="dark"] .rb-pg:hover,

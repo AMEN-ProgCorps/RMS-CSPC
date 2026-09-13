@@ -194,14 +194,6 @@ class SettingsRecycleHelper
             $query->whereNotNull('deleted_at');
         }
 
-        if ($kind === 'programCourse' && Schema::hasTable('dcs_program_course_faculties')) {
-            DB::table('dcs_program_course_faculties')->where('program_course_id', $id)->delete();
-        }
-
-        if ($kind === 'faculty' && Schema::hasTable('dcs_program_course_faculties')) {
-            DB::table('dcs_program_course_faculties')->where('faculty_id', $id)->delete();
-        }
-
         if ($kind === 'docType') {
             // Soft-deleted children should already be gone; hard-delete any leftover children first.
             DB::table('dcs_doc_types')->where('parent_id', $id)->delete();

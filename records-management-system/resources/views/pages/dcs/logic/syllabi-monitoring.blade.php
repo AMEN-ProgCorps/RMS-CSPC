@@ -18,6 +18,14 @@ class SyllabiMonitoringHelper
     /** Sentinel date for remarks when no syllabus deadline filter is selected. */
     public const OVERALL_DEADLINE = '1900-01-01';
 
+    public const YEAR_LEVELS = [
+        '1st Year',
+        '2nd Year',
+        '3rd Year',
+        '4th Year',
+        '5th Year',
+    ];
+
     public static function subtypeId(string $needle): ?int
     {
         $needle = strtolower($needle);
@@ -38,7 +46,7 @@ class SyllabiMonitoringHelper
             })?->id;
     }
 
-    public static function build(?int $collegeId, ?int $schoolYearId, ?int $semesterId, ?string $deadline): array
+    public static function build(?int $collegeId, ?int $schoolYearId, ?int $semesterId, ?string $deadline, ?string $yearLevel = null): array
     {
         $empty = [
             'ready' => false,
@@ -60,7 +68,16 @@ class SyllabiMonitoringHelper
             return $empty;
         }
 
-        $deadlines = self::availableDeadlines($collegeId, $schoolYearId, $semesterId);
+        $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
+        if ($yearLevel !== null && $yearLevel !== '') {
+            if (! $hasYearLevel || ! in_array($yearLevel, self::YEAR_LEVELS, true)) {
+                $yearLevel = null;
+            }
+        } else {
+            $yearLevel = null;
+        }
+
+        $deadlines = self::availableDeadlines($collegeId, $schoolYearId, $semesterId, $yearLevel);
         // Only accept a deadline that exists on syllabi masterlist rows for this filter set.
         if ($deadline && ! in_array($deadline, $deadlines, true)) {
             $deadline = null;
@@ -75,13 +92,16 @@ class SyllabiMonitoringHelper
         if (Schema::hasColumn('dcs_program_courses', 'course_code')) {
             $courseColumns[] = 'course_code';
         }
-        if (Schema::hasColumn('dcs_program_courses', 'year_level')) {
+        if ($hasYearLevel) {
             $courseColumns[] = 'year_level';
         }
         $coursesQ = DB::table('dcs_program_courses')
             ->where('semester_id', $semesterId)
             ->whereIn('program_id', $programs->pluck('id')->all() ?: [0]);
-        if (Schema::hasColumn('dcs_program_courses', 'year_level')) {
+        if ($hasYearLevel && $yearLevel) {
+            $coursesQ->where('year_level', $yearLevel);
+        }
+        if ($hasYearLevel) {
             $coursesQ->orderByRaw("CASE year_level
                 WHEN '1st Year' THEN 1
                 WHEN '2nd Year' THEN 2
@@ -97,7 +117,7 @@ class SyllabiMonitoringHelper
         $syllabiTypeId = self::subtypeId('syllabi');
         $tosTypeId = self::subtypeId('tos');
 
-        $submissions = self::loadSubmissions($collegeId, $schoolYearId, $semesterId, $deadline);
+        $submissions = self::loadSubmissions($collegeId, $schoolYearId, $semesterId, $deadline, $yearLevel);
 
         $rows = [];
         $totals = self::emptyTotals();
@@ -239,6 +259,7 @@ class SyllabiMonitoringHelper
                 'college_code' => $college->college_code,
                 'school_year' => $schoolYear->school_year,
                 'semester' => $semester->semester_name,
+                'year_level' => $yearLevel,
                 'deadline' => $deadline ? self::formatDate($deadline) : null,
             ],
         ];
@@ -249,7 +270,7 @@ class SyllabiMonitoringHelper
      *
      * @return list<string> Y-m-d dates
      */
-    public static function availableDeadlines(int $collegeId, int $schoolYearId, int $semesterId): array
+    public static function availableDeadlines(int $collegeId, int $schoolYearId, int $semesterId, ?string $yearLevel = null): array
     {
         $query = DB::table('dcs_syllabi as s')
             ->join('dcs_masterlist_registration as ml', 'ml.request_id', '=', 's.request_id')
@@ -257,6 +278,11 @@ class SyllabiMonitoringHelper
             ->where('s.school_year_id', $schoolYearId)
             ->where('s.semester_id', $semesterId)
             ->whereNotNull('ml.deadline');
+
+        if ($yearLevel && Schema::hasColumn('dcs_program_courses', 'year_level')) {
+            $query->join('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
+                ->where('pc.year_level', $yearLevel);
+        }
 
         if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
             $query->join('dcs_document_requests as dr', 'dr.id', '=', 's.request_id')
@@ -277,7 +303,7 @@ class SyllabiMonitoringHelper
             ->all();
     }
 
-    private static function loadSubmissions(int $collegeId, int $schoolYearId, int $semesterId, ?string $deadline)
+    private static function loadSubmissions(int $collegeId, int $schoolYearId, int $semesterId, ?string $deadline, ?string $yearLevel = null)
     {
         $query = DB::table('dcs_syllabi as s')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 's.request_id')
@@ -288,6 +314,10 @@ class SyllabiMonitoringHelper
             ->where('s.school_year_id', $schoolYearId)
             ->where('s.semester_id', $semesterId)
             ->where('s.is_available', true);
+
+        if ($yearLevel && Schema::hasColumn('dcs_program_courses', 'year_level')) {
+            $query->where('pc.year_level', $yearLevel);
+        }
 
         if ($deadline) {
             $query->whereDate('ml.deadline', $deadline);

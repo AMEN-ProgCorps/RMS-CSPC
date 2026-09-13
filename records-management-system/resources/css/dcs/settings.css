@@ -140,6 +140,38 @@ body {
     line-height: 1.4;
 }
 
+.st-college-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: -4px 0 14px;
+}
+
+.st-college-chip {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--set-border, #e2e8f0);
+    background: var(--set-surface, #fff);
+    color: var(--set-text-muted, #64748b);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.st-college-chip:hover {
+    border-color: var(--set-accent, #1d4ed8);
+    color: var(--set-accent, #1d4ed8);
+}
+
+.st-college-chip.is-active {
+    border-color: var(--set-accent, #1d4ed8);
+    background: color-mix(in srgb, var(--set-accent, #1d4ed8) 12%, white);
+    color: var(--set-accent, #1d4ed8);
+}
+
 .btn-primary {
     display: flex;
     align-items: center;

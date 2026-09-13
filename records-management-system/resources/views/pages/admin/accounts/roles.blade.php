@@ -71,10 +71,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canAccessArchv = false;
     public bool $canAccessDcs = false;
     public bool $dcsViewAllDocuments = false;
-    public bool $dcsCanRegister = false;
-    public bool $dcsCanSettings = false;
-    public bool $dcsCanRecycleBin = false;
-    public bool $dcsCanReviewIntake = false;
     public bool $canModifyDocflow = false;
     public bool $canModifyAccountlist = false;
     public bool $canModifyPass = false;
@@ -176,10 +172,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canAccessArchv = false;
         $this->canAccessDcs = false;
         $this->dcsViewAllDocuments = false;
-        $this->dcsCanRegister = false;
-        $this->dcsCanSettings = false;
-        $this->dcsCanRecycleBin = false;
-        $this->dcsCanReviewIntake = false;
         $this->canModifyDocflow = false;
         $this->canModifyAccountlist = false;
         $this->canModifyPass = false;
@@ -247,10 +239,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canAccessArchv = (bool) $perms->can_access_rdp;
                 $this->canAccessDcs = (bool) $perms->can_access_dcs;
                 $this->dcsViewAllDocuments = (bool) ($perms->dcs_view_all_documents ?? false);
-                $this->dcsCanRegister = (bool) ($perms->dcs_can_register ?? false);
-                $this->dcsCanSettings = (bool) ($perms->dcs_can_settings ?? false);
-                $this->dcsCanRecycleBin = (bool) ($perms->dcs_can_recycle_bin ?? false);
-                $this->dcsCanReviewIntake = (bool) ($perms->dcs_can_review_intake ?? false);
                 $this->canModifyDocflow = (bool) $perms->can_dts_modify_docflow;
                 $this->canModifyAccountlist = (bool) $perms->can_sadm_modify_accountlist;
                 $this->canModifyPass = (bool) $perms->can_sadm_modify_pass;
@@ -479,12 +467,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_access_rdp = $this->canAccessArchv;
         $perms->can_access_dcs = $this->canAccessDcs;
         $perms->dcs_view_all_documents = $this->canAccessDcs ? $this->dcsViewAllDocuments : false;
-        // Module clearances follow View All (UI no longer exposes separate toggles).
-        $fullDcsModules = $this->canAccessDcs && $this->dcsViewAllDocuments;
-        $perms->dcs_can_register = $fullDcsModules;
-        $perms->dcs_can_settings = $fullDcsModules;
-        $perms->dcs_can_recycle_bin = $fullDcsModules;
-        $perms->dcs_can_review_intake = $fullDcsModules;
         $perms->can_dts_modify_docflow = $this->canModifyDocflow;
         $perms->can_sadm_modify_accountlist = $this->canModifyAccountlist;
         $perms->can_sadm_modify_pass = $this->canModifyPass;
@@ -554,36 +536,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             $this->canDtsModifyTransaction = false;
             $this->rdpViewAllFiles = false;
             $this->dcsViewAllDocuments = false;
-            $this->dcsCanRegister = false;
-            $this->dcsCanSettings = false;
-            $this->dcsCanRecycleBin = false;
-            $this->dcsCanReviewIntake = false;
             $this->canAccessDcsAdmin = false;
         }
     }
 
     /**
-     * When DCS access is toggled off, clear View All (and derived module flags on save).
+     * When DCS access is toggled off, clear View All.
      */
     public function updatedCanAccessDcs($value): void
     {
         if (! $value) {
             $this->dcsViewAllDocuments = false;
-            $this->dcsCanRegister = false;
-            $this->dcsCanSettings = false;
-            $this->dcsCanRecycleBin = false;
-            $this->dcsCanReviewIntake = false;
             $this->canAccessDcsAdmin = false;
         }
-    }
-
-    public function updatedDcsViewAllDocuments($value): void
-    {
-        $on = (bool) $value && $this->canAccessDcs;
-        $this->dcsCanRegister = $on;
-        $this->dcsCanSettings = $on;
-        $this->dcsCanRecycleBin = $on;
-        $this->dcsCanReviewIntake = $on;
     }
 
     /**
@@ -651,10 +616,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canAccessArchv = true;
         $this->canAccessDcs = true;
         $this->dcsViewAllDocuments = true;
-        $this->dcsCanRegister = true;
-        $this->dcsCanSettings = true;
-        $this->dcsCanRecycleBin = true;
-        $this->dcsCanReviewIntake = true;
         $this->canAccessDcsAdmin = true;
         $this->canModifyDocflow = true;
         $this->canModifyAccountlist = true;
@@ -684,10 +645,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             'canAccessArchv',
             'canAccessDcs',
             'dcsViewAllDocuments',
-            'dcsCanRegister',
-            'dcsCanSettings',
-            'dcsCanRecycleBin',
-            'dcsCanReviewIntake',
             'canModifyDocflow',
             'canModifyAccountlist',
             'canModifyPass',

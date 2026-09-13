@@ -74,7 +74,6 @@ class BackupService
             'dcs_school_years' => 35,
             'dcs_faculties' => 36,
             'dcs_program_courses' => 37,
-            'dcs_program_course_faculties' => 38,
             'dcs_checklist_types' => 39,
             'dcs_checklist_version' => 40,
             'dcs_approval_body' => 41,

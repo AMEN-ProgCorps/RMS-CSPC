@@ -11,6 +11,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $collegeId = '';
     public string $schoolYearId = '';
     public string $semesterId = '';
+    public string $yearLevel = '';
     public string $deadline = '';
 
     public function saveRemark(int $programId, string $section, string $status): void
@@ -36,10 +37,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $collegeId = $this->collegeId !== '' ? (int) $this->collegeId : null;
         $schoolYearId = $this->schoolYearId !== '' ? (int) $this->schoolYearId : null;
         $semesterId = $this->semesterId !== '' ? (int) $this->semesterId : null;
+        $yearLevel = $this->yearLevel !== '' ? $this->yearLevel : null;
         $deadline = $this->deadline !== '' ? $this->deadline : null;
 
+        if ($yearLevel && ! in_array($yearLevel, SyllabiMonitoringHelper::YEAR_LEVELS, true)) {
+            $this->yearLevel = '';
+            $yearLevel = null;
+        }
+
         $deadlines = ($collegeId && $schoolYearId && $semesterId)
-            ? SyllabiMonitoringHelper::availableDeadlines($collegeId, $schoolYearId, $semesterId)
+            ? SyllabiMonitoringHelper::availableDeadlines($collegeId, $schoolYearId, $semesterId, $yearLevel)
             : [];
 
         if ($deadline && ! in_array($deadline, $deadlines, true)) {
@@ -51,8 +58,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'colleges' => DB::table('dcs_colleges')->orderBy('college_name')->get(['id', 'college_code', 'college_name']),
             'schoolYears' => DB::table('dcs_school_years')->orderBy('school_year', 'desc')->get(['id', 'school_year']),
             'semesters' => DB::table('dcs_semesters')->orderBy('id')->get(['id', 'semester_name']),
+            'yearLevels' => SyllabiMonitoringHelper::YEAR_LEVELS,
             'deadlines' => $deadlines,
-            'report' => SyllabiMonitoringHelper::build($collegeId, $schoolYearId, $semesterId, $deadline),
+            'report' => SyllabiMonitoringHelper::build($collegeId, $schoolYearId, $semesterId, $deadline, $yearLevel),
         ];
     }
 }; ?>
@@ -106,6 +114,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </select>
             </div>
             <div class="rpt-filter-group">
+                <label>Year Level</label>
+                <select wire:model.live="yearLevel">
+                    <option value="">All year levels</option>
+                    @foreach($yearLevels as $level)
+                        <option value="{{ $level }}">{{ $level }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="rpt-filter-group">
                 <label>Deadline (from syllabi)</label>
                 <select wire:model.live="deadline" @disabled(count($deadlines) === 0)>
                     <option value="">All deadlines</option>
@@ -125,9 +142,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <section class="rpt-results">
             <div class="rpt-results-head">
                 <div class="rpt-results-meta">
-                    <h3>{{ $report['meta']['college'] }} · {{ $report['meta']['school_year'] }} · {{ $report['meta']['semester'] }}</h3>
+                    <h3>
+                        {{ $report['meta']['college'] }} · {{ $report['meta']['school_year'] }} · {{ $report['meta']['semester'] }}
+                        @if(!empty($report['meta']['year_level']))
+                            · {{ $report['meta']['year_level'] }}
+                        @endif
+                    </h3>
                     <span class="rpt-results-count">
                         {{ count($report['rows']) }} programs
+                        @if(!empty($report['meta']['year_level']))
+                            · {{ $report['meta']['year_level'] }}
+                        @else
+                            · All year levels
+                        @endif
                         @if($report['meta']['deadline'])
                             · Deadline {{ $report['meta']['deadline'] }}
                         @elseif(count($deadlines) === 0)

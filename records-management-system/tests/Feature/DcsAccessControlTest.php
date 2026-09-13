@@ -142,13 +142,8 @@ class DcsAccessControlTest extends TestCase
             ? 'sys_condition_details'
             : 'condition_details';
 
-        if (! \Illuminate\Support\Facades\Schema::hasColumn($conditionTable, 'dcs_can_register')) {
-            $this->markTestSkipped('dcs_can_register column is not migrated.');
-        }
-
         DB::table($conditionTable)->where('key_id', $this->roleId)->update([
             'dcs_view_all_documents' => true,
-            'dcs_can_register' => false,
         ]);
 
         $response = $this->actingAs(User::find($this->limitedUserId))
@@ -158,17 +153,6 @@ class DcsAccessControlTest extends TestCase
 
     public function test_rfio_user_can_access_register_page(): void
     {
-        $conditionTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details')
-            ? 'sys_condition_details'
-            : 'condition_details';
-
-        if (\Illuminate\Support\Facades\Schema::hasColumn($conditionTable, 'dcs_can_register')) {
-            DB::table($conditionTable)->where('key_id', $this->roleId)->update([
-                'dcs_can_register' => true,
-                'dcs_can_review_intake' => true,
-            ]);
-        }
-
         $response = $this->actingAs(User::find($this->rfioUserId))
             ->get('/dcs/register');
 
@@ -205,16 +189,6 @@ class DcsAccessControlTest extends TestCase
             $this->markTestSkipped('Office intake columns are not migrated.');
         }
 
-        $conditionTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details')
-            ? 'sys_condition_details'
-            : 'condition_details';
-
-        if (\Illuminate\Support\Facades\Schema::hasColumn($conditionTable, 'dcs_can_review_intake')) {
-            DB::table($conditionTable)->where('key_id', $this->roleId)->update([
-                'dcs_can_review_intake' => true,
-            ]);
-        }
-
         $response = $this->actingAs(User::find($this->rfioUserId))
             ->get('/dcs/office/dcn');
 
@@ -225,16 +199,6 @@ class DcsAccessControlTest extends TestCase
     {
         if (! \Illuminate\Support\Facades\Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
             $this->markTestSkipped('Office intake columns are not migrated.');
-        }
-
-        $conditionTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details')
-            ? 'sys_condition_details'
-            : 'condition_details';
-
-        if (\Illuminate\Support\Facades\Schema::hasColumn($conditionTable, 'dcs_can_review_intake')) {
-            DB::table($conditionTable)->where('key_id', $this->roleId)->update([
-                'dcs_can_review_intake' => true,
-            ]);
         }
 
         $dcnId = DB::table('dcs_document_change_notice')->insertGetId([

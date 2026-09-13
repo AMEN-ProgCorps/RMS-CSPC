@@ -653,10 +653,19 @@ document.addEventListener('alpine:init', () => {
                             <div class="ev-field">
                                 <label class="ev-label">Category</label>
                                 <div class="ev-cat-select-row">
-                                    <select class="ev-input" x-model="form.category_id" required>
+                                    <select
+                                        class="ev-input"
+                                        :key="'ev-cat-' + String(editingId ?? 'new')"
+                                        x-model="form.category_id"
+                                        required
+                                    >
                                         <option value="">Select category</option>
                                         <template x-for="cat in categories" :key="cat.id">
-                                            <option :value="cat.id" x-text="cat.name"></option>
+                                            <option
+                                                :value="String(cat.id)"
+                                                :selected="String(form.category_id) === String(cat.id)"
+                                                x-text="cat.name"
+                                            ></option>
                                         </template>
                                     </select>
                                     <button type="button" class="ev-cat-icon-btn" title="Add category" :class="{ 'is-open': addingCategory }" @click="toggleAddCategory()">
@@ -1080,29 +1089,35 @@ document.addEventListener('alpine:init', () => {
         },
         openAdd(iso) {
             this.editingId = null;
+            const categoryId = this.categories[0]?.id != null ? String(this.categories[0].id) : '';
             this.form = {
                 title: '',
-                category_id: this.categories[0]?.id || '',
+                category_id: '',
                 date: iso || this.todayIso(),
                 startTime: '09:00',
                 endTime: '10:00',
                 description: '',
             };
             this.modal = 'form';
+            // Select options render via x-for after the modal mounts; set value on next tick.
+            this.$nextTick(() => { this.form.category_id = categoryId; });
         },
         openEdit(id) {
             const ev = this.events.find(e => String(e.id) === String(id));
             if (!ev || ev.readonly) return;
             this.editingId = id;
+            const categoryId = ev.category_id != null ? String(ev.category_id) : '';
             this.form = {
                 title: ev.title,
-                category_id: ev.category_id,
+                category_id: '',
                 date: String(ev.date).slice(0, 10),
                 startTime: ev.startTime,
                 endTime: ev.endTime,
                 description: ev.description || '',
             };
             this.modal = 'form';
+            // Select options render via x-for after the modal mounts; set value on next tick.
+            this.$nextTick(() => { this.form.category_id = categoryId; });
         },
         toggleAddCategory() {
             this.addingCategory = !this.addingCategory;
@@ -1128,7 +1143,7 @@ document.addEventListener('alpine:init', () => {
                     return;
                 }
                 this.categories.push(data);
-                this.form.category_id = data.id;
+                this.form.category_id = String(data.id);
                 this.newCategory = '';
                 this.newCategoryColor = '#0369a1';
                 this.addingCategory = false;
@@ -1185,7 +1200,7 @@ document.addEventListener('alpine:init', () => {
                 }
                 this.categories = this.categories.filter(c => c.id !== cat.id);
                 if (String(this.form.category_id) === String(cat.id)) {
-                    this.form.category_id = this.categories[0]?.id || '';
+                    this.form.category_id = this.categories[0]?.id != null ? String(this.categories[0].id) : '';
                 }
             } catch (e) {
                 alert('Could not delete category.');

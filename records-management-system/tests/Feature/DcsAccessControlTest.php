@@ -136,7 +136,7 @@ class DcsAccessControlTest extends TestCase
         $response->assertOk();
     }
 
-    public function test_module_flag_blocks_register_even_with_view_all(): void
+    public function test_view_all_grants_register_without_separate_module_flag(): void
     {
         $conditionTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details')
             ? 'sys_condition_details'
@@ -151,13 +151,9 @@ class DcsAccessControlTest extends TestCase
             'dcs_can_register' => false,
         ]);
 
-        $blocked = $this->actingAs(User::find($this->limitedUserId))
+        $response = $this->actingAs(User::find($this->limitedUserId))
             ->get('/dcs/register');
-        $blocked->assertRedirect(route('dcs'));
-
-        $allowed = $this->actingAs(User::find($this->limitedUserId))
-            ->get('/dcs/database');
-        $allowed->assertOk();
+        $response->assertOk();
     }
 
     public function test_rfio_user_can_access_register_page(): void

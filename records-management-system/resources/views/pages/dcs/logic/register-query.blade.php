@@ -340,27 +340,10 @@ class RegisterQueryHelper
         ];
     }
 
-    /** Full DCS + role module clearance when gated; ungated modules follow full DCS. */
+    /** Full DCS users get all gated modules; limited intake users get none. */
     public static function canAccessDcsModule(string $module): bool
     {
-        if (! self::isFullDcsUser()) {
-            return false;
-        }
-
-        $perms = auth()->user()?->permissions;
-        if (! $perms) {
-            return false;
-        }
-        if (! empty($perms->is_sadm)) {
-            return true;
-        }
-
-        $columns = self::dcsModuleColumns();
-        if (! isset($columns[$module])) {
-            return true;
-        }
-
-        return (bool) ($perms->{$columns[$module]} ?? false);
+        return self::isFullDcsUser();
     }
 
     public static function assertFullDcsUser(?string $module = null): void

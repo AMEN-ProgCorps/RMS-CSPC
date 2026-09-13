@@ -135,7 +135,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 ->update(['dt.current_office' => DB::raw('dtd.originated_from')]);
         } catch (\Throwable $e) {}
 
-        $routeName = !empty($this->currentRouteName) ? $this->currentRouteName : request()->route()?->getName();
+        $routeName = !empty($this->currentRouteName) ? $this->currentRouteName : (request()->route()?->getName() ?: 'dts');
+        $isMyTx = ($routeName === 'dts.my-transactions' || $this->activeTab === 'my-transactions');
+        $isForwarded = ($routeName === 'dts.forwarded' || $this->activeTab === 'forwarded');
+        $isReceived = ($routeName === 'dts.received' || $this->activeTab === 'received');
+        $isIncoming = ($routeName === 'dts.incoming' || $routeName === 'dts' || $this->activeTab === 'incoming' || (!$isMyTx && !$isForwarded && !$isReceived));
 
         $query = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
@@ -148,7 +152,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             ->where('dtd.is_active', 1)
             ->whereNotIn('dt.status', ['completed', 'cancelled']);
 
-        if ($routeName === 'dts.my-transactions') {
+        $logsTable = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
+
+        if ($isMyTx) {
             $query->where(function($q) use ($userOfficeCode) {
                 $q->where('dtd.originated_from', $userOfficeCode)
                   ->orWhere('dtd.created_by', auth()->id());
@@ -167,22 +173,94 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                       ->whereRaw("dtd.control_number NOT LIKE '%-9'");
                 });
             }
-        } elseif ($routeName === 'dts.forwarded') {
+        } elseif ($isForwarded) {
             $query->where('dt.current_office', '!=', $userOfficeCode)
-                  ->whereExists(function($q) use ($userOfficeCode) {
+                  ->whereExists(function($q) use ($logsTable, $userOfficeCode) {
                       $q->select(DB::raw(1))
-                        ->from((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
-                        ->whereColumn('log.transaction_id', 'dt.transaction_id')
-                        ->where('log.office_code', $userOfficeCode)
-                        ->whereNotNull('log.date_out');
+                        ->from($logsTable . ' as ulog')
+                        ->whereColumn('ulog.transaction_id', 'dt.transaction_id')
+                        ->where('ulog.office_code', $userOfficeCode)
+                        ->whereNotNull('ulog.date_out');
+                  })
+                  ->whereNotExists(function($q) use ($logsTable) {
+                      $q->select(DB::raw(1))
+                        ->from($logsTable . ' as destLog')
+                        ->whereColumn('destLog.transaction_id', 'dt.transaction_id')
+                        ->whereColumn('destLog.office_code', 'dt.current_office')
+                        ->where(function($sub) {
+                            $sub->where('destLog.type', 'received')
+                                ->orWhere(function($sub2) {
+                                    $sub2->whereNotNull('destLog.date_in')
+                                         ->where('destLog.type', '!=', 'forwarded');
+                                });
+                        })
+                        ->whereRaw("destLog.id = (
+                            SELECT MAX(dl2.id) 
+                            FROM {$logsTable} dl2 
+                            WHERE dl2.transaction_id = destLog.transaction_id 
+                              AND dl2.office_code = destLog.office_code
+                        )");
                   });
-        } else {
+        } elseif ($isReceived) {
             $query->where(function($q) use ($userOfficeCode) {
                 $q->where('dt.current_office', $userOfficeCode)
                   ->orWhere(function($sub) use ($userOfficeCode) {
                       $sub->where('dt.current_office', 'ORIGIN')
                           ->where('dtd.originated_from', $userOfficeCode);
                   });
+            })
+            ->whereExists(function($q) use ($logsTable, $userOfficeCode) {
+                $q->select(DB::raw(1))
+                  ->from($logsTable . ' as rlog')
+                  ->whereColumn('rlog.transaction_id', 'dt.transaction_id')
+                  ->where(function($sub) use ($userOfficeCode) {
+                      $sub->where('rlog.office_code', $userOfficeCode)
+                          ->orWhereColumn('rlog.office_code', 'dt.current_office');
+                  })
+                  ->where(function($sub) {
+                      $sub->where('rlog.type', 'received')
+                          ->orWhere(function($sub2) {
+                              $sub2->whereNotNull('rlog.date_in')
+                                   ->where('rlog.type', '!=', 'forwarded');
+                          });
+                  })
+                  ->whereRaw("rlog.id = (
+                      SELECT MAX(rl2.id) 
+                      FROM {$logsTable} rl2 
+                      WHERE rl2.transaction_id = rlog.transaction_id 
+                        AND rl2.office_code = rlog.office_code
+                  )");
+            });
+        } else {
+            // Default & Incoming Transactions: Current office is user's office, but NOT yet received
+            $query->where(function($q) use ($userOfficeCode) {
+                $q->where('dt.current_office', $userOfficeCode)
+                  ->orWhere(function($sub) use ($userOfficeCode) {
+                      $sub->where('dt.current_office', 'ORIGIN')
+                          ->where('dtd.originated_from', $userOfficeCode);
+                  });
+            })
+            ->whereNotExists(function($q) use ($logsTable, $userOfficeCode) {
+                $q->select(DB::raw(1))
+                  ->from($logsTable . ' as rlog')
+                  ->whereColumn('rlog.transaction_id', 'dt.transaction_id')
+                  ->where(function($sub) use ($userOfficeCode) {
+                      $sub->where('rlog.office_code', $userOfficeCode)
+                          ->orWhereColumn('rlog.office_code', 'dt.current_office');
+                  })
+                  ->where(function($sub) {
+                      $sub->where('rlog.type', 'received')
+                          ->orWhere(function($sub2) {
+                              $sub2->whereNotNull('rlog.date_in')
+                                   ->where('rlog.type', '!=', 'forwarded');
+                          });
+                  })
+                  ->whereRaw("rlog.id = (
+                      SELECT MAX(rl2.id) 
+                      FROM {$logsTable} rl2 
+                      WHERE rl2.transaction_id = rlog.transaction_id 
+                        AND rl2.office_code = rlog.office_code
+                  )");
             });
         }
 
@@ -580,27 +658,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
             return $t;
         });
-
-        if (in_array($routeName, ['dts', 'dts.incoming', 'dts.received', 'dts.forwarded'])) {
-            $filteredCollection = $list->getCollection()->filter(function ($t) use ($routeName, $userOfficeCode) {
-                if ($routeName === 'dts.received') {
-                    return $t->is_received === true;
-                }
-                if ($routeName === 'dts.forwarded') {
-                    $destLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
-                        ->where('transaction_id', $t->transaction_id)
-                        ->where('office_code', $t->current_office)
-                        ->orderBy('id', 'desc')
-                        ->first();
-                    $destReceived = $destLog && ($destLog->type === 'received' || (!empty($destLog->date_in) && $destLog->type !== 'forwarded'));
-                    return !$destReceived;
-                }
-                // Default & dts.incoming: incoming only (not received at user office)
-                return $t->is_received === false;
-            })->values();
-
-            $list->setCollection($filteredCollection);
-        }
 
         return $list;
     }
@@ -3399,10 +3456,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 }
                                 .dts-timeline-node-wrapper:first-child .dts-node-tooltip {
                                     left: -10px;
+                                    right: auto;
                                     transform: none;
                                 }
                                 .dts-timeline-node-wrapper:first-child .dts-node-tooltip::after {
                                     left: 26px;
+                                    right: auto;
                                     transform: none;
                                 }
                                 .dts-timeline-node-wrapper:last-child .dts-node-tooltip {
@@ -3414,6 +3473,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     left: auto;
                                     right: 26px;
                                     transform: none;
+                                }
+                                .dts-timeline-node-wrapper:only-child .dts-node-tooltip,
+                                .dts-timeline-node-wrapper:first-child:last-child .dts-node-tooltip {
+                                    left: 50%;
+                                    right: auto;
+                                    transform: translateX(-50%);
+                                }
+                                .dts-timeline-node-wrapper:only-child .dts-node-tooltip::after,
+                                .dts-timeline-node-wrapper:first-child:last-child .dts-node-tooltip::after {
+                                    left: 50%;
+                                    right: auto;
+                                    transform: translateX(-50%);
                                 }
                                 .dts-timeline-node-wrapper:hover .dts-node-tooltip {
                                     opacity: 1;
@@ -3430,7 +3501,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                             <!-- Horizontal Progress Line Graph (Transparent Side-Fit Box with Hover Tooltips) -->
                             <div style="width: 100%; overflow: visible; padding: 165px 60px 20px 60px; box-sizing: border-box; background: transparent; border: none; margin-top: 4px; margin-bottom: 12px; position: relative;">
-                                <div style="display: flex; align-items: center; justify-content: space-between; min-width: max-content; padding: 0; position: relative;">
+                                <div style="display: flex; align-items: center; justify-content: {{ count($this->visiblePath) <= 1 ? 'center' : 'space-between' }}; width: 100%; min-width: max-content; padding: 0; position: relative;">
                                     @forelse ($this->visiblePath as $index => $step)
                                          @php
                                              $isReceived = !is_null($step->date_in) || $selectedTransaction->status === 'completed';

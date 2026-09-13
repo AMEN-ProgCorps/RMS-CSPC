@@ -1914,10 +1914,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                 }
                                 .dts-timeline-node-wrapper:first-child .dts-node-tooltip {
                                     left: -10px;
+                                    right: auto;
                                     transform: none;
                                 }
                                 .dts-timeline-node-wrapper:first-child .dts-node-tooltip::after {
                                     left: 26px;
+                                    right: auto;
                                     transform: none;
                                 }
                                 .dts-timeline-node-wrapper:last-child .dts-node-tooltip {
@@ -1929,6 +1931,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                     left: auto;
                                     right: 26px;
                                     transform: none;
+                                }
+                                .dts-timeline-node-wrapper:only-child .dts-node-tooltip,
+                                .dts-timeline-node-wrapper:first-child:last-child .dts-node-tooltip {
+                                    left: 50%;
+                                    right: auto;
+                                    transform: translateX(-50%);
+                                }
+                                .dts-timeline-node-wrapper:only-child .dts-node-tooltip::after,
+                                .dts-timeline-node-wrapper:first-child:last-child .dts-node-tooltip::after {
+                                    left: 50%;
+                                    right: auto;
+                                    transform: translateX(-50%);
                                 }
                                 .dts-timeline-node-wrapper:hover .dts-node-tooltip {
                                     opacity: 1;
@@ -1945,7 +1959,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
 
                             <!-- Horizontal Progress Line Graph (Transparent Side-Fit Box) -->
                             <div style="width: 100%; overflow: visible; padding: 165px 60px 20px 60px; box-sizing: border-box; background: transparent; border: none; margin-top: 4px; margin-bottom: 12px; position: relative;">
-                                <div style="display: flex; align-items: center; justify-content: space-between; min-width: max-content; padding: 0; position: relative;">
+                                <div style="display: flex; align-items: center; justify-content: {{ count($this->visiblePath) <= 1 ? 'center' : 'space-between' }}; width: 100%; min-width: max-content; padding: 0; position: relative;">
                                     @forelse ($this->visiblePath as $index => $step)
                                         @php
                                             $isReceived = !is_null($step->date_in) || $selectedTransaction->status === 'completed';

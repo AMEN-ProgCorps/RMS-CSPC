@@ -242,8 +242,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                 ->whereNotIn('office_code', ['ORIGIN', '[H]']);
             if ($this->search !== '') {
                 $query->where(function ($q) use ($searchVal) {
-                    $q->where('office_name', 'like', $searchVal)
-                      ->orWhere('office_code', 'like', $searchVal);
+                    $q->where('office_name', 'ilike', $searchVal)
+                      ->orWhere('office_code', 'ilike', $searchVal);
                 });
             }
             $visibleIds = $query->pluck('id')->toArray();
@@ -251,8 +251,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
             $query = \App\Models\Cluster::where('is_active', false);
             if ($this->search !== '') {
                 $query->where(function ($q) use ($searchVal) {
-                    $q->where('cluster_name', 'like', $searchVal)
-                      ->orWhere('cluster_code', 'like', $searchVal);
+                    $q->where('cluster_name', 'ilike', $searchVal)
+                      ->orWhere('cluster_code', 'ilike', $searchVal);
                 });
             }
             $visibleIds = $query->pluck('id')->toArray();
@@ -260,8 +260,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
             $query = \App\Models\role_list::where('is_active', false);
             if ($this->search !== '') {
                 $query->where(function ($q) use ($searchVal) {
-                    $q->where('key_name', 'like', $searchVal)
-                      ->orWhere('key_description', 'like', $searchVal);
+                    $q->where('key_name', 'ilike', $searchVal)
+                      ->orWhere('key_description', 'ilike', $searchVal);
                 });
             }
             $visibleIds = $query->pluck('id')->toArray();
@@ -273,8 +273,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
             }
             if ($this->search !== '') {
                 $query->where(function ($q) use ($searchVal) {
-                    $q->where('flow_name', 'like', $searchVal)
-                      ->orWhere('flow_code', 'like', $searchVal);
+                    $q->where('flow_name', 'ilike', $searchVal)
+                      ->orWhere('flow_code', 'ilike', $searchVal);
                 });
             }
             $visibleIds = $query->pluck('id')->toArray();
@@ -282,10 +282,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
             $query = \App\Models\User::where('account_active', false);
             if ($this->search !== '') {
                 $query->where(function ($q) use ($searchVal) {
-                    $q->where('username', 'like', $searchVal)
+                    $q->where('username', 'ilike', $searchVal)
                       ->orWhereHas('details', function ($sub) use ($searchVal) {
-                          $sub->where('first_name', 'like', $searchVal)
-                              ->orWhere('last_name', 'like', $searchVal);
+                          $sub->where('first_name', 'ilike', $searchVal)
+                              ->orWhere('last_name', 'ilike', $searchVal);
                       });
                 });
             }
@@ -406,8 +406,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
         if ($this->search !== '' && $this->activeTab === 'offices') {
             $officesQuery->where(function ($q) use ($searchVal) {
-                $q->where('office_name', 'like', $searchVal)
-                  ->orWhere('office_code', 'like', $searchVal);
+                $q->where('office_name', 'ilike', $searchVal)
+                  ->orWhere('office_code', 'ilike', $searchVal);
             });
         }
         $deactivatedOffices = $officesQuery->orderBy('office_name', 'asc')->get();
@@ -418,8 +418,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
         if ($this->search !== '' && $this->activeTab === 'clusters') {
             $clustersQuery->where(function ($q) use ($searchVal) {
-                $q->where('cluster_name', 'like', $searchVal)
-                  ->orWhere('cluster_code', 'like', $searchVal);
+                $q->where('cluster_name', 'ilike', $searchVal)
+                  ->orWhere('cluster_code', 'ilike', $searchVal);
             });
         }
         $deactivatedClusters = $clustersQuery->orderBy('cluster_name', 'asc')->get();
@@ -431,8 +431,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
         if ($this->search !== '' && $this->activeTab === 'roles') {
             $rolesQuery->where(function ($q) use ($searchVal) {
-                $q->where('key_name', 'like', $searchVal)
-                  ->orWhere('key_description', 'like', $searchVal);
+                $q->where('key_name', 'ilike', $searchVal)
+                  ->orWhere('key_description', 'ilike', $searchVal);
             });
         }
         $deactivatedRoles = $rolesQuery->orderBy('key_name', 'asc')->get();
@@ -447,8 +447,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
         if ($this->search !== '' && $this->activeTab === 'flows') {
             $flowsQuery->where(function ($q) use ($searchVal) {
-                $q->where('flow_name', 'like', $searchVal)
-                  ->orWhere('flow_code', 'like', $searchVal);
+                $q->where('flow_name', 'ilike', $searchVal)
+                  ->orWhere('flow_code', 'ilike', $searchVal);
             });
         }
         $deactivatedFlows = $flowsQuery->orderBy('flow_name', 'asc')->get();
@@ -460,10 +460,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
         if ($this->search !== '' && $this->activeTab === 'users') {
             $usersQuery->where(function ($q) use ($searchVal) {
-                $q->where('username', 'like', $searchVal)
+                $q->where('username', 'ilike', $searchVal)
                   ->orWhereHas('details', function ($sub) use ($searchVal) {
-                      $sub->where('first_name', 'like', $searchVal)
-                          ->orWhere('last_name', 'like', $searchVal);
+                      $sub->where('first_name', 'ilike', $searchVal)
+                          ->orWhere('last_name', 'ilike', $searchVal);
                   });
             });
         }

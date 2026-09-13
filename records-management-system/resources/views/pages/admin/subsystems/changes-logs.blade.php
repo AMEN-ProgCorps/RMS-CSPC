@@ -62,8 +62,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Subsystem Changes Logs')
         if ($this->search !== '') {
             $searchVal = '%' . $this->search . '%';
             $query->where(function ($q) use ($searchVal, $subsystemsTbl, $logTbl) {
-                $q->where("{$subsystemsTbl}.subsystem_name", 'like', $searchVal)
-                  ->orWhere("{$logTbl}.version_change", 'like', $searchVal);
+                $q->where("{$subsystemsTbl}.subsystem_name", 'ilike', $searchVal)
+                  ->orWhere("{$logTbl}.version_change", 'ilike', $searchVal);
             });
         }
 

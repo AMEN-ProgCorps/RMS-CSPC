@@ -594,11 +594,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
         if ($this->search !== '') {
             $searchVal = '%' . $this->search . '%';
             $query->where(function($q) use ($searchVal) {
-                $q->where('username', 'like', $searchVal)
+                $q->where('username', 'ilike', $searchVal)
                   ->orWhereHas('details', function($qDet) use ($searchVal) {
-                      $qDet->where('first_name', 'like', $searchVal)
-                           ->orWhere('last_name', 'like', $searchVal)
-                           ->orWhere('email', 'like', $searchVal);
+                      $qDet->where('first_name', 'ilike', $searchVal)
+                           ->orWhere('last_name', 'ilike', $searchVal)
+                           ->orWhere('email', 'ilike', $searchVal);
                   });
             });
         }
@@ -653,11 +653,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             ->when(!empty($this->requestorSearch), function($q) {
                 $s = trim($this->requestorSearch);
                 $q->where(function($sub) use ($s) {
-                    $sub->where('req.requestor_name', 'like', "%{$s}%")
-                        ->orWhere('req.requestor_position', 'like', "%{$s}%")
-                        ->orWhere('req.office', 'like', "%{$s}%")
-                        ->orWhere('off.office_name', 'like', "%{$s}%")
-                        ->orWhere('src.s_office_name', 'like', "%{$s}%");
+                    $sub->where('req.requestor_name', 'ilike', "%{$s}%")
+                        ->orWhere('req.requestor_position', 'ilike', "%{$s}%")
+                        ->orWhere('req.office', 'ilike', "%{$s}%")
+                        ->orWhere('off.office_name', 'ilike', "%{$s}%")
+                        ->orWhere('src.s_office_name', 'ilike', "%{$s}%");
                 });
             })
             ->select(

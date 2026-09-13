@@ -668,8 +668,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         if ($this->search !== '') {
             $searchVal = '%' . $this->search . '%';
             $query->where(function($q) use ($searchVal) {
-                $q->where('key_name', 'like', $searchVal)
-                  ->orWhere('key_description', 'like', $searchVal);
+                $q->where('key_name', 'ilike', $searchVal)
+                  ->orWhere('key_description', 'ilike', $searchVal);
             });
         }
 

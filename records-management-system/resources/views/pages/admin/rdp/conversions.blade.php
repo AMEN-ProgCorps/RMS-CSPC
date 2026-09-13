@@ -408,8 +408,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Volume Conversions')] cl
 
         if (!empty($this->search)) {
             $query->where(function ($q) {
-                $q->where('std.value_standard', 'like', '%' . $this->search . '%')
-                  ->orWhere('conv.value_standard', 'like', '%' . $this->search . '%');
+                $q->where('std.value_standard', 'ilike', '%' . $this->search . '%')
+                  ->orWhere('conv.value_standard', 'ilike', '%' . $this->search . '%');
             });
         }
 

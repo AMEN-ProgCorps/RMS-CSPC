@@ -84,9 +84,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
         if ($this->search !== '') {
             $s = '%' . $this->search . '%';
             $query->where(function ($q) use ($s) {
-                $q->where('a.username', 'like', $s)
-                  ->orWhere('ad.first_name', 'like', $s)
-                  ->orWhere('ad.last_name', 'like', $s);
+                $q->where('a.username', 'ilike', $s)
+                  ->orWhere('ad.first_name', 'ilike', $s)
+                  ->orWhere('ad.last_name', 'ilike', $s);
             });
         }
         if ($this->actionFilter !== '') {

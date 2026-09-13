@@ -107,22 +107,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
         if ($this->search !== '') {
             $s = '%' . $this->search . '%';
             $query->where(function ($q) use ($s) {
-                $q->where('admin_logs.changes', 'like', $s)
-                    ->orWhere('account.username', 'like', $s)
-                    ->orWhere('account_details.first_name', 'like', $s)
-                    ->orWhere('account_details.last_name', 'like', $s)
-                    ->orWhere('office.office_name', 'like', $s)
-                    ->orWhere('office.office_code', 'like', $s);
+                $q->where('admin_logs.changes', 'ilike', $s)
+                    ->orWhere('account.username', 'ilike', $s)
+                    ->orWhere('account_details.first_name', 'ilike', $s)
+                    ->orWhere('account_details.last_name', 'ilike', $s)
+                    ->orWhere('office.office_name', 'ilike', $s)
+                    ->orWhere('office.office_code', 'ilike', $s);
             });
         }
 
         if ($this->actionFilter !== '') {
             if ($this->actionFilter === 'calendar') {
-                $query->where('admin_logs.changes', 'like', '%calendar%');
+                $query->where('admin_logs.changes', 'ilike', '%calendar%');
             } elseif ($this->actionFilter === 'blocked') {
-                $query->where('admin_logs.changes', 'like', 'Blocked DCS access%');
+                $query->where('admin_logs.changes', 'ilike', 'Blocked DCS access%');
             } else {
-                $query->where('admin_logs.changes', 'like', $this->actionFilter . '%');
+                $query->where('admin_logs.changes', 'ilike', $this->actionFilter . '%');
             }
         }
 

@@ -692,8 +692,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
             ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]', 'HUB'])
             ->when($this->search !== '', function ($q) {
                 $q->where(function ($sub) {
-                    $sub->where('office_name', 'like', '%' . $this->search . '%')
-                        ->orWhere('office_code', 'like', '%' . $this->search . '%');
+                    $sub->where('office_name', 'ilike', '%' . $this->search . '%')
+                        ->orWhere('office_code', 'ilike', '%' . $this->search . '%');
                 });
             })
             ->pluck('id')
@@ -978,8 +978,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         $visibleIds = \App\Models\Cluster::where('is_active', true)
             ->when($this->clusterSearch !== '', function ($q) {
                 $q->where(function ($sub) {
-                    $sub->where('cluster_name', 'like', '%' . $this->clusterSearch . '%')
-                        ->orWhere('cluster_code', 'like', '%' . $this->clusterSearch . '%');
+                    $sub->where('cluster_name', 'ilike', '%' . $this->clusterSearch . '%')
+                        ->orWhere('cluster_code', 'ilike', '%' . $this->clusterSearch . '%');
                 });
             })
             ->pluck('id')
@@ -1235,8 +1235,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         if ($this->search !== '') {
             $searchVal = '%' . $this->search . '%';
             $officeQuery->where(function($q) use ($searchVal) {
-                $q->where('office_name', 'like', $searchVal)
-                  ->orWhere('office_code', 'like', $searchVal);
+                $q->where('office_name', 'ilike', $searchVal)
+                  ->orWhere('office_code', 'ilike', $searchVal);
             });
         }
         $offices = $officeQuery->orderBy('office_name', 'asc')->paginate(20);
@@ -1245,8 +1245,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         if ($this->clusterSearch !== '') {
             $cSearchVal = '%' . $this->clusterSearch . '%';
             $clusterQuery->where(function($q) use ($cSearchVal) {
-                $q->where('cluster_name', 'like', $cSearchVal)
-                  ->orWhere('cluster_code', 'like', $cSearchVal);
+                $q->where('cluster_name', 'ilike', $cSearchVal)
+                  ->orWhere('cluster_code', 'ilike', $cSearchVal);
             });
         }
         $clusters = $clusterQuery->orderBy('cluster_name', 'asc')->paginate(20);
@@ -1270,8 +1270,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Offices & Clusters')] cl
         if ($this->otherOfficeSearch !== '') {
             $oSearchVal = '%' . $this->otherOfficeSearch . '%';
             $otherOfficeQuery->where(function($q) use ($oSearchVal) {
-                $q->where('so.s_office_name', 'like', $oSearchVal)
-                  ->orWhere('so.s_office_code', 'like', $oSearchVal);
+                $q->where('so.s_office_name', 'ilike', $oSearchVal)
+                  ->orWhere('so.s_office_code', 'ilike', $oSearchVal);
             });
         }
         $otherOffices = $otherOfficeQuery->orderBy('so.s_office_name', 'asc')->paginate(20);

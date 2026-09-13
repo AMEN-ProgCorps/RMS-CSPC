@@ -72,12 +72,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
         if ($this->search !== '') {
             $searchVal = '%' . $this->search . '%';
             $query->where(function ($q) use ($searchVal) {
-                $q->where('account.username', 'like', $searchVal)
-                  ->orWhere('account_details.first_name', 'like', $searchVal)
-                  ->orWhere('account_details.last_name', 'like', $searchVal)
-                  ->orWhere('security_logs.user_ipaddr', 'like', $searchVal)
-                  ->orWhere('security_status.status_name', 'like', $searchVal)
-                  ->orWhere('security_status.description', 'like', $searchVal);
+                $q->where('account.username', 'ilike', $searchVal)
+                  ->orWhere('account_details.first_name', 'ilike', $searchVal)
+                  ->orWhere('account_details.last_name', 'ilike', $searchVal)
+                  ->orWhere('security_logs.user_ipaddr', 'ilike', $searchVal)
+                  ->orWhere('security_status.status_name', 'ilike', $searchVal)
+                  ->orWhere('security_status.description', 'ilike', $searchVal);
             });
         }
 

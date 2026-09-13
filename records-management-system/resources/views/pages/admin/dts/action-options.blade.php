@@ -151,7 +151,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Action Options')] class 
     {
         $query = DB::table('dts_action_options');
         if (!empty($this->search)) {
-            $query->where('option_name', 'like', '%' . $this->search . '%');
+            $query->where('option_name', 'ilike', '%' . $this->search . '%');
         }
 
         $options = $query->orderBy('option_name', 'asc')->get();

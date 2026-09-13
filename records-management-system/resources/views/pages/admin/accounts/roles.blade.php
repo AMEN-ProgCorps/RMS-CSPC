@@ -788,7 +788,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                     @endif
                                 </td>
                                 <td style="padding: 10px 12px; text-align: right;">
-                                    <button type="button" class="btn-table-action" wire:click.stop="selectRole({{ $role->id }})" style="padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-radius: 6px; border: 1px solid #3b82f6; background: rgba(37, 99, 235, 0.12); color: #2563eb; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                    <button type="button" class="btn-table-action" wire:click.stop="selectRole({{ $role->id }})">
                                         <i class="fa-solid fa-pen-to-square"></i> Configure
                                     </button>
                                 </td>

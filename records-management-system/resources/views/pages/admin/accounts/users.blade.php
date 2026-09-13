@@ -792,11 +792,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             </div>
 
             <!-- View Mode Toggle -->
-            <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1; margin-left: auto;">
-                <button type="button" wire:click="$set('viewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $viewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $viewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $viewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+            <div class="view-mode-toggle" style="display: flex; gap: 2px; padding: 2px; border-radius: 6px; margin-left: auto;">
+                <button type="button" wire:click="$set('viewMode', 'grid')" title="Cards Grid Layout" class="view-mode-btn {{ $viewMode === 'grid' ? 'active' : '' }}" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
                     <i class="fa-solid fa-border-all"></i> Cards
                 </button>
-                <button type="button" wire:click="$set('viewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $viewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $viewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $viewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                <button type="button" wire:click="$set('viewMode', 'table')" title="Table Layout" class="view-mode-btn {{ $viewMode === 'table' ? 'active' : '' }}" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
                     <i class="fa-solid fa-table-list"></i> Table
                 </button>
             </div>
@@ -807,7 +807,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
             <div style="overflow-x: auto; max-height: calc(100vh - 280px); overflow-y: auto;">
                 <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12.5px;">
                     <thead>
-                        <tr style="background: #f8fafc; color: #475569; text-align: left; position: sticky; top: 0; z-index: 10; font-weight: 600; font-size: 11.5px; border-bottom: 1.5px solid #cbd5e1;">
+                        <tr class="users-table-head-row" style="text-align: left; position: sticky; top: 0; z-index: 10; font-weight: 600; font-size: 11.5px;">
                             <th style="padding: 8px 10px;">User Name</th>
                             <th style="padding: 8px 10px;">Email (Google Account)</th>
                             <th style="padding: 8px 10px;">Assigned Role</th>
@@ -825,19 +825,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                             <tr class="user-tbl-row {{ $selectedUserId === $user->id ? 'selected-row' : '' }}" 
                                 wire:key="user-tbl-{{ $user->id }}" 
                                 wire:click="selectUser({{ $user->id }})"
-                                style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $selectedUserId === $user->id ? '#eff6ff' : '#ffffff' }}; transition: background 0.12s ease;">
-                                <td style="padding: 8px 10px; font-weight: 600; color: #1e293b;">{{ $displayName }}</td>
-                                <td style="padding: 8px 10px; color: #0284c7;">{{ $userDet?->email ?: '—' }}</td>
-                                <td style="padding: 8px 10px; color: #475569;">
-                                    <span style="background: #f1f5f9; color: #334155; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid #cbd5e1;">
+                                style="cursor: pointer; transition: background 0.12s ease;">
+                                <td class="user-name-cell" style="padding: 8px 10px; font-weight: 600;">{{ $displayName }}</td>
+                                <td class="user-email-cell" style="padding: 8px 10px;">{{ $userDet?->email ?: '—' }}</td>
+                                <td class="user-role-cell" style="padding: 8px 10px;">
+                                    <span style="padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600;">
                                         {{ $roleKey?->key_name ?: 'User' }}
                                     </span>
                                 </td>
                                 <td style="padding: 8px 10px; text-align: center;">
                                     @if($user->account_active)
-                                        <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;">Active</span>
+                                        <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">Active</span>
                                     @else
-                                        <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: #fee2e2; color: #991b1b; border: 1px solid #fecdd3;">Blocked</span>
+                                        <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3);">Blocked</span>
                                     @endif
                                 </td>
                             </tr>
@@ -1137,11 +1137,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     </div>
 
                     <!-- View Mode Toggle -->
-                    <div class="view-mode-toggle" style="display: flex; gap: 2px; background: #f1f5f9; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1; margin-left: auto;">
-                        <button type="button" wire:click="$set('reqViewMode', 'grid')" title="Cards Grid Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $reqViewMode === 'grid' ? '#ffffff' : 'transparent' }}; color: {{ $reqViewMode === 'grid' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $reqViewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                    <div class="view-mode-toggle">
+                        <button type="button" wire:click="$set('reqViewMode', 'grid')" class="view-mode-btn {{ $reqViewMode === 'grid' ? 'active' : '' }}" title="Cards Grid Layout">
                             <i class="fa-solid fa-border-all"></i> Cards
                         </button>
-                        <button type="button" wire:click="$set('reqViewMode', 'table')" title="Table Layout" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; background: {{ $reqViewMode === 'table' ? '#ffffff' : 'transparent' }}; color: {{ $reqViewMode === 'table' ? '#0f172a' : '#64748b' }}; box-shadow: {{ $reqViewMode === 'table' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}; display: flex; align-items: center; gap: 4px; font-family: 'Inter', sans-serif;">
+                        <button type="button" wire:click="$set('reqViewMode', 'table')" class="view-mode-btn {{ $reqViewMode === 'table' ? 'active' : '' }}" title="Table Layout">
                             <i class="fa-solid fa-table-list"></i> Table
                         </button>
                     </div>
@@ -1151,7 +1151,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                     <div class="users-table-container" style="margin-top: 12px; overflow-x: auto;">
                         <table class="users-data-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
                             <thead>
-                                <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left; color: #475569;">
+                                <tr class="req-table-head-row" style="text-align: left;">
                                     <th style="padding: 10px 12px;">Requestor Name</th>
                                     <th style="padding: 10px 12px;">Position / Title</th>
                                     <th style="padding: 10px 12px;">Office / Agency</th>
@@ -1162,8 +1162,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                             </thead>
                             <tbody>
                                 @forelse($requestors as $req)
-                                    <tr style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $selectedRequestorId === $req->id ? '#f0f9ff' : 'transparent' }};" wire:click="selectRequestorItem({{ $req->id }})" wire:key="req-tbl-{{ $req->id }}">
-                                        <td style="padding: 10px 12px; font-weight: 600; color: #0f172a;">
+                                    <tr class="req-tbl-row {{ $selectedRequestorId === $req->id ? 'selected-row' : '' }}" wire:click="selectRequestorItem({{ $req->id }})" wire:key="req-tbl-{{ $req->id }}" style="cursor: pointer;">
+                                        <td class="user-name-cell" style="padding: 10px 12px; font-weight: 600;">
                                             <div style="display: flex; align-items: center; gap: 8px;">
                                                 <div style="width: 28px; height: 28px; border-radius: 50%; background: #0284c7; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;">
                                                     <i class="fa-solid fa-user-pen"></i>
@@ -1171,14 +1171,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                                 <span>{{ $req->requestor_name }}</span>
                                             </div>
                                         </td>
-                                        <td style="padding: 10px 12px; color: #475569;">
+                                        <td class="req-pos-cell" style="padding: 10px 12px;">
                                             {{ $req->requestor_position ?: '—' }}
                                         </td>
-                                        <td style="padding: 10px 12px; color: #334155; font-weight: 500;">
-                                            {{ $req->office_display_name }} <span style="font-size: 11px; color: #64748b;">({{ $req->office }})</span>
+                                        <td class="req-office-cell" style="padding: 10px 12px; font-weight: 500;">
+                                            {{ $req->office_display_name }} <span class="req-office-code" style="font-size: 11px;">({{ $req->office }})</span>
                                         </td>
                                         <td style="padding: 10px 12px;">
-                                            <span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; background: {{ $req->office_category === 'External' ? '#e0f2fe' : '#f1f5f9' }}; color: {{ $req->office_category === 'External' ? '#0369a1' : '#475569' }};">
+                                            <span class="req-cat-badge req-cat-{{ strtolower($req->office_category) }}">
                                                 {{ $req->office_category }}
                                             </span>
                                         </td>
@@ -1188,7 +1188,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                             </span>
                                         </td>
                                         <td style="padding: 10px 12px; text-align: right;">
-                                            <button type="button" class="btn-table-action" wire:click.stop="selectRequestorItem({{ $req->id }})" style="padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-radius: 6px; border: 1px solid #3b82f6; background: rgba(37, 99, 235, 0.12); color: #2563eb; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                            <button type="button" class="btn-table-action" wire:click.stop="selectRequestorItem({{ $req->id }})">
                                                 <i class="fa-solid fa-pen-to-square"></i> Configure
                                             </button>
                                         </td>
@@ -1217,7 +1217,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                     </span>
                                 </div>
                                 <div style="margin-left: auto; display: flex; align-items: center; gap: 6px;">
-                                    <span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; background: {{ $req->office_category === 'External' ? '#e0f2fe' : '#f1f5f9' }}; color: {{ $req->office_category === 'External' ? '#0369a1' : '#475569' }};">
+                                    <span class="req-cat-badge req-cat-{{ strtolower($req->office_category) }}">
                                         {{ $req->office_category }}
                                     </span>
                                     <span class="badge {{ $req->is_active ? 'badge-active' : 'badge-inactive' }}">

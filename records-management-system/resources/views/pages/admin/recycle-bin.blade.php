@@ -551,14 +551,356 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
             flex: none !important;
             margin-bottom: 12px;
         }
+
+        /* Retention Notice Banner */
+        .retention-notice-banner {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            margin: 0 0 16px;
+            padding: 12px 16px;
+            border: 1px solid #bfdbfe;
+            background: #eff6ff;
+            border-radius: 10px;
+            font-family: 'Inter', sans-serif;
+        }
+        .retention-notice-icon {
+            color: #2563eb;
+            margin-top: 2px;
+            font-size: 16px;
+        }
+        .retention-notice-content {
+            font-size: 12.5px;
+            color: #1e3a8a;
+            line-height: 1.45;
+        }
+        .retention-notice-content strong {
+            color: #1e40af;
+        }
+
+        /* Header Title */
+        .recycle-header-title {
+            margin: 0;
+            font-size: 13.5px;
+            font-weight: 600;
+            color: #334155;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-family: 'Inter', sans-serif;
+        }
+        .recycle-header-title .title-icon {
+            color: #dc2626;
+        }
+        .recycle-header-title .count-badge {
+            font-weight: 400;
+            color: #94a3b8;
+            margin-left: 4px;
+        }
+
+        /* Toast Messages */
+        .recycle-toast-success {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            background: #ecfdf5;
+            border: 1px solid #a7f3d0;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            font-size: 12.5px;
+            color: #065f46;
+            font-family: 'Inter', sans-serif;
+        }
+        .recycle-toast-error {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            font-size: 12.5px;
+            color: #991b1b;
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Bulk Action Bar */
+        .recycle-bulk-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 14px;
+            background: #ecfdf5;
+            border: 1px solid #a7f3d0;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        .recycle-bulk-bar .selected-count {
+            font-size: 12px;
+            font-weight: 600;
+            color: #065f46;
+        }
+
+        /* Select All Row */
+        .recycle-select-all-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 4px;
+            border-bottom: 1px solid #e2e8f0;
+            margin-bottom: 14px;
+        }
+        .recycle-select-all-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #64748b;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        /* Filter Select */
+        .recycle-filter-select {
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1.5px solid #e2e8f0;
+            outline: none;
+            font-size: 12px;
+            font-family: 'Inter', sans-serif;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: #fff;
+            font-weight: 500;
+        }
+
+        /* Item Card */
+        .recycle-item-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            border: 1px solid #fecdd3;
+            border-radius: 10px;
+            background: #fff5f5;
+            transition: all 0.2s ease;
+        }
+        .recycle-item-card:hover {
+            border-color: #fda4af;
+            box-shadow: 0 2px 8px rgba(225, 29, 72, 0.08);
+        }
+        .recycle-item-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: #fee2e2;
+            color: #dc2626;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            flex-shrink: 0;
+            font-family: 'Inter', sans-serif;
+        }
+        .recycle-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .recycle-item-title {
+            font-size: 13.5px;
+            font-weight: 600;
+            color: #334155;
+            display: block;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .recycle-item-sub {
+            font-size: 12px;
+            color: #94a3b8;
+            font-family: 'Inter', sans-serif;
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            margin-top: 2px;
+        }
+        .recycle-item-sub strong {
+            color: #64748b;
+        }
+        .recycle-btn-restore {
+            background: #059669;
+            color: #fff;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            white-space: nowrap;
+            transition: background 0.15s ease;
+        }
+        .recycle-btn-restore:hover {
+            background: #047857;
+        }
+
+        /* Empty State */
+        .recycle-empty-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 60px 20px;
+            color: #94a3b8;
+        }
+        .recycle-empty-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            display: block;
+            color: #cbd5e1;
+        }
+        .recycle-empty-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #64748b;
+            margin: 0 0 8px;
+            font-family: 'Outfit', sans-serif;
+        }
+        .recycle-empty-desc {
+            font-size: 13px;
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Dark Mode Overrides */
+        [data-theme="dark"] .retention-notice-banner {
+            background: rgba(30, 58, 138, 0.2) !important;
+            border-color: rgba(59, 130, 246, 0.3) !important;
+        }
+        [data-theme="dark"] .retention-notice-icon {
+            color: #60a5fa !important;
+        }
+        [data-theme="dark"] .retention-notice-content {
+            color: #bfdbfe !important;
+        }
+        [data-theme="dark"] .retention-notice-content strong {
+            color: #93c5fd !important;
+        }
+
+        [data-theme="dark"] .tabs-header {
+            border-bottom-color: #1e293b !important;
+        }
+        [data-theme="dark"] .tab-btn {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .tab-btn:hover {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .tab-btn.active {
+            color: #60a5fa !important;
+        }
+        [data-theme="dark"] .tab-btn.active::after {
+            background: #3b82f6 !important;
+        }
+
+        [data-theme="dark"] .recycle-header-title {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .recycle-header-title .title-icon {
+            color: #f87171 !important;
+        }
+        [data-theme="dark"] .recycle-header-title .count-badge {
+            color: #64748b !important;
+        }
+
+        [data-theme="dark"] .search-box-wrapper .search-box {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .search-box-wrapper .search-icon {
+            color: #64748b !important;
+        }
+
+        [data-theme="dark"] .recycle-toast-success {
+            background: rgba(6, 95, 70, 0.25) !important;
+            border-color: rgba(16, 185, 129, 0.35) !important;
+            color: #6ee7b7 !important;
+        }
+        [data-theme="dark"] .recycle-toast-error {
+            background: rgba(153, 27, 27, 0.25) !important;
+            border-color: rgba(239, 68, 68, 0.35) !important;
+            color: #fca5a5 !important;
+        }
+
+        [data-theme="dark"] .recycle-bulk-bar {
+            background: rgba(6, 95, 70, 0.25) !important;
+            border-color: rgba(16, 185, 129, 0.35) !important;
+        }
+        [data-theme="dark"] .recycle-bulk-bar .selected-count {
+            color: #6ee7b7 !important;
+        }
+
+        [data-theme="dark"] .recycle-select-all-row {
+            border-bottom-color: #1e293b !important;
+        }
+        [data-theme="dark"] .recycle-select-all-label {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .recycle-filter-select {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .recycle-item-card {
+            background: #131c2e !important;
+            border: 1px solid #29233b !important;
+        }
+        [data-theme="dark"] .recycle-item-card:hover {
+            background: #18233a !important;
+            border-color: #3d3156 !important;
+        }
+        [data-theme="dark"] .recycle-item-avatar {
+            background: rgba(220, 38, 38, 0.2) !important;
+            color: #f87171 !important;
+            border: 1px solid rgba(220, 38, 38, 0.3) !important;
+        }
+        [data-theme="dark"] .recycle-item-title {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .recycle-item-sub {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .recycle-item-sub strong {
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .recycle-empty-icon {
+            color: #334155 !important;
+        }
+        [data-theme="dark"] .recycle-empty-title {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .recycle-empty-desc {
+            color: #64748b !important;
+        }
     </style>
 @endpush
 
 <div class="activity-logs-container">
     {{-- Retention notice (same 1-year window as DCS Recycle Bin) --}}
-    <div style="display:flex; gap:12px; align-items:flex-start; margin: 0 24px 12px; padding: 12px 14px; border: 1px solid #bfdbfe; background: #eff6ff; border-radius: 10px; font-family: 'Inter', sans-serif;">
-        <i class="fa-solid fa-circle-info" style="color:#2563eb; margin-top:2px;"></i>
-        <div style="font-size: 12.5px; color:#1e3a8a; line-height:1.45;">
+    <div class="retention-notice-banner">
+        <i class="fa-solid fa-circle-info retention-notice-icon"></i>
+        <div class="retention-notice-content">
             <strong style="display:block; margin-bottom:2px;">1-year retention</strong>
             Soft-deleted items remain available in the Recycle Bin for <strong>1 year</strong> and can be restored during that period.
         </div>
@@ -589,10 +931,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
             <div class="directory-panel" style="width: 100%; max-width: 100%; max-height: none;">
                 {{-- Header Row --}}
                 <div class="directory-header-row">
-                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">
-                        <i class="fa-solid fa-building" style="margin-right: 4px; color: #dc2626;"></i>
+                    <span class="recycle-header-title">
+                        <i class="fa-solid fa-building title-icon"></i>
                         Deactivated Offices
-                        <span style="font-weight: 400; color: #94a3b8; margin-left: 4px;">({{ $deactivatedOffices->count() }})</span>
+                        <span class="count-badge">({{ $deactivatedOffices->count() }})</span>
                     </span>
                 </div>
 
@@ -604,27 +946,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
                 {{-- Toast Messages --}}
                 @if($successMessage)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px; color: #065f46; font-family: 'Inter', sans-serif;">
+                    <div class="recycle-toast-success">
                         <i class="fa-solid fa-circle-check" style="color: #059669;"></i>
                         {{ $successMessage }}
-                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: #065f46; cursor: pointer; font-size: 14px;">&times;</button>
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
                     </div>
                 @endif
                 @if($errorMessage)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px; color: #991b1b; font-family: 'Inter', sans-serif;">
+                    <div class="recycle-toast-error">
                         <i class="fa-solid fa-circle-xmark" style="color: #dc2626;"></i>
                         {{ $errorMessage }}
-                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: #991b1b; cursor: pointer; font-size: 14px;">&times;</button>
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
                     </div>
                 @endif
 
                 {{-- Bulk Action Bar --}}
                 @if(count($selectedIds) > 0)
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 12px;">
-                        <span style="font-size: 12px; font-weight: 600; color: #065f46;">{{ count($selectedIds) }} selected</span>
+                    <div class="recycle-bulk-bar">
+                        <span class="selected-count">{{ count($selectedIds) }} selected</span>
                         <button type="button" x-data
                             x-on:click="if(confirm('Are you sure you want to restore {{ count($selectedIds) }} selected office(s)?')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkRestore(); }"
-                            style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            class="recycle-btn-restore">
                             <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-rotate-left"></i> Restore Selected</span>
                             <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Restoring {{ count($selectedIds) }} item(s)...</span>
                         </button>
@@ -633,9 +975,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
                 {{-- Select All Row --}}
                 @if($deactivatedOffices->count() > 0)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0; margin-bottom: 12px;">
-                        <input type="checkbox" wire:click="toggleAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedIds) > 0 && count($selectedIds) === $deactivatedOffices->count() ? 'checked' : '' }}>
-                        <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                    <div class="recycle-select-all-row">
+                        <label class="recycle-select-all-label">
+                            <input type="checkbox" wire:click="toggleAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedIds) > 0 && count($selectedIds) === $deactivatedOffices->count() ? 'checked' : '' }}>
+                            <span>Select All</span>
+                        </label>
                     </div>
                 @endif
 
@@ -645,31 +989,31 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                         @php
                             $officeInitials = strtoupper(substr($office->office_code ?: '?', 0, 3));
                         @endphp
-                        <div wire:key="recycle-office-{{ $office->id }}" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid #fecdd3; border-radius: 10px; background: #fff5f5; transition: all 0.2s ease;">
+                        <div wire:key="recycle-office-{{ $office->id }}" class="recycle-item-card">
                             {{-- Checkbox --}}
                             <input type="checkbox" wire:click="toggleSelection({{ $office->id }})" {{ in_array($office->id, $selectedIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0; margin-right: 4px;">
                             {{-- Avatar --}}
-                            <div style="width: 40px; height: 40px; border-radius: 10px; background: #fee2e2; color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; font-family: 'Inter', sans-serif;">
+                            <div class="recycle-item-avatar">
                                 {{ $officeInitials }}
                             </div>
                             {{-- Info --}}
-                            <div style="flex: 1; min-width: 0;">
-                                <span style="font-size: 13.5px; font-weight: 600; color: #334155; display: block; font-family: 'Inter', sans-serif;">{{ $office->office_name }}</span>
-                                <span style="font-size: 12px; color: #94a3b8; font-family: 'Inter', sans-serif;">Code: {{ $office->office_code }}</span>
+                            <div class="recycle-item-info">
+                                <span class="recycle-item-title">{{ $office->office_name }}</span>
+                                <span class="recycle-item-sub">Code: <strong>{{ $office->office_code }}</strong></span>
                             </div>
                             {{-- Restore Button --}}
                             <button type="button"
                                     wire:click="restoreOffice({{ $office->id }})"
                                     wire:confirm="Are you sure you want to restore this office? It will be reactivated and visible again."
-                                    style="background: #059669; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; display: flex; align-items: center; gap: 5px; white-space: nowrap;">
+                                    class="recycle-btn-restore">
                                 <i class="fa-solid fa-rotate-left"></i> Restore
                             </button>
                         </div>
                     @empty
-                        <div style="text-align: center; padding: 60px 20px; color: #94a3b8;">
-                            <i class="fa-solid fa-recycle" style="font-size: 48px; margin-bottom: 16px; display: block; color: #cbd5e1;"></i>
-                            <h3 style="font-size: 16px; font-weight: 600; color: #64748b; margin: 0 0 8px;">Recycle Bin is Empty</h3>
-                            <p style="font-size: 13px; margin: 0; font-family: 'Inter', sans-serif;">No deactivated offices found.</p>
+                        <div class="recycle-empty-state">
+                            <i class="fa-solid fa-recycle recycle-empty-icon"></i>
+                            <h3 class="recycle-empty-title">Recycle Bin is Empty</h3>
+                            <p class="recycle-empty-desc">No deactivated offices found.</p>
                         </div>
                     @endforelse
                 </div>
@@ -683,10 +1027,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
             <div class="directory-panel" style="width: 100%; max-width: 100%; max-height: none;">
                 {{-- Header Row --}}
                 <div class="directory-header-row">
-                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">
-                        <i class="fa-solid fa-sitemap" style="margin-right: 4px; color: #dc2626;"></i>
+                    <span class="recycle-header-title">
+                        <i class="fa-solid fa-sitemap title-icon"></i>
                         Deactivated Clusters
-                        <span style="font-weight: 400; color: #94a3b8; margin-left: 4px;">({{ $deactivatedClusters->count() }})</span>
+                        <span class="count-badge">({{ $deactivatedClusters->count() }})</span>
                     </span>
                 </div>
 
@@ -698,27 +1042,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
                 {{-- Toast Messages --}}
                 @if($successMessage)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px; color: #065f46; font-family: 'Inter', sans-serif;">
+                    <div class="recycle-toast-success">
                         <i class="fa-solid fa-circle-check" style="color: #059669;"></i>
                         {{ $successMessage }}
-                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: #065f46; cursor: pointer; font-size: 14px;">&times;</button>
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
                     </div>
                 @endif
                 @if($errorMessage)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px; color: #991b1b; font-family: 'Inter', sans-serif;">
+                    <div class="recycle-toast-error">
                         <i class="fa-solid fa-circle-xmark" style="color: #dc2626;"></i>
                         {{ $errorMessage }}
-                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: #991b1b; cursor: pointer; font-size: 14px;">&times;</button>
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
                     </div>
                 @endif
 
                 {{-- Bulk Action Bar --}}
                 @if(count($selectedIds) > 0)
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 12px;">
-                        <span style="font-size: 12px; font-weight: 600; color: #065f46;">{{ count($selectedIds) }} selected</span>
+                    <div class="recycle-bulk-bar">
+                        <span class="selected-count">{{ count($selectedIds) }} selected</span>
                         <button type="button" x-data
                             x-on:click="if(confirm('Are you sure you want to restore {{ count($selectedIds) }} selected cluster(s)?')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkRestore(); }"
-                            style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            class="recycle-btn-restore">
                             <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-rotate-left"></i> Restore Selected</span>
                             <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Restoring {{ count($selectedIds) }} item(s)...</span>
                         </button>
@@ -727,9 +1071,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
                 {{-- Select All Row --}}
                 @if($deactivatedClusters->count() > 0)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0; margin-bottom: 12px;">
-                        <input type="checkbox" wire:click="toggleAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedIds) > 0 && count($selectedIds) === $deactivatedClusters->count() ? 'checked' : '' }}>
-                        <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                    <div class="recycle-select-all-row">
+                        <label class="recycle-select-all-label">
+                            <input type="checkbox" wire:click="toggleAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedIds) > 0 && count($selectedIds) === $deactivatedClusters->count() ? 'checked' : '' }}>
+                            <span>Select All</span>
+                        </label>
                     </div>
                 @endif
 
@@ -739,31 +1085,31 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                         @php
                             $clusterInitials = strtoupper(substr($cluster->cluster_code ?: '?', 0, 3));
                         @endphp
-                        <div wire:key="recycle-cluster-{{ $cluster->id }}" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid #fecdd3; border-radius: 10px; background: #fff5f5; transition: all 0.2s ease;">
+                        <div wire:key="recycle-cluster-{{ $cluster->id }}" class="recycle-item-card">
                             {{-- Checkbox --}}
                             <input type="checkbox" wire:click="toggleSelection({{ $cluster->id }})" {{ in_array($cluster->id, $selectedIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0; margin-right: 4px;">
                             {{-- Avatar --}}
-                            <div style="width: 40px; height: 40px; border-radius: 10px; background: #fee2e2; color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; font-family: 'Inter', sans-serif;">
+                            <div class="recycle-item-avatar">
                                 {{ $clusterInitials }}
                             </div>
                             {{-- Info --}}
-                            <div style="flex: 1; min-width: 0;">
-                                <span style="font-size: 13.5px; font-weight: 600; color: #334155; display: block; font-family: 'Inter', sans-serif;">{{ $cluster->cluster_name }}</span>
-                                <span style="font-size: 12px; color: #94a3b8; font-family: 'Inter', sans-serif;">Code: {{ $cluster->cluster_code }}</span>
+                            <div class="recycle-item-info">
+                                <span class="recycle-item-title">{{ $cluster->cluster_name }}</span>
+                                <span class="recycle-item-sub">Code: <strong>{{ $cluster->cluster_code }}</strong></span>
                             </div>
                             {{-- Restore Button --}}
                             <button type="button"
                                     wire:click="restoreCluster({{ $cluster->id }})"
                                     wire:confirm="Are you sure you want to restore this cluster? It will be reactivated and visible again."
-                                    style="background: #059669; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; display: flex; align-items: center; gap: 5px; white-space: nowrap;">
+                                    class="recycle-btn-restore">
                                 <i class="fa-solid fa-rotate-left"></i> Restore
                             </button>
                         </div>
                     @empty
-                        <div style="text-align: center; padding: 60px 20px; color: #94a3b8;">
-                            <i class="fa-solid fa-recycle" style="font-size: 48px; margin-bottom: 16px; display: block; color: #cbd5e1;"></i>
-                            <h3 style="font-size: 16px; font-weight: 600; color: #64748b; margin: 0 0 8px;">Recycle Bin is Empty</h3>
-                            <p style="font-size: 13px; margin: 0; font-family: 'Inter', sans-serif;">No deactivated clusters found.</p>
+                        <div class="recycle-empty-state">
+                            <i class="fa-solid fa-recycle recycle-empty-icon"></i>
+                            <h3 class="recycle-empty-title">Recycle Bin is Empty</h3>
+                            <p class="recycle-empty-desc">No deactivated clusters found.</p>
                         </div>
                     @endforelse
                 </div>
@@ -777,10 +1123,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
             <div class="directory-panel" style="width: 100%; max-width: 100%; max-height: none;">
                 {{-- Header Row --}}
                 <div class="directory-header-row">
-                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">
-                        <i class="fa-solid fa-sliders" style="margin-right: 4px; color: #dc2626;"></i>
+                    <span class="recycle-header-title">
+                        <i class="fa-solid fa-sliders title-icon"></i>
                         Deactivated Roles & Clearances
-                        <span style="font-weight: 400; color: #94a3b8; margin-left: 4px;">({{ $deactivatedRoles->count() }})</span>
+                        <span class="count-badge">({{ $deactivatedRoles->count() }})</span>
                     </span>
                 </div>
 
@@ -792,27 +1138,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
                 {{-- Toast Messages --}}
                 @if($successMessage)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px; color: #065f46; font-family: 'Inter', sans-serif;">
+                    <div class="recycle-toast-success">
                         <i class="fa-solid fa-circle-check" style="color: #059669;"></i>
                         {{ $successMessage }}
-                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: #065f46; cursor: pointer; font-size: 14px;">&times;</button>
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
                     </div>
                 @endif
                 @if($errorMessage)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px; color: #991b1b; font-family: 'Inter', sans-serif;">
+                    <div class="recycle-toast-error">
                         <i class="fa-solid fa-circle-xmark" style="color: #dc2626;"></i>
                         {{ $errorMessage }}
-                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: #991b1b; cursor: pointer; font-size: 14px;">&times;</button>
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
                     </div>
                 @endif
 
                 {{-- Bulk Action Bar --}}
                 @if(count($selectedIds) > 0)
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 12px;">
-                        <span style="font-size: 12px; font-weight: 600; color: #065f46;">{{ count($selectedIds) }} selected</span>
+                    <div class="recycle-bulk-bar">
+                        <span class="selected-count">{{ count($selectedIds) }} selected</span>
                         <button type="button" x-data
                             x-on:click="if(confirm('Are you sure you want to restore {{ count($selectedIds) }} selected role(s)?')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkRestore(); }"
-                            style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            class="recycle-btn-restore">
                             <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-rotate-left"></i> Restore Selected</span>
                             <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Restoring {{ count($selectedIds) }} item(s)...</span>
                         </button>
@@ -821,9 +1167,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
                 {{-- Select All Row --}}
                 @if($deactivatedRoles->count() > 0)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0; margin-bottom: 12px;">
-                        <input type="checkbox" wire:click="toggleAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedIds) > 0 && count($selectedIds) === $deactivatedRoles->count() ? 'checked' : '' }}>
-                        <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                    <div class="recycle-select-all-row">
+                        <label class="recycle-select-all-label">
+                            <input type="checkbox" wire:click="toggleAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedIds) > 0 && count($selectedIds) === $deactivatedRoles->count() ? 'checked' : '' }}>
+                            <span>Select All</span>
+                        </label>
                     </div>
                 @endif
 
@@ -833,31 +1181,31 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                         @php
                             $roleInitials = strtoupper(substr($role->key_name ?: 'R', 0, 3));
                         @endphp
-                        <div wire:key="recycle-role-{{ $role->id }}" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid #fecdd3; border-radius: 10px; background: #fff5f5; transition: all 0.2s ease;">
+                        <div wire:key="recycle-role-{{ $role->id }}" class="recycle-item-card">
                             {{-- Checkbox --}}
                             <input type="checkbox" wire:click="toggleSelection({{ $role->id }})" {{ in_array($role->id, $selectedIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0; margin-right: 4px;">
                             {{-- Avatar --}}
-                            <div style="width: 40px; height: 40px; border-radius: 10px; background: #fee2e2; color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; font-family: 'Inter', sans-serif;">
+                            <div class="recycle-item-avatar">
                                 {{ $roleInitials }}
                             </div>
                             {{-- Info --}}
-                            <div style="flex: 1; min-width: 0;">
-                                <span style="font-size: 13.5px; font-weight: 600; color: #334155; display: block; font-family: 'Inter', sans-serif;">{{ $role->key_name }}</span>
-                                <span style="font-size: 12px; color: #94a3b8; font-family: 'Inter', sans-serif;">{{ $role->key_description ?: 'No description provided' }}</span>
+                            <div class="recycle-item-info">
+                                <span class="recycle-item-title">{{ $role->key_name }}</span>
+                                <span class="recycle-item-sub">{{ $role->key_description ?: 'No description provided' }}</span>
                             </div>
                             {{-- Restore Button --}}
                             <button type="button"
                                     wire:click="restoreRole({{ $role->id }})"
                                     wire:confirm="Are you sure you want to restore this role? It will be reactivated and visible again."
-                                    style="background: #059669; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; display: flex; align-items: center; gap: 5px; white-space: nowrap;">
+                                    class="recycle-btn-restore">
                                 <i class="fa-solid fa-rotate-left"></i> Restore
                             </button>
                         </div>
                     @empty
-                        <div style="text-align: center; padding: 60px 20px; color: #94a3b8;">
-                            <i class="fa-solid fa-recycle" style="font-size: 48px; margin-bottom: 16px; display: block; color: #cbd5e1;"></i>
-                            <h3 style="font-size: 16px; font-weight: 600; color: #64748b; margin: 0 0 8px;">Recycle Bin is Empty</h3>
-                            <p style="font-size: 13px; margin: 0; font-family: 'Inter', sans-serif;">No deactivated roles found.</p>
+                        <div class="recycle-empty-state">
+                            <i class="fa-solid fa-recycle recycle-empty-icon"></i>
+                            <h3 class="recycle-empty-title">Recycle Bin is Empty</h3>
+                            <p class="recycle-empty-desc">No deactivated roles found.</p>
                         </div>
                     @endforelse
                 </div>
@@ -871,10 +1219,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
             <div class="directory-panel" style="width: 100%; max-width: 100%; max-height: none;">
                 {{-- Header Row --}}
                 <div class="directory-header-row">
-                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">
-                        <i class="fa-solid fa-route" style="margin-right: 4px; color: #dc2626;"></i>
+                    <span class="recycle-header-title">
+                        <i class="fa-solid fa-route title-icon"></i>
                         Deactivated Transaction Flows
-                        <span style="font-weight: 400; color: #94a3b8; margin-left: 4px;">({{ $deactivatedFlows->count() }})</span>
+                        <span class="count-badge">({{ $deactivatedFlows->count() }})</span>
                     </span>
                 </div>
 
@@ -886,27 +1234,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
                 {{-- Toast Messages --}}
                 @if($successMessage)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px; color: #065f46; font-family: 'Inter', sans-serif;">
+                    <div class="recycle-toast-success">
                         <i class="fa-solid fa-circle-check" style="color: #059669;"></i>
                         {{ $successMessage }}
-                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: #065f46; cursor: pointer; font-size: 14px;">&times;</button>
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
                     </div>
                 @endif
                 @if($errorMessage)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px; color: #991b1b; font-family: 'Inter', sans-serif;">
+                    <div class="recycle-toast-error">
                         <i class="fa-solid fa-circle-xmark" style="color: #dc2626;"></i>
                         {{ $errorMessage }}
-                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: #991b1b; cursor: pointer; font-size: 14px;">&times;</button>
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
                     </div>
                 @endif
 
                 {{-- Bulk Action Bar --}}
                 @if(count($selectedIds) > 0)
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 12px;">
-                        <span style="font-size: 12px; font-weight: 600; color: #065f46;">{{ count($selectedIds) }} selected</span>
+                    <div class="recycle-bulk-bar">
+                        <span class="selected-count">{{ count($selectedIds) }} selected</span>
                         <button type="button" x-data
                             x-on:click="if(confirm('Are you sure you want to restore {{ count($selectedIds) }} selected flow(s)?')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkRestore(); }"
-                            style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            class="recycle-btn-restore">
                             <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-rotate-left"></i> Restore Selected</span>
                             <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Restoring {{ count($selectedIds) }} item(s)...</span>
                         </button>
@@ -914,17 +1262,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                 @endif
 
                 {{-- Select All & Filter Row --}}
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-bottom: 1px solid #e2e8f0; margin-bottom: 12px;">
+                <div class="recycle-select-all-row">
                     @if($deactivatedFlows->count() > 0)
-                        <div style="display: flex; align-items: center; gap: 8px;">
+                        <label class="recycle-select-all-label">
                             <input type="checkbox" wire:click="toggleAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedIds) > 0 && count($selectedIds) === $deactivatedFlows->count() ? 'checked' : '' }}>
-                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
-                        </div>
+                            <span>Select All</span>
+                        </label>
                     @else
                         <div></div>
                     @endif
                     <div>
-                        <select wire:model.live="flowPurposeFilter" style="padding: 6px 12px; border-radius: 6px; border: 1.5px solid #e2e8f0; outline: none; font-size: 12px; font-family: 'Inter', sans-serif; color: #64748b; cursor: pointer; transition: all 0.2s ease; background: #fff; font-weight: 500;">
+                        <select wire:model.live="flowPurposeFilter" class="recycle-filter-select">
                             <option value="all">All Purposes</option>
                             <option value="internal">Internal</option>
                             <option value="external">External</option>
@@ -942,31 +1290,31 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                         @php
                             $flowInitials = strtoupper(substr($flow->flow_code ?: '?', 0, 3));
                         @endphp
-                        <div wire:key="recycle-flow-{{ $flow->id }}" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid #fecdd3; border-radius: 10px; background: #fff5f5; transition: all 0.2s ease;">
+                        <div wire:key="recycle-flow-{{ $flow->id }}" class="recycle-item-card">
                             {{-- Checkbox --}}
                             <input type="checkbox" wire:click="toggleSelection({{ $flow->id }})" {{ in_array($flow->id, $selectedIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0; margin-right: 4px;">
                             {{-- Avatar --}}
-                            <div style="width: 40px; height: 40px; border-radius: 10px; background: #fee2e2; color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; font-family: 'Inter', sans-serif;">
+                            <div class="recycle-item-avatar">
                                 {{ $flowInitials }}
                             </div>
                             {{-- Info --}}
-                            <div style="flex: 1; min-width: 0;">
-                                <span style="font-size: 13.5px; font-weight: 600; color: #334155; display: block; font-family: 'Inter', sans-serif;">{{ $flow->flow_name }}</span>
-                                <span style="font-size: 12px; color: #94a3b8; font-family: 'Inter', sans-serif;">Code: {{ $flow->flow_code }}</span>
+                            <div class="recycle-item-info">
+                                <span class="recycle-item-title">{{ $flow->flow_name }}</span>
+                                <span class="recycle-item-sub">Code: <strong>{{ $flow->flow_code }}</strong></span>
                             </div>
                             {{-- Restore Button --}}
                             <button type="button"
                                     wire:click="restoreFlow({{ $flow->id }})"
                                     wire:confirm="Are you sure you want to restore this transaction flow? It will be reactivated and visible again."
-                                    style="background: #059669; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; display: flex; align-items: center; gap: 5px; white-space: nowrap;">
+                                    class="recycle-btn-restore">
                                 <i class="fa-solid fa-rotate-left"></i> Restore
                             </button>
                         </div>
                     @empty
-                        <div style="text-align: center; padding: 60px 20px; color: #94a3b8;">
-                            <i class="fa-solid fa-recycle" style="font-size: 48px; margin-bottom: 16px; display: block; color: #cbd5e1;"></i>
-                            <h3 style="font-size: 16px; font-weight: 600; color: #64748b; margin: 0 0 8px;">Recycle Bin is Empty</h3>
-                            <p style="font-size: 13px; margin: 0; font-family: 'Inter', sans-serif;">No deactivated transaction flows found.</p>
+                        <div class="recycle-empty-state">
+                            <i class="fa-solid fa-recycle recycle-empty-icon"></i>
+                            <h3 class="recycle-empty-title">Recycle Bin is Empty</h3>
+                            <p class="recycle-empty-desc">No deactivated transaction flows found.</p>
                         </div>
                     @endforelse
                 </div>
@@ -980,10 +1328,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
             <div class="directory-panel" style="width: 100%; max-width: 100%; max-height: none;">
                 {{-- Header Row --}}
                 <div class="directory-header-row">
-                    <span class="form-label" style="margin: 0; font-size: 13px; color: #334155;">
-                        <i class="fa-solid fa-users" style="margin-right: 4px; color: #dc2626;"></i>
+                    <span class="recycle-header-title">
+                        <i class="fa-solid fa-users title-icon"></i>
                         Deactivated Users
-                        <span style="font-weight: 400; color: #94a3b8; margin-left: 4px;">({{ $deactivatedUsers->count() }})</span>
+                        <span class="count-badge">({{ $deactivatedUsers->count() }})</span>
                     </span>
                 </div>
 
@@ -995,27 +1343,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
                 {{-- Toast Messages --}}
                 @if($successMessage)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px; color: #065f46; font-family: 'Inter', sans-serif;">
+                    <div class="recycle-toast-success">
                         <i class="fa-solid fa-circle-check" style="color: #059669;"></i>
                         {{ $successMessage }}
-                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: #065f46; cursor: pointer; font-size: 14px;">&times;</button>
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
                     </div>
                 @endif
                 @if($errorMessage)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px; color: #991b1b; font-family: 'Inter', sans-serif;">
+                    <div class="recycle-toast-error">
                         <i class="fa-solid fa-circle-xmark" style="color: #dc2626;"></i>
                         {{ $errorMessage }}
-                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: #991b1b; cursor: pointer; font-size: 14px;">&times;</button>
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
                     </div>
                 @endif
 
                 {{-- Bulk Action Bar --}}
                 @if(count($selectedIds) > 0)
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; margin-bottom: 12px;">
-                        <span style="font-size: 12px; font-weight: 600; color: #065f46;">{{ count($selectedIds) }} selected</span>
+                    <div class="recycle-bulk-bar">
+                        <span class="selected-count">{{ count($selectedIds) }} selected</span>
                         <button type="button" x-data
                             x-on:click="if(confirm('Are you sure you want to restore {{ count($selectedIds) }} selected user(s)?')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkRestore(); }"
-                            style="background: #059669; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif;">
+                            class="recycle-btn-restore">
                             <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-rotate-left"></i> Restore Selected</span>
                             <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Restoring {{ count($selectedIds) }} item(s)...</span>
                         </button>
@@ -1024,9 +1372,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
 
                 {{-- Select All Row --}}
                 @if($deactivatedUsers->count() > 0)
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #e2e8f0; margin-bottom: 12px;">
-                        <input type="checkbox" wire:click="toggleAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedIds) > 0 && count($selectedIds) === $deactivatedUsers->count() ? 'checked' : '' }}>
-                        <span style="font-size: 12px; color: #64748b; font-weight: 500;">Select All</span>
+                    <div class="recycle-select-all-row">
+                        <label class="recycle-select-all-label">
+                            <input type="checkbox" wire:click="toggleAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedIds) > 0 && count($selectedIds) === $deactivatedUsers->count() ? 'checked' : '' }}>
+                            <span>Select All</span>
+                        </label>
                     </div>
                 @endif
 
@@ -1040,32 +1390,32 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                             $fullName = $first || $last ? trim($first . ' ' . $last) : $usr->username;
                             $officeName = $usr->details?->office?->office_name ?? 'No Office Assigned';
                         @endphp
-                        <div wire:key="recycle-user-{{ $usr->id }}" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid #fecdd3; border-radius: 10px; background: #fff5f5; transition: all 0.2s ease;">
+                        <div wire:key="recycle-user-{{ $usr->id }}" class="recycle-item-card">
                             {{-- Checkbox --}}
                             <input type="checkbox" wire:click="toggleSelection({{ $usr->id }})" {{ in_array($usr->id, $selectedIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0; margin-right: 4px;">
                             {{-- Avatar --}}
-                            <div style="width: 40px; height: 40px; border-radius: 10px; background: #fee2e2; color: #dc2626; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; font-family: 'Inter', sans-serif;">
+                            <div class="recycle-item-avatar">
                                 {{ $initials }}
                             </div>
                             {{-- Info --}}
-                            <div style="flex: 1; min-width: 0;">
-                                <span style="font-size: 13.5px; font-weight: 600; color: #334155; display: block; font-family: 'Inter', sans-serif;">{{ $fullName }}</span>
-                                <span style="font-size: 12px; color: #64748b; font-family: 'Inter', sans-serif; display: block;">Username: <strong>{{ $usr->username }}</strong></span>
-                                <span style="font-size: 11px; color: #94a3b8; font-family: 'Inter', sans-serif;">{{ $officeName }}</span>
+                            <div class="recycle-item-info">
+                                <span class="recycle-item-title">{{ $fullName }}</span>
+                                <span class="recycle-item-sub">Username: <strong>{{ $usr->username }}</strong></span>
+                                <span class="recycle-item-sub" style="font-size: 11px;">{{ $officeName }}</span>
                             </div>
                             {{-- Restore Button --}}
                             <button type="button"
                                     wire:click="restoreUser({{ $usr->id }})"
                                     wire:confirm="Are you sure you want to restore this user? They will be reactivated and able to log in again."
-                                    style="background: #059669; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Inter', sans-serif; display: flex; align-items: center; gap: 5px; white-space: nowrap;">
+                                    class="recycle-btn-restore">
                                 <i class="fa-solid fa-rotate-left"></i> Restore
                             </button>
                         </div>
                     @empty
-                        <div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: #94a3b8;">
-                            <i class="fa-solid fa-recycle" style="font-size: 48px; margin-bottom: 16px; display: block; color: #cbd5e1;"></i>
-                            <h3 style="font-size: 16px; font-weight: 600; color: #64748b; margin: 0 0 8px;">Recycle Bin is Empty</h3>
-                            <p style="font-size: 13px; margin: 0; font-family: 'Inter', sans-serif;">No deactivated users found.</p>
+                        <div class="recycle-empty-state">
+                            <i class="fa-solid fa-recycle recycle-empty-icon"></i>
+                            <h3 class="recycle-empty-title">Recycle Bin is Empty</h3>
+                            <p class="recycle-empty-desc">No deactivated users found.</p>
                         </div>
                     @endforelse
                 </div>

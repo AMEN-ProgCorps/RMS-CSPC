@@ -379,35 +379,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
                             @endphp
                             <tr>
                                 <td>
-                                    <div style="font-size: 13px; font-weight: 500; color: var(--text-primary, #1e293b);">
-                                        {{ \Carbon\Carbon::parse($log->when_changes)->timezone('Asia/Manila')->format('M d, Y') }}
-                                    </div>
-                                    <div style="font-size: 11.5px; color: var(--text-secondary, #64748b);">
-                                        {{ \Carbon\Carbon::parse($log->when_changes)->timezone('Asia/Manila')->format('h:i:s A') }}
+                                    <div class="log-timestamp">
+                                        <span class="log-date">{{ \Carbon\Carbon::parse($log->when_changes)->timezone('Asia/Manila')->format('M d, Y') }}</span>
+                                        <span class="log-time">{{ \Carbon\Carbon::parse($log->when_changes)->timezone('Asia/Manila')->format('h:i:s A') }}</span>
                                     </div>
                                 </td>
                                 <td>
-                                    <div style="font-weight: 600; font-size: 13.5px;">
-                                        {{ $fullName ?: ($log->username ?? 'Unknown') }}
-                                    </div>
-                                    @if($log->username)
-                                        <div style="font-size: 11.5px; color: var(--text-secondary, #64748b);">
-                                            {{ '@' . $log->username }}
-                                        </div>
-                                    @endif
-                                    <div style="font-size: 11px; color: #94a3b8;">
-                                        ID: {{ $log->admin_id }}
+                                    <div class="admin-name-cell">
+                                        <span class="name" style="font-size: 13.5px;">{{ $fullName ?: ($log->username ?? 'Unknown') }}</span>
+                                        @if($log->username)
+                                            <span class="email-sub">{{ '@' . $log->username }}</span>
+                                        @endif
+                                        <span class="log-id-sub">ID: {{ $log->admin_id }}</span>
                                     </div>
                                 </td>
                                 <td>
-                                    <div style="font-weight: 600; font-size: 13px;">
-                                        {{ $log->office_name ?: 'Unassigned' }}
+                                    <div class="admin-name-cell">
+                                        <span class="name" style="font-size: 13px;">{{ $log->office_name ?: 'Unassigned' }}</span>
+                                        @if($log->office_code)
+                                            <span class="email-sub">{{ $log->office_code }}</span>
+                                        @endif
                                     </div>
-                                    @if($log->office_code)
-                                        <div style="font-size: 11.5px; color: var(--text-secondary, #64748b);">
-                                            {{ $log->office_code }}
-                                        </div>
-                                    @endif
                                 </td>
                                 <td>
                                     <span class="action-badge {{ $badgeClass }}">
@@ -415,8 +407,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DCS Activity Logs')] cla
                                         {{ $actionLabel }}
                                     </span>
                                 </td>
-                                <td style="font-size: 13px; color: #334155; line-height: 1.45;">
-                                    {{ $changes }}
+                                <td>
+                                    <div class="log-description" style="line-height: 1.45;">
+                                        {{ $changes }}
+                                    </div>
                                 </td>
                             </tr>
                         @empty

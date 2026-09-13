@@ -228,9 +228,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     <th class="col-pinned">Course Name</th>
                                     <th class="col-pinned col-code">Course Code</th>
                                     <th class="col-step1 col-avail" id="syllabiAvailabilityHeader">Syllabi Availability</th>
-                                    <th class="col-step1 col-copies">No. Copies</th>
+                                    <th class="col-step1 col-copies">Copies</th>
                                     <th class="col-shared">Faculty</th>
-                                    <th class="col-step1 col-pages">No. Pages</th>
+                                    <th class="col-step1 col-pages">Pages</th>
                                     <th class="col-step1 col-date">Date Received</th>
                                     <th class="col-step1 col-time">Time Received</th>
 

@@ -1889,23 +1889,30 @@ body {
 
 #syllabiWizardTable thead th.col-code,
 #syllabiWizardTable tbody td.col-code {
-    width: 88px;
-    min-width: 88px;
+    width: 100px;
+    min-width: 100px;
     max-width: 100px;
-    padding-left: 6px;
-    padding-right: 6px;
+    padding-left: 4px;
+    padding-right: 4px;
+    white-space: normal;
+    line-height: 1.15;
+    text-align: center;
 }
 
 #syllabiWizardTable .syllabi-merged-code {
     max-width: 100%;
-    padding-left: 6px;
-    padding-right: 6px;
+    min-width: 0;
+    width: 100%;
+    padding-left: 2px;
+    padding-right: 2px;
+    font-size: 0.78rem;
+    text-align: center;
 }
 
 #syllabiWizardTable thead th.col-shared,
 #syllabiWizardTable tbody td.col-shared {
     width: auto;
-    min-width: 260px;
+    min-width: 180px;
     max-width: none;
 }
 
@@ -1936,20 +1943,26 @@ body {
 
 #syllabiWizardTable thead th.col-pages,
 #syllabiWizardTable tbody td.col-pages {
-    width: 72px;
-    min-width: 72px;
-    max-width: 72px;
-    padding-left: 6px;
-    padding-right: 6px;
+    width: 48px;
+    min-width: 48px;
+    max-width: 48px;
+    padding-left: 4px;
+    padding-right: 4px;
+    white-space: normal;
+    line-height: 1.15;
+    text-align: center;
 }
 
 #syllabiWizardTable thead th.col-copies,
 #syllabiWizardTable tbody td.col-copies {
-    width: 78px;
-    min-width: 78px;
-    max-width: 78px;
-    padding-left: 6px;
-    padding-right: 6px;
+    width: 58px;
+    min-width: 58px;
+    max-width: 58px;
+    padding-left: 4px;
+    padding-right: 4px;
+    white-space: normal;
+    line-height: 1.15;
+    text-align: center;
 }
 
 #syllabiWizardTable thead th.col-date,
@@ -1984,8 +1997,12 @@ body {
 #syllabiWizardTable .syllabi-merged-pages,
 #syllabiWizardTable .syllabi-merged-copies {
     max-width: 100%;
-    padding-left: 6px;
-    padding-right: 6px;
+    min-width: 0;
+    width: 100%;
+    padding-left: 2px;
+    padding-right: 2px;
+    font-size: 0.78rem;
+    text-align: center;
 }
 
 .syllabi-merged-course {

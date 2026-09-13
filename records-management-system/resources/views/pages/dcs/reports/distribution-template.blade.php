@@ -338,8 +338,12 @@
             overflow: hidden !important;
         }
         .data-table tbody td {
-            height: 0.28in;
+            height: auto;
             min-height: 0.28in;
+        }
+        .data-table tbody tr {
+            page-break-inside: avoid;
+            break-inside: avoid;
         }
         .data-table tbody td.col-dept {
             text-align: left;
@@ -486,9 +490,9 @@
         });
 
         // Page 1: header band + titles + group(0.65) + sub(3×11pt) + footer; ~0.28in/row.
-        // Leave a little room for wrapped department names.
-        $page1Capacity = 24;
-        $contCapacity = 30;
+        // JS reflow packs to leave ~1 row before the footer; keep chunks generous.
+        $page1Capacity = 26;
+        $contCapacity = 32;
 
         $pageChunks = [];
         $remaining = $rows->all();
@@ -608,7 +612,186 @@
                 window.print();
             });
             @endif
+
+            reflowDistributionSheets();
         });
+
+        function rowHeightPx(table) {
+            const row = table?.querySelector('tbody tr');
+            if (!row) return 22;
+            const h = row.getBoundingClientRect().height;
+            return h > 0 ? h : 22;
+        }
+
+        function freeSpaceBelowTable(main, table) {
+            if (!main || !table) return 0;
+            return main.getBoundingClientRect().bottom - table.getBoundingClientRect().bottom;
+        }
+
+        /** True when the table is clipped (past the usable area). */
+        function sheetMainOverflows(main, table) {
+            return freeSpaceBelowTable(main, table) < -0.5;
+        }
+
+        /**
+         * Leave about one row-height before the footer line.
+         * Fit another row only when free space covers that row + the 1-row buffer.
+         */
+        function canFitAnotherRow(main, table) {
+            const free = freeSpaceBelowTable(main, table);
+            const rh = rowHeightPx(table);
+            return free >= (rh * 2) - 1;
+        }
+
+        function cloneContinuationSheet(sourceSheet) {
+            const clone = sourceSheet.cloneNode(true);
+            clone.classList.remove('sheet--page1');
+            const header = clone.querySelector('.form-header, .cont-header');
+            if (header) {
+                header.classList.remove('form-header');
+                header.classList.add('cont-header');
+                header.querySelector('.rpt-title')?.remove();
+                header.querySelector('.doc-title-row')?.remove();
+                if (!header.querySelector('.cont-spacer')) {
+                    const spacer = document.createElement('div');
+                    spacer.className = 'cont-spacer';
+                    spacer.setAttribute('aria-hidden', 'true');
+                    header.appendChild(spacer);
+                }
+            }
+            const table = clone.querySelector('.data-table');
+            if (table) {
+                table.querySelector('thead')?.remove();
+                const tbody = table.querySelector('tbody');
+                if (tbody) tbody.innerHTML = '';
+            }
+            sourceSheet.after(clone);
+            return clone;
+        }
+
+        function updatePageNumbers() {
+            const sheets = [...document.querySelectorAll('.sheet')];
+            const total = sheets.length;
+            sheets.forEach((sheet, i) => {
+                const cell = sheet.querySelector('.ft-r');
+                if (cell) cell.textContent = 'Page ' + (i + 1) + ' of ' + total;
+            });
+        }
+
+        function moveOverflowForward() {
+            const maxPasses = 40;
+            for (let pass = 0; pass < maxPasses; pass++) {
+                const sheets = [...document.querySelectorAll('.sheet')];
+                let moved = false;
+
+                for (let i = 0; i < sheets.length; i++) {
+                    const sheet = sheets[i];
+                    const main = sheet.querySelector('.sheet-main');
+                    const table = sheet.querySelector('.data-table');
+                    const tbody = table?.querySelector('tbody');
+                    if (!main || !table || !tbody || tbody.rows.length === 0) continue;
+
+                    // Keep a ~1 row buffer above the footer; push rows that invade it.
+                    while (tbody.rows.length > 0 && freeSpaceBelowTable(main, table) < rowHeightPx(table) * 0.85) {
+                        let next = sheets[i + 1] || null;
+                        if (!next) {
+                            next = cloneContinuationSheet(sheet);
+                            sheets.push(next);
+                        }
+                        const nextTbody = next.querySelector('.data-table tbody');
+                        if (!nextTbody) break;
+                        nextTbody.insertBefore(tbody.lastElementChild, nextTbody.firstChild);
+                        moved = true;
+                    }
+                }
+
+                if (!moved) break;
+            }
+        }
+
+        /** Pull rows back from the next page while this page still has room (keep ~1 row gap). */
+        function packRowsBackward() {
+            const sheets = [...document.querySelectorAll('.sheet')];
+            for (let i = 0; i < sheets.length - 1; i++) {
+                const main = sheets[i].querySelector('.sheet-main');
+                const table = sheets[i].querySelector('.data-table');
+                const curBody = table?.querySelector('tbody');
+                const nextBody = sheets[i + 1].querySelector('.data-table tbody');
+                if (!main || !table || !curBody || !nextBody) continue;
+
+                while (nextBody.rows.length > 0 && canFitAnotherRow(main, table)) {
+                    curBody.appendChild(nextBody.firstElementChild);
+                    // Undo if we clipped or ate into the 1-row footer buffer.
+                    if (freeSpaceBelowTable(main, table) < rowHeightPx(table) * 0.85) {
+                        nextBody.insertBefore(curBody.lastElementChild, nextBody.firstChild);
+                        break;
+                    }
+                }
+            }
+        }
+
+        /** Only pad a sparse last page when the previous page is already full. */
+        function avoidOrphanLastPage(minLastRows = 4) {
+            const maxMoves = 12;
+            for (let n = 0; n < maxMoves; n++) {
+                const sheets = [...document.querySelectorAll('.sheet')];
+                if (sheets.length < 2) return;
+
+                const last = sheets[sheets.length - 1];
+                const prev = sheets[sheets.length - 2];
+                const lastBody = last.querySelector('.data-table tbody');
+                const prevBody = prev.querySelector('.data-table tbody');
+                const prevMain = prev.querySelector('.sheet-main');
+                const prevTable = prev.querySelector('.data-table');
+                if (!lastBody || !prevBody || !prevMain || !prevTable) return;
+
+                if (lastBody.rows.length === 0) {
+                    last.remove();
+                    continue;
+                }
+                if (lastBody.rows.length >= minLastRows) return;
+
+                // Previous page still has room — pack backward instead of stealing.
+                if (canFitAnotherRow(prevMain, prevTable)) return;
+
+                const prevMin = prev.classList.contains('sheet--page1') ? 12 : 8;
+                if (prevBody.rows.length <= prevMin) return;
+
+                lastBody.insertBefore(prevBody.lastElementChild, lastBody.firstChild);
+
+                const lastMain = last.querySelector('.sheet-main');
+                const lastTable = last.querySelector('.data-table');
+                if (freeSpaceBelowTable(lastMain, lastTable) < rowHeightPx(lastTable) * 0.85) {
+                    prevBody.appendChild(lastBody.firstElementChild);
+                    return;
+                }
+            }
+        }
+
+        function dropEmptyTrailingSheets() {
+            const all = [...document.querySelectorAll('.sheet')];
+            for (let i = all.length - 1; i > 0; i--) {
+                const tbody = all[i].querySelector('.data-table tbody');
+                if (tbody && tbody.rows.length === 0) {
+                    all[i].remove();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        function reflowDistributionSheets() {
+            // 1) Push clipped rows forward
+            moveOverflowForward();
+            // 2) Fill earlier pages from later ones until ~1 row remains before footer
+            packRowsBackward();
+            // 3) Only then avoid a 1-row last page if previous is full
+            avoidOrphanLastPage(4);
+            moveOverflowForward();
+            packRowsBackward();
+            dropEmptyTrailingSheets();
+            updatePageNumbers();
+        }
     </script>
 </body>
 </html>

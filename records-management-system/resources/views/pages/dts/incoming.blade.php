@@ -63,6 +63,12 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
     public function receiveIncoming(string $transactionId): void
     {
         $this->clearMessages();
+        $rateCheck = \App\Services\RateLimiterService::check('dts_action');
+        if (!$rateCheck['allowed']) {
+            $this->errorMessage = $rateCheck['message'];
+            return;
+        }
+
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
             ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
 

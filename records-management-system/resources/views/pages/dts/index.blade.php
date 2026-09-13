@@ -1382,6 +1382,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             return;
         }
 
+        $rateCheck = \App\Services\RateLimiterService::check('dts_action');
+        if (!$rateCheck['allowed']) {
+            session()->flash('error', $rateCheck['message']);
+            return;
+        }
+
         $targetId = $transId ?: $this->selectedTransactionId;
         if (!$targetId) {
             return;
@@ -1462,6 +1468,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     {
         $perms = auth()->user()?->permissions;
         if ($perms && !$perms->is_sadm && !$perms->can_dts_user_received) {
+            return;
+        }
+
+        $rateCheck = \App\Services\RateLimiterService::check('dts_action');
+        if (!$rateCheck['allowed']) {
+            session()->flash('error', $rateCheck['message']);
             return;
         }
 

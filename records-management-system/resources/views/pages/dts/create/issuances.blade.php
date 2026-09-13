@@ -25,6 +25,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public array $offices = [];
     public array $flows = [];
     public string $userOfficeCode = '';
+    public string $rateLimitError = '';
 
     public function getHasHubProperty(): bool
     {
@@ -727,6 +728,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
 
     public function save()
     {
+        $this->rateLimitError = '';
+        $rateCheck = \App\Services\RateLimiterService::check('dts_create');
+        if (!$rateCheck['allowed']) {
+            $this->rateLimitError = $rateCheck['message'];
+            $this->addError('rate_limit', $rateCheck['message']);
+            return;
+        }
+
         if (empty($this->seq_number)) {
             $this->generateRandomSeq();
         }
@@ -1159,6 +1168,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     <div class="rms-header">
         <h2>Issuances</h2>
     </div>
+
+    @if ($rateLimitError)
+        <div style="margin-bottom: 20px; padding: 14px 18px; background: #fef2f2; border: 1.5px solid #fca5a5; border-radius: 8px; color: #991b1b; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 12px; box-shadow: 0 1px 3px rgba(220, 38, 38, 0.1);">
+            <i class="fa-solid fa-triangle-exclamation" style="font-size: 18px; color: #dc2626; flex-shrink: 0;"></i>
+            <span>{{ $rateLimitError }}</span>
+        </div>
+    @endif
 
     <!-- Issuances Form -->
     <form class="rms-form" wire:submit.prevent="save">

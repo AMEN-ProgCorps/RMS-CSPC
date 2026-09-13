@@ -589,51 +589,6 @@ function assignSectionKeysToPages(pages) {
     }
 }
 
-/**
- * Doc-wide word bags keyed by sectionKey → norm → token list.
- * Used so page N can cancel words that live under the same group elsewhere.
- */
-function buildSectionWordBags(pages) {
-    const bags = new Map();
-    for (const page of pages || []) {
-        for (const token of prepareTokensForDiff(page.tokens || [])) {
-            if (!token?.norm) continue;
-            const key = token.sectionSoftKey || token.sectionKey || 'preamble';
-            if (!bags.has(key)) bags.set(key, new Map());
-            const normMap = bags.get(key);
-            if (!normMap.has(token.norm)) normMap.set(token.norm, []);
-            normMap.get(token.norm).push(token);
-        }
-    }
-    return bags;
-}
-
-function cloneSectionBags(bags) {
-    const out = new Map();
-    for (const [key, normMap] of (bags || new Map()).entries()) {
-        const cloned = new Map();
-        for (const [norm, list] of normMap.entries()) {
-            cloned.set(norm, list.slice());
-        }
-        out.set(key, cloned);
-    }
-    return out;
-}
-
-function consumeFromSectionBag(bags, sectionKey, token) {
-    const normMap = bags.get(sectionKey || 'preamble');
-    if (!normMap) return false;
-    let bucket = normMap.get(token.norm);
-    if (!bucket?.length) {
-        bucket = findFuzzyBucket(token, normMap);
-    }
-    if (bucket?.length) {
-        bucket.pop();
-        return true;
-    }
-    return false;
-}
-
 function tokenSectionMatchKey(token) {
     return token?.sectionSoftKey || token?.sectionKey || 'preamble';
 }
@@ -643,86 +598,6 @@ function clearDiffAnnotations(pages) {
         for (const t of page?.tokens || []) {
             if (t && '__diff' in t) delete t.__diff;
         }
-    }
-}
-
-function groupTokensBySectionKey(pages) {
-    const map = new Map();
-    for (const page of pages || []) {
-        for (const t of page.tokens || []) {
-            if (!t?.norm) continue;
-            const key = tokenSectionMatchKey(t);
-            if (!map.has(key)) map.set(key, []);
-            map.get(key).push(t);
-        }
-    }
-    return map;
-}
-
-/** Frequency-match within one sectionKey only; annotate unmatched tokens in place. */
-function annotateFrequencyWithinSection(leftTokens, rightTokens) {
-    const rightBuckets = new Map();
-    for (const t of rightTokens || []) {
-        if (!t?.norm) continue;
-        if (!rightBuckets.has(t.norm)) rightBuckets.set(t.norm, []);
-        rightBuckets.get(t.norm).push(t);
-    }
-
-    const leftUnmatched = [];
-    for (const lt of leftTokens || []) {
-        if (!lt?.norm) continue;
-        let bucket = rightBuckets.get(lt.norm);
-        if (!bucket?.length) {
-            bucket = findFuzzyBucket(lt, rightBuckets);
-        }
-        if (bucket?.length) {
-            bucket.pop();
-        } else {
-            leftUnmatched.push(lt);
-        }
-    }
-
-    const rightSurplus = [];
-    for (const bucket of rightBuckets.values()) {
-        while (bucket.length) {
-            rightSurplus.push(bucket.pop());
-        }
-    }
-
-    const usedLeft = new Set();
-    const usedRight = new Set();
-    for (let li = 0; li < leftUnmatched.length; li++) {
-        const lt = leftUnmatched[li];
-        let bestIdx = -1;
-        let bestScore = Infinity;
-        for (let ri = 0; ri < rightSurplus.length; ri++) {
-            if (usedRight.has(ri)) continue;
-            const rt = rightSurplus[ri];
-            if (!tokensEqual(lt, rt)) continue;
-            const score = tokenNearScore(lt, rt);
-            const ranked = Number.isFinite(score) ? score : 0;
-            if (ranked < bestScore) {
-                bestScore = ranked;
-                bestIdx = ri;
-            }
-        }
-        if (bestIdx >= 0) {
-            usedLeft.add(li);
-            usedRight.add(bestIdx);
-        }
-    }
-
-    for (let li = 0; li < leftUnmatched.length; li++) {
-        if (usedLeft.has(li)) continue;
-        const lt = leftUnmatched[li];
-        if (isNoiseDiffToken(lt)) continue;
-        lt.__diff = 'del';
-    }
-    for (let ri = 0; ri < rightSurplus.length; ri++) {
-        if (usedRight.has(ri)) continue;
-        const rt = rightSurplus[ri];
-        if (isNoiseDiffToken(rt)) continue;
-        rt.__diff = 'ins';
     }
 }
 
@@ -1898,33 +1773,6 @@ function lineTextSimilarity(a, b) {
     return pageTextSimilarity(a.tokens || [], b.tokens || []);
 }
 
-/** Set __diff via order-aware LCS for related (but not identical) lines. */
-function annotateTokenSequentialDiff(leftTokens, rightTokens) {
-    // Use original token refs — prepareTokensForDiff copies would drop __diff.
-    const left = (leftTokens || []).filter((t) => t?.norm);
-    const right = (rightTokens || []).filter((t) => t?.norm);
-    const ops = lcsOps(left, right, tokensEqual);
-
-    for (let i = 0; i < ops.length; i++) {
-        const op = ops[i];
-        const next = ops[i + 1];
-        if (op.k === 'eq') continue;
-
-        if (op.k === 'del' && next?.k === 'ins') {
-            // Substitution inside a paired sentence → yellow on both sides.
-            if (op.left && !isNoiseDiffToken(op.left)) op.left.__diff = 'chg';
-            if (next.right && !isNoiseDiffToken(next.right)) next.right.__diff = 'chg';
-            i++;
-            continue;
-        }
-        if (op.k === 'del' && op.left && !isNoiseDiffToken(op.left)) {
-            op.left.__diff = 'del';
-        } else if (op.k === 'ins' && op.right && !isNoiseDiffToken(op.right)) {
-            op.right.__diff = 'ins';
-        }
-    }
-}
-
 /** Mark every token in a sentence (including short words) for continuous bands. */
 function annotateTokensAsKind(tokens, kind) {
     for (const t of tokens || []) {
@@ -2159,35 +2007,6 @@ function wordDiffMarksFrequency(leftTokens, rightTokens) {
     return pairUnmatchedTokens(leftUnmatched, rightSurplus);
 }
 
-/**
- * Strict section-aware frequency: a word may only cancel against the other
- * revision's bag for the identical sectionKey. Never search other groups.
- */
-function wordDiffMarksSectionAware(leftTokens, rightTokens, leftBags, rightBags) {
-    const left = prepareTokensForDiff(leftTokens);
-    const right = prepareTokensForDiff(rightTokens);
-
-    const rightAvail = cloneSectionBags(rightBags);
-    const leftUnmatched = [];
-    for (const lt of left) {
-        const key = tokenSectionMatchKey(lt);
-        if (!consumeFromSectionBag(rightAvail, key, lt)) {
-            leftUnmatched.push(lt);
-        }
-    }
-
-    const leftAvail = cloneSectionBags(leftBags);
-    const rightSurplus = [];
-    for (const rt of right) {
-        const key = tokenSectionMatchKey(rt);
-        if (!consumeFromSectionBag(leftAvail, key, rt)) {
-            rightSurplus.push(rt);
-        }
-    }
-
-    return pairUnmatchedTokens(leftUnmatched, rightSurplus);
-}
-
 /** Low-confidence OCR is retained for matching but should not create a diff alone. */
 function isUnreliableOcrToken(token) {
     if (!token?.ocr) return false;
@@ -2405,21 +2224,6 @@ function clusterTokensIntoLines(tokens, yTol = LINE_Y_TOL) {
     return lines;
 }
 
-function tokenEndsSentence(token) {
-    const raw = String(token?.t || '').trim();
-    if (!raw) return false;
-    if (!/[.!?]"?$/.test(raw)) return false;
-    // Avoid decimals like 2024.46 and list numbers.
-    if (/^\d+\.\d+"?$/.test(raw)) return false;
-    const core = raw.replace(/[.!?"'”]+$/g, '');
-    // Place / abbrev periods that are not real sentence ends (e.g. "Camarines Sur.").
-    if (/^(sur|inc|corp|ltd|co|st|ave|no|nos|vs|etc|jr|sr|dr|mr|ms|mrs)$/i.test(core)) {
-        return false;
-    }
-    if (/^[A-Za-z]$/.test(core)) return false;
-    return true;
-}
-
 function lineRawText(line) {
     return (line?.tokens || []).map((t) => String(t.t || '').trim()).filter(Boolean).join(' ');
 }
@@ -2504,139 +2308,6 @@ function clusterTokensIntoBlocks(tokens) {
     return blocks.filter((b) => b.tokens.length);
 }
 
-/**
- * Merge OCR visual lines into sentence units (punctuation / clause markers).
- * Kept for secondary tooling; primary compare uses clusterTokensIntoBlocks.
- */
-function clusterTokensIntoSentences(tokens) {
-    const lines = clusterTokensIntoLines(tokens);
-    const sentences = [];
-    let current = [];
-
-    const finalize = () => {
-        if (!current.length) return;
-        const sentTokens = current.slice();
-        current = [];
-        sentences.push({
-            tokens: sentTokens,
-            text: sentTokens.map((t) => t.norm).join(' '),
-            significant: sentTokens
-                .filter((t) => !isNoiseDiffToken(t))
-                .map((t) => t.norm)
-                .join(' '),
-            y: tokenSortY(sentTokens[0]),
-        });
-    };
-
-    for (let li = 0; li < lines.length; li++) {
-        const line = lines[li];
-        if (current.length && lineIsBlockStarter(line)) {
-            finalize();
-        }
-
-        for (const t of line.tokens) {
-            current.push(t);
-            if (tokenEndsSentence(t)) {
-                finalize();
-            }
-        }
-
-        if (current.length >= 10) {
-            const last = current[current.length - 1];
-            const raw = String(last?.t || '').trim();
-            if (/[;:]$/.test(raw)) {
-                finalize();
-            }
-        }
-    }
-    finalize();
-    return sentences.filter((s) => s.tokens.length);
-}
-
-function linesRoughlyEqual(a, b, threshold = 0.78) {
-    if (!a || !b) return false;
-    if (a.text === b.text) return true;
-    if (a.significant && b.significant && a.significant === b.significant) return true;
-    // Looser threshold helps OCR letterhead lines still pair on heavy rewrites.
-    return pageTextSimilarity(a.tokens, b.tokens) >= threshold;
-}
-
-/**
- * Line → word LCS. Shared lines (letterhead) stay quiet; unique lines get
- * full add/remove; related lines word-diff inside.
- */
-function wordDiffMarksLineAware(leftTokens, rightTokens, lineEqThreshold = 0.78) {
-    const left = prepareTokensForDiff(leftTokens);
-    const right = prepareTokensForDiff(rightTokens);
-    const hasGeom = left.some((t) => t.box || t.item) || right.some((t) => t.box || t.item);
-
-    if (!hasGeom || (left.length < 8 && right.length < 8)) {
-        return wordDiffMarksSequential(left, right);
-    }
-
-    const leftLines = clusterTokensIntoLines(left);
-    const rightLines = clusterTokensIntoLines(right);
-    if (leftLines.length <= 1 && rightLines.length <= 1) {
-        return wordDiffMarksSequential(left, right);
-    }
-
-    const ops = lcsOps(
-        leftLines,
-        rightLines,
-        (a, b) => linesRoughlyEqual(a, b, lineEqThreshold)
-    );
-    const leftMarks = [];
-    const rightMarks = [];
-    let del = 0;
-    let ins = 0;
-    let chg = 0;
-
-    for (let i = 0; i < ops.length; i++) {
-        const op = ops[i];
-        const next = ops[i + 1];
-
-        if (op.k === 'eq') {
-            const inner = wordDiffMarksSequential(op.left.tokens, op.right.tokens);
-            leftMarks.push(...inner.leftMarks);
-            rightMarks.push(...inner.rightMarks);
-            del += inner.del;
-            ins += inner.ins;
-            chg += inner.chg;
-            continue;
-        }
-
-        if (op.k === 'del' && next?.k === 'ins') {
-            // Prefer frequency inside rewritten line pairs so shared words stay quiet.
-            const inner = wordDiffMarksFrequency(op.left.tokens, next.right.tokens);
-            leftMarks.push(...inner.leftMarks);
-            rightMarks.push(...inner.rightMarks);
-            del += inner.del;
-            ins += inner.ins;
-            chg += inner.chg;
-            i++;
-            continue;
-        }
-
-        if (op.k === 'del') {
-            for (const t of op.left.tokens) {
-                if (isNoiseDiffToken(t)) continue;
-                const lm = markFromToken('del', t);
-            if (lm) leftMarks.push(lm);
-            del++;
-            }
-        } else if (op.k === 'ins') {
-            for (const t of op.right.tokens) {
-                if (isNoiseDiffToken(t)) continue;
-                const rm = markFromToken('ins', t);
-            if (rm) rightMarks.push(rm);
-            ins++;
-            }
-        }
-    }
-
-    return { leftMarks, rightMarks, del, ins, chg };
-}
-
 /** Forms keep labels in place; narrative rewrites do not. */
 function pageLooksLikeForm(leftTokens, rightTokens) {
     const all = [...leftTokens, ...rightTokens];
@@ -2657,7 +2328,7 @@ function approxVisualMarks() {
     return emptyMarks();
 }
 
-function wordDiffMarks(leftTokens, rightTokens, slot = null, leftBags = null, rightBags = null) {
+function wordDiffMarks(leftTokens, rightTokens, slot = null) {
     const left = prepareTokensForDiff(leftTokens);
     const right = prepareTokensForDiff(rightTokens);
 
@@ -2688,16 +2359,10 @@ function wordDiffMarks(leftTokens, rightTokens, slot = null, leftBags = null, ri
         return emptyMarks();
     }
 
-    let result;
-    if (pageLooksLikeForm(left, right)) {
-        result = wordDiffMarksSpatial(left, right);
-    } else if (leftBags && rightBags) {
-        // Same-section bags only — never cancel against another Article/Section.
-        result = wordDiffMarksSectionAware(left, right, leftBags, rightBags);
-    } else {
-        // Page-local frequency fallback when bags were not built.
-        result = wordDiffMarksFrequency(left, right);
-    }
+    // Forms: spatial cell match. Narrative pages go through annotateSectionWordDiff.
+    const result = pageLooksLikeForm(left, right)
+        ? wordDiffMarksSpatial(left, right)
+        : wordDiffMarksFrequency(left, right);
 
     const changed = result.del + result.ins + result.chg;
     const denom = Math.max(left.length, right.length, 1);

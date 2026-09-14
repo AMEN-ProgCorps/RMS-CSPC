@@ -992,6 +992,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         [data-theme="dark"] div[style*="background:#eff6ff"] strong {
             color: #60a5fa !important;
         }
+        [data-theme="dark"] div[style*="background: #f0fdf4"],
+        [data-theme="dark"] div[style*="background:#f0fdf4"] {
+            background-color: rgba(34, 197, 94, 0.12) !important;
+            border-color: rgba(34, 197, 94, 0.25) !important;
+            color: #86efac !important;
+        }
+        [data-theme="dark"] div[style*="background: #f0fdf4"] strong,
+        [data-theme="dark"] div[style*="background:#f0fdf4"] strong {
+            color: #4ade80 !important;
+        }
+        [data-theme="dark"] div[style*="background: #f0fdf4"] i,
+        [data-theme="dark"] div[style*="background:#f0fdf4"] i {
+            color: #4ade80 !important;
+        }
         [data-theme="dark"] div[style*="background: #f8fafc"] span[style*="color: #64748b"] {
             color: #94a3b8 !important;
         }

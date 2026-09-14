@@ -19,6 +19,6 @@ return [
     /** Shared model cache so PHP-FPM user does not re-download into /root. */
     'paddle_home' => env('PADDLEOCR_HOME', '/opt/paddleocr'),
 
-    /** Seconds allowed for one page OCR (cold start can be slow). */
-    'timeout' => (int) env('OCR_TIMEOUT', 120),
+    /** Seconds allowed for one page OCR (cold start can be slow on deploy). */
+    'timeout' => (int) env('OCR_TIMEOUT', 180),
 ];

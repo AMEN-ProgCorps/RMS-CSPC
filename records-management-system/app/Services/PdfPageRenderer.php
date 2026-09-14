@@ -14,7 +14,9 @@ class PdfPageRenderer
             mkdir($directory, 0755, true);
         }
 
-        $dpi = max(72, min(200, $dpi));
+        // DRR needs enough detail for small legal text and punctuation. The old
+        // 200-DPI cap silently downgraded its 220-DPI request.
+        $dpi = max(72, min(300, $dpi));
         $errors = [];
 
         try {
@@ -58,7 +60,7 @@ class PdfPageRenderer
         }
 
         $cmd = sprintf(
-            '%s -dSAFER -dBATCH -dNOPAUSE -dQUIET -sDEVICE=jpeg -dJPEGQ=70 -dFirstPage=%d -dLastPage=%d -r%d -sOutputFile=%s %s 2>&1',
+            '%s -dSAFER -dBATCH -dNOPAUSE -dQUIET -sDEVICE=jpeg -dJPEGQ=90 -dFirstPage=%d -dLastPage=%d -r%d -sOutputFile=%s %s 2>&1',
             escapeshellarg($gs),
             $page,
             $page,

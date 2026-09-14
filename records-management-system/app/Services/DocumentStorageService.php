@@ -761,9 +761,10 @@ class DocumentStorageService
 
     /**
      * Archive a generated DCS report to Google Drive + history table.
+     * Identical exports (same office + fingerprint) reuse the existing Manage Files entry.
      *
      * @param  array<string, mixed>  $meta
-     * @return array{id: int, report_token: string, file_path: string, file_name: string}|null
+     * @return array{id: int, report_token: string, file_path: string, file_name: string, reused?: bool}|null
      */
     public static function storeGeneratedReport(
         string $fileContent,
@@ -786,6 +787,33 @@ class DocumentStorageService
             $officeFolderName = 'GENERAL';
         }
 
+        $fingerprint = self::generatedReportFingerprint($fileContent, $format, $meta);
+
+        if (
+            $fingerprint !== ''
+            && Schema::hasColumn('dcs_generated_reports', 'content_fingerprint')
+        ) {
+            $existing = DB::table('dcs_generated_reports')
+                ->where('office_code', $officeFolderName)
+                ->where('content_fingerprint', $fingerprint)
+                ->orderByDesc('id')
+                ->first();
+
+            if ($existing && self::dcsScanExists((string) $existing->file_path)) {
+                DB::table('dcs_generated_reports')
+                    ->where('id', $existing->id)
+                    ->update(['updated_at' => now()]);
+
+                return [
+                    'id'           => (int) $existing->id,
+                    'report_token' => (string) $existing->report_token,
+                    'file_path'    => (string) $existing->file_path,
+                    'file_name'    => (string) $existing->file_name,
+                    'reused'       => true,
+                ];
+            }
+        }
+
         $token = 'DCS-RPT-' . strtoupper(Str::random(8));
         $title = trim((string) ($meta['title'] ?? 'Report')) ?: 'Report';
         $safeBase = Str::slug($title, '_') ?: 'report';
@@ -803,7 +831,7 @@ class DocumentStorageService
             $filters = json_decode($filters, true);
         }
 
-        $id = (int) DB::table('dcs_generated_reports')->insertGetId([
+        $insert = [
             'report_token'  => $token,
             'category'      => (string) ($meta['category'] ?? 'general'),
             'sub_category'  => $meta['sub_category'] ?? null,
@@ -820,14 +848,68 @@ class DocumentStorageService
             'generated_by'  => $user->id,
             'created_at'    => now(),
             'updated_at'    => now(),
-        ]);
+        ];
+
+        if (Schema::hasColumn('dcs_generated_reports', 'content_fingerprint')) {
+            $insert['content_fingerprint'] = $fingerprint !== '' ? $fingerprint : null;
+        }
+
+        $id = (int) DB::table('dcs_generated_reports')->insertGetId($insert);
 
         return [
             'id'           => $id,
             'report_token' => $token,
             'file_path'    => $relativePath,
             'file_name'    => $storedFileName,
+            'reused'       => false,
         ];
+    }
+
+    /**
+     * Stable identity for an export so re-generates can reuse Manage Files storage.
+     *
+     * @param  array<string, mixed>  $meta
+     */
+    public static function generatedReportFingerprint(string $fileContent, string $format, array $meta): string
+    {
+        $filters = $meta['filters'] ?? null;
+        if (is_string($filters)) {
+            $decoded = json_decode($filters, true);
+            $filters = is_array($decoded) ? $decoded : [];
+        }
+        if (! is_array($filters)) {
+            $filters = [];
+        }
+        $filters = self::normalizeFingerprintValue($filters);
+
+        return hash('sha256', implode("\n", [
+            strtolower($format) === 'csv' ? 'csv' : 'pdf',
+            (string) ($meta['category'] ?? ''),
+            (string) ($meta['sub_category'] ?? ''),
+            (string) ($meta['date_from'] ?? ''),
+            (string) ($meta['date_to'] ?? ''),
+            (string) ($meta['period'] ?? ''),
+            (string) ((int) ($meta['row_count'] ?? 0)),
+            json_encode($filters, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]));
+    }
+
+    private static function normalizeFingerprintValue(mixed $value): mixed
+    {
+        if (! is_array($value)) {
+            return $value;
+        }
+
+        $isList = array_keys($value) === range(0, count($value) - 1);
+        if (! $isList) {
+            ksort($value);
+        }
+
+        foreach ($value as $key => $child) {
+            $value[$key] = self::normalizeFingerprintValue($child);
+        }
+
+        return $value;
     }
 
     /**

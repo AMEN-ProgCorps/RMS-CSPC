@@ -281,6 +281,7 @@
                 label: officeChipLabel(item, opts.labelFormat),
             });
             render();
+            window.__sourceWidgets[opts.key]?.onSelectionChange?.();
         }
 
         function pick(itemId) {
@@ -300,6 +301,7 @@
             selected = selected.filter((i) => !(i.type === type && String(i.id) === String(id)));
             render();
             syncInputText();
+            window.__sourceWidgets[opts.key]?.onSelectionChange?.();
         }
 
         function positionPanel(panelEl, anchorEl) {
@@ -403,7 +405,7 @@
 
         ensureResultsDropdown();
 
-        const api = { pick, removeItem, get selected() { return selected; } };
+        const api = { pick, removeItem, onSelectionChange: null, get selected() { return selected; } };
         window.__sourceWidgets[opts.key] = api;
 
         // Seed from old input / optional default office
@@ -449,6 +451,58 @@
     function initSourceWidgets() {
         const configs = Array.isArray(window.__ofiSourceConfigs) ? window.__ofiSourceConfigs : [];
         configs.forEach((cfg) => createOfficeSourceWidget(cfg));
+
+        const clusters = Array.isArray(window.__ofiClusters) ? window.__ofiClusters : [];
+        const offices = Array.isArray(window.__ofiOffices) ? window.__ofiOffices : [];
+        document.querySelectorAll('[data-ofi-cluster-widget]').forEach((container) => {
+            const widget = window.__sourceWidgets[container.dataset.ofiClusterWidget];
+            if (!widget || clusters.length === 0) return;
+
+            container.innerHTML = clusters.map((cluster) => (
+                '<button type="button" class="reg-cluster-chip" data-cluster="' +
+                escapeHtml(cluster.cluster_code) + '">Select all ' +
+                escapeHtml(cluster.cluster_name) + '</button>'
+            )).join('');
+
+            const clusterOffices = (code) => offices.filter(
+                (office) => String(office.cluster || '') === String(code)
+            );
+            const syncClusterButtons = () => {
+                container.querySelectorAll('[data-cluster]').forEach((button) => {
+                    const members = clusterOffices(button.dataset.cluster);
+                    const isFullySelected = members.length > 0 && members.every((office) =>
+                        widget.selected.some((selected) => String(selected.id) === String(office.office_id))
+                    );
+                    button.classList.toggle('is-active', isFullySelected);
+                    button.setAttribute('aria-pressed', String(isFullySelected));
+                    button.textContent = (isFullySelected ? 'Remove ' : 'Select all ') +
+                        String(button.dataset.clusterName || 'cluster');
+                });
+            };
+
+            container.querySelectorAll('[data-cluster]').forEach((button) => {
+                const cluster = clusters.find((item) => String(item.cluster_code) === String(button.dataset.cluster));
+                button.dataset.clusterName = cluster?.cluster_name || 'cluster';
+                button.addEventListener('click', () => {
+                    const code = String(button.dataset.cluster || '');
+                    const members = clusterOffices(code);
+                    const isFullySelected = members.length > 0 && members.every((office) =>
+                        widget.selected.some((selected) => String(selected.id) === String(office.office_id))
+                    );
+
+                    members.forEach((office) => {
+                        if (isFullySelected) {
+                            widget.removeItem('office', office.office_id);
+                        } else {
+                            widget.pick(office.office_id);
+                        }
+                    });
+                    syncClusterButtons();
+                });
+            });
+            widget.onSelectionChange = syncClusterButtons;
+            syncClusterButtons();
+        });
     }
 
     // ── Revision document search (DCN) ─────────────────────────────────

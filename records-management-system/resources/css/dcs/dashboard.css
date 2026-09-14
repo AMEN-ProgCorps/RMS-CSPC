@@ -38,7 +38,8 @@ body {
     bottom: 0;
     padding: var(--dcs-page-pad);
     background-color: var(--dash-bg);
-    overflow-y: auto;
+    /* Keep the dashboard fixed; nested widgets manage their own overflow. */
+    overflow: hidden;
     overflow-x: hidden;
     transition: left var(--dcs-ease), padding var(--dcs-ease);
 }
@@ -446,6 +447,34 @@ body {
     color: #fff;
 }
 
+.ev-cat-pill.is-category {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border-color: var(--event-category-color, var(--dash-border));
+    color: var(--event-category-color, var(--dash-text-muted));
+}
+
+.ev-cat-pill.is-category::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--event-category-color, var(--dash-text-muted));
+}
+
+.ev-cat-pill.is-category:hover,
+.ev-cat-pill.is-category.is-active {
+    background: var(--event-category-color, var(--dash-accent));
+    border-color: var(--event-category-color, var(--dash-accent));
+    color: #fff;
+}
+
+.ev-cat-pill.is-category:hover::before,
+.ev-cat-pill.is-category.is-active::before {
+    background: #fff;
+}
+
 .dash-search-item-top {
     display: flex;
     align-items: flex-start;
@@ -675,6 +704,69 @@ body.dash-cl-open {
     display: flex;
     flex-direction: column;
     gap: 0;
+}
+
+.dash-file-preview {
+    margin: 0 0 12px;
+    padding: 0 16px;
+}
+
+.dash-file-preview-frame {
+    display: block;
+    width: 100%;
+    height: min(52vh, 520px);
+    border: 1px solid var(--dash-border-light);
+    background: #fff;
+}
+
+.dash-file-verify {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    padding: 0 16px 12px;
+}
+
+.dash-file-verify-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    border: 1px solid var(--dash-border);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--dash-text);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.dash-file-verify-btn:hover:not(:disabled) {
+    background: #f3f5f7;
+}
+
+.dash-file-verify-btn:disabled {
+    opacity: 0.65;
+    cursor: wait;
+}
+
+.dash-file-verify-msg {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--dash-text-subtle);
+}
+
+.dash-file-verify-msg.is-ok {
+    color: #157347;
+}
+
+.dash-file-verify-msg.is-bad {
+    color: #b42318;
+}
+
+.dash-cl-td-wrap {
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .dash-cl-table {
@@ -928,6 +1020,11 @@ body.dash-cl-open {
     position: relative;
     z-index: 70;
     width: 100%;
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .dash-calendar-trigger {
@@ -966,6 +1063,8 @@ body.dash-cl-open {
     column-gap: 0;
     align-items: start;
     width: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .dash-body.is-ready {
@@ -1027,6 +1126,39 @@ body.dash-cl-open {
     transform: translateY(0);
     pointer-events: auto;
     transition-delay: 0.06s;
+}
+
+/* On desktop, the calendar column is bounded by the dashboard viewport.
+   The event list takes the remaining space and is the only scrollable area. */
+@media (min-width: 1025px) {
+    .dash-body.is-calendar-open {
+        align-items: stretch;
+    }
+
+    .dash-body.is-calendar-open .dash-calendar-panel,
+    .dash-body.is-calendar-open .dash-calendar-panel-inner,
+    .dash-body.is-calendar-open .dash-calendar-dropdown {
+        height: 100%;
+        min-height: 0;
+    }
+
+    .dash-body.is-calendar-open .dash-calendar-panel {
+        position: relative;
+    }
+
+    .dash-body.is-calendar-open .upcoming-widget {
+        display: flex;
+        flex: 1 1 auto;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .dash-body.is-calendar-open .upcoming-list {
+        flex: 1 1 auto;
+        max-height: none;
+        min-height: 0;
+    }
 }
 
 .dash-body.is-ready:not(.is-calendar-open) .dash-calendar-dropdown {
@@ -1436,11 +1568,17 @@ body.dash-cl-open {
     border-radius: 6px;
 }
 
-.day-num.today   { background: var(--dash-accent); color: #fff; font-weight: 700; }
+.day-num.today {
+    box-sizing: border-box;
+    border: 2px solid var(--dash-accent);
+    background: transparent;
+    color: var(--dash-accent);
+    font-weight: 700;
+}
 .day-num.holiday { color: var(--dash-red); font-weight: 600; }
 
 .cal-cell.out-month .day-num        { color: #d1d5db; }
-.cal-cell.out-month .day-num.today  { color: #fff; }
+.cal-cell.out-month .day-num.today  { color: var(--dash-accent); }
 
 .day-markers {
     display: flex;
@@ -1536,8 +1674,10 @@ body.dash-cl-open {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    min-height: 0;
     max-height: 220px;
     overflow-y: auto;
+    overscroll-behavior: contain;
     scrollbar-width: thin;
     scrollbar-color: var(--dash-border) transparent;
 }
@@ -1588,22 +1728,6 @@ body.dash-cl-open {
 
 .upcoming-item:hover { background: var(--dash-border-light); }
 
-.upcoming-item.is-past {
-    opacity: 0.85;
-    background: #f8fafc;
-}
-
-.upcoming-item.is-past .title {
-    color: #64748b;
-    text-decoration: line-through;
-    text-decoration-thickness: 1px;
-    text-decoration-color: #94a3b8;
-}
-
-.upcoming-item.is-past .time {
-    color: var(--dash-text-muted, #64748b);
-}
-
 .upcoming-title-row {
     display: flex;
     align-items: center;
@@ -1616,37 +1740,12 @@ body.dash-cl-open {
     min-width: 0;
 }
 
-.upcoming-done-badge {
-    flex-shrink: 0;
-    font-size: 0.58rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: #475569;
-    background: #e2e8f0;
-    border-radius: 99px;
-    padding: 2px 7px;
-    line-height: 1.4;
-}
-
 .ev-card-title-wrap {
     display: flex;
     align-items: center;
     gap: 8px;
     min-width: 0;
     flex: 1;
-}
-
-.ev-card.is-past {
-    opacity: 0.82;
-    background: #f8fafc;
-}
-
-.ev-card.is-past .ev-card-title {
-    color: #64748b;
-    text-decoration: line-through;
-    text-decoration-thickness: 1px;
-    text-decoration-color: #94a3b8;
 }
 
 .dash-calendar-trigger-text {
@@ -1923,6 +2022,67 @@ body.dash-cl-open {
     padding: 0 12px;
 }
 
+.ev-category-panel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid var(--dash-border);
+    border-radius: 10px;
+    background: var(--dash-surface-soft, #f8fafc);
+}
+
+.ev-category-panel .ev-btn {
+    flex: 0 0 auto;
+    padding: 7px 10px;
+    font-size: 0.75rem;
+}
+
+.ev-color-picker {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 7px;
+    border: 1.5px solid var(--dash-border);
+    border-radius: 8px;
+    color: var(--dash-text-muted);
+    background: var(--dash-surface);
+    font-size: 0.68rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.ev-color-picker input[type="color"] {
+    width: 23px;
+    height: 23px;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    cursor: pointer;
+}
+
+.ev-color-picker input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+
+.ev-color-picker input[type="color"]::-webkit-color-swatch {
+    border: 0;
+    border-radius: 4px;
+}
+
+.ev-color-picker input[type="color"]::-moz-color-swatch {
+    border: 0;
+    border-radius: 4px;
+}
+
+.ev-cat-color-hint {
+    font-size: 0.72rem;
+    color: var(--dash-text-muted);
+    line-height: 1.3;
+}
+
 .ev-cat-select-row {
     display: flex;
     align-items: center;
@@ -2016,6 +2176,25 @@ body.dash-cl-open {
     border-color: #cbd5e1;
     background: var(--dash-border-light);
     color: var(--dash-text);
+}
+
+.ev-btn-danger {
+    flex: 0 0 auto;
+    border: 1.5px solid #fecaca;
+    background: #fff1f2;
+    color: #be123c;
+}
+
+.ev-btn-danger:hover {
+    border-color: #fda4af;
+    background: #ffe4e6;
+}
+
+.ev-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+    transform: none;
+    box-shadow: none;
 }
 
 /* ── Event Cards ── */

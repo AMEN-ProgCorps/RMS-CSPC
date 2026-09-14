@@ -136,7 +136,8 @@ class DrrOcrService
         $imagePath = Storage::disk('local')->path('temp/drr-ocr/' . uniqid('page_', true) . '.jpg');
 
         try {
-            PdfPageRenderer::savePage($pdfPath, $imagePath, $page, 200);
+            // Preserve fine print before PaddleOCR reads the revision page.
+            PdfPageRenderer::savePage($pdfPath, $imagePath, $page, 260);
 
             return self::ocrImageFile($imagePath, $page);
         } catch (\Throwable $e) {

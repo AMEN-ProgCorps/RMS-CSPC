@@ -136,6 +136,21 @@ class DcsAccessControlTest extends TestCase
         $response->assertOk();
     }
 
+    public function test_view_all_grants_register_without_separate_module_flag(): void
+    {
+        $conditionTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details')
+            ? 'sys_condition_details'
+            : 'condition_details';
+
+        DB::table($conditionTable)->where('key_id', $this->roleId)->update([
+            'dcs_view_all_documents' => true,
+        ]);
+
+        $response = $this->actingAs(User::find($this->limitedUserId))
+            ->get('/dcs/register');
+        $response->assertOk();
+    }
+
     public function test_rfio_user_can_access_register_page(): void
     {
         $response = $this->actingAs(User::find($this->rfioUserId))
@@ -262,15 +277,23 @@ class DcsAccessControlTest extends TestCase
 
     private function ensureDcsSubsystemActive(): void
     {
-        $exists = DB::table('subsystems')->where('subsystem_name', 'Document Control System')->exists();
+        $table = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems')
+            ? 'sys_subsystems'
+            : 'subsystems';
+
+        if (! \Illuminate\Support\Facades\Schema::hasTable($table)) {
+            return;
+        }
+
+        $exists = DB::table($table)->where('subsystem_name', 'Document Control System')->exists();
         if (! $exists) {
-            DB::table('subsystems')->insert([
+            DB::table($table)->insert([
                 'subsystem_name' => 'Document Control System',
                 'subsystem_version' => '1.0',
                 'is_active' => true,
             ]);
         } else {
-            DB::table('subsystems')
+            DB::table($table)
                 ->where('subsystem_name', 'Document Control System')
                 ->update(['is_active' => true]);
         }
@@ -278,8 +301,12 @@ class DcsAccessControlTest extends TestCase
 
     private function ensureOffice(string $code, string $name): void
     {
-        if (! DB::table('office')->where('office_code', $code)->exists()) {
-            DB::table('office')->insert([
+        $table = \Illuminate\Support\Facades\Schema::hasTable('sys_office')
+            ? 'sys_office'
+            : 'office';
+
+        if (! DB::table($table)->where('office_code', $code)->exists()) {
+            DB::table($table)->insert([
                 'office_code' => $code,
                 'office_name' => $name,
                 'is_active' => true,

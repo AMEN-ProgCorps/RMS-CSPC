@@ -212,7 +212,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 'color' => '#1d4ed8',
                 'tables' => [
                     'dcs_doc_types', 'dcs_version_type', 'dcs_originators', 'dcs_colleges', 'dcs_programs',
-                    'dcs_semesters', 'dcs_school_years', 'dcs_faculties', 'dcs_program_courses', 'dcs_program_course_faculties',
+                    'dcs_semesters', 'dcs_school_years', 'dcs_faculties', 'dcs_program_courses',
                     'dcs_checklist_types', 'dcs_checklist_version', 'dcs_approval_body',
                     'dcs_document_requests', 'dcs_approval_records', 'dcs_document_change_notice', 'dcs_doc_revision',
                     'dcs_document_request_form', 'dcs_document_distribution', 'dcs_document_retrieval',

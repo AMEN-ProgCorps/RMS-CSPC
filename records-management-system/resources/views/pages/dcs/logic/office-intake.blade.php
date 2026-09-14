@@ -105,7 +105,7 @@ class OfficeIntakeHelper
             'dcn.id',
             'dcn.dcn_no',
             'dcn.dcn_date',
-            Schema::hasColumn('dcs_document_change_notice', 'brief_purpose') ? 'dcn.brief_purpose' : null,
+            Schema::hasColumn('dcs_document_change_notice', 'originator_name') ? 'dcn.originator_name' : null,
             'dcn.created_at',
             'dcn.created_by',
         ])));
@@ -174,8 +174,7 @@ class OfficeIntakeHelper
         self::assertCanAccessIntake();
 
         $data = $request->validate([
-            'drfNo' => 'required|string|max:100',
-            'drfDate' => 'required|date',
+            'drfDate' => 'nullable|date',
             'drfTitle' => 'required|string|max:255',
             'originatorName' => 'nullable|string|max:255',
             'docTypeKind' => 'nullable|in:internal,external',
@@ -199,8 +198,8 @@ class OfficeIntakeHelper
             $id = DB::transaction(function () use ($data, $officeIds, $userId, $now, $drfFile) {
                 $row = array_merge([
                     'request_id' => null,
-                    'drf_no' => $data['drfNo'],
-                    'drf_date' => $data['drfDate'],
+                    'drf_no' => null,
+                    'drf_date' => $data['drfDate'] ?? null,
                     'drf_receipt_date' => null,
                     'drf_receipt_time' => null,
                     'doc_title' => $data['drfTitle'],
@@ -212,8 +211,7 @@ class OfficeIntakeHelper
                 if (Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
                     $row['is_office_intake'] = true;
                     $row['prepared_by_name'] = RegisterQueryHelper::currentUserDisplayName();
-                    $row['originator_name'] = trim((string) ($data['originatorName'] ?? ''))
-                        ?: RegisterQueryHelper::currentUserDisplayName();
+                    $row['originator_name'] = trim((string) ($data['originatorName'] ?? '')) ?: null;
                     if (Schema::hasColumn('dcs_document_request_form', 'doc_type_kind')) {
                         $row['doc_type_kind'] = $data['docTypeKind'] ?? null;
                     }
@@ -251,14 +249,14 @@ class OfficeIntakeHelper
         }
 
         RegisterPersistHelper::logAdminChange(
-            'Created office DRF #' . $id . ' — ' . $data['drfNo'] . ': ' . $data['drfTitle']
+            'Created office DRF #' . $id . ': ' . $data['drfTitle']
         );
 
         if (! RegisterQueryHelper::isRfioOffice()) {
             DcsNotificationService::notifyOfficeDrfSubmitted(
                 DcsNotificationService::RFIO_OFFICE_CODE,
                 RegisterQueryHelper::currentUserDisplayName(),
-                $data['drfNo'],
+                '',
                 $data['drfTitle'],
                 $id
             );
@@ -275,41 +273,32 @@ class OfficeIntakeHelper
         self::assertCanAccessIntake();
 
         $data = $request->validate([
-            'dcnNumber' => 'required|string|max:100',
-            'documentNo' => 'required|string|max:150',
-            'documentTitle' => 'nullable|string|max:255',
+            'documentNo' => 'nullable|string|max:150',
+            'documentTitle' => 'required|string|max:255',
             'changeFrom' => 'nullable|string|max:5000',
             'changeTo' => 'nullable|string|max:5000',
             'dcnJustification' => 'required|string|max:5000',
             'originatorName' => 'nullable|string|max:255',
-            'departmentDate' => 'nullable|string|max:255',
+            'departmentOfficeId' => 'nullable|integer',
+            'departmentDate' => 'nullable|date',
             'reviewedByDate' => 'nullable|string|max:255',
-            'revisionMasterlistId' => 'nullable|integer',
-            'revisionLinked' => 'nullable|in:1,0,true,false',
         ]);
 
-        $docNo = trim((string) $data['documentNo']);
-        $docTitle = trim((string) ($data['documentTitle'] ?? ''));
-        $linked = filter_var($data['revisionLinked'] ?? false, FILTER_VALIDATE_BOOLEAN)
-            || (int) ($data['revisionMasterlistId'] ?? 0) > 0;
-
-        if (! $linked) {
-            throw ValidationException::withMessages([
-                'documentNo' => 'Search and select the document being revised. Free-typed rows are not allowed.',
-            ]);
-        }
-
-        $mlId = (int) ($data['revisionMasterlistId'] ?? 0);
-        self::assertRevisionOriginatorAllowed($docNo, $mlId);
+        $docNo = trim((string) ($data['documentNo'] ?? ''));
+        $docTitle = trim((string) $data['documentTitle']);
+        $departmentDateLabel = self::formatDepartmentDateLabel(
+            isset($data['departmentOfficeId']) ? (int) $data['departmentOfficeId'] : null,
+            $data['departmentDate'] ?? null
+        );
 
         $userId = (int) auth()->id();
         $now = now();
 
         try {
-            $id = DB::transaction(function () use ($data, $docNo, $docTitle, $userId, $now) {
+            $id = DB::transaction(function () use ($data, $docNo, $docTitle, $departmentDateLabel, $userId, $now) {
                 $row = [
                     'request_id' => null,
-                    'dcn_no' => $data['dcnNumber'],
+                    'dcn_no' => null,
                     'dcn_date' => now()->toDateString(),
                     'dcn_receipt_date' => null,
                     'dcn_receipt_time' => null,
@@ -321,19 +310,14 @@ class OfficeIntakeHelper
                     $row['brief_purpose'] = $data['dcnJustification'];
                 }
 
-                if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
-                    $row['brief_purpose'] = $data['dcnJustification'];
-                }
-
                 if (Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
                     $row['is_office_intake'] = true;
                     $row['document_no'] = $docNo !== '' ? $docNo : null;
                     $row['document_title'] = $docTitle !== '' ? $docTitle : null;
                     $row['change_from'] = trim((string) ($data['changeFrom'] ?? '')) ?: null;
                     $row['change_to'] = trim((string) ($data['changeTo'] ?? '')) ?: null;
-                    $row['originator_name'] = trim((string) ($data['originatorName'] ?? ''))
-                        ?: RegisterQueryHelper::currentUserDisplayName();
-                    $row['department_date'] = trim((string) ($data['departmentDate'] ?? '')) ?: null;
+                    $row['originator_name'] = trim((string) ($data['originatorName'] ?? '')) ?: null;
+                    $row['department_date'] = $departmentDateLabel;
                     $row['reviewed_by_date'] = trim((string) ($data['reviewedByDate'] ?? '')) ?: null;
                 }
 
@@ -363,7 +347,6 @@ class OfficeIntakeHelper
 
         RegisterPersistHelper::logAdminChange(
             'Created office DCN #' . $id
-            . ' — ' . $data['dcnNumber']
             . ($docNo !== '' ? ' for ' . $docNo : '')
             . ($docTitle !== '' ? ': ' . $docTitle : '')
         );
@@ -372,7 +355,7 @@ class OfficeIntakeHelper
             DcsNotificationService::notifyOfficeDcnSubmitted(
                 DcsNotificationService::RFIO_OFFICE_CODE,
                 RegisterQueryHelper::currentUserDisplayName(),
-                $data['dcnNumber'],
+                '',
                 $docNo,
                 $id
             );
@@ -384,33 +367,114 @@ class OfficeIntakeHelper
             ->with('locked', true);
     }
 
-    private static function assertRevisionOriginatorAllowed(string $docNo, int $masterlistId): void
+    private static function formatDepartmentDateLabel(?int $officeId, ?string $date): ?string
     {
-        $q = DB::table('dcs_masterlist_registration as ml')
-            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id');
-
-        if ($masterlistId > 0) {
-            $q->where('ml.id', $masterlistId);
-        } else {
-            $q->where('ml.doc_no', $docNo);
-            RegisterQueryHelper::applyLatestRevisionStatus($q, 'ml');
-            $q->orderByDesc('ml.revise_no');
+        $department = '';
+        if ($officeId && $officeId > 0) {
+            $row = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
+                ->where('id', $officeId)
+                ->whereNotIn('office_code', RegisterQueryHelper::SYSTEM_OFFICE_CODES)
+                ->first(['office_name', 'office_code']);
+            if ($row) {
+                $department = trim((string) ($row->office_code ?? ''));
+                if ($department === '') {
+                    $department = trim((string) ($row->office_name ?? ''));
+                }
+            }
         }
 
-        $ml = $q->first(['ml.id', 'ml.doc_no', 'ml.originator_name', 'ml.originator_account_id', 'ml.request_id']);
-        if (! $ml) {
-            throw ValidationException::withMessages([
-                'documentNo' => 'Selected document was not found in the masterlist.',
-            ]);
+        $dateLabel = '';
+        $date = trim((string) $date);
+        if ($date !== '') {
+            try {
+                $dateLabel = \Carbon\Carbon::parse($date)->format('M d, Y');
+            } catch (\Throwable) {
+                $dateLabel = '';
+            }
         }
 
-        RegisterQueryHelper::assertCanAccessRequest((int) $ml->request_id);
-
-        if (! self::originatorMatchesUser($ml->originator_name ?? null, isset($ml->originator_account_id) ? (int) $ml->originator_account_id : null)) {
-            throw ValidationException::withMessages([
-                'documentNo' => 'You can only revise documents where you are the originator (originator name must match your account name).',
-            ]);
+        if ($department !== '' && $dateLabel !== '') {
+            return $department . ' / ' . $dateLabel;
         }
+        if ($department !== '') {
+            return $department;
+        }
+        if ($dateLabel !== '') {
+            return $dateLabel;
+        }
+
+        return null;
+    }
+
+    /** Prefer office code on print when a stored department label matches an office name/code. */
+    public static function departmentDateForPrint(?string $stored): string
+    {
+        $parts = self::parseDepartmentDate($stored);
+        $department = $parts['department_code'] !== ''
+            ? $parts['department_code']
+            : $parts['department'];
+        $dateLabel = $parts['date_label'];
+
+        if ($department !== '' && $dateLabel !== '') {
+            return $department . ' / ' . $dateLabel;
+        }
+
+        return $department !== '' ? $department : $dateLabel;
+    }
+
+    /**
+     * Split stored "Department / Date" for show/print.
+     *
+     * @return array{department: string, department_code: string, department_label: string, date_label: string, date_iso: string}
+     */
+    public static function parseDepartmentDate(?string $stored): array
+    {
+        $stored = trim((string) $stored);
+        $department = $stored;
+        $dateLabel = '';
+        if ($stored !== '' && str_contains($stored, ' / ')) {
+            [$department, $dateLabel] = array_map('trim', explode(' / ', $stored, 2));
+        }
+
+        $departmentCode = '';
+        $departmentLabel = $department;
+        if ($department !== '') {
+            $row = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
+                ->whereNotIn('office_code', RegisterQueryHelper::SYSTEM_OFFICE_CODES)
+                ->where(function ($q) use ($department) {
+                    $q->where('office_code', $department)
+                        ->orWhere('office_name', $department);
+                })
+                ->first(['office_code', 'office_name']);
+
+            if ($row) {
+                $code = trim((string) ($row->office_code ?? ''));
+                $name = trim((string) ($row->office_name ?? ''));
+                $departmentCode = $code;
+                $departmentLabel = $code !== '' && $name !== ''
+                    ? $code . ' — ' . $name
+                    : ($name !== '' ? $name : $code);
+                $department = $code !== '' ? $code : $name;
+            }
+        }
+
+        $dateIso = '';
+        if ($dateLabel !== '') {
+            try {
+                $dateIso = \Carbon\Carbon::parse($dateLabel)->format('Y-m-d');
+                $dateLabel = \Carbon\Carbon::parse($dateLabel)->format('M d, Y');
+            } catch (\Throwable) {
+                $dateIso = '';
+            }
+        }
+
+        return [
+            'department' => $department,
+            'department_code' => $departmentCode,
+            'department_label' => $departmentLabel,
+            'date_label' => $dateLabel,
+            'date_iso' => $dateIso,
+        ];
     }
 
     private static function normalizeTime(?string $time): ?string

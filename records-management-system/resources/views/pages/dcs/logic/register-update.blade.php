@@ -31,7 +31,7 @@ class RegisterUpdateHelper
 
     public static function update(Request $request, int $id): RedirectResponse
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('register');
         RegisterPersistHelper::blankStringsToNull($request);
 
         if ($redirect = RegisterPersistHelper::rejectInactiveOfficeIds($request)) {

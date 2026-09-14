@@ -36,8 +36,8 @@ return new class extends Migration
         $now = now();
         DB::table('dcs_calendar_categories')->insert([
             ['name' => 'Travel', 'color' => '#0d2a7a', 'is_system' => true, 'created_by' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['name' => 'Leave', 'color' => '#b45309', 'is_system' => true, 'created_by' => null, 'created_at' => $now, 'updated_at' => $now],
-            ['name' => 'WFH', 'color' => '#047857', 'is_system' => true, 'created_by' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'Leave', 'color' => '#16a34a', 'is_system' => true, 'created_by' => null, 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'WFH', 'color' => '#2563eb', 'is_system' => true, 'created_by' => null, 'created_at' => $now, 'updated_at' => $now],
         ]);
     }
 

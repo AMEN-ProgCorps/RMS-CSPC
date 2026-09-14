@@ -1,11 +1,13 @@
+@php
+    $departmentParts = \App\Helpers\OfficeIntakeHelper::parseDepartmentDate($dcn->department_date ?? null);
+@endphp
 <div class="ofi-review">
     <div class="ofi-review-hero">
         <div class="ofi-review-hero-main">
             <span class="ofi-review-badge">Office submission</span>
             <h3 class="ofi-review-heading">Document Change Notice</h3>
             <p class="ofi-review-lead">
-                {{ $meta['office'] }} submitted DCN <strong>{{ $dcn->dcn_no ?: '—' }}</strong>
-                for RFIO review.
+                {{ $meta['office'] }} submitted a Document Change Notice for RFIO review.
             </p>
         </div>
         <dl class="ofi-review-meta-grid">
@@ -30,39 +32,35 @@
     </div>
 
     <section class="ofi-review-section">
-        <h4 class="ofi-review-section-title">Document details</h4>
+        <h4 class="ofi-review-section-title">Document Change Notice</h4>
         <dl class="ofi-review-fields">
-            <div class="ofi-review-field">
-                <dt>DCN number</dt>
-                <dd>{{ $dcn->dcn_no ?: '—' }}</dd>
-            </div>
-            <div class="ofi-review-field">
-                <dt>Document number</dt>
-                <dd>{{ $docNo ?: '—' }}</dd>
-            </div>
             <div class="ofi-review-field is-wide">
-                <dt>Document title</dt>
+                <dt>Document Title</dt>
                 <dd>{{ $docTitle ?: '—' }}</dd>
+            </div>
+            <div class="ofi-review-field">
+                <dt>Document no. (optional)</dt>
+                <dd>{{ $docNo ?: '—' }}</dd>
             </div>
         </dl>
     </section>
 
     <section class="ofi-review-section">
-        <h4 class="ofi-review-section-title">Change description</h4>
+        <h4 class="ofi-review-section-title">Detailed Description of Change</h4>
         <dl class="ofi-review-fields">
             <div class="ofi-review-field is-wide">
                 <dt>From</dt>
-                <dd class="is-multiline">{{ $dcn->change_from ?? '—' }}</dd>
+                <dd class="is-multiline">{{ $dcn->change_from ?: '—' }}</dd>
             </div>
             <div class="ofi-review-field is-wide">
                 <dt>To</dt>
-                <dd class="is-multiline">{{ $dcn->change_to ?? '—' }}</dd>
+                <dd class="is-multiline">{{ $dcn->change_to ?: '—' }}</dd>
             </div>
         </dl>
     </section>
 
     <section class="ofi-review-section">
-        <h4 class="ofi-review-section-title">Justification</h4>
+        <h4 class="ofi-review-section-title">Justification of Change</h4>
         <div class="ofi-review-text-block">{{ $dcn->brief_purpose ?: '—' }}</div>
     </section>
 
@@ -70,15 +68,19 @@
         <h4 class="ofi-review-section-title">Signatures &amp; dates</h4>
         <dl class="ofi-review-fields">
             <div class="ofi-review-field">
-                <dt>Originator</dt>
+                <dt>Originator/ Signature</dt>
                 <dd>{{ $dcn->originator_name ?: '—' }}</dd>
             </div>
             <div class="ofi-review-field">
-                <dt>Department / date</dt>
-                <dd>{{ $dcn->department_date ?: '—' }}</dd>
+                <dt>Department</dt>
+                <dd>{{ $departmentParts['department_label'] ?: '—' }}</dd>
             </div>
             <div class="ofi-review-field">
-                <dt>Reviewed by / date</dt>
+                <dt>Date</dt>
+                <dd>{{ $departmentParts['date_label'] ?: '—' }}</dd>
+            </div>
+            <div class="ofi-review-field">
+                <dt>Reviewed by/ Date</dt>
                 <dd>{{ $dcn->reviewed_by_date ?: '—' }}</dd>
             </div>
         </dl>

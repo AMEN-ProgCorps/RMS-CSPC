@@ -140,6 +140,38 @@ body {
     line-height: 1.4;
 }
 
+.st-college-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: -4px 0 14px;
+}
+
+.st-college-chip {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--set-border, #e2e8f0);
+    background: var(--set-surface, #fff);
+    color: var(--set-text-muted, #64748b);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.st-college-chip:hover {
+    border-color: var(--set-accent, #1d4ed8);
+    color: var(--set-accent, #1d4ed8);
+}
+
+.st-college-chip.is-active {
+    border-color: var(--set-accent, #1d4ed8);
+    background: color-mix(in srgb, var(--set-accent, #1d4ed8) 12%, white);
+    color: var(--set-accent, #1d4ed8);
+}
+
 .btn-primary {
     display: flex;
     align-items: center;
@@ -163,6 +195,37 @@ body {
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(13, 42, 122, 0.2);
 }
+
+.panel-actions,
+.csv-import {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.csv-file,
+.btn-secondary {
+    min-height: 40px;
+    border: 1px solid var(--set-border);
+    border-radius: 9px;
+    background: var(--set-surface);
+    color: var(--set-text-muted);
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.csv-file { display: inline-flex; align-items: center; gap: 7px; }
+.csv-file input { display: none; }
+.csv-file:hover, .btn-secondary:hover { border-color: var(--set-accent); color: var(--set-accent); }
+.btn-secondary { cursor: pointer; }
+.btn-secondary:disabled { opacity: .55; cursor: wait; }
+.csv-help { margin: -7px 0 14px; color: var(--set-text-subtle); font-size: .75rem; line-height: 1.5; }
+.csv-help code { color: var(--set-text-muted); font-size: .73rem; }
+.csv-error { margin: -7px 0 14px; }
 
 @media (hover: none) {
     .btn-primary:hover {
@@ -514,7 +577,9 @@ body {
 .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(12, 18, 33, 0.35);
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -532,6 +597,10 @@ body {
     border: 1px solid var(--set-border);
     box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
     animation: modalSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal.modal--courses {
+    width: min(780px, 96vw);
 }
 
 .st-modal {
@@ -634,6 +703,59 @@ body {
     margin: 0;
     font-size: 0.82rem;
     color: var(--set-text-muted);
+}
+
+.st-course-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: min(40vh, 320px);
+    overflow-y: auto;
+    padding-right: 2px;
+    margin-top: 8px;
+}
+
+.st-course-row {
+    display: grid;
+    grid-template-columns: minmax(100px, 0.55fr) minmax(240px, 2.4fr) 36px;
+    gap: 8px;
+    align-items: start;
+}
+
+.st-course-row-head {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--set-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0 2px;
+}
+
+.st-course-row .st-input {
+    padding: 10px 12px;
+}
+
+.st-course-row .icon-btn {
+    margin-top: 4px;
+}
+
+.st-add-row-btn {
+    margin-top: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    background: transparent;
+    color: var(--set-accent);
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 4px 0;
+}
+
+.st-add-row-btn:hover {
+    text-decoration: underline;
 }
 
 .st-faculty-picks {

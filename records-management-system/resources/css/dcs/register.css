@@ -174,8 +174,17 @@ body {
     display: flex;
     align-items: center;
     gap: 14px;
-    padding-left: 16px;
-    border-left: 1px solid var(--reg-border);
+    padding-left: 0;
+    border-left: none;
+}
+
+.reg-approval-bar .reg-approval-toggle {
+    padding-left: 0;
+    border-left: none;
+}
+
+.reg-approval-bar-body {
+    padding: 14px 24px !important;
 }
 
 .reg-approval-toggle.is-locked {
@@ -328,6 +337,125 @@ body {
 }
 #distBody tr.reg-office-added.is-dragging {
     opacity: 0.45;
+}
+#distBody tr.reg-office-added.is-selected {
+    background: color-mix(in srgb, var(--reg-accent) 8%, transparent);
+}
+.reg-dist-check-head,
+.reg-dist-check-cell,
+.reg-dist-check-foot {
+    width: 36px;
+    text-align: center;
+    vertical-align: middle;
+}
+.reg-dist-check-cell input,
+.reg-dist-check-head input {
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+    accent-color: var(--reg-accent);
+}
+.reg-dist-drag-handle {
+    color: #94a3b8;
+    margin-right: 6px;
+    cursor: grab;
+    display: inline-flex;
+}
+.reg-dist-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 8px 0 10px;
+}
+.reg-dist-toolbar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.reg-dist-tool-btn {
+    border: 1px solid var(--reg-border);
+    background: var(--reg-surface, #fff);
+    color: var(--reg-text, #334155);
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 5px 9px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.reg-dist-tool-btn:hover,
+.reg-dist-tool-btn.is-active {
+    border-color: var(--reg-accent);
+    color: var(--reg-accent);
+}
+.reg-dist-tool-btn--accent {
+    border-color: var(--reg-accent);
+    color: var(--reg-accent);
+}
+.reg-dist-groups {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+}
+.reg-dist-groups-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.reg-dist-groups-empty {
+    font-size: 0.75rem;
+    color: #94a3b8;
+}
+.reg-dist-group-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.reg-dist-group-chip {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--reg-border);
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--reg-surface, #fff);
+}
+.reg-dist-group-apply,
+.reg-dist-group-delete {
+    border: 0;
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+    color: var(--reg-accent);
+}
+.reg-dist-group-apply {
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 4px 10px;
+}
+.reg-dist-group-apply small {
+    opacity: 0.7;
+    font-weight: 500;
+}
+.reg-dist-group-delete {
+    padding: 4px 8px;
+    border-left: 1px solid var(--reg-border);
+    color: #94a3b8;
+}
+.reg-dist-group-chip:hover {
+    border-color: var(--reg-accent);
+}
+.reg-dist-group-delete:hover {
+    color: var(--reg-error, #dc2626);
+    background: #fef2f2;
+}
+#distOfficeGroupModal.is-open {
+    display: flex;
 }
 
 .reg-card-header i {
@@ -1230,6 +1358,23 @@ body {
     font-size: 0.7rem;
 }
 
+/* Soft OCR auto-fill hint (upload still succeeds) */
+.reg-ocr-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: #0369a1;
+    margin-top: 4px;
+    line-height: 1.35;
+    animation: fadeSlideUp 0.2s ease;
+}
+
+.reg-ocr-hint i {
+    font-size: 0.7rem;
+    margin-top: 2px;
+}
+
 /* ══════════════════════════════════════════════
    FILE UPLOAD — TABLE CELL (Syllabi)
    ══════════════════════════════════════════════ */
@@ -1742,11 +1887,122 @@ body {
     max-width: 220px;
 }
 
+#syllabiWizardTable thead th.col-code,
+#syllabiWizardTable tbody td.col-code {
+    width: 100px;
+    min-width: 100px;
+    max-width: 100px;
+    padding-left: 4px;
+    padding-right: 4px;
+    white-space: normal;
+    line-height: 1.15;
+    text-align: center;
+}
+
+#syllabiWizardTable .syllabi-merged-code {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+    padding-left: 2px;
+    padding-right: 2px;
+    font-size: 0.78rem;
+    text-align: center;
+}
+
 #syllabiWizardTable thead th.col-shared,
 #syllabiWizardTable tbody td.col-shared {
-    width: 200px;
-    min-width: 200px;
-    max-width: 200px;
+    width: auto;
+    min-width: 180px;
+    max-width: none;
+}
+
+#syllabiWizardTable thead th.col-avail,
+#syllabiWizardTable tbody td.col-avail {
+    width: 1%;
+    min-width: 0;
+    padding-left: 8px;
+    padding-right: 8px;
+    text-align: center;
+    white-space: nowrap;
+    line-height: 1.2;
+}
+
+#syllabiWizardTable thead th.col-actions,
+#syllabiWizardTable tbody td.col-actions {
+    width: 44px;
+    min-width: 44px;
+    max-width: 44px;
+    padding-left: 4px;
+    padding-right: 4px;
+    text-align: center;
+}
+
+#syllabiWizardTable tbody td.col-actions .reg-row-del {
+    margin: 0 auto;
+}
+
+#syllabiWizardTable thead th.col-pages,
+#syllabiWizardTable tbody td.col-pages {
+    width: 48px;
+    min-width: 48px;
+    max-width: 48px;
+    padding-left: 4px;
+    padding-right: 4px;
+    white-space: normal;
+    line-height: 1.15;
+    text-align: center;
+}
+
+#syllabiWizardTable thead th.col-copies,
+#syllabiWizardTable tbody td.col-copies {
+    width: 58px;
+    min-width: 58px;
+    max-width: 58px;
+    padding-left: 4px;
+    padding-right: 4px;
+    white-space: normal;
+    line-height: 1.15;
+    text-align: center;
+}
+
+#syllabiWizardTable thead th.col-date,
+#syllabiWizardTable tbody td.col-date {
+    width: 128px;
+    min-width: 128px;
+    max-width: 128px;
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+#syllabiWizardTable thead th.col-time,
+#syllabiWizardTable tbody td.col-time {
+    width: 110px;
+    min-width: 110px;
+    max-width: 110px;
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+#syllabiWizardTable tbody td.col-date input[type="date"],
+#syllabiWizardTable tbody td.col-time input[type="time"] {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding-left: 4px;
+    padding-right: 4px;
+}
+
+#syllabiWizardTable .syllabi-row-pages,
+#syllabiWizardTable .syllabi-merged-pages,
+#syllabiWizardTable .syllabi-merged-copies {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+    padding-left: 2px;
+    padding-right: 2px;
+    font-size: 0.78rem;
+    text-align: center;
 }
 
 .syllabi-merged-course {
@@ -1844,7 +2100,7 @@ input[name="syllabiTimeReceived[]"].is-locked,
 }
 
 #syllabiWizardTable[data-active-step="2"] td.col-pinned:first-child,
-#syllabiWizardTable[data-active-step="2"] td.col-pinned:has(.syllabi-merged-code),
+#syllabiWizardTable[data-active-step="2"] td.col-code,
 #syllabiWizardTable[data-active-step="2"] td.col-shared {
     background: var(--reg-bg);
 }
@@ -2292,7 +2548,9 @@ select.reg-field-locked:disabled {
 .reg-modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.5);
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
     display: flex;
     align-items: center;
     justify-content: center;

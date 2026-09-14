@@ -61,7 +61,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'originators' => Schema::hasTable('dcs_originators')
                 ? DB::table('dcs_originators')->orderBy('originator_name')->get()
                 : collect(),
-            'offices' => DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)->orderBy('office_name')->get(),
+            'offices' => \App\Helpers\RegisterQueryHelper::applySelectableOfficesFilter(
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)
+            )->orderBy('office_name')->get(),
             'revisionNos' => DB::table('dcs_masterlist_registration')
                 ->whereNotNull('revise_no')
                 ->distinct()

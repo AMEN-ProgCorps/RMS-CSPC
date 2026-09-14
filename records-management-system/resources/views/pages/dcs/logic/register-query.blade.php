@@ -18,6 +18,20 @@ class RegisterQueryHelper
     /** Soft-deleted DCS documents are kept in the Recycle Bin for this many years (same as Admin Console). */
     public const RECYCLE_BIN_RETENTION_YEARS = 1;
 
+    /** DTS routing placeholders — hidden in Admin Offices management and all DCS office pickers. */
+    public const SYSTEM_OFFICE_CODES = ['ORIGIN', '[H]', '[HUB]', 'HUB'];
+
+    /**
+     * Keep only real offices (same set Admin shows in Offices management).
+     *
+     * @param  \Illuminate\Database\Query\Builder|\Illuminate\Database\Eloquent\Builder  $query
+     * @return \Illuminate\Database\Query\Builder|\Illuminate\Database\Eloquent\Builder
+     */
+    public static function applySelectableOfficesFilter($query, string $officeCodeColumn = 'office_code')
+    {
+        return $query->whereNotIn($officeCodeColumn, self::SYSTEM_OFFICE_CODES);
+    }
+
     public static function recycleBinExpiresAt(\DateTimeInterface|string $deletedAt): Carbon
     {
         return Carbon::parse($deletedAt)->addYears(self::RECYCLE_BIN_RETENTION_YEARS);
@@ -310,15 +324,31 @@ class RegisterQueryHelper
         return !self::isFullDcsUser();
     }
 
-    public static function assertFullDcsUser(): void
+    /** Full DCS users get all gated modules; limited intake users get none. */
+    public static function canAccessDcsModule(string $module): bool
     {
+        return self::isFullDcsUser();
+    }
+
+    public static function assertFullDcsUser(?string $module = null): void
+    {
+        if ($module !== null) {
+            abort_unless(
+                self::canAccessDcsModule($module),
+                403,
+                'You do not have clearance for this Document Control System module.'
+            );
+
+            return;
+        }
+
         abort_unless(self::isFullDcsUser(), 403, 'Full Document Control System access is required.');
     }
 
-    /** Full DCS operators may open any office intake form by ID (notification deep link). */
+    /** Full DCS operators with review-intake clearance may open any office intake form by ID. */
     public static function canBrowseAllOfficeIntake(): bool
     {
-        return self::isFullDcsUser();
+        return self::canAccessDcsModule('review_intake');
     }
 
     public static function normalizedOriginatorName(?string $name = null): string
@@ -5630,8 +5660,9 @@ class RegisterQueryHelper
             return $cache;
         }
 
-        $docTypes = DB::table('dcs_doc_types')
-            ->orderBy('id')
+        $docTypesQ = DB::table('dcs_doc_types')->orderBy('id');
+        SettingsRecycleHelper::applyNotDeleted($docTypesQ, 'dcs_doc_types');
+        $docTypes = $docTypesQ
             ->get(['id', 'parent_id', 'doc_type_name'])
             ->map(fn ($d) => [
                 'doc_type_id' => $d->id,
@@ -5660,7 +5691,9 @@ class RegisterQueryHelper
         }
 
         $programsByCollege = [];
-        foreach (DB::table('dcs_programs')->orderBy('program_name')->get(['id', 'college_id', 'program_name', 'program_code']) as $p) {
+        $programsQ = DB::table('dcs_programs')->orderBy('program_name');
+        SettingsRecycleHelper::applyNotDeleted($programsQ, 'dcs_programs');
+        foreach ($programsQ->get(['id', 'college_id', 'program_name', 'program_code']) as $p) {
             $programsByCollege[(string) $p->college_id][] = [
                 'program_id' => $p->id,
                 'program_name' => $p->program_name,
@@ -5668,36 +5701,43 @@ class RegisterQueryHelper
             ];
         }
 
-        $facultiesByCourse = collect();
-        if (Schema::hasTable('dcs_program_course_faculties')) {
-            $facultiesByCourse = DB::table('dcs_program_course_faculties as pcf')
-                ->join('dcs_faculties as f', 'f.id', '=', 'pcf.faculty_id')
-                ->orderBy('f.faculty_name')
-                ->get(['pcf.program_course_id', 'f.id', 'f.faculty_name'])
-                ->groupBy('program_course_id');
-        }
-
         $courseColumns = ['id', 'program_id', 'semester_id', 'course_name'];
         if (Schema::hasColumn('dcs_program_courses', 'course_code')) {
             $courseColumns[] = 'course_code';
         }
+        if (Schema::hasColumn('dcs_program_courses', 'year_level')) {
+            $courseColumns[] = 'year_level';
+        }
 
         $coursesByProgramSemester = [];
-        foreach (DB::table('dcs_program_courses')->orderBy('course_name')->get($courseColumns) as $c) {
+        $coursesQ = DB::table('dcs_program_courses');
+        if (Schema::hasColumn('dcs_program_courses', 'year_level')) {
+            $coursesQ->orderByRaw("CASE year_level
+                WHEN '1st Year' THEN 1
+                WHEN '2nd Year' THEN 2
+                WHEN '3rd Year' THEN 3
+                WHEN '4th Year' THEN 4
+                WHEN '5th Year' THEN 5
+                ELSE 99 END");
+        }
+        $coursesQ->orderBy('course_name');
+        SettingsRecycleHelper::applyNotDeleted($coursesQ, 'dcs_program_courses');
+        foreach ($coursesQ->get($courseColumns) as $c) {
             $coursesByProgramSemester[$c->program_id . ':' . $c->semester_id][] = [
                 'id' => $c->id,
                 'course_name' => $c->course_name,
                 'course_code' => $c->course_code ?? '',
-                'faculties' => collect($facultiesByCourse->get($c->id) ?? $facultiesByCourse->get((string) $c->id) ?? [])->map(fn ($f) => [
-                    'id' => $f->id,
-                    'faculty_name' => $f->faculty_name,
-                ])->values()->all(),
+                'year_level' => $c->year_level ?? '',
+                // Faculty is chosen during Syllabi / TOS-Rubrics registration (college-scoped).
+                'faculties' => [],
             ];
         }
 
         return $cache = [
-            'offices' => DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
-                ->where('is_active', true)
+            'offices' => self::applySelectableOfficesFilter(
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
+                    ->where('is_active', true)
+            )
                 ->orderBy('office_name')
                 ->get(['id', 'office_name', 'office_code', 'cluster'])
                 ->map(fn ($o) => [
@@ -5719,6 +5759,7 @@ class RegisterQueryHelper
                 ])
                 ->values()
                 ->all(),
+            'distributionOfficeGroups' => \App\Helpers\DistributionOfficeGroupHelper::listForCatalog(),
             'docTypes' => $docTypes,
             'versionTypes' => DB::table('dcs_version_type')
                 ->orderBy('version_name')
@@ -5739,8 +5780,7 @@ class RegisterQueryHelper
                 ->values()
                 ->all(),
             'originators' => Schema::hasTable('dcs_originators')
-                ? DB::table('dcs_originators')
-                    ->orderBy('originator_name')
+                ? tap(DB::table('dcs_originators')->orderBy('originator_name'), fn ($q) => SettingsRecycleHelper::applyNotDeleted($q, 'dcs_originators'))
                     ->get(['id', 'originator_name'])
                     ->map(fn ($o) => [
                         'originator_id' => $o->id,
@@ -5750,8 +5790,7 @@ class RegisterQueryHelper
                     ->all()
                 : [],
             'checklistsByVersion' => $checklistsByVersion,
-            'colleges' => DB::table('dcs_colleges')
-                ->orderBy('college_name')
+            'colleges' => tap(DB::table('dcs_colleges')->orderBy('college_name'), fn ($q) => SettingsRecycleHelper::applyNotDeleted($q, 'dcs_colleges'))
                 ->get(['id', 'college_name'])
                 ->map(fn ($c) => [
                     'college_id' => $c->id,
@@ -5759,8 +5798,7 @@ class RegisterQueryHelper
                 ])
                 ->values()
                 ->all(),
-            'semesters' => DB::table('dcs_semesters')
-                ->orderBy('id')
+            'semesters' => tap(DB::table('dcs_semesters')->orderBy('id'), fn ($q) => SettingsRecycleHelper::applyNotDeleted($q, 'dcs_semesters'))
                 ->get(['id', 'semester_name'])
                 ->map(fn ($s) => [
                     'semester_id' => $s->id,
@@ -5768,8 +5806,7 @@ class RegisterQueryHelper
                 ])
                 ->values()
                 ->all(),
-            'schoolYears' => DB::table('dcs_school_years')
-                ->orderBy('school_year')
+            'schoolYears' => tap(DB::table('dcs_school_years')->orderBy('school_year'), fn ($q) => SettingsRecycleHelper::applyNotDeleted($q, 'dcs_school_years'))
                 ->get(['id', 'school_year'])
                 ->map(fn ($y) => [
                     'school_year_id' => $y->id,
@@ -5779,8 +5816,7 @@ class RegisterQueryHelper
                 ->all(),
             'programsByCollege' => $programsByCollege,
             'coursesByProgramSemester' => $coursesByProgramSemester,
-            'faculties' => DB::table('dcs_faculties')
-                ->orderBy('faculty_name')
+            'faculties' => tap(DB::table('dcs_faculties')->orderBy('faculty_name'), fn ($q) => SettingsRecycleHelper::applyNotDeleted($q, 'dcs_faculties'))
                 ->get(['id', 'faculty_name', 'college_id'])
                 ->map(fn ($f) => [
                     'id' => $f->id,

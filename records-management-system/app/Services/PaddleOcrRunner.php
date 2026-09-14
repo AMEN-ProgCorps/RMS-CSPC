@@ -23,7 +23,7 @@ class PaddleOcrRunner
      */
     public static function recognize(string $imagePath): array
     {
-        $python = (string) config('ocr.python', 'python3');
+        $python = self::resolvePythonBinary();
         $script = (string) config('ocr.paddle_script', base_path('scripts/ocr/paddle_ocr.py'));
         $timeout = max(30, (int) config('ocr.timeout', 120));
 
@@ -37,11 +37,18 @@ class PaddleOcrRunner
         $process = new Process([$python, $script, $imagePath]);
         $process->setTimeout($timeout);
         $paddleHome = (string) config('ocr.paddle_home', '/opt/paddleocr');
+        $env = [];
         if ($paddleHome !== '') {
-            $process->setEnv([
-                'PADDLEOCR_HOME' => $paddleHome,
-                'HOME' => $paddleHome,
-            ]);
+            $env['PADDLEOCR_HOME'] = $paddleHome;
+            $env['HOME'] = $paddleHome;
+        }
+        // Prefer a writable fallback when /opt is not writable by PHP-FPM user.
+        if (! isset($env['PADDLEOCR_HOME']) || $env['PADDLEOCR_HOME'] === '') {
+            $env['PADDLEOCR_HOME'] = '/tmp/paddleocr';
+            $env['HOME'] = '/tmp/paddleocr';
+        }
+        if ($env !== []) {
+            $process->setEnv($env);
         }
         $process->run();
 
@@ -50,6 +57,7 @@ class PaddleOcrRunner
 
         if ($stdout === '') {
             Log::warning('PaddleOCR empty stdout', [
+                'python' => $python,
                 'exit' => $process->getExitCode(),
                 'stderr' => $stderr,
             ]);
@@ -128,5 +136,32 @@ class PaddleOcrRunner
         $decoded = json_decode(substr($stdout, $start), true);
 
         return is_array($decoded) ? $decoded : null;
+    }
+
+    /** Prefer configured venv python on deploy; fall back to common paths. */
+    private static function resolvePythonBinary(): string
+    {
+        $configured = trim((string) config('ocr.python', 'python3'));
+        $candidates = array_values(array_unique(array_filter([
+            $configured,
+            '/opt/paddle-venv/bin/python',
+            '/opt/paddle-venv/bin/python3',
+            '/usr/bin/python3',
+            'python3',
+        ])));
+
+        foreach ($candidates as $bin) {
+            if (str_contains($bin, '/')) {
+                if (is_executable($bin)) {
+                    return $bin;
+                }
+                continue;
+            }
+
+            // Bare command name — let Process resolve via PATH.
+            return $bin;
+        }
+
+        return $configured !== '' ? $configured : 'python3';
     }
 }

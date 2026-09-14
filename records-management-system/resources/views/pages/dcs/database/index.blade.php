@@ -29,7 +29,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public function mount(): void
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('database');
 
         $type = request('type');
         if ($type !== null && $type !== '') {
@@ -80,7 +80,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     /** @param  array<string, mixed>  $visible */
     public function saveVisibleGroups(array $visible): void
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('database');
         $user = Auth::user();
         if (! $user) {
             return;
@@ -198,7 +198,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         return [
             'docTypes' => DB::table('dcs_doc_types')->whereNull('parent_id')->get(),
             'subTypes' => DB::table('dcs_doc_types')->whereNotNull('parent_id')->orderBy('doc_type_name')->get(),
-            'offices' => DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)->orderBy('office_name')->get(),
+            'offices' => \App\Helpers\RegisterQueryHelper::applySelectableOfficesFilter(
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)
+            )->orderBy('office_name')->get(),
             'originators' => Schema::hasTable('dcs_originators')
                 ? DB::table('dcs_originators')->orderBy('originator_name')->get()
                 : collect(),
@@ -397,6 +399,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 }
 
                 return ($b['parent']['request_id'] ?? 0) <=> ($a['parent']['request_id'] ?? 0);
+            })->values();
+
+            // Sequential # restarts for each document type (Internal 1..n, External 1..n, …).
+            $typeCounters = [];
+            $groups = $groups->map(function (array $group) use (&$typeCounters) {
+                $catName = (string) ($group['parent']['doc_type_name'] ?? 'Uncategorized');
+                $typeCounters[$catName] = ($typeCounters[$catName] ?? 0) + 1;
+                $group['type_seq'] = $typeCounters[$catName];
+
+                return $group;
             })->values();
 
             $total = $groups->count();
@@ -806,6 +818,35 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             }
         } catch (e) {}
         this.$watch('notice', (v) => { if (v) setTimeout(() => { this.notice = ''; }, 4000); });
+        this.$nextTick(() => this.syncStickyHeaders());
+        this.$watch('open', () => this.$nextTick(() => this.syncStickyHeaders()), { deep: true });
+        this.$watch('visible', () => this.$nextTick(() => this.syncStickyHeaders()), { deep: true });
+        window.addEventListener('resize', () => this.syncStickyHeaders());
+        document.addEventListener('livewire:navigated', () => this.$nextTick(() => this.syncStickyHeaders()));
+    },
+    syncStickyHeaders() {
+        const scroll = this.$el.querySelector('.db-table-scroll');
+        if (!scroll) return;
+        const table = scroll.querySelector('.db-table');
+        const thead = scroll.querySelector('thead');
+        const row1 = scroll.querySelector('.db-head-primary');
+        const row2 = scroll.querySelector('.db-head-secondary');
+        const h1 = row1 ? Math.ceil(row1.getBoundingClientRect().height) : 36;
+        const h2 = row2 ? Math.ceil(row2.getBoundingClientRect().height) : 32;
+        const totalH = thead ? Math.ceil(thead.getBoundingClientRect().height) : (h1 + h2);
+        const totalW = table ? Math.ceil(table.scrollWidth) : scroll.clientWidth;
+        scroll.style.setProperty('--header-row1-h', h1 + 'px');
+        scroll.style.setProperty('--header-row2-top', (h1 + h2) + 'px');
+        scroll.style.setProperty('--header-total-h', totalH + 'px');
+        scroll.style.setProperty('--header-total-w', totalW + 'px');
+
+        let frame = scroll.querySelector('.db-thead-frame');
+        if (!frame) {
+            frame = document.createElement('div');
+            frame.className = 'db-thead-frame';
+            frame.setAttribute('aria-hidden', 'true');
+            scroll.insertBefore(frame, scroll.firstChild);
+        }
     },
     persistExpand() {
         try {
@@ -1077,7 +1118,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             $r = $group['parent'];
                             $catName = $r['doc_type_name'] ?? 'Uncategorized';
                             $catSlug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $catName));
-                            $itemNo = (($list['page'] ?? 1) - 1) * ($list['per_page'] ?? 50) + $i + 1;
+                            $itemNo = (int) ($group['type_seq'] ?? ((($list['page'] ?? 1) - 1) * ($list['per_page'] ?? 50) + $i + 1));
                             $revKey = 'rev-' . $r['request_id'];
                         @endphp
 

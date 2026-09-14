@@ -455,7 +455,7 @@ class StampService
 
     public function preview(Request $request)
     {
-        \App\Helpers\RegisterQueryHelper::assertFullDcsUser();
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
         @ini_set('memory_limit', '512M');
         @set_time_limit(600);
         $this->autoPlacementCache = [];
@@ -523,7 +523,7 @@ class StampService
 
     public function apply(Request $request)
     {
-        \App\Helpers\RegisterQueryHelper::assertFullDcsUser();
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
         @ini_set('memory_limit', '512M');
         @set_time_limit(600);
         $this->autoPlacementCache = [];
@@ -700,7 +700,7 @@ class StampService
 
     public function remove(Request $request)
     {
-        \App\Helpers\RegisterQueryHelper::assertFullDcsUser();
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
         $request->validate([
             'request_id' => 'required|integer|exists:dcs_document_requests,id',
             'file_key'   => ['required', 'string', 'max:50', 'in:masterlist'],
@@ -765,7 +765,7 @@ class StampService
 
     public function download(Request $request)
     {
-        \App\Helpers\RegisterQueryHelper::assertFullDcsUser();
+        \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
         @ini_set('memory_limit', '512M');
         @set_time_limit(600);
         $this->autoPlacementCache = [];

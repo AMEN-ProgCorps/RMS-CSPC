@@ -61,8 +61,7 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
 }; ?>
 
 @php
-    $originator = trim((string) ($drf->originator_name ?? ''))
-        ?: trim((string) ($drf->prepared_by_name ?? ''));
+    $originator = trim((string) ($drf->originator_name ?? ''));
     $kind = strtolower(trim((string) ($drf->doc_type_kind ?? '')));
     $isInternal = $kind === 'internal';
     $isExternal = $kind === 'external';
@@ -97,20 +96,15 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
                 <span class="ofi-form-code-badge">CSPC-F-DCC-06</span>
             </div>
             <div class="reg-card-body ofi-drf-form ofi-show-form">
-                <div class="reg-grid-2">
+                <div class="reg-grid-2-1">
                     <div class="reg-field">
-                        <label>Request #</label>
-                        <div class="ofi-show-value">{{ $drf->drf_no ?: '—' }}</div>
+                        <label>Originator</label>
+                        <div class="ofi-show-value">{{ $originator ?: '—' }}</div>
                     </div>
                     <div class="reg-field">
                         <label>Date</label>
                         <div class="ofi-show-value">{{ $drfDate }}</div>
                     </div>
-                </div>
-
-                <div class="reg-field">
-                    <label>Originator</label>
-                    <div class="ofi-show-value">{{ $originator ?: '—' }}</div>
                 </div>
 
                 <div class="reg-field">

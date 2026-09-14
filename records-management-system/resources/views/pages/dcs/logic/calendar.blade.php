@@ -11,6 +11,15 @@ class CalendarHelper
 {
     private const CUSTOM_COLORS = ['#0369a1', '#7c3aed', '#be123c', '#0f766e', '#c2410c', '#4338ca'];
 
+    /** Recognizable colors for the standard attendance/event categories. */
+    private const NAMED_CATEGORY_COLORS = [
+        'suspension' => '#dc2626',
+        'leave' => '#16a34a',
+        'wfj' => '#2563eb',
+        // Keep the existing WFH category aligned with the requested WFJ color.
+        'wfh' => '#2563eb',
+    ];
+
     public static function categories(): JsonResponse
     {
         return response()->json(self::categoryRows());
@@ -45,9 +54,10 @@ class CalendarHelper
 
     public static function storeCategory(Request $request): JsonResponse
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('settings');
         $data = $request->validate([
             'name' => 'required|string|max:80',
+            'color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
         ]);
 
         $name = trim($data['name']);
@@ -59,8 +69,11 @@ class CalendarHelper
             throw ValidationException::withMessages(['name' => 'That category already exists.']);
         }
 
+        $selectedColor = trim((string) ($data['color'] ?? ''));
         $used = DB::table('dcs_calendar_categories')->pluck('color')->all();
-        $color = collect(self::CUSTOM_COLORS)->first(fn ($c) => !in_array($c, $used, true)) ?: self::CUSTOM_COLORS[0];
+        $color = $selectedColor !== ''
+            ? mb_strtolower($selectedColor)
+            : self::colorForCategory($name, $used);
 
         $id = DB::table('dcs_calendar_categories')->insertGetId([
             'name' => $name,
@@ -76,9 +89,48 @@ class CalendarHelper
         return response()->json(self::categoryRows()->firstWhere('id', $id));
     }
 
+    public static function updateCategory(Request $request, int $id): JsonResponse
+    {
+        RegisterQueryHelper::assertFullDcsUser('settings');
+        $cat = DB::table('dcs_calendar_categories')->where('id', $id)->first();
+        if (!$cat) {
+            abort(404);
+        }
+
+        $data = $request->validate([
+            'color' => ['required', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'name' => 'nullable|string|max:80',
+        ]);
+
+        $payload = [
+            'color' => mb_strtolower(trim($data['color'])),
+            'updated_at' => now(),
+        ];
+
+        if (array_key_exists('name', $data) && trim((string) $data['name']) !== '') {
+            $name = trim($data['name']);
+            $exists = DB::table('dcs_calendar_categories')
+                ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+                ->where('id', '!=', $id)
+                ->exists();
+            if ($exists) {
+                throw ValidationException::withMessages(['name' => 'That category already exists.']);
+            }
+            $payload['name'] = $name;
+        }
+
+        DB::table('dcs_calendar_categories')->where('id', $id)->update($payload);
+
+        RegisterPersistHelper::logAdminChange(
+            'Updated calendar category #' . $id . ' — ' . ($payload['name'] ?? $cat->name)
+        );
+
+        return response()->json(self::categoryRows()->firstWhere('id', $id));
+    }
+
     public static function storeEvent(Request $request): JsonResponse
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('settings');
         $data = self::validatedEvent($request);
 
         $id = DB::table('dcs_calendar_events')->insertGetId([
@@ -102,7 +154,7 @@ class CalendarHelper
 
     public static function updateEvent(Request $request, int $id): JsonResponse
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('settings');
         $existing = DB::table('dcs_calendar_events')->where('id', $id)->first();
         if (!$existing) {
             abort(404);
@@ -129,7 +181,7 @@ class CalendarHelper
 
     public static function destroyEvent(int $id): JsonResponse
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('settings');
         $event = DB::table('dcs_calendar_events')->where('id', $id)->first();
         $deleted = DB::table('dcs_calendar_events')->where('id', $id)->delete();
         if (!$deleted) {
@@ -147,7 +199,7 @@ class CalendarHelper
 
     public static function destroyCategory(int $id): JsonResponse
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('settings');
         $cat = DB::table('dcs_calendar_categories')->where('id', $id)->first();
         if (!$cat) {
             abort(404);
@@ -201,6 +253,22 @@ class CalendarHelper
                 'color' => $row->color,
                 'is_system' => (bool) $row->is_system,
             ]);
+    }
+
+    /**
+     * Standard categories retain their meaning wherever they are created;
+     * custom categories receive the next available palette color.
+     */
+    private static function colorForCategory(string $name, array $used): string
+    {
+        $key = mb_strtolower(trim($name));
+        if (isset(self::NAMED_CATEGORY_COLORS[$key])) {
+            return self::NAMED_CATEGORY_COLORS[$key];
+        }
+
+        return collect(self::CUSTOM_COLORS)
+            ->first(fn ($color) => !in_array($color, $used, true))
+            ?: self::CUSTOM_COLORS[0];
     }
 
     private static function eventById(int $id): array

@@ -15,8 +15,8 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
     public function with(): array
     {
         return [
-            'defaultOriginator' => RegisterQueryHelper::currentUserDisplayName(),
             'offices' => RegisterQueryHelper::jsCatalog()['offices'] ?? [],
+            'clusters' => RegisterQueryHelper::jsCatalog()['clusters'] ?? [],
             'oldDistributeOfficeIds' => array_values(array_filter(array_map(
                 'intval',
                 (array) old('distributeToOffice', [])
@@ -47,19 +47,15 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                     <span>Document Request Form</span>
                 </div>
                 <div class="reg-card-body ofi-drf-form">
-                    <div class="reg-grid-2">
+                    <div class="reg-grid-2-1">
                         <div class="reg-field">
-                            <label>Request #</label>
-                            <input type="text" id="drfNo" name="drfNo" value="{{ old('drfNo') }}" required maxlength="100" placeholder="Enter request number">
+                            <label>Originator</label>
+                            <input type="text" name="originatorName" value="{{ old('originatorName') }}" maxlength="255" placeholder="Name of originator">
                         </div>
                         <div class="reg-field">
                             <label>Date</label>
-                            <input type="date" id="drfDate" name="drfDate" value="{{ old('drfDate', now()->toDateString()) }}" required>
+                            <input type="date" id="drfDate" name="drfDate" value="{{ old('drfDate') }}">
                         </div>
-                    </div>
-                    <div class="reg-field">
-                        <label>Originator</label>
-                        <input type="text" name="originatorName" value="{{ old('originatorName', $defaultOriginator) }}" maxlength="255" placeholder="Name of originator">
                     </div>
                     <div class="reg-field">
                         <label>Document Title</label>
@@ -78,6 +74,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                     </div>
                     <div class="reg-field">
                         <label>Distribute document to (department/position)</label>
+                        <div class="reg-cluster-chips" data-ofi-cluster-widget="distribute" aria-label="Select offices by cluster"></div>
                         <p class="ofi-hint">
                             Search by office name or code — office <strong>code</strong> prints on the form.
                             Click the <i class="fa-solid fa-chevron-down ofi-hint-icon"></i> arrow to view or remove selected offices.
@@ -108,6 +105,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
 
 <script>
 window.__ofiOffices = @json($offices);
+window.__ofiClusters = @json($clusters);
 window.__ofiOldDistribute = @json($oldDistributeOfficeIds);
 window.__ofiSourceConfigs = [
     {

@@ -18,6 +18,14 @@ class SyllabiMonitoringHelper
     /** Sentinel date for remarks when no syllabus deadline filter is selected. */
     public const OVERALL_DEADLINE = '1900-01-01';
 
+    public const YEAR_LEVELS = [
+        '1st Year',
+        '2nd Year',
+        '3rd Year',
+        '4th Year',
+        '5th Year',
+    ];
+
     public static function subtypeId(string $needle): ?int
     {
         $needle = strtolower($needle);
@@ -38,7 +46,7 @@ class SyllabiMonitoringHelper
             })?->id;
     }
 
-    public static function build(?int $collegeId, ?int $schoolYearId, ?int $semesterId, ?string $deadline): array
+    public static function build(?int $collegeId, ?int $schoolYearId, ?int $semesterId, ?string $deadline, ?string $yearLevel = null): array
     {
         $empty = [
             'ready' => false,
@@ -60,7 +68,16 @@ class SyllabiMonitoringHelper
             return $empty;
         }
 
-        $deadlines = self::availableDeadlines($collegeId, $schoolYearId, $semesterId);
+        $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
+        if ($yearLevel !== null && $yearLevel !== '') {
+            if (! $hasYearLevel || ! in_array($yearLevel, self::YEAR_LEVELS, true)) {
+                $yearLevel = null;
+            }
+        } else {
+            $yearLevel = null;
+        }
+
+        $deadlines = self::availableDeadlines($collegeId, $schoolYearId, $semesterId, $yearLevel);
         // Only accept a deadline that exists on syllabi masterlist rows for this filter set.
         if ($deadline && ! in_array($deadline, $deadlines, true)) {
             $deadline = null;
@@ -75,20 +92,32 @@ class SyllabiMonitoringHelper
         if (Schema::hasColumn('dcs_program_courses', 'course_code')) {
             $courseColumns[] = 'course_code';
         }
-        $courses = DB::table('dcs_program_courses')
+        if ($hasYearLevel) {
+            $courseColumns[] = 'year_level';
+        }
+        $coursesQ = DB::table('dcs_program_courses')
             ->where('semester_id', $semesterId)
-            ->whereIn('program_id', $programs->pluck('id')->all() ?: [0])
-            ->orderBy('course_name')
-            ->get($courseColumns);
+            ->whereIn('program_id', $programs->pluck('id')->all() ?: [0]);
+        if ($hasYearLevel && $yearLevel) {
+            $coursesQ->where('year_level', $yearLevel);
+        }
+        if ($hasYearLevel) {
+            $coursesQ->orderByRaw("CASE year_level
+                WHEN '1st Year' THEN 1
+                WHEN '2nd Year' THEN 2
+                WHEN '3rd Year' THEN 3
+                WHEN '4th Year' THEN 4
+                WHEN '5th Year' THEN 5
+                ELSE 99 END");
+        }
+        $courses = $coursesQ->orderBy('course_name')->get($courseColumns);
 
         $coursesByProgram = $courses->groupBy('program_id');
-
-        $facultyByCourse = self::facultyNamesByCourseId($courses->pluck('id')->all());
 
         $syllabiTypeId = self::subtypeId('syllabi');
         $tosTypeId = self::subtypeId('tos');
 
-        $submissions = self::loadSubmissions($collegeId, $schoolYearId, $semesterId, $deadline);
+        $submissions = self::loadSubmissions($collegeId, $schoolYearId, $semesterId, $deadline, $yearLevel);
 
         $rows = [];
         $totals = self::emptyTotals();
@@ -117,7 +146,7 @@ class SyllabiMonitoringHelper
                 $syllabiActual = $syllabiActualIds->count();
             }
             $syllabiLacking = max(0, $target - $syllabiActual);
-            $lackingNames = self::lackingCourseLabels($catalog, $syllabiActualIds, $facultyByCourse);
+            $lackingNames = self::lackingCourseLabels($catalog, $syllabiActualIds);
 
             $tosTarget = $target;
             $tosActual = $tosActualIds->intersect($catalogIds)->count();
@@ -135,7 +164,7 @@ class SyllabiMonitoringHelper
             if ($target === 0) {
                 $drfActual = $drfCourseIds->count();
             }
-            $drfLackingNames = self::lackingCourseLabels($catalog, $drfCourseIds, $facultyByCourse);
+            $drfLackingNames = self::lackingCourseLabels($catalog, $drfCourseIds);
             $tosDrfCourseIds = $tosSubs
                 ->filter(fn ($row) => (int) $row->drf_actual > 0)
                 ->pluck('course_id')
@@ -147,8 +176,8 @@ class SyllabiMonitoringHelper
                 $tosDrfActual = $tosDrfCourseIds->count();
             }
             $tosLacking = max(0, $tosTarget - $tosActual);
-            $tosLackingNames = self::lackingCourseLabels($catalog, $tosActualIds, $facultyByCourse);
-            $tosDrfLackingNames = self::lackingCourseLabels($catalog, $tosDrfCourseIds, $facultyByCourse);
+            $tosLackingNames = self::lackingCourseLabels($catalog, $tosActualIds);
+            $tosDrfLackingNames = self::lackingCourseLabels($catalog, $tosDrfCourseIds);
 
             $saved = self::savedStatuses($collegeId, $schoolYearId, $semesterId, (int) $program->id, $statusDeadline);
             $syllabiStatus = $saved['syllabi'] ?? self::suggestStatus($syllabiActual, $target, $syllabiSubs, $deadline);
@@ -230,6 +259,7 @@ class SyllabiMonitoringHelper
                 'college_code' => $college->college_code,
                 'school_year' => $schoolYear->school_year,
                 'semester' => $semester->semester_name,
+                'year_level' => $yearLevel,
                 'deadline' => $deadline ? self::formatDate($deadline) : null,
             ],
         ];
@@ -240,7 +270,7 @@ class SyllabiMonitoringHelper
      *
      * @return list<string> Y-m-d dates
      */
-    public static function availableDeadlines(int $collegeId, int $schoolYearId, int $semesterId): array
+    public static function availableDeadlines(int $collegeId, int $schoolYearId, int $semesterId, ?string $yearLevel = null): array
     {
         $query = DB::table('dcs_syllabi as s')
             ->join('dcs_masterlist_registration as ml', 'ml.request_id', '=', 's.request_id')
@@ -248,6 +278,11 @@ class SyllabiMonitoringHelper
             ->where('s.school_year_id', $schoolYearId)
             ->where('s.semester_id', $semesterId)
             ->whereNotNull('ml.deadline');
+
+        if ($yearLevel && Schema::hasColumn('dcs_program_courses', 'year_level')) {
+            $query->join('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
+                ->where('pc.year_level', $yearLevel);
+        }
 
         if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
             $query->join('dcs_document_requests as dr', 'dr.id', '=', 's.request_id')
@@ -268,7 +303,7 @@ class SyllabiMonitoringHelper
             ->all();
     }
 
-    private static function loadSubmissions(int $collegeId, int $schoolYearId, int $semesterId, ?string $deadline)
+    private static function loadSubmissions(int $collegeId, int $schoolYearId, int $semesterId, ?string $deadline, ?string $yearLevel = null)
     {
         $query = DB::table('dcs_syllabi as s')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 's.request_id')
@@ -279,6 +314,10 @@ class SyllabiMonitoringHelper
             ->where('s.school_year_id', $schoolYearId)
             ->where('s.semester_id', $semesterId)
             ->where('s.is_available', true);
+
+        if ($yearLevel && Schema::hasColumn('dcs_program_courses', 'year_level')) {
+            $query->where('pc.year_level', $yearLevel);
+        }
 
         if ($deadline) {
             $query->whereDate('ml.deadline', $deadline);
@@ -438,46 +477,25 @@ class SyllabiMonitoringHelper
     {
         $code = trim((string) ($course->course_code ?? ''));
         $name = trim((string) ($course->course_name ?? ''));
-
-        return $code !== '' ? $code : $name;
-    }
-
-    /** @param list<int|string> $courseIds @return array<int|string, string> */
-    private static function facultyNamesByCourseId(array $courseIds): array
-    {
-        if ($courseIds === [] || ! Schema::hasTable('dcs_program_course_faculties')) {
-            return [];
+        $year = trim((string) ($course->year_level ?? ''));
+        $base = $code !== '' ? $code : $name;
+        if ($year !== '') {
+            return $base . ' (' . $year . ')';
         }
 
-        return DB::table('dcs_program_course_faculties as pcf')
-            ->join('dcs_faculties as f', 'f.id', '=', 'pcf.faculty_id')
-            ->whereIn('pcf.program_course_id', $courseIds)
-            ->orderBy('f.faculty_name')
-            ->get(['pcf.program_course_id', 'f.faculty_name'])
-            ->groupBy('program_course_id')
-            ->map(fn ($rows) => $rows->pluck('faculty_name')->join(', '))
-            ->all();
+        return $base;
     }
 
     /**
      * @param \Illuminate\Support\Collection<int, object> $catalog
      * @param \Illuminate\Support\Collection<int, mixed> $submittedIds
-     * @param array<int|string, string> $facultyByCourse
      * @return list<string>
      */
-    private static function lackingCourseLabels($catalog, $submittedIds, array $facultyByCourse): array
+    private static function lackingCourseLabels($catalog, $submittedIds): array
     {
         return $catalog
             ->reject(fn ($c) => $submittedIds->contains($c->id))
-            ->map(function ($c) use ($facultyByCourse) {
-                $label = self::courseLabel($c);
-                $instructor = trim((string) ($facultyByCourse[$c->id] ?? $facultyByCourse[(string) $c->id] ?? ''));
-                if ($instructor !== '') {
-                    return $label . ' — ' . $instructor;
-                }
-
-                return $label;
-            })
+            ->map(fn ($c) => self::courseLabel($c))
             ->values()
             ->all();
     }

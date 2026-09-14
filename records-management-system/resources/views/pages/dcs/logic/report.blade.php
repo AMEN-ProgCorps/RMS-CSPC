@@ -635,12 +635,12 @@ class ReportHelper
             $timeReleased = $dist && $dist->doc_distribution_time_actual
                 ? $this->formatTime($dist->doc_distribution_time_actual) : null;
 
-            // Time spent 2 (mins) — stored distribution time, else registration to distribution
+            // Time spent 2 (mins) — stored distribution time, else masterlist receipt → distribution
             $timeSpent2 = ($dist && $dist->time_spent !== null && $dist->time_spent !== '')
                 ? (int) $dist->time_spent
                 : null;
-            if ($timeSpent2 === null && $ml && $ml->doc_registered_date && $dist && $dist->doc_distribution_date_actual) {
-                $start = $this->combineDateTime($ml->doc_registered_date, $ml->doc_registered_time);
+            if ($timeSpent2 === null && $ml && $ml->doc_receipt_date && $dist && $dist->doc_distribution_date_actual) {
+                $start = $this->combineDateTime($ml->doc_receipt_date, $ml->doc_receipt_time);
                 $end = $this->combineDateTime($dist->doc_distribution_date_actual, $dist->doc_distribution_time_actual);
                 $timeSpent2 = ($start && $end) ? (int) $start->diffInMinutes($end) : null;
             }
@@ -1487,7 +1487,7 @@ class ReportHelper
 
     public function export(Request $request)
     {
-        RegisterQueryHelper::assertFullDcsUser();
+        RegisterQueryHelper::assertFullDcsUser('reports');
         $category = $request->get('category');
         $sub      = $request->get('sub');
         [$dateFrom, $dateTo, $asOf, $period] = $this->resolveDateRange($request);
@@ -1572,7 +1572,19 @@ class ReportHelper
         // ── CSV ──
         if ($format === 'xlsx' || $format === 'csv') {
             $csvContent = $this->buildCsvContent($data['columns'], $rows, $data['group_headers'] ?? []);
-            $this->archiveGeneratedReport($csvContent, 'csv', $category, $sub, $data, $rows, $dateFrom, $dateTo, $period, $filters);
+            $this->archiveGeneratedReport(
+                $csvContent,
+                'csv',
+                $category,
+                $sub,
+                $data,
+                $rows,
+                $dateFrom,
+                $dateTo,
+                $period,
+                $this->archiveFiltersForFingerprint($request, $filters),
+                $this->shouldArchiveGeneratedReport($request)
+            );
 
             return response($csvContent, 200, [
                 'Content-Type'        => 'text/csv; charset=UTF-8',
@@ -1625,7 +1637,19 @@ class ReportHelper
             // Right
             $canvas->page_text($w - 130, $footerY, 'Page {PAGE_NUM} of {PAGE_COUNT}', $font, 9, [0, 0, 0], 0, 1, '');
             $output = $dompdf->output();
-            $this->archiveGeneratedReport($output, 'pdf', $category, $sub, $data, $rows, $dateFrom, $dateTo, $period, $filters);
+            $this->archiveGeneratedReport(
+                $output,
+                'pdf',
+                $category,
+                $sub,
+                $data,
+                $rows,
+                $dateFrom,
+                $dateTo,
+                $period,
+                $this->archiveFiltersForFingerprint($request, $filters),
+                $this->shouldArchiveGeneratedReport($request)
+            );
 
             // OPCR / print: open blank window with embedded PDF so Chrome headers don't show the export URL
             if ($request->boolean('autoPrint')) {
@@ -1724,6 +1748,41 @@ HTML;
         ];
     }
 
+    private function shouldArchiveGeneratedReport(Request $request): bool
+    {
+        // Print-only should not create Manage Files copies; explicit downloads still archive.
+        if ($request->boolean('autoPrint')) {
+            return false;
+        }
+
+        if ($request->has('archive') && ! $request->boolean('archive')) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Include selection + template in the fingerprint so partial/row-filtered exports stay distinct.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array<string, mixed>
+     */
+    private function archiveFiltersForFingerprint(Request $request, array $filters): array
+    {
+        $rowsParam = trim((string) $request->get('rows', ''));
+        if ($rowsParam !== '') {
+            $filters['_export_rows'] = $rowsParam;
+        }
+
+        $templateId = (int) $request->get('template_id', 0);
+        if ($templateId > 0) {
+            $filters['_template_id'] = $templateId;
+        }
+
+        return $filters;
+    }
+
     private function archiveGeneratedReport(
         string $content,
         string $format,
@@ -1734,9 +1793,10 @@ HTML;
         $dateFrom,
         $dateTo,
         ?string $period,
-        array $filters
+        array $filters,
+        bool $shouldArchive = true
     ): void {
-        if (trim($content) === '') {
+        if (! $shouldArchive || trim($content) === '') {
             return;
         }
 
@@ -1747,7 +1807,7 @@ HTML;
             : '';
 
         try {
-            DocumentStorageService::storeGeneratedReport($content, $format, [
+            $stored = DocumentStorageService::storeGeneratedReport($content, $format, [
                 'category'     => $category,
                 'sub_category' => $sub,
                 'title'        => trim(($data['title'] ?? $catLabel) . ($subLabel ? ' — ' . $subLabel : '')),
@@ -1757,6 +1817,14 @@ HTML;
                 'date_to'      => $dateTo,
                 'period'       => $period,
             ]);
+
+            if (! empty($stored['reused'])) {
+                RegisterPersistHelper::logAdminChange(
+                    'Reused existing Manage Files report — ' . $category
+                    . ($sub ? '/' . $sub : '')
+                    . ' (' . $format . ', ' . ($stored['report_token'] ?? '') . ')'
+                );
+            }
         } catch (\Throwable $e) {
             // Never block report download if archiving fails (e.g. Drive or cache unavailable).
             try {

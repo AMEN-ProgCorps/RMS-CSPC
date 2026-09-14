@@ -16,8 +16,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 'officeDrfCount' => OfficeIntakeHelper::listMyDrf()->count(),
                 'officeDcnCount' => OfficeIntakeHelper::listMyDcn()->count(),
                 'headerDate' => now('Asia/Manila')->format('l, F j, Y'),
+                'headerTime' => now('Asia/Manila')->format('g:i:s A'),
                 'stats' => [],
-                'typeIds' => [],
                 'holidays' => [],
             ];
         }
@@ -96,17 +96,28 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'typeIds' => $typeIds,
             'headerDate' => now('Asia/Manila')->format('l, F j, Y'),
             'holidays' => $holidays,
+            'canDatabase' => RegisterQueryHelper::canAccessDcsModule('database'),
+            'canRegister' => RegisterQueryHelper::canAccessDcsModule('register'),
+            'canSettings' => RegisterQueryHelper::canAccessDcsModule('settings'),
+            'canStamping' => RegisterQueryHelper::canAccessDcsModule('stamping'),
         ];
     }
 }; ?>
 
 @if(!empty($isLimitedDcs))
-<div class="ofi-page">
+<div class="ofi-page" x-data="ofiDashboardClock()">
     <div class="ofi-inner">
         <div class="ofi-header">
             <div>
                 <h1>Document Control System</h1>
-                <p>{{ $headerDate }} — Create and print your Document Request Forms and Document Change Notices, then submit the printed copies to RFIO.</p>
+                <p>Create and print your Document Request Forms and Document Change Notices, then submit the printed copies to RFIO.</p>
+            </div>
+            <div class="header-date dash-calendar-trigger" aria-live="polite">
+                <i class="fa-regular fa-calendar"></i>
+                <span class="dash-calendar-trigger-text">
+                    <span class="dash-calendar-trigger-date">{{ $headerDate }}</span>
+                    <span class="dash-calendar-trigger-time" x-text="nowClock" x-cloak>{{ $headerTime }}</span>
+                </span>
             </div>
         </div>
         @if(session('error'))
@@ -130,6 +141,33 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
     </div>
 </div>
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('ofiDashboardClock', () => ({
+        nowClock: @json($headerTime),
+        _timer: null,
+        tick() {
+            try {
+                this.nowClock = new Date().toLocaleTimeString([], {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    second: '2-digit',
+                });
+            } catch (e) {
+                const n = new Date();
+                this.nowClock = n.toTimeString().slice(0, 8);
+            }
+        },
+        init() {
+            this.tick();
+            this._timer = setInterval(() => this.tick(), 1000);
+        },
+        destroy() {
+            if (this._timer) clearInterval(this._timer);
+        },
+    }));
+});
+</script>
 @else
 <main class="dashboard-main" wire:ignore x-data="dcsDashboardCalendar()">
     <div
@@ -154,15 +192,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="dashboard-content-wrapper dashboard-content-wrapper--full">
                 <div class="main-column">
             <section class="dash-queue-bar">
-                <a href="{{ route('dcs.database.index', absolute: false) }}" class="dash-queue-chip">
-                    <span>Total</span><strong>{{ number_format((int) $stats['totalDocuments']) }}</strong>
-                </a>
-                <a href="{{ route('dcs.database.index', ['revision' => 'latest'], absolute: false) }}" class="dash-queue-chip is-latest">
-                    <span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong>
-                </a>
-                <a href="{{ route('dcs.database.index', ['revision' => 'obsolete'], absolute: false) }}" class="dash-queue-chip is-obsolete">
-                    <span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong>
-                </a>
+                @if(!empty($canDatabase))
+                    <a href="{{ route('dcs.database.index', absolute: false) }}" class="dash-queue-chip">
+                        <span>Total</span><strong>{{ number_format((int) $stats['totalDocuments']) }}</strong>
+                    </a>
+                    <a href="{{ route('dcs.database.index', ['revision' => 'latest'], absolute: false) }}" class="dash-queue-chip is-latest">
+                        <span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong>
+                    </a>
+                    <a href="{{ route('dcs.database.index', ['revision' => 'obsolete'], absolute: false) }}" class="dash-queue-chip is-obsolete">
+                        <span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong>
+                    </a>
+                @else
+                    <div class="dash-queue-chip"><span>Total</span><strong>{{ number_format((int) $stats['totalDocuments']) }}</strong></div>
+                    <div class="dash-queue-chip is-latest"><span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong></div>
+                    <div class="dash-queue-chip is-obsolete"><span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong></div>
+                @endif
             </section>
 
             <section class="stats-row">
@@ -174,7 +218,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     ['id' => 'logbooksCount', 'typeKey' => 'logbooks', 'label' => 'Logbooks', 'icon' => 'fa-book', 'accent' => 'green'],
                 ] as $box)
                     @php $count = (int) ($stats[$box['id']] ?? 0); @endphp
-                    <a href="{{ route('dcs.database.index', ['type' => $typeIds[$box['typeKey']] ?? null, 'revision' => 'latest'], absolute: false) }}" class="stat-box" @if($box['accent']) data-accent="{{ $box['accent'] }}" @endif>
+                    @if(!empty($canDatabase))
+                        <a href="{{ route('dcs.database.index', ['type' => $typeIds[$box['typeKey']] ?? null, 'revision' => 'latest'], absolute: false) }}" class="stat-box" @if($box['accent']) data-accent="{{ $box['accent'] }}" @endif>
+                    @else
+                        <div class="stat-box" @if($box['accent']) data-accent="{{ $box['accent'] }}" @endif>
+                    @endif
                         <div class="stat-icon-wrap"><i class="fa-solid {{ $box['icon'] }}"></i></div>
                         <div class="stat-body">
                             <p class="stat-label">{{ $box['label'] }}</p>
@@ -182,7 +230,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <h3 class="stat-value">{{ number_format($count) }}</h3>
                             </div>
                         </div>
-                    </a>
+                    @if(!empty($canDatabase))
+                        </a>
+                    @else
+                        </div>
+                    @endif
                 @endforeach
             </section>
 
@@ -408,6 +460,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </template>
             </section>
 
+            @if(!empty($canRegister))
             <section class="actions-section">
                 <div class="section-header">
                     <h2>Quick Actions</h2>
@@ -440,6 +493,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </a>
                 </div>
             </section>
+            @endif
         </div>
             </div>
 
@@ -493,7 +547,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <div class="ev-category-pills" x-show="categories.length > 0">
                                 <button type="button" class="ev-cat-pill" :class="{ 'is-active': eventCategoryFilter === '' }" @click="eventCategoryFilter = ''">All</button>
                                 <template x-for="cat in categories" :key="cat.id">
-                                    <button type="button" class="ev-cat-pill" :class="{ 'is-active': String(eventCategoryFilter) === String(cat.id) }" @click="eventCategoryFilter = cat.id" x-text="cat.name"></button>
+                                    <button
+                                        type="button"
+                                        class="ev-cat-pill is-category"
+                                        :class="{ 'is-active': String(eventCategoryFilter) === String(cat.id) }"
+                                        :style="{ '--event-category-color': categoryColor(cat) }"
+                                        @click="eventCategoryFilter = cat.id"
+                                        x-text="cat.name"
+                                    ></button>
                                 </template>
                             </div>
                             <div class="upcoming-list">
@@ -504,12 +565,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     </div>
                                 </template>
                                 <template x-for="ev in filteredUpcoming" :key="ev.id">
-                                    <div class="upcoming-item" :class="{ 'is-past': isPastEvent(ev) }" x-on:click="openDay(ev.date)">
+                                    <div class="upcoming-item" x-on:click="openDay(ev.date)">
                                         <div class="upcoming-event-dot" :style="'background-color:' + (ev.color || '#0d2a7a')"></div>
                                         <div class="upcoming-info">
                                             <div class="upcoming-title-row">
                                                 <div class="title" x-text="ev.title"></div>
-                                                <span class="upcoming-done-badge" x-show="isPastEvent(ev)" x-cloak>Done</span>
                                             </div>
                                             <div class="time" x-text="eventListMeta(ev)"></div>
                                         </div>
@@ -544,13 +604,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <div class="ev-empty"><i class="fa-regular fa-calendar"></i><span>No events scheduled</span></div>
                             </template>
                             <template x-for="ev in dayEvents" :key="ev.id">
-                                <div class="ev-card" :class="{ 'is-past': isPastEvent(ev) }">
+                                <div class="ev-card">
                                     <div class="ev-card-color" :style="'background:' + (ev.color || '#0d2a7a')"></div>
                                     <div class="ev-card-body">
                                         <div class="ev-card-top">
                                             <div class="ev-card-title-wrap">
                                                 <div class="ev-card-title" x-text="ev.title"></div>
-                                                <span class="upcoming-done-badge" x-show="isPastEvent(ev)" x-cloak>Done</span>
                                             </div>
                                             <div class="ev-card-btns" x-show="!ev.readonly">
                                                 <button type="button" class="ev-card-btn" x-on:click="openEdit(ev.id)"><i class="fa-solid fa-pen"></i></button>
@@ -594,10 +653,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <div class="ev-field">
                                 <label class="ev-label">Category</label>
                                 <div class="ev-cat-select-row">
-                                    <select class="ev-input" x-model="form.category_id" required>
+                                    <select
+                                        class="ev-input"
+                                        :key="'ev-cat-' + String(editingId ?? 'new')"
+                                        x-model="form.category_id"
+                                        required
+                                    >
                                         <option value="">Select category</option>
                                         <template x-for="cat in categories" :key="cat.id">
-                                            <option :value="cat.id" x-text="cat.name"></option>
+                                            <option
+                                                :value="String(cat.id)"
+                                                :selected="String(form.category_id) === String(cat.id)"
+                                                x-text="cat.name"
+                                            ></option>
                                         </template>
                                     </select>
                                     <button type="button" class="ev-cat-icon-btn" title="Add category" :class="{ 'is-open': addingCategory }" @click="toggleAddCategory()">
@@ -608,8 +676,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     </button>
                                 </div>
                                 <div class="ev-cat-add" x-show="addingCategory" x-cloak>
+                                    <label class="ev-color-picker" title="Category color">
+                                        <span>Color</span>
+                                        <input type="color" x-model="newCategoryColor" aria-label="Category color">
+                                    </label>
                                     <input class="ev-input" x-ref="newCatInput" x-model="newCategory" placeholder="Category name" autocomplete="off" @keydown.enter.prevent="addCategory">
                                     <button type="button" class="ev-btn ev-btn-ghost" @click="addCategory">Add</button>
+                                </div>
+                                <div class="ev-cat-add" x-show="form.category_id && !addingCategory" x-cloak>
+                                    <label class="ev-color-picker" title="Update category color">
+                                        <span>Color</span>
+                                        <input
+                                            type="color"
+                                            :value="selectedCategoryColor"
+                                            @input="updateSelectedCategoryColor($event.target.value)"
+                                            aria-label="Update category color"
+                                        >
+                                    </label>
+                                    <span class="ev-cat-color-hint">Change color for the selected category</span>
                                 </div>
                             </div>
                             <div class="ev-field">
@@ -858,6 +942,7 @@ document.addEventListener('alpine:init', () => {
         saving: false,
         addingCategory: false,
         newCategory: '',
+        newCategoryColor: '#0369a1',
         form: { title: '', category_id: '', date: '', startTime: '09:00', endTime: '10:00', description: '' },
         csrf() {
             return document.querySelector('meta[name="csrf-token"]')?.content || '';
@@ -950,30 +1035,16 @@ document.addEventListener('alpine:init', () => {
         displayDateShort(iso) {
             return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         },
-        isPastEvent(ev) {
-            const d = String(ev.date || '').slice(0, 10);
-            if (d === '') return false;
-            const today = this.todayIso();
-            if (d < today) return true;
-            if (d > today) return false;
-
-            // Same calendar day: treat as done once end time has passed.
-            const endRaw = String(ev.endTime || ev.startTime || '23:59').slice(0, 5);
-            const parts = endRaw.split(':');
-            const hh = parseInt(parts[0], 10);
-            const mm = parseInt(parts[1] || '0', 10);
-            if (Number.isNaN(hh)) return false;
-            const now = new Date();
-            const endAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, Number.isNaN(mm) ? 0 : mm, 0, 0);
-            return Date.now() > endAt.getTime();
-        },
         eventListMeta(ev) {
             const d = String(ev.date || '').slice(0, 10);
             const t = this.todayIso();
             const datePart = d === t ? 'Today' : this.displayDateShort(d);
             const cat = ev.category_name ? ev.category_name + ' · ' : '';
-            const done = this.isPastEvent(ev) ? 'Done · ' : '';
-            return done + cat + datePart + ' · ' + this.formatTime(ev.startTime) + ' — ' + this.formatTime(ev.endTime);
+            return cat + datePart + ' · ' + this.formatTime(ev.startTime) + ' — ' + this.formatTime(ev.endTime);
+        },
+        categoryColor(category) {
+            const color = String(category?.color || '').trim();
+            return /^#[0-9a-f]{6}$/i.test(color) ? color : '#0d2a7a';
         },
         changeMonth(dir) {
             this.month += dir;
@@ -1018,29 +1089,35 @@ document.addEventListener('alpine:init', () => {
         },
         openAdd(iso) {
             this.editingId = null;
+            const categoryId = this.categories[0]?.id != null ? String(this.categories[0].id) : '';
             this.form = {
                 title: '',
-                category_id: this.categories[0]?.id || '',
+                category_id: '',
                 date: iso || this.todayIso(),
                 startTime: '09:00',
                 endTime: '10:00',
                 description: '',
             };
             this.modal = 'form';
+            // Select options render via x-for after the modal mounts; set value on next tick.
+            this.$nextTick(() => { this.form.category_id = categoryId; });
         },
         openEdit(id) {
             const ev = this.events.find(e => String(e.id) === String(id));
             if (!ev || ev.readonly) return;
             this.editingId = id;
+            const categoryId = ev.category_id != null ? String(ev.category_id) : '';
             this.form = {
                 title: ev.title,
-                category_id: ev.category_id,
+                category_id: '',
                 date: String(ev.date).slice(0, 10),
                 startTime: ev.startTime,
                 endTime: ev.endTime,
                 description: ev.description || '',
             };
             this.modal = 'form';
+            // Select options render via x-for after the modal mounts; set value on next tick.
+            this.$nextTick(() => { this.form.category_id = categoryId; });
         },
         toggleAddCategory() {
             this.addingCategory = !this.addingCategory;
@@ -1048,6 +1125,7 @@ document.addEventListener('alpine:init', () => {
                 this.$nextTick(() => this.$refs.newCatInput?.focus());
             } else {
                 this.newCategory = '';
+                this.newCategoryColor = '#0369a1';
             }
         },
         async addCategory() {
@@ -1057,7 +1135,7 @@ document.addEventListener('alpine:init', () => {
                 const res = await fetch('/dcs/api/calendar/categories', {
                     method: 'POST',
                     headers: this.headers(true),
-                    body: JSON.stringify({ name }),
+                    body: JSON.stringify({ name, color: this.newCategoryColor }),
                 });
                 const data = await res.json();
                 if (!res.ok) {
@@ -1065,11 +1143,42 @@ document.addEventListener('alpine:init', () => {
                     return;
                 }
                 this.categories.push(data);
-                this.form.category_id = data.id;
+                this.form.category_id = String(data.id);
                 this.newCategory = '';
+                this.newCategoryColor = '#0369a1';
                 this.addingCategory = false;
             } catch (e) {
                 alert('Could not add category.');
+            }
+        },
+        get selectedCategoryColor() {
+            const cat = this.categories.find(c => String(c.id) === String(this.form.category_id));
+            return cat?.color || '#0369a1';
+        },
+        async updateSelectedCategoryColor(color) {
+            const cat = this.categories.find(c => String(c.id) === String(this.form.category_id));
+            if (!cat || !color) return;
+            const previous = cat.color;
+            cat.color = color;
+            try {
+                const res = await fetch('/dcs/api/calendar/categories/' + cat.id, {
+                    method: 'PUT',
+                    headers: this.headers(true),
+                    body: JSON.stringify({ color }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    cat.color = previous;
+                    alert(data.message || data.errors?.color?.[0] || 'Could not update category color.');
+                    return;
+                }
+                if (data?.color) cat.color = data.color;
+                this.events = this.events.map(ev => String(ev.category_id) === String(cat.id)
+                    ? { ...ev, color: cat.color }
+                    : ev);
+            } catch (e) {
+                cat.color = previous;
+                alert('Could not update category color.');
             }
         },
         async removeSelectedCategory() {
@@ -1091,7 +1200,7 @@ document.addEventListener('alpine:init', () => {
                 }
                 this.categories = this.categories.filter(c => c.id !== cat.id);
                 if (String(this.form.category_id) === String(cat.id)) {
-                    this.form.category_id = this.categories[0]?.id || '';
+                    this.form.category_id = this.categories[0]?.id != null ? String(this.categories[0].id) : '';
                 }
             } catch (e) {
                 alert('Could not delete category.');

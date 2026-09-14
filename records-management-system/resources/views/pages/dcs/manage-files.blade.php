@@ -147,8 +147,9 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Manage Files')] 
         if ($canViewAll) {
             $offices = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
                 ->select('office_code', 'office_name')
-                ->where('is_active', true)
-                ->whereNotIn('office_code', ['ORIGIN', '[H]'])
+                ->where('is_active', true);
+            \App\Helpers\RegisterQueryHelper::applySelectableOfficesFilter($offices);
+            $offices = $offices
                 ->orderBy('office_name', 'asc')
                 ->get();
         }

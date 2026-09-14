@@ -7,7 +7,8 @@ use Illuminate\Support\Facades\Log;
 
 class DcsNotificationService
 {
-    public const RFIO_OFFICE_CODE = 'RFIO';
+    /** @deprecated Prefer RegisterQueryHelper::rfioNotificationOfficeCode() — live DB may use RFOIU. */
+    public const RFIO_OFFICE_CODE = 'RFOIU';
 
     /**
      * Cache and retrieve Document Control System subsystem ID.

@@ -32,6 +32,12 @@ class RegisterUpdateHelper
     public static function update(Request $request, int $id): RedirectResponse
     {
         RegisterQueryHelper::assertFullDcsUser('register');
+
+        $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
+        if (!$rateCheck['allowed']) {
+            return back()->withInput()->with('error', $rateCheck['message']);
+        }
+
         RegisterPersistHelper::blankStringsToNull($request);
 
         if ($redirect = RegisterPersistHelper::rejectInactiveOfficeIds($request)) {
@@ -572,6 +578,14 @@ class RegisterUpdateHelper
                 'Updated document #' . $id
                 . (!empty($ml->doc_no ?? $docNo) ? ' — ' . ($ml->doc_no ?? $docNo) : '')
                 . (!empty($ml->doc_title) ? ': ' . $ml->doc_title : '')
+            );
+
+            \App\Services\DcsAuditService::log(
+                'register.update',
+                'register',
+                (int) $id,
+                null,
+                ['doc_no' => $ml->doc_no ?? $docNo ?? null]
             );
 
             return redirect()->route('dcs.register.edit', $id)

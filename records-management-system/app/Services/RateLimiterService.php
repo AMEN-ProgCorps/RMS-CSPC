@@ -25,9 +25,9 @@ class RateLimiterService
     /**
      * Check if the current user/IP is rate limited for a specific action.
      *
-     * @param string $actionType e.g., 'dts_create', 'dts_action', 'rdp_create'
+     * @param string $actionType e.g., 'dts_create', 'dts_action', 'rdp_create', 'dcs_create', 'dcs_ocr'
      * @param int|null $userId Optional specific user ID
-     * @return array ['allowed' => bool, 'message' => string, 'retry_after' => int]
+     * @return array{allowed: bool, message: string, retry_after: int}
      */
     public static function check(string $actionType = 'dts_create', ?int $userId = null): array
     {
@@ -55,6 +55,9 @@ class RateLimiterService
                 'dts_create' => 'creating transactions',
                 'dts_action' => 'performing workflow actions',
                 'rdp_create' => 'submitting records',
+                'dcs_create' => 'registering / updating DCS documents',
+                'dcs_ocr' => 'running DCS OCR / scan extraction',
+                'dcs_action' => 'performing DCS actions (stamp, calendar, templates, recycle)',
                 default      => 'submitting data',
             };
 
@@ -79,6 +82,9 @@ class RateLimiterService
             'dts_create' => 'rate_limit_dts_create_per_minute',
             'dts_action' => 'rate_limit_dts_action_per_minute',
             'rdp_create' => 'rate_limit_rdp_create_per_minute',
+            'dcs_create' => 'rate_limit_dcs_create_per_minute',
+            'dcs_ocr' => 'rate_limit_dcs_ocr_per_minute',
+            'dcs_action' => 'rate_limit_dcs_action_per_minute',
             default      => 'rate_limit_default_per_minute',
         };
 
@@ -93,6 +99,9 @@ class RateLimiterService
             'dts_create' => 10,
             'dts_action' => 20,
             'rdp_create' => 15,
+            'dcs_create' => 10,
+            'dcs_ocr' => 30,
+            'dcs_action' => 20,
             default      => 10,
         };
     }

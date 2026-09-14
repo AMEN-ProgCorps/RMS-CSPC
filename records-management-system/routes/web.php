@@ -332,7 +332,7 @@ Route::middleware(['auth'])
                     }
                 }
 
-                $systemUnread = (int) \Illuminate\Support\Facades\DB::table($notifTbl)
+                $systemUnreadQuery = \Illuminate\Support\Facades\DB::table($notifTbl)
                     ->join($notifContentTbl, "{$notifTbl}.contents", '=', "{$notifContentTbl}.id")
                     ->join($subsystemsTbl, "{$notifContentTbl}.system", '=', "{$subsystemsTbl}.subsystem_id")
                     ->leftJoin($notifDivTbl, function ($join) use ($userId, $notifTbl, $notifDivTbl) {
@@ -348,8 +348,18 @@ Route::middleware(['auth'])
                     ->where(function ($query) use ($notifDivTbl) {
                         $query->whereNull("{$notifDivTbl}.status")
                               ->orWhere("{$notifDivTbl}.status", 'unread');
-                    })
-                    ->count();
+                    });
+
+                // Match the bell list: limited DCS users must not count full-module deep links.
+                if (\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()) {
+                    $systemUnread = $systemUnreadQuery
+                        ->select("{$notifContentTbl}.redirect_url")
+                        ->get()
+                        ->filter(fn ($row) => \App\Helpers\RegisterQueryHelper::isAllowedNotificationForLimitedDcs($row->redirect_url ?? null))
+                        ->count();
+                } else {
+                    $systemUnread = (int) $systemUnreadQuery->count();
+                }
             }
         } catch (\Throwable $e) {
             $systemUnread = 0;
@@ -566,6 +576,12 @@ Route::middleware(['auth'])
             Volt::route('/dashboard', 'pages.dcs.index')->name('dashboard');
 
             Route::get('/view-document', function (\Illuminate\Http\Request $request) {
+                abort_unless(
+                    $request->hasValidSignatureWhileIgnoring(['v']),
+                    403,
+                    'This document link is invalid or has expired.'
+                );
+
                 $path = $request->query('path');
                 if (! is_string($path) || trim($path) === '') {
                     abort(404);
@@ -598,6 +614,24 @@ Route::middleware(['auth'])
                     ->header('Content-Type', $mime)
                     ->header('Content-Disposition', 'inline; filename="' . $filename . '"');
             })->name('view-document');
+
+            Route::get('/api/signed-scan-url', function (\Illuminate\Http\Request $request) {
+                $path = $request->query('path');
+                if (! is_string($path) || trim($path) === '') {
+                    abort(404);
+                }
+
+                RegisterQueryHelper::assertCanAccessScanPath($path);
+
+                $url = \App\Services\DocumentStorageService::dcsScanUrl($path);
+                abort_unless($url, 404, 'Document file not found.');
+
+                if ($request->boolean('redirect')) {
+                    return redirect()->to($url);
+                }
+
+                return response()->json(['url' => $url]);
+            })->name('api.signed-scan-url');
 
             // Office intake (RFIO full users + limited non-RFIO offices)
             Volt::route('/office/drf', 'pages.dcs.office.drf-index')->name('office.drf.index');
@@ -721,6 +755,8 @@ Route::middleware(['auth'])
                         ->name('reports.distributionTemplate');
                     Route::get('/api/report-templates', fn () => response()->json(ReportTemplateHelper::list()));
                     Route::post('/api/report-templates', fn (Request $request) => ReportTemplateHelper::store($request));
+                    Route::get('/api/report-templates/{id}/preview', fn (int $id) => ReportTemplateHelper::preview($id))
+                        ->name('report-templates.preview');
                     Route::delete('/api/report-templates/{id}', fn (int $id) => ReportTemplateHelper::destroy($id));
                 });
 

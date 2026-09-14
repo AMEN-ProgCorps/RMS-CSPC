@@ -11,6 +11,8 @@ use setasign\Fpdi\Fpdi;
 
 class StampService
 {
+    public const MAX_STAMP_PAGES = 100;
+
     /** @var array<string, array{x: float, y: float}> */
     private array $autoPlacementCache = [];
 
@@ -440,6 +442,39 @@ class StampService
         ];
     }
 
+    /** Reject oversized or encrypted PDFs before Imagick/FPDI work. */
+    private function assertStampablePdf(string $pdfPath): ?\Illuminate\Http\JsonResponse
+    {
+        try {
+            $size = $this->getPdfPageSize($pdfPath, 1);
+            if ((int) ($size['page_count'] ?? 0) > self::MAX_STAMP_PAGES) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'PDF exceeds the maximum of ' . self::MAX_STAMP_PAGES . ' pages for stamping.',
+                ], 422);
+            }
+        } catch (\Throwable $e) {
+            $msg = $e->getMessage();
+            if (
+                stripos($msg, 'encrypt') !== false
+                || stripos($msg, 'password') !== false
+                || stripos($msg, 'secured') !== false
+            ) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Encrypted PDFs cannot be stamped. Use an unencrypted PDF.',
+                ], 422);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not open this PDF for stamping.',
+            ], 422);
+        }
+
+        return null;
+    }
+
     // ──────────────────────────────────────────
     // BACKUP MANAGEMENT (via StampBackupService)
     // ──────────────────────────────────────────
@@ -456,6 +491,10 @@ class StampService
     public function preview(Request $request)
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
+        $rateCheck = RateLimiterService::check('dcs_action');
+        if (!$rateCheck['allowed']) {
+            return response()->json(['success' => false, 'message' => $rateCheck['message']], 429);
+        }
         @ini_set('memory_limit', '512M');
         @set_time_limit(600);
         $this->autoPlacementCache = [];
@@ -475,6 +514,10 @@ class StampService
                 $fullPath,
                 $validated['file_path']
             );
+
+            if ($blocked = $this->assertStampablePdf($sourcePath)) {
+                return $blocked;
+            }
 
             $config = self::STAMPS[$validated['stamp_type']];
             $size   = $this->getPdfPageSize($sourcePath, $page);
@@ -524,6 +567,10 @@ class StampService
     public function apply(Request $request)
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
+        $rateCheck = RateLimiterService::check('dcs_action');
+        if (!$rateCheck['allowed']) {
+            return response()->json(['success' => false, 'message' => $rateCheck['message']], 429);
+        }
         @ini_set('memory_limit', '512M');
         @set_time_limit(600);
         $this->autoPlacementCache = [];
@@ -546,6 +593,10 @@ class StampService
                 $fullPath,
                 $validated['file_path']
             );
+
+            if ($blocked = $this->assertStampablePdf($sourcePath)) {
+                return $blocked;
+            }
 
             Log::debug('Stamp: applying to file', [
                 'source'  => $sourcePath,
@@ -643,6 +694,18 @@ class StampService
                 . ')'
             );
 
+            DcsAuditService::log(
+                'stamp.apply',
+                'stamping',
+                (int) $validated['request_id'],
+                $validated['file_path'] ?? null,
+                [
+                    'stamp_type' => $validated['stamp_type'] ?? null,
+                    'file_key' => $validated['file_key'] ?? null,
+                    'action' => $action,
+                ]
+            );
+
             $docNo = trim((string) ($validated['doc_no'] ?? ''));
             if ($docNo !== '') {
                 $stamperName = \App\Helpers\RegisterQueryHelper::currentUserDisplayName();
@@ -701,6 +764,10 @@ class StampService
     public function remove(Request $request)
     {
         \App\Helpers\RegisterQueryHelper::assertFullDcsUser('stamping');
+        $rateCheck = RateLimiterService::check('dcs_action');
+        if (!$rateCheck['allowed']) {
+            return response()->json(['success' => false, 'message' => $rateCheck['message']], 429);
+        }
         $request->validate([
             'request_id' => 'required|integer|exists:dcs_document_requests,id',
             'file_key'   => ['required', 'string', 'max:50', 'in:masterlist'],
@@ -752,6 +819,10 @@ class StampService
             'Removed stamp on request #' . $requestId
             . (!empty($fileKey) ? ' — ' . $fileKey : '')
         );
+
+        DcsAuditService::log('stamp.remove', 'stamping', $requestId, $relative, [
+            'file_key' => $fileKey,
+        ]);
 
         return response()->json([
             'success' => true,

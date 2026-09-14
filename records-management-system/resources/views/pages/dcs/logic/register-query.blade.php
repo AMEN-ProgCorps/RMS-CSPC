@@ -267,10 +267,23 @@ class RegisterQueryHelper
         return $query;
     }
 
-    /** Inventory scope bypass: super admin, RFIO, or roles with dcs_view_all_documents. */
+    /**
+     * Inventory scope bypass: super admin, RFIO office, or dcs_view_all_documents.
+     */
     public static function canViewAllDocuments(): bool
     {
-        return self::isFullDcsUser();
+        $perms = auth()->user()?->permissions;
+        if (!$perms) {
+            return false;
+        }
+        if (!empty($perms->is_sadm)) {
+            return true;
+        }
+        if (empty($perms->can_access_dcs)) {
+            return false;
+        }
+
+        return self::isRfioOffice() || !empty($perms->dcs_view_all_documents);
     }
 
     public static function currentOfficeCode(): ?string
@@ -280,16 +293,78 @@ class RegisterQueryHelper
         return $code !== null && $code !== '' ? strtoupper(trim((string) $code)) : null;
     }
 
+    /** Canonical / alias codes for the Records & FOI unit (seed used RFIO; live data often uses RFOIU). */
+    public static function rfioOfficeCodes(): array
+    {
+        return ['RFIO', 'RFOIU'];
+    }
+
     public static function isRfioOffice(): bool
     {
-        return self::currentOfficeCode() === 'RFIO';
+        $code = self::currentOfficeCode();
+
+        return $code !== null && in_array($code, self::rfioOfficeCodes(), true);
     }
 
     /**
-     * Full DCS (Register, Database, Stamp, etc.):
+     * Office code to notify for RFIO intake review — matches the row that exists in sys_office.
+     */
+    public static function rfioNotificationOfficeCode(): string
+    {
+        static $resolved = null;
+        if ($resolved !== null) {
+            return $resolved;
+        }
+
+        $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        foreach (self::rfioOfficeCodes() as $code) {
+            if (DB::table($officeTable)->whereRaw('UPPER(TRIM(office_code)) = ?', [$code])->exists()) {
+                return $resolved = $code;
+            }
+        }
+
+        return $resolved = 'RFOIU';
+    }
+
+    /** @return array<string, string> module route tag => condition_details column */
+    public static function dcsModuleColumns(): array
+    {
+        return [
+            'register' => 'dcs_can_register',
+            'settings' => 'dcs_can_settings',
+            'recycle_bin' => 'dcs_can_recycle_bin',
+            'review_intake' => 'dcs_can_review_intake',
+            'reports' => 'dcs_can_reports',
+            'review' => 'dcs_can_review',
+            'stamping' => 'dcs_can_stamping',
+            'database' => 'dcs_can_database',
+            'manage_files' => 'dcs_can_manage_files',
+        ];
+    }
+
+    public static function hasAnyDcsModuleFlag(?object $perms = null): bool
+    {
+        $perms ??= auth()->user()?->permissions;
+        if (!$perms) {
+            return false;
+        }
+        foreach (self::dcsModuleColumns() as $column) {
+            if (!empty($perms->{$column})) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Full DCS operator (not intake-only):
      * - super admin, or
      * - can_access_dcs + RFIO office, or
-     * - can_access_dcs + dcs_view_all_documents (any office)
+     * - can_access_dcs + dcs_view_all_documents
+     *
+     * Module flags alone do not grant full DCS. A non-RFIO office without View All
+     * stays office-intake only (even on an RFIO-named role such as RFOIU STAFFS).
      */
     public static function isFullDcsUser(): bool
     {
@@ -324,10 +399,53 @@ class RegisterQueryHelper
         return !self::isFullDcsUser();
     }
 
-    /** Full DCS users get all gated modules; limited intake users get none. */
+    /**
+     * Per-module clearance. Requires full DCS (RFIO / View All / SADM) plus the module flag.
+     * Super Admin bypasses module flags.
+     */
     public static function canAccessDcsModule(string $module): bool
     {
-        return self::isFullDcsUser();
+        $perms = auth()->user()?->permissions;
+        if (!$perms) {
+            return false;
+        }
+        if (!empty($perms->is_sadm)) {
+            return true;
+        }
+        if (! self::isFullDcsUser()) {
+            return false;
+        }
+
+        $columns = self::dcsModuleColumns();
+        $column = $columns[$module] ?? null;
+        if ($column === null) {
+            return false;
+        }
+
+        return !empty($perms->{$column});
+    }
+
+    /**
+     * Intake-only DCS users may see office DRF/DCN links (and plain /dcs).
+     * Full-module deep links (register, stamping, etc.) are excluded from their bell.
+     */
+    public static function isAllowedNotificationForLimitedDcs(?string $redirectUrl): bool
+    {
+        $url = trim((string) $redirectUrl);
+        if ($url === '' || $url === '/dcs' || $url === '/dcs/') {
+            return true;
+        }
+
+        if (OfficeIntakeHelper::parseIntakeNotificationUrl($url)) {
+            return true;
+        }
+
+        $path = ltrim((string) (parse_url($url, PHP_URL_PATH) ?? $url), '/');
+        if ($path === 'dcs' || str_starts_with($path, 'dcs/office/')) {
+            return true;
+        }
+
+        return false;
     }
 
     public static function assertFullDcsUser(?string $module = null): void

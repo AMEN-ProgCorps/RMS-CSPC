@@ -76,15 +76,34 @@ fi
 # Artisan/migrate run as root and may create storage files the FPM pool cannot write.
 chmod -R 777 storage bootstrap/cache public/chatify/uploads public/chatify/storage
 
+# Compiled Blade views: artisan (root) can leave root-owned files in VIEW_COMPILED_PATH;
+# PHP-FPM runs as appuser and then fails on touch() with "Operation not permitted".
+mkdir -p "$VIEW_COMPILED_PATH"
+chmod -R 777 "$VIEW_COMPILED_PATH" || true
+if id appuser >/dev/null 2>&1; then
+    chown -R appuser:appuser "$VIEW_COMPILED_PATH" 2>/dev/null || true
+fi
+
 # PaddleOCR model cache must be writable by PHP-FPM (appuser).
-mkdir -p /opt/paddleocr
+mkdir -p /opt/paddleocr /tmp/paddleocr
 if [ -d /root/.paddleocr ] && [ ! -e /opt/paddleocr/.paddleocr ]; then
     cp -a /root/.paddleocr /opt/paddleocr/.paddleocr || true
 fi
 if id appuser >/dev/null 2>&1; then
-    chown -R appuser:appuser /opt/paddleocr 2>/dev/null || chmod -R a+rwX /opt/paddleocr || true
+    chown -R appuser:appuser /opt/paddleocr /tmp/paddleocr 2>/dev/null || chmod -R a+rwX /opt/paddleocr /tmp/paddleocr || true
 else
-    chmod -R a+rwX /opt/paddleocr || true
+    chmod -R a+rwX /opt/paddleocr /tmp/paddleocr || true
+fi
+
+# Fail loudly in logs if the deploy image is missing the OCR venv (common when
+# an old image is used, or PHP runs outside the Dockerfile app image).
+if [ ! -x /opt/paddle-venv/bin/python ]; then
+    echo "  ⚠  OCR Python missing at /opt/paddle-venv/bin/python — DRF/DRR OCR will fail."
+    echo "     Rebuild/redeploy the app image from the current Dockerfile."
+elif ! /opt/paddle-venv/bin/python -c "import paddleocr" >/dev/null 2>&1; then
+    echo "  ⚠  paddleocr package missing in /opt/paddle-venv — DRF/DRR OCR will fail."
+else
+    echo "  ✓  PaddleOCR venv OK"
 fi
 
 echo "[5/5] Starting services via Supervisor..."

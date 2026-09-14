@@ -71,6 +71,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canAccessArchv = false;
     public bool $canAccessDcs = false;
     public bool $dcsViewAllDocuments = false;
+    public bool $dcsCanRegister = false;
+    public bool $dcsCanSettings = false;
+    public bool $dcsCanRecycleBin = false;
+    public bool $dcsCanReviewIntake = false;
+    public bool $dcsCanReports = false;
+    public bool $dcsCanReview = false;
+    public bool $dcsCanStamping = false;
+    public bool $dcsCanDatabase = false;
+    public bool $dcsCanManageFiles = false;
     public bool $canModifyDocflow = false;
     public bool $canModifyAccountlist = false;
     public bool $canModifyPass = false;
@@ -172,6 +181,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canAccessArchv = false;
         $this->canAccessDcs = false;
         $this->dcsViewAllDocuments = false;
+        $this->dcsCanRegister = false;
+        $this->dcsCanSettings = false;
+        $this->dcsCanRecycleBin = false;
+        $this->dcsCanReviewIntake = false;
+        $this->dcsCanReports = false;
+        $this->dcsCanReview = false;
+        $this->dcsCanStamping = false;
+        $this->dcsCanDatabase = false;
+        $this->dcsCanManageFiles = false;
         $this->canModifyDocflow = false;
         $this->canModifyAccountlist = false;
         $this->canModifyPass = false;
@@ -239,6 +257,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canAccessArchv = (bool) $perms->can_access_rdp;
                 $this->canAccessDcs = (bool) $perms->can_access_dcs;
                 $this->dcsViewAllDocuments = (bool) ($perms->dcs_view_all_documents ?? false);
+                $this->dcsCanRegister = (bool) ($perms->dcs_can_register ?? false);
+                $this->dcsCanSettings = (bool) ($perms->dcs_can_settings ?? false);
+                $this->dcsCanRecycleBin = (bool) ($perms->dcs_can_recycle_bin ?? false);
+                $this->dcsCanReviewIntake = (bool) ($perms->dcs_can_review_intake ?? false);
+                $this->dcsCanReports = (bool) ($perms->dcs_can_reports ?? false);
+                $this->dcsCanReview = (bool) ($perms->dcs_can_review ?? false);
+                $this->dcsCanStamping = (bool) ($perms->dcs_can_stamping ?? false);
+                $this->dcsCanDatabase = (bool) ($perms->dcs_can_database ?? false);
+                $this->dcsCanManageFiles = (bool) ($perms->dcs_can_manage_files ?? false);
                 $this->canModifyDocflow = (bool) $perms->can_dts_modify_docflow;
                 $this->canModifyAccountlist = (bool) $perms->can_sadm_modify_accountlist;
                 $this->canModifyPass = (bool) $perms->can_sadm_modify_pass;
@@ -467,6 +494,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_access_rdp = $this->canAccessArchv;
         $perms->can_access_dcs = $this->canAccessDcs;
         $perms->dcs_view_all_documents = $this->canAccessDcs ? $this->dcsViewAllDocuments : false;
+        $perms->dcs_can_register = $this->canAccessDcs ? $this->dcsCanRegister : false;
+        $perms->dcs_can_settings = $this->canAccessDcs ? $this->dcsCanSettings : false;
+        $perms->dcs_can_recycle_bin = $this->canAccessDcs ? $this->dcsCanRecycleBin : false;
+        $perms->dcs_can_review_intake = $this->canAccessDcs ? $this->dcsCanReviewIntake : false;
+        $perms->dcs_can_reports = $this->canAccessDcs ? $this->dcsCanReports : false;
+        $perms->dcs_can_review = $this->canAccessDcs ? $this->dcsCanReview : false;
+        $perms->dcs_can_stamping = $this->canAccessDcs ? $this->dcsCanStamping : false;
+        $perms->dcs_can_database = $this->canAccessDcs ? $this->dcsCanDatabase : false;
+        $perms->dcs_can_manage_files = $this->canAccessDcs ? $this->dcsCanManageFiles : false;
         $perms->can_dts_modify_docflow = $this->canModifyDocflow;
         $perms->can_sadm_modify_accountlist = $this->canModifyAccountlist;
         $perms->can_sadm_modify_pass = $this->canModifyPass;
@@ -522,6 +558,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
 
     /**
      * Hook to reset dependent permissions if is_admin is toggled off.
+     * DCS module clearances are intentionally left alone — they only depend on Access DCS.
      */
     public function updatedIsAdmin($value): void
     {
@@ -535,18 +572,26 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             $this->canModifyPass = false;
             $this->canDtsModifyTransaction = false;
             $this->rdpViewAllFiles = false;
-            $this->dcsViewAllDocuments = false;
             $this->canAccessDcsAdmin = false;
         }
     }
 
     /**
-     * When DCS access is toggled off, clear View All.
+     * When DCS access is toggled off, clear View All and module clearances.
      */
     public function updatedCanAccessDcs($value): void
     {
         if (! $value) {
             $this->dcsViewAllDocuments = false;
+            $this->dcsCanRegister = false;
+            $this->dcsCanSettings = false;
+            $this->dcsCanRecycleBin = false;
+            $this->dcsCanReviewIntake = false;
+            $this->dcsCanReports = false;
+            $this->dcsCanReview = false;
+            $this->dcsCanStamping = false;
+            $this->dcsCanDatabase = false;
+            $this->dcsCanManageFiles = false;
             $this->canAccessDcsAdmin = false;
         }
     }
@@ -616,6 +661,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canAccessArchv = true;
         $this->canAccessDcs = true;
         $this->dcsViewAllDocuments = true;
+        $this->dcsCanRegister = true;
+        $this->dcsCanSettings = true;
+        $this->dcsCanRecycleBin = true;
+        $this->dcsCanReviewIntake = true;
+        $this->dcsCanReports = true;
+        $this->dcsCanReview = true;
+        $this->dcsCanStamping = true;
+        $this->dcsCanDatabase = true;
+        $this->dcsCanManageFiles = true;
         $this->canAccessDcsAdmin = true;
         $this->canModifyDocflow = true;
         $this->canModifyAccountlist = true;
@@ -645,6 +699,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             'canAccessArchv',
             'canAccessDcs',
             'dcsViewAllDocuments',
+            'dcsCanRegister',
+            'dcsCanSettings',
+            'dcsCanRecycleBin',
+            'dcsCanReviewIntake',
+            'dcsCanReports',
+            'dcsCanReview',
+            'dcsCanStamping',
+            'dcsCanDatabase',
+            'dcsCanManageFiles',
             'canModifyDocflow',
             'canModifyAccountlist',
             'canModifyPass',
@@ -1277,17 +1340,107 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                 </div>
                             </div>
 
-                            <!-- Document Control System Clearances -->
+                            <!-- Document Control System Clearances (gated by Access DCS only — not Administrative Access) -->
                             <div class="permissions-section-card">
                                 <span class="permissions-section-title"><i class="fa-solid fa-stamp"></i> Document Control System (DCS) Clearances</span>
                                 <div class="permissions-grid-layout">
-                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                    <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">View All DCS Documents</span>
-                                            <span class="permission-toggle-desc">With DCS access, grants campus-wide full DCS (same as RFIO), including register, settings, recycle bin, and reviewing office DRF/DCN intake. Without this, non-RFIO users only use office DRF/DCN intake.</span>
+                                            <span class="permission-toggle-desc">Grants full DCS for non-RFIO offices (campus-wide). RFIO office users already get full DCS without this flag. Keep this OFF on RFOIU/RFIO staff roles so staff assigned to other offices stay on office DRF/DCN intake only. Requires Access DCS.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="dcsViewAllDocuments" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <input type="checkbox" wire:model="dcsViewAllDocuments" {{ !$canAccessDcs ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Register</span>
+                                            <span class="permission-toggle-desc">Create and edit document registrations. Only applies when the user is RFIO office, has View All, or is Super Admin.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="dcsCanRegister" {{ !$canAccessDcs ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Settings / Calendar</span>
+                                            <span class="permission-toggle-desc">DCS settings and calendar categories/events.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="dcsCanSettings" {{ !$canAccessDcs ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Recycle Bin</span>
+                                            <span class="permission-toggle-desc">Restore and permanently delete recycled DCS items.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="dcsCanRecycleBin" {{ !$canAccessDcs ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Review office DRF/DCN intake</span>
+                                            <span class="permission-toggle-desc">Browse office-submitted DRF/DCN forms for registration.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="dcsCanReviewIntake" {{ !$canAccessDcs ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Reports</span>
+                                            <span class="permission-toggle-desc">Generate and manage DCS reports and templates.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="dcsCanReports" {{ !$canAccessDcs ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Document Review (compare)</span>
+                                            <span class="permission-toggle-desc">PDF compare / document review workspace.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="dcsCanReview" {{ !$canAccessDcs ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Stamping</span>
+                                            <span class="permission-toggle-desc">Apply and remove stamps on registered scans.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="dcsCanStamping" {{ !$canAccessDcs ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Database</span>
+                                            <span class="permission-toggle-desc">Browse the registered document database.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="dcsCanDatabase" {{ !$canAccessDcs ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Manage Files</span>
+                                            <span class="permission-toggle-desc">Browse generated report files and downloads.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="dcsCanManageFiles" {{ !$canAccessDcs ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
                                     </div>

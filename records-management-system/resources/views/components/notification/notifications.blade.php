@@ -111,6 +111,14 @@ new class extends Component {
             )
             ->get();
 
+        // Limited DCS users only use office DRF/DCN intake — hide full-module deep links
+        // (register/stamping/etc.) that they cannot open.
+        if (\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()) {
+            $this->notifications = $this->notifications
+                ->filter(fn ($row) => \App\Helpers\RegisterQueryHelper::isAllowedNotificationForLimitedDcs($row->redirect_url ?? null))
+                ->values();
+        }
+
         $this->unreadCount = $this->notifications->where('status', 'unread')->count();
     }
 
@@ -152,6 +160,15 @@ new class extends Component {
                         navigate: false
                     );
                 }
+
+                return;
+            }
+
+            // Limited intake users must never be sent to register/stamping/etc.
+            if (\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()) {
+                $this->showDropdown = false;
+                $this->dispatch('close-notifications');
+                $this->redirect(route('dcs.office.drf.index', absolute: false), navigate: true);
 
                 return;
             }

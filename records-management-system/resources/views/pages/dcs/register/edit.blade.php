@@ -4499,7 +4499,7 @@ function dcsScanHref(path) {
     if (normalized.startsWith('scans/')) {
         return '/storage/' + normalized;
     }
-    return '/dcs/view-document?path=' + encodeURIComponent(normalized);
+    return '/dcs/api/signed-scan-url?path=' + encodeURIComponent(normalized) + '&redirect=1';
 }
 
 function showExistingSyllabiScannedFile(tr, path) {

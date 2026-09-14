@@ -1238,13 +1238,22 @@ class DocumentStorageService
             || Storage::disk('google')->exists($path);
     }
 
-    public static function dcsScanUrl(?string $path): ?string
+    public static function dcsScanUrl(?string $path, int $ttlMinutes = 60): ?string
     {
         if (! self::dcsScanExists($path)) {
             return null;
         }
 
-        return route('dcs.view-document', ['path' => $path]);
+        $normalized = self::normalizeDcsScanPath($path);
+        if ($normalized === null) {
+            return null;
+        }
+
+        return \Illuminate\Support\Facades\URL::temporarySignedRoute(
+            'dcs.view-document',
+            now()->addMinutes(max(1, $ttlMinutes)),
+            ['path' => $normalized]
+        );
     }
 
     /** Legacy public/scans/ or {OFFICE}/DCS/{category}/... paths belong to DCS. */

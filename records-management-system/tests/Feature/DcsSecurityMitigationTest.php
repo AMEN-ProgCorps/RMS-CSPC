@@ -119,6 +119,7 @@ class DcsSecurityMitigationTest extends TestCase
 
         if ($url !== null) {
             $this->assertStringContainsString('/dcs/view-document', $url);
+            $this->assertStringContainsString('signature=', $url);
             $this->assertStringNotContainsString('/storage/scans', $url);
         } else {
             $this->assertTrue(true);

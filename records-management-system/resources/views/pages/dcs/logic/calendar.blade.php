@@ -55,6 +55,10 @@ class CalendarHelper
     public static function storeCategory(Request $request): JsonResponse
     {
         RegisterQueryHelper::assertFullDcsUser('settings');
+        $rateCheck = \App\Services\RateLimiterService::check('dcs_action');
+        if (!$rateCheck['allowed']) {
+            return response()->json(['message' => $rateCheck['message']], 429);
+        }
         $data = $request->validate([
             'name' => 'required|string|max:80',
             'color' => ['nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
@@ -92,6 +96,10 @@ class CalendarHelper
     public static function updateCategory(Request $request, int $id): JsonResponse
     {
         RegisterQueryHelper::assertFullDcsUser('settings');
+        $rateCheck = \App\Services\RateLimiterService::check('dcs_action');
+        if (!$rateCheck['allowed']) {
+            return response()->json(['message' => $rateCheck['message']], 429);
+        }
         $cat = DB::table('dcs_calendar_categories')->where('id', $id)->first();
         if (!$cat) {
             abort(404);
@@ -131,6 +139,10 @@ class CalendarHelper
     public static function storeEvent(Request $request): JsonResponse
     {
         RegisterQueryHelper::assertFullDcsUser('settings');
+        $rateCheck = \App\Services\RateLimiterService::check('dcs_action');
+        if (!$rateCheck['allowed']) {
+            return response()->json(['message' => $rateCheck['message']], 429);
+        }
         $data = self::validatedEvent($request);
 
         $id = DB::table('dcs_calendar_events')->insertGetId([
@@ -155,6 +167,10 @@ class CalendarHelper
     public static function updateEvent(Request $request, int $id): JsonResponse
     {
         RegisterQueryHelper::assertFullDcsUser('settings');
+        $rateCheck = \App\Services\RateLimiterService::check('dcs_action');
+        if (!$rateCheck['allowed']) {
+            return response()->json(['message' => $rateCheck['message']], 429);
+        }
         $existing = DB::table('dcs_calendar_events')->where('id', $id)->first();
         if (!$existing) {
             abort(404);
@@ -182,6 +198,10 @@ class CalendarHelper
     public static function destroyEvent(int $id): JsonResponse
     {
         RegisterQueryHelper::assertFullDcsUser('settings');
+        $rateCheck = \App\Services\RateLimiterService::check('dcs_action');
+        if (!$rateCheck['allowed']) {
+            return response()->json(['message' => $rateCheck['message']], 429);
+        }
         $event = DB::table('dcs_calendar_events')->where('id', $id)->first();
         $deleted = DB::table('dcs_calendar_events')->where('id', $id)->delete();
         if (!$deleted) {
@@ -200,6 +220,10 @@ class CalendarHelper
     public static function destroyCategory(int $id): JsonResponse
     {
         RegisterQueryHelper::assertFullDcsUser('settings');
+        $rateCheck = \App\Services\RateLimiterService::check('dcs_action');
+        if (!$rateCheck['allowed']) {
+            return response()->json(['message' => $rateCheck['message']], 429);
+        }
         $cat = DB::table('dcs_calendar_categories')->where('id', $id)->first();
         if (!$cat) {
             abort(404);

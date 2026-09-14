@@ -1506,6 +1506,14 @@ class ReportHelper
             . ' (' . $format . ')'
         );
 
+        \App\Services\DcsAuditService::log(
+            'report.export',
+            'reports',
+            null,
+            null,
+            ['category' => $category, 'sub' => $sub, 'format' => $format]
+        );
+
         $data = $this->fetchReportData($category, $sub, $dateFrom, $dateTo, $filters);
 
         $allRows = collect($data['rows'] ?? [])->values();

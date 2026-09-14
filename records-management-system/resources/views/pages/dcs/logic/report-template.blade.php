@@ -23,13 +23,18 @@ class ReportTemplateHelper
             ->map(fn ($row) => [
                 'id' => (int) $row->id,
                 'name' => $row->name,
-                'preview_url' => self::previewUrl($row->preview_path),
+                'preview_url' => self::previewUrlForId((int) $row->id, $row->preview_path),
             ])
             ->all();
     }
 
     public static function store(Request $request): JsonResponse
     {
+        $rateCheck = \App\Services\RateLimiterService::check('dcs_action');
+        if (!$rateCheck['allowed']) {
+            return response()->json(['message' => $rateCheck['message']], 429);
+        }
+
         $request->validate([
             'template' => 'required|file|mimes:pdf|max:10240',
             'name' => 'nullable|string|max:120',
@@ -102,7 +107,7 @@ class ReportTemplateHelper
         return response()->json([
             'id' => $id,
             'name' => $name,
-            'preview_url' => self::previewUrl($previewPath),
+            'preview_url' => self::previewUrlForId($id, $previewPath),
         ], 201);
     }
 
@@ -129,6 +134,11 @@ class ReportTemplateHelper
 
     public static function destroy(int $id): JsonResponse
     {
+        $rateCheck = \App\Services\RateLimiterService::check('dcs_action');
+        if (!$rateCheck['allowed']) {
+            return response()->json(['message' => $rateCheck['message']], 429);
+        }
+
         $tpl = DB::table('dcs_report_templates')->where('id', $id)->first();
         if (! $tpl) {
             abort(404);
@@ -301,8 +311,37 @@ class ReportTemplateHelper
             : '';
     }
 
+    public static function preview(int $id)
+    {
+        $tpl = DB::table('dcs_report_templates')->where('id', $id)->first();
+        if (! $tpl || empty($tpl->preview_path)) {
+            abort(404);
+        }
+
+        $path = (string) $tpl->preview_path;
+        $content = self::readTemplateFile($path);
+        abort_unless($content !== null && $content !== '', 404);
+
+        $filename = basename($path) ?: 'template-preview.jpg';
+        $mime = DocumentStorageService::dcsFileMimeType($path);
+
+        return response($content, 200)
+            ->header('Content-Type', $mime)
+            ->header('Content-Disposition', 'inline; filename="' . $filename . '"');
+    }
+
+    private static function previewUrlForId(int $id, ?string $previewPath): ?string
+    {
+        if ($id <= 0 || ! $previewPath || ! DocumentStorageService::dcsScanExists($previewPath)) {
+            return null;
+        }
+
+        return route('dcs.report-templates.preview', ['id' => $id]);
+    }
+
     private static function previewUrl(?string $path): ?string
     {
+        // Legacy helper retained for callers that only have a path; prefer previewUrlForId.
         if (! $path || ! DocumentStorageService::dcsScanExists($path)) {
             return null;
         }
@@ -311,7 +350,7 @@ class ReportTemplateHelper
             return Storage::disk('public')->url($path);
         }
 
-        return route('dcs.view-document', ['path' => $path]);
+        return DocumentStorageService::dcsScanUrl($path);
     }
 
     private static function readTemplateFile(string $path): ?string

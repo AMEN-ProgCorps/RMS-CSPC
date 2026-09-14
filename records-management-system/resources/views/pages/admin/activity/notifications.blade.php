@@ -108,13 +108,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Notification Logs')] cla
         if ($this->search !== '') {
             $searchVal = '%' . $this->search . '%';
             $query->where(function ($q) use ($searchVal) {
-                $q->where('account.username', 'like', $searchVal)
-                  ->orWhere('account_details.first_name', 'like', $searchVal)
-                  ->orWhere('account_details.last_name', 'like', $searchVal)
-                  ->orWhere('notif_content.content', 'like', $searchVal)
-                  ->orWhere('office.office_name', 'like', $searchVal)
-                  ->orWhere('notifications.office', 'like', $searchVal)
-                  ->orWhere('subsystems.subsystem_name', 'like', $searchVal);
+                $q->where('account.username', 'ilike', $searchVal)
+                  ->orWhere('account_details.first_name', 'ilike', $searchVal)
+                  ->orWhere('account_details.last_name', 'ilike', $searchVal)
+                  ->orWhere('notif_content.content', 'ilike', $searchVal)
+                  ->orWhere('office.office_name', 'ilike', $searchVal)
+                  ->orWhere('notifications.office', 'ilike', $searchVal)
+                  ->orWhere('subsystems.subsystem_name', 'ilike', $searchVal);
             });
         }
 

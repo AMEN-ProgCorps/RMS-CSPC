@@ -36,6 +36,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
     public bool $showEmailAccessModal = false;
     public string $email_access_input = '';
     public string $document_password_input = '';
+    public string $rateLimitError = '';
 
     // Source Office & Requestor History properties
     public bool $showSourceOfficeDropdown = false;
@@ -822,6 +823,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
     public function save()
     {
+        $this->rateLimitError = '';
+        $rateCheck = \App\Services\RateLimiterService::check('dts_create');
+        if (!$rateCheck['allowed']) {
+            $this->rateLimitError = $rateCheck['message'];
+            $this->addError('rate_limit', $rateCheck['message']);
+            return;
+        }
+
         $isRequired = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'dts_email_access_required_external')->value('value') === 'true';
         if ($isRequired) {
             $this->validate([
@@ -1234,6 +1243,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
         <h2>External Transaction</h2>
     </div>
 
+    @if ($rateLimitError)
+        <div style="margin-bottom: 20px; padding: 14px 18px; background: #fef2f2; border: 1.5px solid #fca5a5; border-radius: 8px; color: #991b1b; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 12px; box-shadow: 0 1px 3px rgba(220, 38, 38, 0.1);">
+            <i class="fa-solid fa-triangle-exclamation" style="font-size: 18px; color: #dc2626; flex-shrink: 0;"></i>
+            <span>{{ $rateLimitError }}</span>
+        </div>
+    @endif
+
     <!-- External Transaction Form -->
     <form class="rms-form" wire:submit.prevent="save">
             
@@ -1316,12 +1332,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                         <div style="position: relative;" wire:click.outside="$set('showSourceOfficeDropdown', false)">
                             @php
                                 $selectedSoName = $selectedSoRec ? $selectedSoRec->s_office_name : null;
-                                $displaySoText = $selectedSoName ? "{$selectedSoName} ({$source_office})" : $source_office;
                             @endphp
                             <input type="text" wire:model.live="source_office" wire:focus="$set('showSourceOfficeDropdown', true)" class="text-input" placeholder="Type or select Source Office Code / Name" autocomplete="off" style="padding-right: 32px;">
                             <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
                             @if($showSourceOfficeDropdown)
-                                <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); max-height: 200px; overflow-y: auto; z-index: 50;">
+                                <div class="dts-custom-dropdown">
                                     @php
                                         $sourceOffices = \DB::table('dts_source_office')
                                             ->where('is_active', true)
@@ -1336,10 +1351,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                         @php
                                             $canEditThis = $isSuperAdminForEdit || ($so->created_by_office === $userOfficeCodeForEdit);
                                         @endphp
-                                        <div wire:click="selectSourceOffice('{{ addslashes($so->s_office_code) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                        <div class="dts-dropdown-item" wire:click="selectSourceOffice('{{ addslashes($so->s_office_code) }}')" style="display: flex; align-items: center; justify-content: space-between;">
                                             <div>
                                                 <div style="font-weight: 600;">{{ $so->s_office_name }}</div>
-                                                <div style="font-size: 11px; color: #64748b;">Code: {{ $so->s_office_code }}</div>
+                                                <div style="font-size: 11px; color: var(--text-muted, #64748b);">Code: {{ $so->s_office_code }}</div>
                                             </div>
                                             @if($canEditThis)
                                                 <button type="button" wire:click.stop="startEditSourceOffice({{ $so->id }})" title="Edit this office created by your unit" style="background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px; flex-shrink: 0;" onmouseover="this.style.backgroundColor='#0284c7'; this.style.color='#ffffff';" onmouseout="this.style.backgroundColor='#e0f2fe'; this.style.color='#0284c7';">
@@ -1348,7 +1363,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                             @endif
                                         </div>
                                     @empty
-                                        <div style="padding: 10px 14px; font-size: 12px; color: #64748b; font-style: italic;">
+                                        <div class="dts-dropdown-empty">
                                             No registered external office matching '{{ $source_office }}'. It will be automatically registered on creation, or click "+ Add New External Office".
                                         </div>
                                     @endforelse
@@ -1367,7 +1382,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                     <span>'<strong>{{ $source_office }}</strong>' is not yet registered. It will be automatically added as a new external source office upon creation.</span>
                                 </div>
                             @endif
-                        @endif
+                        </div>
                         @error('source_office')
                             <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;"><i class="fa-solid fa-triangle-exclamation"></i> {{ $message }}</span>
                         @enderror
@@ -1396,7 +1411,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                             <input type="text" wire:model.live="requestor_name" wire:focus="$set('showRequestorDropdown', true)" class="text-input" placeholder="Type or select Requestor Name" autocomplete="off" style="padding-right: 32px;">
                             <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
                             @if($showRequestorDropdown)
-                                <div style="position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); max-height: 200px; overflow-y: auto; z-index: 50;">
+                                <div class="dts-custom-dropdown">
                                     @php
                                         $targetOffice = $source_office;
                                         $existingRequestors = \DB::table('dts_requestor_history')
@@ -1412,11 +1427,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                         @php
                                             $canEditReqThis = $isSuperAdminForEdit || ($soRecForReq && $soRecForReq->created_by_office === $userOfficeCodeForEdit);
                                         @endphp
-                                        <div wire:click="selectRequestor('{{ addslashes($req->requestor_name) }}', '{{ addslashes($req->requestor_position) }}')" style="padding: 9px 14px; font-size: 13px; color: #334155; cursor: pointer; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between;" onmouseover="this.style.backgroundColor='#f1f5f9'" onmouseout="this.style.backgroundColor='transparent'">
+                                        <div class="dts-dropdown-item" wire:click="selectRequestor('{{ addslashes($req->requestor_name) }}', '{{ addslashes($req->requestor_position) }}')" style="display: flex; align-items: center; justify-content: space-between;">
                                             <div>
                                                 <div style="font-weight: 600;">{{ $req->requestor_name }}</div>
                                                 @if(!empty($req->requestor_position))
-                                                    <div style="font-size: 11px; color: #64748b;">{{ $req->requestor_position }}</div>
+                                                    <div style="font-size: 11px; color: var(--text-muted, #64748b);">{{ $req->requestor_position }}</div>
                                                 @endif
                                             </div>
                                             @if($canEditReqThis)
@@ -1426,7 +1441,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                             @endif
                                         </div>
                                     @empty
-                                        <div style="padding: 10px 14px; font-size: 12px; color: #64748b; font-style: italic;">
+                                        <div class="dts-dropdown-empty">
                                             No existing requestor found for this source office. Typing a new requestor...
                                         </div>
                                     @endforelse
@@ -1531,20 +1546,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                     });
                                 @endphp
 
-                                <div style="position: absolute; top: 38px; left: 0; right: 0; background: #fff; border: 1px solid #cbd5e1; border-radius: 4px; max-height: 200px; overflow-y: auto; z-index: 50; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+                                <div class="dts-custom-dropdown" style="top: 38px;">
                                     @if(count($filteredOffices) > 0)
                                         @foreach($filteredOffices as $office)
                                             <button type="button" 
+                                                class="dts-dropdown-item"
                                                 wire:click="selectCfOffice('{{ $office['office_code'] }}')" 
-                                                style="width: 100%; text-align: left; padding: 8px 12px; border: none; background: none; font-size: 12px; cursor: pointer; color: #333; border-bottom: 1px solid #f1f5f9; display: block;"
-                                                onmouseover="this.style.backgroundColor='#f1f5f9'" 
-                                                onmouseout="this.style.backgroundColor='transparent'"
+                                                style="width: 100%; text-align: left; border: none; background: none; font-size: 12px; display: block;"
                                             >
                                                 <strong>{{ $office['office_code'] }}</strong> - {{ $office['office_name'] }}
                                             </button>
                                         @endforeach
                                     @else
-                                        <div style="padding: 8px 12px; font-size: 12px; color: #64748b;">
+                                        <div class="dts-dropdown-empty" style="padding: 8px 12px; font-size: 12px;">
                                             No matching offices found.
                                         </div>
                                     @endif
@@ -2025,50 +2039,50 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
 
     <!-- Success Modal with Print QR Code -->
     @if($showSuccessModal && !empty($createdTransactionSummary))
-        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 10000; font-family: 'Inter', sans-serif;">
-            <div style="background: #ffffff; border-radius: 16px; width: 100%; max-width: 480px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); display: flex; flex-direction: column; overflow: hidden; border: 1px solid #e2e8f0;">
+        <div class="dts-success-modal-backdrop">
+            <div class="dts-success-modal-card">
                 
                 <!-- Success Header -->
-                <div style="padding: 24px 24px 16px 24px; text-align: center; background: #f0fdf4; border-bottom: 1px solid #dcfce7;">
-                    <div style="width: 56px; height: 56px; border-radius: 50%; background: #22c55e; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 28px; margin: 0 auto 12px auto; box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);">
+                <div class="dts-success-header">
+                    <div class="dts-success-icon">
                         <i class="fa-solid fa-check"></i>
                     </div>
-                    <h3 style="font-size: 18px; font-weight: 700; color: #15803d; margin: 0 0 4px 0;">Transaction Created Successfully!</h3>
-                    <p style="font-size: 12px; color: #166534; margin: 0;">Control No: <strong>{{ $createdTransactionSummary['control_number'] }}</strong></p>
+                    <h3 class="dts-success-title">Transaction Created Successfully!</h3>
+                    <p class="dts-success-control-no">Control No: <strong>{{ $createdTransactionSummary['control_number'] }}</strong></p>
                 </div>
 
                 <!-- Modal Content Details -->
-                <div style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; align-items: center;">
+                <div class="dts-success-body">
                     <!-- QR Code Image -->
-                    <div style="padding: 12px; background: #ffffff; border: 2px solid #e2e8f0; border-radius: 12px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <div class="dts-success-qr-box">
                         <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={{ urlencode($createdTransactionSummary['qr_code']) }}" alt="QR Code" style="width: 160px; height: 160px; display: block; margin: 0 auto 8px auto;">
-                        <div style="font-size: 13px; font-weight: 700; color: #0f172a; font-family: monospace;">{{ $createdTransactionSummary['control_number'] }}</div>
-                        <div style="font-size: 11px; color: #64748b; margin-top: 2px;">{{ $createdTransactionSummary['office'] }} • {{ $createdTransactionSummary['type'] }}</div>
+                        <div class="dts-success-qr-code">{{ $createdTransactionSummary['control_number'] }}</div>
+                        <div class="dts-success-qr-meta">{{ $createdTransactionSummary['office'] }} • {{ $createdTransactionSummary['type'] }}</div>
                     </div>
 
                     <!-- Summary Table -->
-                    <div style="width: 100%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 12px;">
-                        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f5f9;">
-                            <span style="color: #64748b; font-weight: 500;">Requestor:</span>
-                            <span style="color: #0f172a; font-weight: 600;">{{ $createdTransactionSummary['requestor'] }} @if(!empty($createdTransactionSummary['requestor_position'])) ({{ $createdTransactionSummary['requestor_position'] }}) @endif</span>
+                    <div class="dts-success-summary-box">
+                        <div class="dts-success-summary-row">
+                            <span class="dts-success-summary-label">Requestor:</span>
+                            <span class="dts-success-summary-value">{{ $createdTransactionSummary['requestor'] }} @if(!empty($createdTransactionSummary['requestor_position'])) ({{ $createdTransactionSummary['requestor_position'] }}) @endif</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f5f9;">
-                            <span style="color: #64748b; font-weight: 500;">Source Office:</span>
-                            <span style="color: #0f172a; font-weight: 600;">{{ $createdTransactionSummary['office'] }}</span>
+                        <div class="dts-success-summary-row">
+                            <span class="dts-success-summary-label">Source Office:</span>
+                            <span class="dts-success-summary-value">{{ $createdTransactionSummary['office'] }}</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between; padding: 4px 0;">
-                            <span style="color: #64748b; font-weight: 500;">Subject:</span>
-                            <span style="color: #0f172a; font-weight: 600; max-width: 260px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $createdTransactionSummary['subject'] }}</span>
+                        <div class="dts-success-summary-row">
+                            <span class="dts-success-summary-label">Subject:</span>
+                            <span class="dts-success-summary-value" style="max-width: 260px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $createdTransactionSummary['subject'] }}</span>
                         </div>
                     </div>
                 </div>
 
                 <!-- Footer Actions -->
-                <div style="padding: 16px 24px; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; background: #fafafa;">
-                    <button type="button" onclick="if(window.openDynamicPrintModal) { openDynamicPrintModal('{{ $createdTransactionSummary['qr_code'] }}'); } else { printQrCodeOnly(); }" style="background: #0284c7; border: none; color: #ffffff; padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+                <div class="dts-success-footer">
+                    <button type="button" onclick="if(window.openDynamicPrintModal) { openDynamicPrintModal('{{ $createdTransactionSummary['qr_code'] }}'); } else { printQrCodeOnly(); }" class="dts-success-btn-print">
                         <i class="fa-solid fa-print"></i> Print QR Code
                     </button>
-                    <button type="button" wire:click="closeSuccessModal" style="background: #475569; border: none; color: #ffffff; padding: 9px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;">
+                    <button type="button" wire:click="closeSuccessModal" class="dts-success-btn-done">
                         Done / Create Another
                     </button>
                 </div>

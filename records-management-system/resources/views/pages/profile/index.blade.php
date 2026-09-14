@@ -218,7 +218,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
             
             <div class="detail-row" setid="role_status">
                 <span class="detail-label">Current Role</span>
-                <span class="detail-value" style="font-weight: 700; color: #003699;">{{ $roleName ?: 'No Role Assigned' }}</span>
+                <span class="detail-value detail-value-role">{{ $roleName ?: 'No Role Assigned' }}</span>
             </div>
 
             <div style="margin-top: 15px;">

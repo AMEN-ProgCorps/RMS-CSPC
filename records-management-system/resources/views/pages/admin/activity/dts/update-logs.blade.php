@@ -64,9 +64,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Update Logs')] class
         if ($this->search !== '') {
             $searchVal = '%' . $this->search . '%';
             $query->where(function ($q) use ($searchVal) {
-                $q->where('dts_transaction_version.append_id', 'like', $searchVal)
-                  ->orWhere('child_details.control_number', 'like', $searchVal)
-                  ->orWhere('parent_details.control_number', 'like', $searchVal);
+                $q->where('dts_transaction_version.append_id', 'ilike', $searchVal)
+                  ->orWhere('child_details.control_number', 'ilike', $searchVal)
+                  ->orWhere('parent_details.control_number', 'ilike', $searchVal);
             });
         }
 

@@ -73,10 +73,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Flow Logs')] class e
         if ($this->search !== '') {
             $searchVal = '%' . $this->search . '%';
             $query->where(function ($q) use ($searchVal) {
-                $q->where('admin_logs.changes', 'like', $searchVal)
-                  ->orWhere('account.username', 'like', $searchVal)
-                  ->orWhere('account_details.first_name', 'like', $searchVal)
-                  ->orWhere('account_details.last_name', 'like', $searchVal);
+                $q->where('admin_logs.changes', 'ilike', $searchVal)
+                  ->orWhere('account.username', 'ilike', $searchVal)
+                  ->orWhere('account_details.first_name', 'ilike', $searchVal)
+                  ->orWhere('account_details.last_name', 'ilike', $searchVal);
             });
         }
 

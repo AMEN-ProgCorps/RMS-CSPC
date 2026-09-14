@@ -583,6 +583,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function saveDraft(): void
     {
+        $rateCheck = \App\Services\RateLimiterService::check('rdp_create');
+        if (!$rateCheck['allowed']) {
+            $this->errorMessage = $rateCheck['message'];
+            return;
+        }
+
         if (empty($this->selectedSeriesTitle)) {
             $this->errorMessage = 'Please select or stage a Record Series first to save draft.';
             return;
@@ -684,6 +690,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function createRecord(): void
     {
+        $rateCheck = \App\Services\RateLimiterService::check('rdp_create');
+        if (!$rateCheck['allowed']) {
+            $this->errorMessage = $rateCheck['message'];
+            return;
+        }
+
         if (empty($this->selectedSeriesTitle)) {
             $this->errorMessage = 'Please select or configure a Record Series first.';
             return;

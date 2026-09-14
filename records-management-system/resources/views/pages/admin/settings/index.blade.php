@@ -18,6 +18,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $dtsRequiredUploadFile = false;
     public int $tabCloseIdleTimeoutMinutes = 15;
     public string $dcsRecycleDeleteCode = '';
+    public bool $rateLimitEnabled = false;
+    public int $rateLimitDtsCreatePerMinute = 10;
+    public int $rateLimitDtsActionPerMinute = 20;
+    public int $rateLimitRdpCreatePerMinute = 15;
     public string $successMessage = '';
     public string $errorMessage = '';
 
@@ -325,6 +329,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $this->dcsRecycleDeleteCode = is_string($deleteCode) && $deleteCode !== ''
             ? $deleteCode
             : (string) env('DCS_RECYCLE_DELETE_CODE', '');
+        $rlEnabled = \DB::table('sys_system_settings')->where('key', 'rate_limit_enabled')->value('value');
+        $this->rateLimitEnabled = ($rlEnabled === 'true');
+
+        $rlDtsCreate = \DB::table('sys_system_settings')->where('key', 'rate_limit_dts_create_per_minute')->value('value');
+        $this->rateLimitDtsCreatePerMinute = ($rlDtsCreate !== null && is_numeric($rlDtsCreate)) ? (int) $rlDtsCreate : 10;
+
+        $rlDtsAction = \DB::table('sys_system_settings')->where('key', 'rate_limit_dts_action_per_minute')->value('value');
+        $this->rateLimitDtsActionPerMinute = ($rlDtsAction !== null && is_numeric($rlDtsAction)) ? (int) $rlDtsAction : 20;
+
+        $rlRdpCreate = \DB::table('sys_system_settings')->where('key', 'rate_limit_rdp_create_per_minute')->value('value');
+        $this->rateLimitRdpCreatePerMinute = ($rlRdpCreate !== null && is_numeric($rlRdpCreate)) ? (int) $rlRdpCreate : 15;
     }
 
     public function testDriveConnection(): void
@@ -648,6 +663,33 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ['key' => 'dcs_recycle_delete_code'],
                     [
                         'value' => trim($this->dcsRecycleDeleteCode),
+                    ['key' => 'rate_limit_enabled'],
+                    [
+                        'value' => $this->rateLimitEnabled ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table('sys_system_settings')->updateOrInsert(
+                    ['key' => 'rate_limit_dts_create_per_minute'],
+                    [
+                        'value' => (string) max(1, (int) $this->rateLimitDtsCreatePerMinute),
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table('sys_system_settings')->updateOrInsert(
+                    ['key' => 'rate_limit_dts_action_per_minute'],
+                    [
+                        'value' => (string) max(1, (int) $this->rateLimitDtsActionPerMinute),
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table('sys_system_settings')->updateOrInsert(
+                    ['key' => 'rate_limit_rdp_create_per_minute'],
+                    [
+                        'value' => (string) max(1, (int) $this->rateLimitRdpCreatePerMinute),
                         'updated_at' => now(),
                     ]
                 );
@@ -662,6 +704,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                              ", DTSReq: " . ($this->dtsRequiredUploadFile ? 'true' : 'false') .
                              ", InactivityTimeout: " . $this->tabCloseIdleTimeoutMinutes . " mins" .
                              ", DcsDeleteCode: " . (trim($this->dcsRecycleDeleteCode) !== '' ? 'set' : 'cleared');
+                             ", RateLimit: " . ($this->rateLimitEnabled ? 'true (' . $this->rateLimitDtsCreatePerMinute . '/min)' : 'false');
 
                 \DB::table('sys_admin_logs')->insert([
                     'changes' => \Illuminate\Support\Str::limit($logText, 250),
@@ -1486,6 +1529,91 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         <i class="fa-solid fa-user-shield" style="margin-top: 2px; font-size: 13px;"></i>
                         <span>
                             <strong>Admin Account Modification Protection:</strong> Whenever an Admin modifies or deactivates any user in <em>User Management</em>, the system automatically invalidates active sessions and forces an immediate logout for that account.
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card: Rate Limiting & Abuse Prevention -->
+            <div class="settings-card">
+                <div>
+                    <div class="settings-card-header">
+                        <i class="fa-solid fa-gauge-high"></i>
+                        <h3>Rate Limiting & Abuse Prevention</h3>
+                    </div>
+
+                    <!-- Setting: Master Rate Limit Toggle -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Enable System-Wide Rate Limiting</span>
+                            <span class="setting-desc">Protects the system and database from rapid automated spamming, duplicate submissions, and accidental multi-clicks on transaction and record creation.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model.live="rateLimitEnabled">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+
+                    @if ($rateLimitEnabled)
+                    <!-- Sub-setting: DTS Transaction Creation Limit -->
+                    <div class="setting-item" style="border-top: 1px dashed #e2e8f0; padding-top: 12px; margin-top: 6px; flex-direction: column; align-items: flex-start; gap: 6px;">
+                        <div class="setting-details">
+                            <span class="setting-title">DTS Transaction Creation Max Limit</span>
+                            <span class="setting-desc">Maximum new document transactions a single user account can create within a 1-minute window.</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 2px;">
+                            <select wire:model="rateLimitDtsCreatePerMinute" class="form-input" style="max-width: 220px; font-size: 13px; font-weight: 600; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; cursor: pointer; background: #ffffff;">
+                                <option value="5">5 per minute</option>
+                                <option value="10">10 per minute (Recommended)</option>
+                                <option value="15">15 per minute</option>
+                                <option value="20">20 per minute</option>
+                                <option value="30">30 per minute</option>
+                                <option value="60">60 per minute</option>
+                            </select>
+                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Transactions / minute</span>
+                        </div>
+                    </div>
+
+                    <!-- Sub-setting: DTS Workflow Actions Limit -->
+                    <div class="setting-item" style="border-top: 1px dashed #e2e8f0; padding-top: 12px; margin-top: 6px; flex-direction: column; align-items: flex-start; gap: 6px;">
+                        <div class="setting-details">
+                            <span class="setting-title">DTS Workflow Actions Limit (Receive / Forward)</span>
+                            <span class="setting-desc">Maximum document routing actions (receiving, forwarding, returning) a user can perform within a 1-minute window.</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 2px;">
+                            <select wire:model="rateLimitDtsActionPerMinute" class="form-input" style="max-width: 220px; font-size: 13px; font-weight: 600; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; cursor: pointer; background: #ffffff;">
+                                <option value="10">10 per minute</option>
+                                <option value="20">20 per minute (Recommended)</option>
+                                <option value="30">30 per minute</option>
+                                <option value="50">50 per minute</option>
+                                <option value="100">100 per minute</option>
+                            </select>
+                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Actions / minute</span>
+                        </div>
+                    </div>
+
+                    <!-- Sub-setting: RDP Record Submission Limit -->
+                    <div class="setting-item" style="border-top: 1px dashed #e2e8f0; padding-top: 12px; margin-top: 6px; flex-direction: column; align-items: flex-start; gap: 6px;">
+                        <div class="setting-details">
+                            <span class="setting-title">RDP Records Submission Limit</span>
+                            <span class="setting-desc">Maximum record submissions allowed in Records Disposition Program per user within a 1-minute window.</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 2px;">
+                            <select wire:model="rateLimitRdpCreatePerMinute" class="form-input" style="max-width: 220px; font-size: 13px; font-weight: 600; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; cursor: pointer; background: #ffffff;">
+                                <option value="10">10 per minute</option>
+                                <option value="15">15 per minute (Recommended)</option>
+                                <option value="25">25 per minute</option>
+                                <option value="50">50 per minute</option>
+                            </select>
+                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Submissions / minute</span>
+                        </div>
+                    </div>
+                    @endif
+
+                    <div style="margin-top: 14px; padding: 10px 12px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; font-size: 11.5px; color: #166534; display: flex; align-items: flex-start; gap: 8px;">
+                        <i class="fa-solid fa-circle-check" style="margin-top: 2px; font-size: 13px;"></i>
+                        <span>
+                            <strong>Administrator Exemption:</strong> Super Administrator (SADM) accounts automatically bypass all operational rate limits to ensure administrative maintenance is never interrupted.
                         </span>
                     </div>
                 </div>

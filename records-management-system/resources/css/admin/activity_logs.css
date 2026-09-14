@@ -1,5 +1,17 @@
 /* Admin Console - Activity Logs Styles (Logins, Account Changes & Notifications) */
 
+:root {
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --border-color: #e2e8f0;
+}
+
+[data-theme="dark"] {
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --border-color: #1e293b;
+}
+
 .activity-logs-container {
     width: 100%;
     max-width: 1400px;
@@ -394,6 +406,124 @@
     text-transform: uppercase;
     letter-spacing: 0.03em;
     white-space: nowrap;
+}
+
+.badge-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.badge-created   { background-color: rgba(37, 99, 235, 0.1); color: #1d4ed8; border: 1px solid rgba(37, 99, 235, 0.25); }
+.badge-in-transit { background-color: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+.badge-holding   { background-color: #f0f9ff; color: #0369a1; border: 1px solid #bae6fd; }
+.badge-forwarded { background-color: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+.badge-received  { background-color: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+.badge-returned  { background-color: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+.badge-completed { background-color: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+.badge-default   { background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
+
+.log-notes-cell {
+    font-size: 12.5px;
+    color: #334155;
+    min-width: 220px;
+    max-width: 320px;
+    line-height: 1.45;
+    word-break: normal;
+    overflow-wrap: break-word;
+    white-space: normal;
+}
+
+.actor-badge-sub {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-top: 3px;
+    width: fit-content;
+    background: #fffbeb;
+    color: #b45309;
+    border: 1px solid #fde68a;
+}
+
+.control-num-text {
+    font-weight: 700;
+    color: #003699;
+    font-family: monospace;
+    font-size: 13.5px;
+}
+
+.control-num-id {
+    font-size: 10.5px;
+    color: #64748b;
+}
+
+.office-code-tag {
+    color: #003699;
+    font-weight: 700;
+}
+
+.time-label {
+    font-weight: 700;
+    color: #475569;
+}
+
+.time-val {
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.time-pending {
+    color: #64748b;
+    font-style: italic;
+}
+
+.badge-pending {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    background: #fffbeb;
+    color: #b45309;
+    border: 1px solid #fde68a;
+}
+
+.flow-log-desc {
+    font-size: 13px;
+    font-weight: 500;
+    color: #1e293b;
+}
+
+.admin-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.admin-name {
+    font-weight: 600;
+    color: #334155;
+    font-size: 13px;
+}
+
+.admin-role {
+    font-size: 11px;
+    color: #64748b;
+    text-transform: uppercase;
+    font-weight: 600;
 }
 
 /* Empty State */
@@ -812,5 +942,176 @@
 [data-theme="dark"] .activity-logs-container p[style*="color:#64748b"] {
     color: #94a3b8 !important;
 }
+
+[data-theme="dark"] .log-notes-cell {
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .actor-badge-sub {
+    background: rgba(245, 158, 11, 0.15) !important;
+    color: #fbbf24 !important;
+    border-color: rgba(245, 158, 11, 0.3) !important;
+}
+
+[data-theme="dark"] .control-num-text {
+    color: #38bdf8 !important;
+}
+
+[data-theme="dark"] .control-num-id {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .office-code-tag {
+    color: #60a5fa !important;
+}
+
+[data-theme="dark"] .time-label {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .time-val {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .time-pending {
+    color: #64748b !important;
+}
+
+[data-theme="dark"] .badge-pending {
+    background: rgba(245, 158, 11, 0.15) !important;
+    color: #fbbf24 !important;
+    border-color: rgba(245, 158, 11, 0.3) !important;
+}
+
+[data-theme="dark"] .flow-log-desc {
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .admin-name {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .admin-role {
+    color: #94a3b8 !important;
+}
+
+/* Subsystem Reference & Pill Badges */
+[data-theme="dark"] .subsystem-ref {
+    background: rgba(37, 99, 235, 0.18) !important;
+    border: 1px solid rgba(59, 130, 246, 0.35) !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .log-id-sub {
+    color: #64748b !important;
+}
+
+/* Chatify Audit Tab Bar */
+[data-theme="dark"] .audit-tab-bar {
+    border-bottom-color: #1e293b !important;
+}
+
+[data-theme="dark"] .audit-tab-btn {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .audit-tab-btn:hover:not(.active) {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .audit-tab-btn.active {
+    color: #60a5fa !important;
+    border-bottom-color: #60a5fa !important;
+}
+
+/* Chatify Meta Pills & Target Chips */
+[data-theme="dark"] .target-chip {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .meta-pill {
+    background: rgba(59, 130, 246, 0.15) !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .backup-session-pill {
+    background: rgba(99, 102, 241, 0.2) !important;
+    color: #a5b4fc !important;
+}
+
+[data-theme="dark"] .btn-download-backup {
+    border-color: #3b82f6 !important;
+    color: #60a5fa !important;
+}
+
+[data-theme="dark"] .btn-download-backup:hover {
+    background: #2563eb !important;
+    color: #ffffff !important;
+}
+
+/* Action Badges in Dark Mode */
+[data-theme="dark"] .action-badge.register,
+[data-theme="dark"] .action-badge.send_message,
+[data-theme="dark"] .action-badge.send_dm {
+    background: rgba(16, 185, 129, 0.2) !important;
+    color: #34d399 !important;
+}
+
+[data-theme="dark"] .action-badge.update,
+[data-theme="dark"] .action-badge.edit_message {
+    background: rgba(245, 158, 11, 0.2) !important;
+    color: #fbbf24 !important;
+}
+
+[data-theme="dark"] .action-badge.stamp,
+[data-theme="dark"] .action-badge.upload_file,
+[data-theme="dark"] .action-badge.upload_dm_file {
+    background: rgba(99, 102, 241, 0.2) !important;
+    color: #a5b4fc !important;
+}
+
+[data-theme="dark"] .action-badge.delete,
+[data-theme="dark"] .action-badge.clear_chat,
+[data-theme="dark"] .action-badge.delete_message {
+    background: rgba(239, 68, 68, 0.2) !important;
+    color: #f87171 !important;
+}
+
+[data-theme="dark"] .action-badge.clear_all_chat,
+[data-theme="dark"] .action-badge.blocked {
+    background: rgba(239, 68, 68, 0.25) !important;
+    color: #fca5a5 !important;
+}
+
+[data-theme="dark"] .action-badge.restore {
+    background: rgba(14, 165, 233, 0.2) !important;
+    color: #38bdf8 !important;
+}
+
+[data-theme="dark"] .action-badge.access {
+    background: rgba(59, 130, 246, 0.2) !important;
+    color: #60a5fa !important;
+}
+
+[data-theme="dark"] .action-badge.export {
+    background: rgba(20, 184, 166, 0.2) !important;
+    color: #2dd4bf !important;
+}
+
+[data-theme="dark"] .action-badge.settings {
+    background: rgba(100, 116, 139, 0.2) !important;
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .action-badge.intake {
+    background: rgba(168, 85, 247, 0.2) !important;
+    color: #c084fc !important;
+}
+
+[data-theme="dark"] .action-badge.default-badge {
+    background: rgba(100, 116, 139, 0.2) !important;
+    color: #94a3b8 !important;
+}
+
 
 

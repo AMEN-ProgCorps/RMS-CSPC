@@ -237,9 +237,9 @@ try {
           </button>
         </div>
       </div>
-      <div class="sidebar-search" id="ownSidebarSearch">
-        <input type="text" id="searchInput" name="csp_srch_own_2k9" placeholder="Search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
-      </div>
+      <form class="sidebar-search" id="ownSidebarSearch" autocomplete="chrome-off" onsubmit="return false;" style="margin: 0;">
+        <input type="text" id="searchInput" name="csp_srch_own_2k9" placeholder="Search" autocomplete="chrome-off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
+      </form>
       <!-- Pinned Global Chat entry -->
       <div class="user-item" id="globalChatItem" onclick="selectGlobalChat()" onmouseenter="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)" onpointerdown="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)" style="border-bottom:1px solid var(--border-color);">
         <div class="user-avatar">
@@ -260,9 +260,9 @@ try {
       <!-- Admin: View all users chats view -->
       <div id="adminConvsSection" style="display:none;position:relative;">
         <div id="adminConvsHeaderTitle" style="padding:8px 16px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-secondary);margin-top:4px;text-align:center;"></div>
-        <div class="admin-search" style="padding: 6px 16px;">
-          <input type="text" id="adminSearchInput" name="csp_srch_adm_7v3" placeholder="Search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
-        </div>
+        <form class="admin-search" style="padding: 6px 16px; margin: 0;" autocomplete="chrome-off" onsubmit="return false;">
+          <input type="text" id="adminSearchInput" name="csp_srch_adm_7v3" placeholder="Search" autocomplete="chrome-off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
+        </form>
         <div class="sidebar-users" id="adminConvsList"></div>
       </div>
     </div>

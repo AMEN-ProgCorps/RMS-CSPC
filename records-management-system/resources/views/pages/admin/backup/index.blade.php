@@ -903,6 +903,98 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             border-color: #1e293b !important;
         }
 
+        /* Warning Callout Box & Highlights */
+        .backup-warning-callout,
+        [data-theme="dark"] div[style*="background: #fffbeb"],
+        [data-theme="dark"] div[style*="background:#fffbeb"] {
+            background-color: rgba(217, 119, 6, 0.15) !important;
+            border: 1px solid rgba(245, 158, 11, 0.4) !important;
+            color: #fef08a !important;
+        }
+
+        [data-theme="dark"] div[style*="background: #fffbeb"] strong,
+        [data-theme="dark"] div[style*="background:#fffbeb"] strong {
+            color: #fde047 !important;
+        }
+
+        [data-theme="dark"] code[style*="background: #fef3c7"],
+        [data-theme="dark"] code[style*="background:#fef3c7"],
+        [data-theme="dark"] code[style*="color: #78350f"] {
+            background: #0f172a !important;
+            color: #fde047 !important;
+            border: 1px solid rgba(245, 158, 11, 0.3) !important;
+        }
+
+        [data-theme="dark"] code[style*="background: #eff6ff"],
+        [data-theme="dark"] code[style*="background:#eff6ff"] {
+            background: rgba(37, 99, 235, 0.15) !important;
+            color: #60a5fa !important;
+        }
+
+        [data-theme="dark"] code[style*="background: #e2e8f0"],
+        [data-theme="dark"] code[style*="background:#e2e8f0"] {
+            background: #1e293b !important;
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] span[style*="background: #fffbeb"],
+        [data-theme="dark"] span[style*="background:#fffbeb"] {
+            background: rgba(217, 119, 6, 0.2) !important;
+            color: #fde047 !important;
+            border-color: rgba(245, 158, 11, 0.4) !important;
+        }
+
+        /* Mode selector cards in Create Backup Modal */
+        [data-theme="dark"] div[wire\:click*="backupMode"][style*="background: #f0fdf4"],
+        [data-theme="dark"] div[wire\:click*="backupMode"][style*="background:#f0fdf4"] {
+            background-color: rgba(16, 185, 129, 0.15) !important;
+            border-color: #10b981 !important;
+        }
+
+        [data-theme="dark"] div[wire\:click*="backupMode"][style*="background: #fffbeb"],
+        [data-theme="dark"] div[wire\:click*="backupMode"][style*="background:#fffbeb"] {
+            background-color: rgba(217, 119, 6, 0.15) !important;
+            border-color: #d97706 !important;
+        }
+
+        /* Success and Error Alerts in Backup Page */
+        [data-theme="dark"] div[style*="background: #f0fdf4"][style*="color: #166534"],
+        [data-theme="dark"] div[style*="background:#f0fdf4"][style*="color:#166534"] {
+            background-color: rgba(16, 185, 129, 0.15) !important;
+            border-color: rgba(16, 185, 129, 0.35) !important;
+            color: #4ade80 !important;
+        }
+
+        [data-theme="dark"] div[style*="background: #fef2f2"][style*="color: #991b1b"],
+        [data-theme="dark"] div[style*="background:#fef2f2"][style*="color:#991b1b"] {
+            background-color: rgba(239, 68, 68, 0.15) !important;
+            border-color: rgba(239, 68, 68, 0.35) !important;
+            color: #f87171 !important;
+        }
+
+        /* Revert Modal Dialog Box */
+        [data-theme="dark"] div[style*="max-width: 520px"][style*="border: 2px solid #f59e0b"] {
+            background-color: #131c2e !important;
+            border-color: #d97706 !important;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7) !important;
+        }
+
+        [data-theme="dark"] button[style*="background: #e2e8f0"][style*="color: #475569"],
+        [data-theme="dark"] button[style*="background:#e2e8f0"][style*="color:#475569"] {
+            background-color: #1e293b !important;
+            color: #cbd5e1 !important;
+            border: 1px solid #334155 !important;
+        }
+        [data-theme="dark"] button[style*="background: #e2e8f0"]:hover {
+            background-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] div[style*="background: #ecfdf5"][style*="color: #10b981"] {
+            background-color: rgba(16, 185, 129, 0.18) !important;
+            color: #34d399 !important;
+        }
+
         /* Dividers & Borders */
         [data-theme="dark"] div[style*="border-bottom: 1px solid #f1f5f9"],
         [data-theme="dark"] div[style*="border-top: 1px solid #f1f5f9"],

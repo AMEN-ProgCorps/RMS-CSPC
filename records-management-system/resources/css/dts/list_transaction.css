@@ -343,6 +343,232 @@
     color: #f8fafc !important;
 }
 
+/* Card Mode / Box Grid View */
+.dts-card-grid-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.dts-box-card {
+    background: #ffffff;
+    border: 1.5px solid #ced4da;
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    transition: all 0.2s ease;
+}
+
+.dts-box-card.selected {
+    background: #f0f6ff;
+    border-color: #1e40af;
+}
+
+.dts-box-card-content {
+    flex-grow: 1;
+    font-family: 'Inter', Roboto, sans-serif;
+    font-size: 13px;
+    min-width: 0;
+}
+
+.dts-box-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+    gap: 8px;
+}
+
+.dts-box-control-no {
+    font-weight: 600;
+    color: #1e40af;
+    font-size: 13px;
+}
+
+.dts-box-subject {
+    font-weight: 500;
+    color: #1f2937;
+    margin-bottom: 4px;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.dts-box-docname {
+    font-size: 11px;
+    color: #6b7280;
+    margin-bottom: 8px;
+}
+
+.dts-box-footer {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10.5px;
+    color: #64748b;
+    border-top: 1px solid #f1f5f9;
+    padding-top: 8px;
+    margin-top: 8px;
+    align-items: center;
+}
+
+.dts-box-btn-details {
+    background: transparent;
+    border: none;
+    color: #2563eb;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0;
+    font-family: inherit;
+}
+.dts-box-btn-details:hover {
+    text-decoration: underline;
+}
+
+.dts-box-empty {
+    grid-column: 1 / -1;
+    background: white;
+    border-radius: 12px;
+    padding: 40px;
+    text-align: center;
+    color: #9ca3af;
+    font-style: italic;
+    border: 1.5px solid #ced4da;
+}
+
+/* Toolbar elements */
+.rms-select-all-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    user-select: none;
+    color: #4b5563;
+    font-weight: 500;
+}
+
+.rms-filter-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.rms-date-range-badge {
+    margin-bottom: 16px;
+    font-size: 0.82rem;
+    color: #0369a1;
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    padding: 6px 12px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Dark Mode Overrides for Cards & Toolbar in DTS List */
+[data-theme="dark"] .dts-box-card {
+    background: #0f172a !important;
+    border-color: #1e293b !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+}
+
+[data-theme="dark"] .dts-box-card:hover {
+    border-color: #334155 !important;
+    background: #131c2e !important;
+}
+
+[data-theme="dark"] .dts-box-card.selected {
+    background: rgba(37, 99, 235, 0.15) !important;
+    border-color: #3b82f6 !important;
+}
+
+[data-theme="dark"] .dts-box-control-no {
+    color: #60a5fa !important;
+}
+
+[data-theme="dark"] .dts-box-subject {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .dts-box-docname {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .dts-box-footer {
+    border-top-color: #1e293b !important;
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .dts-box-btn-details {
+    color: #38bdf8 !important;
+}
+
+[data-theme="dark"] .dts-box-btn-details:hover {
+    color: #60a5fa !important;
+}
+
+[data-theme="dark"] .dts-box-empty {
+    background: #0f172a !important;
+    border-color: #1e293b !important;
+    color: #64748b !important;
+}
+
+[data-theme="dark"] .rms-select-all-label {
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .rms-entries {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .rms-filter-label {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .rms-date-range-badge {
+    background: rgba(14, 165, 233, 0.15) !important;
+    border-color: rgba(14, 165, 233, 0.3) !important;
+    color: #38bdf8 !important;
+}
+
+[data-theme="dark"] .rms-date-range-badge strong {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .rms-date-range-badge button {
+    color: #38bdf8 !important;
+}
+
+[data-theme="dark"] .rms-pagination-wrap {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .rms-btn-reset-filters {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .rms-btn-reset-filters:hover {
+    background: #1e293b !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .rms-table tr[style*="background-color: #f0f6ff"],
+[data-theme="dark"] .rms-table tr[style*="background-color:#f0f6ff"] {
+    background-color: rgba(37, 99, 235, 0.15) !important;
+}
+
+[data-theme="dark"] .rms-table td button[style*="color: #043899"] {
+    color: #60a5fa !important;
+}
+
+
 /* ==========================================================================
    DTS EXPORT MODAL COMPONENT (Light & Dark Theme)
    ========================================================================== */

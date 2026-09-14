@@ -1577,7 +1577,14 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                             <td>{{ $t->qr_code }}</td>
                             <td>{{ \Carbon\Carbon::parse($t->date_created)->format('Y-m-d H:i') }}</td>
                             <td>{{ $t->requestor_name ?: ($t->originated_office_name ?: $t->originated_from) }}</td>
-                            <td>{{ $t->subject }}</td>
+                            <td style="max-width: 250px; word-break: break-word;">
+                                @if(mb_strlen($t->subject ?? '') > 100)
+                                    {{ mb_substr($t->subject, 0, 100) }}...
+                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                @else
+                                    {{ $t->subject }}
+                                @endif
+                            </td>
                             <td style="min-width: 180px;">
                                 <div style="display: flex; align-items: center; justify-content: flex-start; gap: 4px; flex-wrap: wrap;">
                                     @forelse ($t->timeline_path as $stepIndex => $step)
@@ -1645,7 +1652,14 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                             <span class="status-badge status-{{ $t->status }}" style="font-size: 9px; padding: 2px 6px;">{{ $t->status }}</span>
                         </div>
 
-                        <div class="dts-box-subject">{{ $t->subject }}</div>
+                        <div class="dts-box-subject">
+                            @if(mb_strlen($t->subject ?? '') > 100)
+                                {{ mb_substr($t->subject, 0, 100) }}...
+                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                            @else
+                                {{ $t->subject }}
+                            @endif
+                        </div>
                         <div class="dts-box-docname">{{ $t->document_name ?? ucfirst($t->classification ?: 'external') }}</div>
 
                         <div class="dts-box-footer">

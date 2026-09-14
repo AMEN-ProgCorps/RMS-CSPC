@@ -2205,7 +2205,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
                                         <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
                                         <td style="max-width: 260px; white-space: normal; word-break: break-word;">
-                                            <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                            <div style="font-weight: 600; color: #0f172a;">
+                                                @if(mb_strlen($t->subject ?? '') > 100)
+                                                    {{ mb_substr($t->subject, 0, 100) }}...
+                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                @else
+                                                    {{ $t->subject }}
+                                                @endif
+                                            </div>
                                             @if(!empty($t->requestor_name))
                                                 <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
                                             @endif
@@ -2335,7 +2342,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
                                             <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
                                             <td style="max-width: 260px; white-space: normal; word-break: break-word; font-size: 12px;">
-                                                <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                                <div style="font-weight: 600; color: #0f172a;">
+                                                    @if(mb_strlen($t->subject ?? '') > 100)
+                                                        {{ mb_substr($t->subject, 0, 100) }}...
+                                                        <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                    @else
+                                                        {{ $t->subject }}
+                                                    @endif
+                                                </div>
                                                 <div style="font-size: 11px; color: #0284c7; font-weight: 600; margin-top: 2px;">
                                                     🏢 Unit: {{ $t->current_office_name ?: $t->current_office }}
                                                 </div>
@@ -2395,7 +2409,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $child->created_at_fmt }}</td>
                                                 <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
                                                 <td style="max-width: 260px; white-space: normal; word-break: break-word; font-size: 12px;">
-                                                    <div style="font-weight: 600; color: #0f172a;">{{ $child->subject }}</div>
+                                                    <div style="font-weight: 600; color: #0f172a;">
+                                                        @if(mb_strlen($child->subject ?? '') > 100)
+                                                            {{ mb_substr($child->subject, 0, 100) }}...
+                                                            <button type="button" wire:click.stop="openTransaction('{{ $child->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                        @else
+                                                            {{ $child->subject }}
+                                                        @endif
+                                                    </div>
                                                     <div style="font-size: 11px; color: #0284c7; font-weight: 600; margin-top: 2px;">
                                                         🏢 Unit: {{ $child->current_office_name ?: $child->current_office }}
                                                     </div>
@@ -2447,7 +2468,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
                                         <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
                                         <td style="max-width: 260px; white-space: normal; word-break: break-word;">
-                                            <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                            <div style="font-weight: 600; color: #0f172a;">
+                                                @if(mb_strlen($t->subject ?? '') > 100)
+                                                    {{ mb_substr($t->subject, 0, 100) }}...
+                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                @else
+                                                    {{ $t->subject }}
+                                                @endif
+                                            </div>
                                             @if(!empty($t->requestor_name))
                                                 <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
                                             @endif
@@ -2464,7 +2492,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->received_at_fmt }}</td>
                                         <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
                                         <td style="max-width: 260px; white-space: normal; word-break: break-word;">
-                                            <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                            <div style="font-weight: 600; color: #0f172a;">
+                                                @if(mb_strlen($t->subject ?? '') > 100)
+                                                    {{ mb_substr($t->subject, 0, 100) }}...
+                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                @else
+                                                    {{ $t->subject }}
+                                                @endif
+                                            </div>
                                             @if(!empty($t->requestor_name))
                                                 <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
                                             @endif
@@ -2485,7 +2520,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->released_at_fmt }}</td>
                                         <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
                                         <td style="max-width: 260px; white-space: normal; word-break: break-word;">
-                                            <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                            <div style="font-weight: 600; color: #0f172a;">
+                                                @if(mb_strlen($t->subject ?? '') > 100)
+                                                    {{ mb_substr($t->subject, 0, 100) }}...
+                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                @else
+                                                    {{ $t->subject }}
+                                                @endif
+                                            </div>
                                             @if(!empty($t->requestor_name))
                                                 <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
                                             @endif
@@ -2501,7 +2543,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
                                         <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
                                         <td style="max-width: 260px; white-space: normal; word-break: break-word;">
-                                            <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                            <div style="font-weight: 600; color: #0f172a;">
+                                                @if(mb_strlen($t->subject ?? '') > 100)
+                                                    {{ mb_substr($t->subject, 0, 100) }}...
+                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                @else
+                                                    {{ $t->subject }}
+                                                @endif
+                                            </div>
                                             @if(!empty($t->requestor_name))
                                                 <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
                                             @endif
@@ -2550,7 +2599,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
                                     <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
                                     <td style="max-width: 260px; white-space: normal; word-break: break-word;">
-                                        <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                        <div style="font-weight: 600; color: #0f172a;">
+                                            @if(mb_strlen($t->subject ?? '') > 100)
+                                                {{ mb_substr($t->subject, 0, 100) }}...
+                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                            @else
+                                                {{ $t->subject }}
+                                            @endif
+                                        </div>
                                         @if(!empty($t->requestor_name))
                                             <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
                                         @endif
@@ -2680,7 +2736,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
                                         <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
                                         <td style="max-width: 260px; white-space: normal; word-break: break-word; font-size: 12px;">
-                                            <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                            <div style="font-weight: 600; color: #0f172a;">
+                                                @if(mb_strlen($t->subject ?? '') > 100)
+                                                    {{ mb_substr($t->subject, 0, 100) }}...
+                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                @else
+                                                    {{ $t->subject }}
+                                                @endif
+                                            </div>
                                             <div style="font-size: 11px; color: #0284c7; font-weight: 600; margin-top: 2px;">
                                                 🏢 Unit: {{ $t->current_office_name ?: $t->current_office }}
                                             </div>
@@ -2740,7 +2803,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $child->created_at_fmt }}</td>
                                             <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
                                             <td style="max-width: 260px; white-space: normal; word-break: break-word; font-size: 12px;">
-                                                <div style="font-weight: 600; color: #0f172a;">{{ $child->subject }}</div>
+                                                <div style="font-weight: 600; color: #0f172a;">
+                                                    @if(mb_strlen($child->subject ?? '') > 100)
+                                                        {{ mb_substr($child->subject, 0, 100) }}...
+                                                        <button type="button" wire:click.stop="openTransaction('{{ $child->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                    @else
+                                                        {{ $child->subject }}
+                                                    @endif
+                                                </div>
                                                 <div style="font-size: 11px; color: #0284c7; font-weight: 600; margin-top: 2px;">
                                                     🏢 Unit: {{ $child->current_office_name ?: $child->current_office }}
                                                 </div>
@@ -2792,7 +2862,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
                                     <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
                                     <td style="max-width: 260px; white-space: normal; word-break: break-word;">
-                                        <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                        <div style="font-weight: 600; color: #0f172a;">
+                                            @if(mb_strlen($t->subject ?? '') > 100)
+                                                {{ mb_substr($t->subject, 0, 100) }}...
+                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                            @else
+                                                {{ $t->subject }}
+                                            @endif
+                                        </div>
                                         @if(!empty($t->requestor_name))
                                             <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
                                         @endif
@@ -2809,7 +2886,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->received_at_fmt }}</td>
                                     <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
                                     <td style="max-width: 260px; white-space: normal; word-break: break-word;">
-                                        <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                        <div style="font-weight: 600; color: #0f172a;">
+                                            @if(mb_strlen($t->subject ?? '') > 100)
+                                                {{ mb_substr($t->subject, 0, 100) }}...
+                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                            @else
+                                                {{ $t->subject }}
+                                            @endif
+                                        </div>
                                         @if(!empty($t->requestor_name))
                                             <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
                                         @endif
@@ -2830,7 +2914,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->released_at_fmt }}</td>
                                     <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
                                     <td style="max-width: 260px; white-space: normal; word-break: break-word;">
-                                        <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                        <div style="font-weight: 600; color: #0f172a;">
+                                            @if(mb_strlen($t->subject ?? '') > 100)
+                                                {{ mb_substr($t->subject, 0, 100) }}...
+                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                            @else
+                                                {{ $t->subject }}
+                                            @endif
+                                        </div>
                                         @if(!empty($t->requestor_name))
                                             <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
                                         @endif
@@ -2846,7 +2937,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     <td style="padding: 12px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
                                     <td style="padding: 12px 14px; color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
                                     <td style="max-width: 260px; white-space: normal; word-break: break-word;">
-                                        <div style="font-weight: 600; color: #0f172a;">{{ $t->subject }}</div>
+                                        <div style="font-weight: 600; color: #0f172a;">
+                                            @if(mb_strlen($t->subject ?? '') > 100)
+                                                {{ mb_substr($t->subject, 0, 100) }}...
+                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                            @else
+                                                {{ $t->subject }}
+                                            @endif
+                                        </div>
                                         @if(!empty($t->requestor_name))
                                             <div style="font-size: 11px; color: #64748b;">Req: {{ $t->requestor_name }}</div>
                                         @endif
@@ -2924,7 +3022,15 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                             <!-- Card Body contents -->
                             <div style="font-size: 13px; color: #4b5563; line-height: 1.6; margin-top: 12px; font-family: Roboto, sans-serif;">
-                                <div style="margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject }}</div>
+                                <div style="margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; white-space: normal;">
+                                    <strong>Subject:</strong>
+                                    @if(mb_strlen($t->subject ?? '') > 100)
+                                        {{ mb_substr($t->subject, 0, 100) }}...
+                                        <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                    @else
+                                        {{ $t->subject }}
+                                    @endif
+                                </div>
                                 <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
                                 <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
                                 <div style="margin-bottom: 12px;"><strong>Type of Document:</strong> {{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</div>
@@ -3059,7 +3165,15 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                         <!-- Card Body contents -->
                         <div style="font-size: 13px; color: #4b5563; line-height: 1.6; margin-top: 12px; font-family: Roboto, sans-serif;">
-                            <div style="margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; white-space: normal;"><strong>Subject:</strong> {{ $t->subject }}</div>
+                            <div style="margin-bottom: 6px; word-break: break-word; overflow-wrap: break-word; white-space: normal;">
+                                <strong>Subject:</strong>
+                                @if(mb_strlen($t->subject ?? '') > 100)
+                                    {{ mb_substr($t->subject, 0, 100) }}...
+                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                @else
+                                    {{ $t->subject }}
+                                @endif
+                            </div>
                             <div style="margin-bottom: 6px;"><strong>Name of Requestor:</strong> {{ $t->requestor_name }} @if(!empty($t->requestor_label)) <span style="font-size: 12px; color: #6b7280; font-weight: normal;">({{ $t->requestor_label }})</span> @endif</div>
                             <div style="margin-bottom: 6px;"><strong>Control Number:</strong> <span style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</span></div>
                             <div style="margin-bottom: 12px;"><strong>Type of Document:</strong> {{ (!empty($t->doc_type_name) && !str_starts_with($t->doc_type_name, 'Flow for ')) ? $t->doc_type_name : ucfirst($t->trans_type) }}</div>

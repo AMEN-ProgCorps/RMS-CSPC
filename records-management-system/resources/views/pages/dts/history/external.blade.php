@@ -268,7 +268,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions History')] cla
                         <tr>
                             <td style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</td>
                             <td>{{ $t->doc_type_name ?: ucfirst($t->trans_type) }}</td>
-                            <td style="max-width: 280px;">{{ Str::limit($t->subject, 50) }}</td>
+                            <td style="max-width: 280px;" title="{{ $t->subject }}">{{ Str::limit($t->subject, 50) }}</td>
                             <td>{{ $t->originated_office_name ?: $t->originated_from }}</td>
                             <td style="color: #0369a1; font-weight: 600;">🏢 {{ $t->current_office_name ?: $t->current_office }}</td>
                             <td style="white-space: nowrap;">
@@ -297,7 +297,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions History')] cla
                     <div style="margin-bottom: 10px;">
                         <span style="font-weight: 700; color: #1e40af; font-size: 0.95rem;">{{ $t->control_number }}</span>
                     </div>
-                    <h4 style="font-size: 0.9rem; font-weight: 600; color: #1e293b; margin: 0 0 8px 0;">{{ Str::limit($t->subject, 55) }}</h4>
+                    <h4 style="font-size: 0.9rem; font-weight: 600; color: #1e293b; margin: 0 0 8px 0;" title="{{ $t->subject }}">{{ Str::limit($t->subject, 55) }}</h4>
                     <div style="font-size: 0.8rem; color: #64748b; line-height: 1.5;">
                         <div><strong>Originated:</strong> {{ $t->originated_office_name ?: $t->originated_from }}</div>
                         <div><strong>Current Location:</strong> {{ $t->current_office_name ?: $t->current_office }}</div>

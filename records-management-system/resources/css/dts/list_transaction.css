@@ -428,6 +428,25 @@
     text-decoration: underline;
 }
 
+.dts-show-more-link {
+    background: transparent;
+    border: none;
+    color: #2563eb;
+    font-size: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 3px;
+    font-family: inherit;
+    text-decoration: underline;
+    display: inline;
+    white-space: nowrap;
+}
+.dts-show-more-link:hover {
+    color: #1d4ed8;
+    text-decoration: underline;
+}
+
 .dts-box-empty {
     grid-column: 1 / -1;
     background: white;
@@ -509,6 +528,13 @@
 }
 
 [data-theme="dark"] .dts-box-btn-details:hover {
+    color: #60a5fa !important;
+}
+
+[data-theme="dark"] .dts-show-more-link {
+    color: #38bdf8 !important;
+}
+[data-theme="dark"] .dts-show-more-link:hover {
     color: #60a5fa !important;
 }
 

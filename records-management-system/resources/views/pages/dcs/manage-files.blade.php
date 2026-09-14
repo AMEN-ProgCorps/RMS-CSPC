@@ -127,7 +127,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Manage Files')] 
         $user = Auth::user();
         $perms = $user?->permissions;
 
-        $canViewAll = RegisterQueryHelper::isFullDcsUser();
+        $canViewAll = RegisterQueryHelper::canViewAllDocuments();
         $userOfficeCode = $user?->details?->office?->office_code;
         $hasOfficeAccess = !empty($userOfficeCode) || $canViewAll;
 

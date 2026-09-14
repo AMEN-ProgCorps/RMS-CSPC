@@ -248,7 +248,7 @@ document.addEventListener('DOMContentLoaded', function () {
         if (path.indexOf('scans/') === 0) {
             base = '/storage/' + path;
         } else {
-            base = '/dcs/view-document?path=' + encodeURIComponent(path);
+            base = '/dcs/api/signed-scan-url?path=' + encodeURIComponent(path) + '&redirect=1';
         }
         if (!bust) return base;
         return base + (base.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(bust);

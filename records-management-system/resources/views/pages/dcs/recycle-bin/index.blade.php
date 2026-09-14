@@ -161,6 +161,14 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
         }
 
         $this->deleteError = '';
+
+        $rateCheck = \App\Services\RateLimiterService::check('dcs_action');
+        if (! $rateCheck['allowed']) {
+            $this->deleteError = $rateCheck['message'];
+
+            return;
+        }
+
         $expectedCode = $this->configuredDeleteCode();
 
         if ($expectedCode === '') {
@@ -187,6 +195,14 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
         $title = $this->deleteTitle;
         $docNo = $this->deleteDocNo;
         $this->closeDelete();
+
+        \App\Services\DcsAuditService::log(
+            'recycle.permanent_delete',
+            'recycle_bin',
+            $kind === '' ? $id : null,
+            null,
+            ['id' => $id, 'kind' => $kind, 'title' => $title, 'doc_no' => $docNo]
+        );
 
         if ($kind !== '') {
             SettingsRecycleHelper::permanentDestroy($kind, $id);

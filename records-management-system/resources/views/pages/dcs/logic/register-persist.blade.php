@@ -481,6 +481,12 @@ class RegisterPersistHelper
     public static function persist(Request $request): RedirectResponse
     {
         RegisterQueryHelper::assertFullDcsUser('register');
+
+        $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
+        if (!$rateCheck['allowed']) {
+            return back()->withInput()->with('error', $rateCheck['message']);
+        }
+
         self::blankStringsToNull($request);
         $mode = $request->input('registration_mode', 'new');
 
@@ -1015,6 +1021,17 @@ class RegisterPersistHelper
                 . (!empty($savedMl->doc_no) ? ' — ' . $savedMl->doc_no : '')
                 . (isset($savedMl->revise_no) ? ' (Rev ' . $savedMl->revise_no . ')' : '')
                 . (!empty($savedMl->doc_title) ? ': ' . $savedMl->doc_title : '')
+            );
+
+            \App\Services\DcsAuditService::log(
+                'register.create',
+                'register',
+                (int) $requestId,
+                null,
+                [
+                    'doc_no' => $savedMl->doc_no ?? null,
+                    'revise_no' => $savedMl->revise_no ?? null,
+                ]
             );
 
             $docNo = trim((string) ($savedMl->doc_no ?? ''));

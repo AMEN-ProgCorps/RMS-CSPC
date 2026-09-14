@@ -16,6 +16,37 @@ class DrrOcrService
     {
         @set_time_limit(180);
 
+        $rateCheck = RateLimiterService::check('dcs_ocr');
+        if (!$rateCheck['allowed']) {
+            return [
+                'ok' => false,
+                'reason' => 'rate_limited',
+                'message' => $rateCheck['message'],
+                'retry_after' => $rateCheck['retry_after'],
+                'pages' => [],
+            ];
+        }
+
+        $lockKey = 'dcs_ocr:user:' . (auth()->id() ?: ('ip:' . (request()->ip() ?: 'guest')));
+        $lock = \Illuminate\Support\Facades\Cache::lock($lockKey, 120);
+        if (! $lock->get()) {
+            return [
+                'ok' => false,
+                'reason' => 'ocr_busy',
+                'message' => 'Another OCR request is still running for your account. Please wait and try again.',
+                'pages' => [],
+            ];
+        }
+
+        try {
+            return self::ocrPagesLocked($request);
+        } finally {
+            optional($lock)->release();
+        }
+    }
+
+    private static function ocrPagesLocked(Request $request): array
+    {
         $request->validate([
             'file' => 'nullable|file|mimes:pdf,jpeg,jpg,png|max:204800',
             'storage_path' => 'nullable|string|max:500',
@@ -50,6 +81,8 @@ class DrrOcrService
                 // Canvas fallback sends a single page image — OCR it directly.
                 if (str_starts_with($mime, 'image/') || in_array($ext, ['jpg', 'jpeg', 'png'], true)) {
                     $pageNo = (int) (($request->input('pages')[0] ?? 1));
+                    DcsAuditService::log('ocr.page', 'review', null, null, ['page' => $pageNo, 'source' => 'image']);
+
                     return [
                         'ok' => true,
                         'pages' => [self::ocrImageFile($absPath, max(1, $pageNo))],
@@ -71,6 +104,14 @@ class DrrOcrService
                 }
                 $pages[] = self::ocrOnePage($pdfPath, $page);
             }
+
+            DcsAuditService::log(
+                'ocr.pages',
+                'review',
+                null,
+                $storagePath !== '' ? $storagePath : null,
+                ['page_count' => count($pages)]
+            );
 
             return ['ok' => true, 'pages' => $pages];
         } catch (\Throwable $e) {

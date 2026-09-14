@@ -81,4 +81,19 @@ export default defineConfig({
             },
         }),
     },
+    build: {
+        rollupOptions: {
+            output: {
+                // Emit pdf.js worker as .js so hosts without .mjs MIME still serve
+                // application/javascript (avoids DRR "Network error while comparing").
+                assetFileNames: (assetInfo) => {
+                    const name = assetInfo.name || '';
+                    if (name.includes('pdf.worker') && name.endsWith('.mjs')) {
+                        return 'assets/[name]-[hash].js';
+                    }
+                    return 'assets/[name]-[hash][extname]';
+                },
+            },
+        },
+    },
 });

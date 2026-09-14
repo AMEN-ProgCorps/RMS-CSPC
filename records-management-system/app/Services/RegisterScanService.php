@@ -14,6 +14,37 @@ class RegisterScanService
 {
     public static function extract(Request $request)
     {
+        $rateCheck = RateLimiterService::check('dcs_ocr');
+        if (!$rateCheck['allowed']) {
+            return [
+                'extracted' => false,
+                'reason' => 'rate_limited',
+                'message' => $rateCheck['message'],
+                'retry_after' => $rateCheck['retry_after'],
+                'fields' => self::emptyFields(),
+            ];
+        }
+
+        $lockKey = 'dcs_ocr:user:' . (auth()->id() ?: ('ip:' . (request()->ip() ?: 'guest')));
+        $lock = \Illuminate\Support\Facades\Cache::lock($lockKey, 120);
+        if (! $lock->get()) {
+            return [
+                'extracted' => false,
+                'reason' => 'ocr_busy',
+                'message' => 'Another OCR request is still running for your account. Please wait and try again.',
+                'fields' => self::emptyFields(),
+            ];
+        }
+
+        try {
+            return self::extractLocked($request);
+        } finally {
+            optional($lock)->release();
+        }
+    }
+
+    private static function extractLocked(Request $request)
+    {
         try {
             $request->validate([
                 'scan' => 'required|file|mimes:pdf|max:10240',
@@ -47,8 +78,11 @@ class RegisterScanService
             }
 
             // 2) OCR raster pages when native text is missing or unparseable.
+            $ocrError = null;
             if (! self::hasParsedValue($fields)) {
-                $ocrText = self::ocrPdfPages($fullPath);
+                $ocr = self::ocrPdfPagesDetailed($fullPath);
+                $ocrText = $ocr['text'];
+                $ocrError = $ocr['error'];
                 if (trim($ocrText) !== '') {
                     $rawText = trim($rawText) !== '' ? ($rawText . "\n" . $ocrText) : $ocrText;
                     $engine = $engine ? ($engine . '+paddle') : 'paddle';
@@ -57,11 +91,29 @@ class RegisterScanService
             }
 
             $ok = self::hasParsedValue($fields);
+            $reason = $ok ? 'ok' : (trim($rawText) === '' ? 'no_text' : 'parse_miss');
+            $message = null;
+            if (! $ok) {
+                $message = match ($reason) {
+                    'no_text' => $ocrError
+                        ? ('OCR failed on server: ' . Str::limit($ocrError, 180))
+                        : 'No readable text from this scan (check Ghostscript/PaddleOCR on the server).',
+                    'parse_miss' => 'Scan was read but DRF fields could not be matched — fill them in manually.',
+                    default => 'Could not auto-read this scan. Upload kept — fill fields manually.',
+                };
+            }
+
+            DcsAuditService::log('ocr.extract', 'register', null, null, [
+                'extracted' => $ok,
+                'reason' => $reason,
+                'engine' => $engine,
+            ]);
 
             return [
                 'extracted' => $ok,
-                'reason' => $ok ? 'ok' : (trim($rawText) === '' ? 'no_text' : 'parse_miss'),
+                'reason' => $reason,
                 'engine' => $engine,
+                'message' => $message,
                 'fields' => $fields,
                 'raw_text_preview' => Str::limit($rawText, 500),
             ];
@@ -158,9 +210,13 @@ class RegisterScanService
         return null;
     }
 
-    private static function ocrPdfPages(string $pdfPath): string
+    /**
+     * @return array{text: string, error: ?string}
+     */
+    private static function ocrPdfPagesDetailed(string $pdfPath): array
     {
         $rawText = '';
+        $lastError = null;
         $maxPages = 2;
         for ($page = 1; $page <= $maxPages; $page++) {
             $imagePath = Storage::disk('local')->path('temp/scans/' . uniqid('ocr_', true) . '.jpg');
@@ -170,11 +226,11 @@ class RegisterScanService
                 $ocr = PaddleOcrRunner::recognize($imagePath);
                 $pageText = trim((string) ($ocr['text'] ?? ''));
                 if ($pageText === '') {
-                    if ($page === 1 && ! empty($ocr['error'])) {
-                        Log::warning('DRF OCR page empty: ' . $ocr['error']);
+                    if (! empty($ocr['error'])) {
+                        $lastError = (string) $ocr['error'];
+                        Log::warning('DRF OCR page empty: ' . $lastError);
                     }
-                    if ($page === 1 && $pageText === '') {
-                        // Keep trying page 2 if page 1 blank.
+                    if ($page === 1) {
                         continue;
                     }
                     break;
@@ -185,9 +241,9 @@ class RegisterScanService
                     break;
                 }
             } catch (\Throwable $pageError) {
-                Log::warning('DRF OCR page ' . $page . ' failed: ' . $pageError->getMessage());
+                $lastError = $pageError->getMessage();
+                Log::warning('DRF OCR page ' . $page . ' failed: ' . $lastError);
                 if ($page === 1) {
-                    // Soft: try next page / return whatever we have.
                     continue;
                 }
                 break;
@@ -198,7 +254,12 @@ class RegisterScanService
             }
         }
 
-        return $rawText;
+        return ['text' => $rawText, 'error' => $lastError];
+    }
+
+    private static function ocrPdfPages(string $pdfPath): string
+    {
+        return self::ocrPdfPagesDetailed($pdfPath)['text'];
     }
 
     private static function parseDrfFields(string $text): array

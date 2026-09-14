@@ -173,6 +173,11 @@ class OfficeIntakeHelper
     {
         self::assertCanAccessIntake();
 
+        $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
+        if (!$rateCheck['allowed']) {
+            return back()->withInput()->with('error', $rateCheck['message']);
+        }
+
         $data = $request->validate([
             'drfDate' => 'nullable|date',
             'drfTitle' => 'required|string|max:255',
@@ -252,9 +257,17 @@ class OfficeIntakeHelper
             'Created office DRF #' . $id . ': ' . $data['drfTitle']
         );
 
+        \App\Services\DcsAuditService::log(
+            'office.drf.create',
+            'review_intake',
+            null,
+            null,
+            ['drf_id' => $id, 'title' => $data['drfTitle']]
+        );
+
         if (! RegisterQueryHelper::isRfioOffice()) {
             DcsNotificationService::notifyOfficeDrfSubmitted(
-                DcsNotificationService::RFIO_OFFICE_CODE,
+                RegisterQueryHelper::rfioNotificationOfficeCode(),
                 RegisterQueryHelper::currentUserDisplayName(),
                 '',
                 $data['drfTitle'],
@@ -271,6 +284,11 @@ class OfficeIntakeHelper
     public static function storeDcn(Request $request): RedirectResponse
     {
         self::assertCanAccessIntake();
+
+        $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
+        if (!$rateCheck['allowed']) {
+            return back()->withInput()->with('error', $rateCheck['message']);
+        }
 
         $data = $request->validate([
             'documentNo' => 'nullable|string|max:150',
@@ -351,9 +369,17 @@ class OfficeIntakeHelper
             . ($docTitle !== '' ? ': ' . $docTitle : '')
         );
 
+        \App\Services\DcsAuditService::log(
+            'office.dcn.create',
+            'review_intake',
+            null,
+            null,
+            ['dcn_id' => $id, 'doc_no' => $docNo, 'title' => $docTitle]
+        );
+
         if (! RegisterQueryHelper::isRfioOffice()) {
             DcsNotificationService::notifyOfficeDcnSubmitted(
-                DcsNotificationService::RFIO_OFFICE_CODE,
+                RegisterQueryHelper::rfioNotificationOfficeCode(),
                 RegisterQueryHelper::currentUserDisplayName(),
                 '',
                 $docNo,

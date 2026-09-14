@@ -22,6 +22,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public int $rateLimitDtsCreatePerMinute = 10;
     public int $rateLimitDtsActionPerMinute = 20;
     public int $rateLimitRdpCreatePerMinute = 15;
+    public int $rateLimitDcsCreatePerMinute = 10;
+    public int $rateLimitDcsOcrPerMinute = 30;
+    public int $rateLimitDcsActionPerMinute = 20;
     public string $successMessage = '';
     public string $errorMessage = '';
 
@@ -340,6 +343,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $rlRdpCreate = \DB::table('sys_system_settings')->where('key', 'rate_limit_rdp_create_per_minute')->value('value');
         $this->rateLimitRdpCreatePerMinute = ($rlRdpCreate !== null && is_numeric($rlRdpCreate)) ? (int) $rlRdpCreate : 15;
+
+        $rlDcsCreate = \DB::table('sys_system_settings')->where('key', 'rate_limit_dcs_create_per_minute')->value('value');
+        $this->rateLimitDcsCreatePerMinute = ($rlDcsCreate !== null && is_numeric($rlDcsCreate)) ? (int) $rlDcsCreate : 10;
+
+        $rlDcsOcr = \DB::table('sys_system_settings')->where('key', 'rate_limit_dcs_ocr_per_minute')->value('value');
+        $this->rateLimitDcsOcrPerMinute = ($rlDcsOcr !== null && is_numeric($rlDcsOcr)) ? (int) $rlDcsOcr : 30;
+
+        $rlDcsAction = \DB::table('sys_system_settings')->where('key', 'rate_limit_dcs_action_per_minute')->value('value');
+        $this->rateLimitDcsActionPerMinute = ($rlDcsAction !== null && is_numeric($rlDcsAction)) ? (int) $rlDcsAction : 20;
     }
 
     public function testDriveConnection(): void
@@ -695,6 +707,30 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ['key' => 'rate_limit_rdp_create_per_minute'],
                     [
                         'value' => (string) max(1, (int) $this->rateLimitRdpCreatePerMinute),
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table('sys_system_settings')->updateOrInsert(
+                    ['key' => 'rate_limit_dcs_create_per_minute'],
+                    [
+                        'value' => (string) max(1, (int) $this->rateLimitDcsCreatePerMinute),
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table('sys_system_settings')->updateOrInsert(
+                    ['key' => 'rate_limit_dcs_ocr_per_minute'],
+                    [
+                        'value' => (string) max(1, (int) $this->rateLimitDcsOcrPerMinute),
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table('sys_system_settings')->updateOrInsert(
+                    ['key' => 'rate_limit_dcs_action_per_minute'],
+                    [
+                        'value' => (string) max(1, (int) $this->rateLimitDcsActionPerMinute),
                         'updated_at' => now(),
                     ]
                 );
@@ -1551,7 +1587,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     <div class="setting-item">
                         <div class="setting-details">
                             <span class="setting-title">Enable System-Wide Rate Limiting</span>
-                            <span class="setting-desc">Protects the system and database from rapid automated spamming, duplicate submissions, and accidental multi-clicks on transaction and record creation.</span>
+                            <span class="setting-desc">Protects the system and database from rapid automated spamming, duplicate submissions, and accidental multi-clicks on DTS, RDP, and DCS create/OCR actions.</span>
                         </div>
                         <label class="switch">
                             <input type="checkbox" wire:model.live="rateLimitEnabled">
@@ -1611,6 +1647,59 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                                 <option value="50">50 per minute</option>
                             </select>
                             <span style="font-size: 12px; color: #64748b; font-weight: 500;">Submissions / minute</span>
+                        </div>
+                    </div>
+
+                    <!-- Sub-setting: DCS Register / Update Limit -->
+                    <div class="setting-item" style="border-top: 1px dashed #e2e8f0; padding-top: 12px; margin-top: 6px; flex-direction: column; align-items: flex-start; gap: 6px;">
+                        <div class="setting-details">
+                            <span class="setting-title">DCS Document Registration Limit</span>
+                            <span class="setting-desc">Maximum new/updated DCS registrations (Register, Edit, Office DRF/DCN) per user within a 1-minute window.</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 2px;">
+                            <select wire:model="rateLimitDcsCreatePerMinute" class="form-input" style="max-width: 220px; font-size: 13px; font-weight: 600; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; cursor: pointer; background: #ffffff;">
+                                <option value="5">5 per minute</option>
+                                <option value="10">10 per minute (Recommended)</option>
+                                <option value="15">15 per minute</option>
+                                <option value="20">20 per minute</option>
+                                <option value="30">30 per minute</option>
+                            </select>
+                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Registrations / minute</span>
+                        </div>
+                    </div>
+
+                    <!-- Sub-setting: DCS OCR Limit -->
+                    <div class="setting-item" style="border-top: 1px dashed #e2e8f0; padding-top: 12px; margin-top: 6px; flex-direction: column; align-items: flex-start; gap: 6px;">
+                        <div class="setting-details">
+                            <span class="setting-title">DCS OCR / Scan Extraction Limit</span>
+                            <span class="setting-desc">Maximum DRF auto-fill and Document Review OCR page requests per user within a 1-minute window (OCR is CPU-heavy).</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 2px;">
+                            <select wire:model="rateLimitDcsOcrPerMinute" class="form-input" style="max-width: 220px; font-size: 13px; font-weight: 600; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; cursor: pointer; background: #ffffff;">
+                                <option value="10">10 per minute</option>
+                                <option value="20">20 per minute</option>
+                                <option value="30">30 per minute (Recommended)</option>
+                                <option value="45">45 per minute</option>
+                                <option value="60">60 per minute</option>
+                            </select>
+                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">OCR requests / minute</span>
+                        </div>
+                    </div>
+
+                    <!-- Sub-setting: DCS Action Limit -->
+                    <div class="setting-item" style="border-top: 1px dashed #e2e8f0; padding-top: 12px; margin-top: 6px; flex-direction: column; align-items: flex-start; gap: 6px;">
+                        <div class="setting-details">
+                            <span class="setting-title">DCS Actions Limit (Stamp / Calendar / Templates / Recycle)</span>
+                            <span class="setting-desc">Maximum stamp, calendar, report-template, and recycle permanent-delete actions per user within a 1-minute window.</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 2px;">
+                            <select wire:model="rateLimitDcsActionPerMinute" class="form-input" style="max-width: 220px; font-size: 13px; font-weight: 600; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; cursor: pointer; background: #ffffff;">
+                                <option value="10">10 per minute</option>
+                                <option value="20">20 per minute (Recommended)</option>
+                                <option value="30">30 per minute</option>
+                                <option value="50">50 per minute</option>
+                            </select>
+                            <span style="font-size: 12px; color: #64748b; font-weight: 500;">Actions / minute</span>
                         </div>
                     </div>
                     @endif

@@ -68,13 +68,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - File Upload Activity Log
         if (!empty($this->search)) {
             $searchVal = '%' . $this->search . '%';
             $query->where(function ($q) use ($searchVal) {
-                $q->where('document_data.document_name', 'like', $searchVal)
-                  ->orWhere('document_data.document_id', 'like', $searchVal)
-                  ->orWhere('document_data.document_path', 'like', $searchVal)
-                  ->orWhere('account.username', 'like', $searchVal)
-                  ->orWhere('account_details.first_name', 'like', $searchVal)
-                  ->orWhere('account_details.last_name', 'like', $searchVal)
-                  ->orWhere('office.office_name', 'like', $searchVal);
+                $q->where('document_data.document_name', 'ilike', $searchVal)
+                  ->orWhere('document_data.document_id', 'ilike', $searchVal)
+                  ->orWhere('document_data.document_path', 'ilike', $searchVal)
+                  ->orWhere('account.username', 'ilike', $searchVal)
+                  ->orWhere('account_details.first_name', 'ilike', $searchVal)
+                  ->orWhere('account_details.last_name', 'ilike', $searchVal)
+                  ->orWhere('office.office_name', 'ilike', $searchVal);
             });
         }
 

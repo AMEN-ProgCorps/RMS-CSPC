@@ -89,13 +89,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transactions Logs')]
         if ($this->search !== '') {
             $searchVal = '%' . trim($this->search) . '%';
             $query->where(function ($q) use ($searchVal, $logsTbl, $officeTbl, $accountTbl, $accDetailsTbl) {
-                $q->where('dts_transaction_details.control_number', 'like', $searchVal)
-                  ->orWhere("{$accountTbl}.username", 'like', $searchVal)
-                  ->orWhere("{$accDetailsTbl}.first_name", 'like', $searchVal)
-                  ->orWhere("{$accDetailsTbl}.last_name", 'like', $searchVal)
-                  ->orWhere("{$officeTbl}.office_name", 'like', $searchVal)
-                  ->orWhere("{$officeTbl}.office_code", 'like', $searchVal)
-                  ->orWhere("{$logsTbl}.notes", 'like', $searchVal);
+                $q->where('dts_transaction_details.control_number', 'ilike', $searchVal)
+                  ->orWhere("{$accountTbl}.username", 'ilike', $searchVal)
+                  ->orWhere("{$accDetailsTbl}.first_name", 'ilike', $searchVal)
+                  ->orWhere("{$accDetailsTbl}.last_name", 'ilike', $searchVal)
+                  ->orWhere("{$officeTbl}.office_name", 'ilike', $searchVal)
+                  ->orWhere("{$officeTbl}.office_code", 'ilike', $searchVal)
+                  ->orWhere("{$logsTbl}.notes", 'ilike', $searchVal);
             });
         }
 

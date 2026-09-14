@@ -175,6 +175,12 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
 
     public function saveDraft(): void
     {
+        $rateCheck = \App\Services\RateLimiterService::check('rdp_create');
+        if (!$rateCheck['allowed']) {
+            $this->errorMessage = $rateCheck['message'];
+            return;
+        }
+
         $this->clearMessages();
 
         $parentTitle = mb_strtoupper(trim($this->series_title));
@@ -292,6 +298,12 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
 
     public function saveRecordSeries(): void
     {
+        $rateCheck = \App\Services\RateLimiterService::check('rdp_create');
+        if (!$rateCheck['allowed']) {
+            $this->errorMessage = $rateCheck['message'];
+            return;
+        }
+
         $this->clearMessages();
 
         $parentTitle = mb_strtoupper(trim($this->series_title));

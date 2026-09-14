@@ -84,9 +84,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
         if ($this->search !== '') {
             $s = '%' . $this->search . '%';
             $query->where(function ($q) use ($s) {
-                $q->where('a.username', 'like', $s)
-                  ->orWhere('ad.first_name', 'like', $s)
-                  ->orWhere('ad.last_name', 'like', $s);
+                $q->where('a.username', 'ilike', $s)
+                  ->orWhere('ad.first_name', 'ilike', $s)
+                  ->orWhere('ad.last_name', 'ilike', $s);
             });
         }
         if ($this->actionFilter !== '') {
@@ -390,26 +390,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
                             <tr>
                                 <!-- Timestamp -->
                                 <td>
-                                    <div style="font-size: 13px; font-weight: 500; color: var(--text-primary, #1e293b);">
-                                        {{ \Carbon\Carbon::parse($log->created_at)->timezone('Asia/Manila')->format('M d, Y') }}
-                                    </div>
-                                    <div style="font-size: 11.5px; color: var(--text-secondary, #64748b);">
-                                        {{ \Carbon\Carbon::parse($log->created_at)->timezone('Asia/Manila')->format('h:i:s A') }}
+                                    <div class="log-timestamp">
+                                        <span class="log-date">{{ \Carbon\Carbon::parse($log->created_at)->timezone('Asia/Manila')->format('M d, Y') }}</span>
+                                        <span class="log-time">{{ \Carbon\Carbon::parse($log->created_at)->timezone('Asia/Manila')->format('h:i:s A') }}</span>
                                     </div>
                                 </td>
 
                                 <!-- User -->
                                 <td>
-                                    <div style="font-weight: 600; font-size: 13.5px;">
-                                        {{ $fullName ?: ($log->username ?? 'Unknown') }}
-                                    </div>
-                                    @if($log->username)
-                                        <div style="font-size: 11.5px; color: var(--text-secondary, #64748b);">
-                                            {{ '@' . $log->username }}
-                                        </div>
-                                    @endif
-                                    <div style="font-size: 11px; color: #94a3b8;">
-                                        ID: {{ $log->account_id }}
+                                    <div class="admin-name-cell">
+                                        <span class="name" style="font-size: 13.5px;">{{ $fullName ?: ($log->username ?? 'Unknown') }}</span>
+                                        @if($log->username)
+                                            <span class="email-sub">{{ '@' . $log->username }}</span>
+                                        @endif
+                                        <span class="log-id-sub">ID: {{ $log->account_id }}</span>
                                     </div>
                                 </td>
 
@@ -464,13 +458,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
                                         </div>
                                     @endif
                                     @if(!$log->target_id && empty($meta))
-                                        <span style="color: var(--text-secondary, #64748b); font-size: 12px;">—</span>
+                                        <span class="email-sub" style="font-size: 12px;">—</span>
                                     @endif
                                 </td>
 
                                 <!-- IP Address -->
                                 <td>
-                                    <span style="font-size: 12.5px; font-family: monospace; color: var(--text-secondary, #64748b);">
+                                    <span class="ip-address-pill" style="font-size: 12px;">
                                         {{ $log->ip_address ?? '—' }}
                                     </span>
                                 </td>
@@ -542,21 +536,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Chat Audit Trail')] clas
                             @endphp
                             <tr class="backup-session-row">
                                 <td>
-                                    <div style="font-size: 13px; font-weight: 500; color: var(--text-primary, #1e293b);">
-                                        {{ $sessionDate->format('M d, Y') }}
-                                    </div>
-                                    <div style="font-size: 11.5px; color: var(--text-secondary, #64748b);">
-                                        {{ $sessionDate->format('h:i A') }}
+                                    <div class="log-timestamp">
+                                        <span class="log-date">{{ $sessionDate->format('M d, Y') }}</span>
+                                        <span class="log-time">{{ $sessionDate->format('h:i A') }}</span>
                                     </div>
                                 </td>
                                 <td>
-                                    <div style="font-weight: 600; font-size: 13.5px;">{{ $archivistName }}</div>
-                                    @if($session->archivist_username)
-                                        <div style="font-size: 11.5px; color: var(--text-secondary, #64748b);">
-                                            {{ '@' . $session->archivist_username }}
-                                        </div>
-                                    @endif
-                                    <div style="font-size: 11px; color: #94a3b8;">ID: {{ $session->archived_by }}</div>
+                                    <div class="admin-name-cell">
+                                        <span class="name" style="font-size: 13.5px;">{{ $archivistName }}</span>
+                                        @if($session->archivist_username)
+                                            <span class="email-sub">{{ '@' . $session->archivist_username }}</span>
+                                        @endif
+                                        <span class="log-id-sub">ID: {{ $session->archived_by }}</span>
+                                    </div>
                                 </td>
                                 <td style="text-align: center;">
                                     <span class="backup-session-pill">{{ number_format($session->message_count) }}</span>

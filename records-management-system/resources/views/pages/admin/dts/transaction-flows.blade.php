@@ -1017,8 +1017,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         if ($this->searchPredefined !== '') {
             $searchVal = '%' . $this->searchPredefined . '%';
             $query->where(function ($q) use ($searchVal) {
-                $q->where('flow_name', 'like', $searchVal)
-                  ->orWhere('flow_code', 'like', $searchVal);
+                $q->where('flow_name', 'ilike', $searchVal)
+                  ->orWhere('flow_code', 'ilike', $searchVal);
             });
         }
 
@@ -1427,8 +1427,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         if ($this->searchPredefined !== '') {
             $searchVal = '%' . $this->searchPredefined . '%';
             $predefinedQuery->where(function ($q) use ($searchVal) {
-                $q->where('flow_name', 'like', $searchVal)
-                  ->orWhere('flow_code', 'like', $searchVal);
+                $q->where('flow_name', 'ilike', $searchVal)
+                  ->orWhere('flow_code', 'ilike', $searchVal);
             });
         }
 
@@ -1463,12 +1463,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             if ($this->searchCustom !== '') {
                 $searchVal = '%' . $this->searchCustom . '%';
                 $customQuery->where(function ($q) use ($searchVal) {
-                    $q->where('dts_transaction_flow.flow_code', 'like', $searchVal)
-                      ->orWhere('dts_transaction_flow.flow_name', 'like', $searchVal)
-                      ->orWhere('account_details.first_name', 'like', $searchVal)
-                      ->orWhere('account_details.last_name', 'like', $searchVal)
-                      ->orWhere('office.office_name', 'like', $searchVal)
-                      ->orWhere('office.office_code', 'like', $searchVal);
+                    $q->where('dts_transaction_flow.flow_code', 'ilike', $searchVal)
+                      ->orWhere('dts_transaction_flow.flow_name', 'ilike', $searchVal)
+                      ->orWhere('account_details.first_name', 'ilike', $searchVal)
+                      ->orWhere('account_details.last_name', 'ilike', $searchVal)
+                      ->orWhere('office.office_name', 'ilike', $searchVal)
+                      ->orWhere('office.office_code', 'ilike', $searchVal);
                 });
             }
 

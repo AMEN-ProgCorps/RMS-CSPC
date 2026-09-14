@@ -1460,11 +1460,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                 </select>
             </div>
             <div style="display: flex; gap: 16px; align-items: center;">
-                <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; cursor: pointer; user-select: none; color: #4b5563; font-weight: 500;">
+                <label class="rms-select-all-label">
                     <input type="checkbox" wire:model.live="selectAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                     Select All
                 </label>
-                <button type="button" wire:click="toggleLayout" class="rms-select" style="background: white; padding-right: 12px; display: inline-flex; align-items: center; gap: 6px;">
+                <button type="button" wire:click="toggleLayout" class="rms-select" style="padding-right: 12px; display: inline-flex; align-items: center; gap: 6px;">
                     @if ($layoutMode === 'table')
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                         Grid
@@ -1490,11 +1490,11 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             </div>
             <div class="rms-filters" style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
                 <div style="display: flex; align-items: center; gap: 6px;">
-                    <span style="font-size: 0.8rem; font-weight: 600; color: #64748b;">From:</span>
+                    <span class="rms-filter-label">From:</span>
                     <input type="date" class="rms-select" wire:model.live="dateFrom" style="padding-right: 8px; background-image: none; font-size: 0.82rem; height: 34px;" title="Filter Created From Date">
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px;">
-                    <span style="font-size: 0.8rem; font-weight: 600; color: #64748b;">To:</span>
+                    <span class="rms-filter-label">To:</span>
                     <input type="date" class="rms-select" wire:model.live="dateTo" style="padding-right: 8px; background-image: none; font-size: 0.82rem; height: 34px;" title="Filter Created To Date">
                 </div>
                 <div style="display: flex; align-items: center; gap: 6px;">
@@ -1504,7 +1504,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                     </select>
                 </div>
                 @if(!empty($dateFrom) || !empty($dateTo) || !empty($searchQuery) || $selectedPriority !== 'all' || $selectedStatus !== 'all' || $sortOrder !== 'desc')
-                    <button type="button" wire:click="resetFilters" class="rms-select" style="background: #f8fafc; border-color: #cbd5e1; color: #475569; padding-right: 12px; display: inline-flex; align-items: center; gap: 4px; height: 34px; font-size: 0.82rem; font-weight: 600;" title="Reset all filters">
+                    <button type="button" wire:click="resetFilters" class="rms-select rms-btn-reset-filters" style="padding-right: 12px; display: inline-flex; align-items: center; gap: 4px; height: 34px; font-size: 0.82rem; font-weight: 600;" title="Reset all filters">
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                         Reset
                     </button>
@@ -1519,12 +1519,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     </div>
 
     @if(!empty($dateFrom) || !empty($dateTo))
-        <div style="margin-bottom: 16px; font-size: 0.82rem; color: #0369a1; background: #f0f9ff; border: 1px solid #bae6fd; padding: 6px 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 8px;">
+        <div class="rms-date-range-badge">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
             <span>
                 Showing transactions created between <strong>{{ !empty($dateFrom) ? \Carbon\Carbon::parse($dateFrom)->format('M d, Y') : 'Earliest' }}</strong> and <strong>{{ !empty($dateTo) ? \Carbon\Carbon::parse($dateTo)->format('M d, Y') : 'Latest' }}</strong>
             </span>
-            <button type="button" wire:click="$set('dateFrom', ''); $set('dateTo', '');" style="background: none; border: none; color: #0369a1; cursor: pointer; font-weight: 700; font-size: 14px; padding: 0 4px; line-height: 1;" title="Clear date filter">×</button>
+            <button type="button" wire:click="$set('dateFrom', ''); $set('dateTo', '');" style="background: none; border: none; cursor: pointer; font-weight: 700; font-size: 14px; padding: 0 4px; line-height: 1;" title="Clear date filter">×</button>
         </div>
     @endif
 
@@ -1594,12 +1594,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         </div>
     @else
         <!-- Box Layout (Simplified Checkable Cards Grid) -->
-        <div class="dts-card-grid-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-bottom: 20px;">
+        <div class="dts-card-grid-container">
             @forelse ($this->transactions as $index => $t)
                 @php
                     $isChecked = in_array((string)$t->transaction_id, $selectedIds);
                 @endphp
-                <div class="dts-box-card" style="background: {{ $isChecked ? '#f0f6ff' : 'white' }}; border: 1.5px solid {{ $isChecked ? '#1e40af' : '#ced4da' }}; border-radius: 8px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; gap: 12px; align-items: flex-start; transition: all 0.2s ease;">
+                <div class="dts-box-card {{ $isChecked ? 'selected' : '' }}">
                     
                     <!-- Left side Checkbox -->
                     <div style="display: flex; align-items: center; justify-content: center; height: 20px;">
@@ -1607,24 +1607,24 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                     </div>
 
                     <!-- Right side Info Contents -->
-                    <div style="flex-grow: 1; font-family: Roboto, sans-serif; font-size: 13px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; gap: 8px;">
-                            <span style="font-weight: 600; color: #1e40af; font-size: 13px;">{{ $t->control_number }}</span>
+                    <div class="dts-box-card-content">
+                        <div class="dts-box-card-header">
+                            <span class="dts-box-control-no">{{ $t->control_number }}</span>
                             <span class="status-badge status-{{ $t->status }}" style="font-size: 9px; padding: 2px 6px;">{{ $t->status }}</span>
                         </div>
 
-                        <div style="font-weight: 500; color: #1f2937; margin-bottom: 4px; line-height: 1.4; word-break: break-word;">{{ $t->subject }}</div>
-                        <div style="font-size: 11px; color: #6b7280; margin-bottom: 2px;">Applicant: {{ $t->requestor_name ?? 'N/A' }} ({{ $t->classification ?? 'N/A' }})</div>
-                        <div style="font-size: 11px; color: #6b7280; margin-bottom: 8px;">{{ $t->document_name ?? 'Application Letter' }}</div>
+                        <div class="dts-box-subject">{{ $t->subject }}</div>
+                        <div class="dts-box-docname" style="margin-bottom: 2px;">Applicant: {{ $t->requestor_name ?? 'N/A' }} ({{ $t->classification ?? 'N/A' }})</div>
+                        <div class="dts-box-docname">{{ $t->document_name ?? 'Application Letter' }}</div>
 
-                        <div style="display: flex; justify-content: space-between; font-size: 10px; color: #9ca3af; border-top: 1px solid #f3f4f6; padding-top: 8px; margin-top: 8px; align-items: center;">
+                        <div class="dts-box-footer">
                             <span>Source: {{ $t->originated_office_name }}</span>
-                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" style="background: transparent; border: none; color: #2563eb; font-size: 11px; font-weight: 600; cursor: pointer; padding: 0;">View Details</button>
+                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="dts-box-btn-details">View Details</button>
                         </div>
                     </div>
                 </div>
             @empty
-                <div style="grid-column: 1 / -1; background: white; border-radius: 12px; padding: 40px; text-align: center; color: #9CA3AF; font-style: italic; border: 1.5px solid #ced4da;">
+                <div class="dts-box-empty">
                     No records found.
                 </div>
             @endforelse
@@ -1939,10 +1939,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                 }
                                 .dts-timeline-node-wrapper:first-child .dts-node-tooltip {
                                     left: -10px;
+                                    right: auto;
                                     transform: none;
                                 }
                                 .dts-timeline-node-wrapper:first-child .dts-node-tooltip::after {
                                     left: 26px;
+                                    right: auto;
                                     transform: none;
                                 }
                                 .dts-timeline-node-wrapper:last-child .dts-node-tooltip {
@@ -1954,6 +1956,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                     left: auto;
                                     right: 26px;
                                     transform: none;
+                                }
+                                .dts-timeline-node-wrapper:only-child .dts-node-tooltip,
+                                .dts-timeline-node-wrapper:first-child:last-child .dts-node-tooltip {
+                                    left: 50%;
+                                    right: auto;
+                                    transform: translateX(-50%);
+                                }
+                                .dts-timeline-node-wrapper:only-child .dts-node-tooltip::after,
+                                .dts-timeline-node-wrapper:first-child:last-child .dts-node-tooltip::after {
+                                    left: 50%;
+                                    right: auto;
+                                    transform: translateX(-50%);
                                 }
                                 .dts-timeline-node-wrapper:hover .dts-node-tooltip {
                                     opacity: 1;
@@ -1970,7 +1984,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
 
                             <!-- Horizontal Progress Line Graph (Transparent Side-Fit Box) -->
                             <div style="width: 100%; overflow: visible; padding: 165px 60px 20px 60px; box-sizing: border-box; background: transparent; border: none; margin-top: 4px; margin-bottom: 12px; position: relative;">
-                                <div style="display: flex; align-items: center; justify-content: space-between; min-width: max-content; padding: 0; position: relative;">
+                                <div style="display: flex; align-items: center; justify-content: {{ count($this->visiblePath) <= 1 ? 'center' : 'space-between' }}; width: 100%; min-width: max-content; padding: 0; position: relative;">
                                     @forelse ($this->visiblePath as $index => $step)
                                         @php
                                             $isReceived = !is_null($step->date_in) || $selectedTransaction->status === 'completed';

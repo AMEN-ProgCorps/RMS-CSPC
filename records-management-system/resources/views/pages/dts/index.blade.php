@@ -3378,12 +3378,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         </div>
 
                         <!-- Subject field -->
-                        <div class="receive-field-row receive-field-row--particulars">
+                        <div class="receive-field-row receive-field-row--particulars" style="grid-template-columns: 110px minmax(0, 1fr); min-width: 0;">
                             <span class="receive-field-label">Subject:</span>
                             @if ($editingAll)
-                                <textarea class="receive-field-input" wire:model="particulars" style="min-height: 72px; resize: vertical;"></textarea>
+                                <textarea class="receive-field-input" wire:model="particulars" style="min-height: 72px; resize: vertical; min-width: 0; max-width: 100%; word-break: break-word;"></textarea>
                             @else
-                                <div class="receive-particulars-display" style="width: 100%;">
+                                <div class="receive-particulars-display" style="width: 100%; min-width: 0; max-width: 100%; overflow-wrap: anywhere; word-break: break-word; box-sizing: border-box;">
                                     {{ $particulars ?: 'No subject provided.' }}
                                 </div>
                             @endif

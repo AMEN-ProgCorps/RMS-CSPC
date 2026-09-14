@@ -679,6 +679,51 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 ]);
             }
 
+            foreach ($this->periodsCovered as $p) {
+                $startAt = null;
+                $endsAt = null;
+                $startDay = !empty($p['start_day']) ? (int)$p['start_day'] : null;
+                $endDay = !empty($p['end_day']) ? (int)$p['end_day'] : null;
+
+                if (!empty($p['start_month'])) {
+                    try {
+                        $dt = Carbon::createFromFormat('Y-m', $p['start_month']);
+                        if ($startDay && $startDay >= 1 && $startDay <= $dt->daysInMonth) {
+                            $dt->day($startDay);
+                        } else {
+                            $dt->startOfMonth();
+                        }
+                        $startAt = $dt->startOfDay()->toDateTimeString();
+                    } catch (\Exception $e) {
+                        $startAt = null;
+                    }
+                }
+
+                if (!empty($p['end_month'])) {
+                    try {
+                        $dt = Carbon::createFromFormat('Y-m', $p['end_month']);
+                        if ($endDay && $endDay >= 1 && $endDay <= $dt->daysInMonth) {
+                            $dt->day($endDay);
+                        } else {
+                            $dt->endOfMonth();
+                        }
+                        $endsAt = $dt->endOfDay()->toDateTimeString();
+                    } catch (\Exception $e) {
+                        $endsAt = null;
+                    }
+                }
+
+                if ($startAt || $endsAt) {
+                    DB::table('rdp_period_covered')->insert([
+                        'period_owner' => $recordId,
+                        'start_at'     => $startAt,
+                        'ends_at'      => $endsAt,
+                        'created_at'   => now(),
+                        'updated_at'   => now(),
+                    ]);
+                }
+            }
+
             DB::commit();
 
             $this->successMessage = 'Inventory and Appraisal draft saved successfully!';
@@ -828,12 +873,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
                 if ($startAt || $endsAt) {
                     DB::table('rdp_period_covered')->insert([
-                        'record_holder' => $recordId,
-                        'start_at'      => $startAt,
-                        'ends_at'       => $endsAt,
-                        'is_active'     => true,
-                        'created_at'    => now(),
-                        'updated_at'    => now(),
+                        'period_owner' => $recordId,
+                        'start_at'     => $startAt,
+                        'ends_at'      => $endsAt,
+                        'created_at'   => now(),
+                        'updated_at'   => now(),
                     ]);
                 }
             }

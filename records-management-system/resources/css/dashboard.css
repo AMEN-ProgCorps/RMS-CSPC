@@ -1810,8 +1810,44 @@ section{
 }
 
 [data-theme="dark"] .receive-particulars-display {
-    color: #f8fafc !important;
-    border-bottom-color: #334155 !important;
+    background-color: #090d16 !important;
+    color: #cbd5e1 !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .receive-particulars-display::-webkit-scrollbar-thumb {
+    background-color: #334155 !important;
+}
+
+.dts-show-more-link {
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+    color: #2563eb !important;
+    font-size: inherit !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    padding: 0 !important;
+    margin-left: 2px !important;
+    font-family: inherit !important;
+    text-decoration: underline !important;
+    display: inline !important;
+    white-space: nowrap !important;
+    vertical-align: baseline !important;
+    line-height: inherit !important;
+}
+
+.dts-show-more-link:hover {
+    color: #1d4ed8 !important;
+    text-decoration: underline !important;
+}
+
+[data-theme="dark"] .dts-show-more-link {
+    color: #38bdf8 !important;
+}
+
+[data-theme="dark"] .dts-show-more-link:hover {
+    color: #7dd3fc !important;
 }
 
 [data-theme="dark"] .modal-content tr[style*="background: #eff6ff"],

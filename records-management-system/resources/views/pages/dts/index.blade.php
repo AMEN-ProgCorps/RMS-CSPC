@@ -2208,7 +2208,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             <div style="font-weight: 600; color: #0f172a;">
                                                 @if(mb_strlen($t->subject ?? '') > 100)
                                                     {{ mb_substr($t->subject, 0, 100) }}...
-                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                                 @else
                                                     {{ $t->subject }}
                                                 @endif
@@ -2345,7 +2345,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 <div style="font-weight: 600; color: #0f172a;">
                                                     @if(mb_strlen($t->subject ?? '') > 100)
                                                         {{ mb_substr($t->subject, 0, 100) }}...
-                                                        <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                        <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                                     @else
                                                         {{ $t->subject }}
                                                     @endif
@@ -2412,7 +2412,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                     <div style="font-weight: 600; color: #0f172a;">
                                                         @if(mb_strlen($child->subject ?? '') > 100)
                                                             {{ mb_substr($child->subject, 0, 100) }}...
-                                                            <button type="button" wire:click.stop="openTransaction('{{ $child->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                            <button type="button" wire:click.stop="openTransaction('{{ $child->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                                         @else
                                                             {{ $child->subject }}
                                                         @endif
@@ -2471,7 +2471,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             <div style="font-weight: 600; color: #0f172a;">
                                                 @if(mb_strlen($t->subject ?? '') > 100)
                                                     {{ mb_substr($t->subject, 0, 100) }}...
-                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                                 @else
                                                     {{ $t->subject }}
                                                 @endif
@@ -2495,7 +2495,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             <div style="font-weight: 600; color: #0f172a;">
                                                 @if(mb_strlen($t->subject ?? '') > 100)
                                                     {{ mb_substr($t->subject, 0, 100) }}...
-                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                                 @else
                                                     {{ $t->subject }}
                                                 @endif
@@ -2523,7 +2523,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             <div style="font-weight: 600; color: #0f172a;">
                                                 @if(mb_strlen($t->subject ?? '') > 100)
                                                     {{ mb_substr($t->subject, 0, 100) }}...
-                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                                 @else
                                                     {{ $t->subject }}
                                                 @endif
@@ -2546,7 +2546,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             <div style="font-weight: 600; color: #0f172a;">
                                                 @if(mb_strlen($t->subject ?? '') > 100)
                                                     {{ mb_substr($t->subject, 0, 100) }}...
-                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                                 @else
                                                     {{ $t->subject }}
                                                 @endif
@@ -2602,7 +2602,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <div style="font-weight: 600; color: #0f172a;">
                                             @if(mb_strlen($t->subject ?? '') > 100)
                                                 {{ mb_substr($t->subject, 0, 100) }}...
-                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                             @else
                                                 {{ $t->subject }}
                                             @endif
@@ -2739,7 +2739,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             <div style="font-weight: 600; color: #0f172a;">
                                                 @if(mb_strlen($t->subject ?? '') > 100)
                                                     {{ mb_substr($t->subject, 0, 100) }}...
-                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                                 @else
                                                     {{ $t->subject }}
                                                 @endif
@@ -2806,7 +2806,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 <div style="font-weight: 600; color: #0f172a;">
                                                     @if(mb_strlen($child->subject ?? '') > 100)
                                                         {{ mb_substr($child->subject, 0, 100) }}...
-                                                        <button type="button" wire:click.stop="openTransaction('{{ $child->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                        <button type="button" wire:click.stop="openTransaction('{{ $child->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                                     @else
                                                         {{ $child->subject }}
                                                     @endif
@@ -2865,7 +2865,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <div style="font-weight: 600; color: #0f172a;">
                                             @if(mb_strlen($t->subject ?? '') > 100)
                                                 {{ mb_substr($t->subject, 0, 100) }}...
-                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                             @else
                                                 {{ $t->subject }}
                                             @endif
@@ -2889,7 +2889,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <div style="font-weight: 600; color: #0f172a;">
                                             @if(mb_strlen($t->subject ?? '') > 100)
                                                 {{ mb_substr($t->subject, 0, 100) }}...
-                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                             @else
                                                 {{ $t->subject }}
                                             @endif
@@ -2917,7 +2917,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <div style="font-weight: 600; color: #0f172a;">
                                             @if(mb_strlen($t->subject ?? '') > 100)
                                                 {{ mb_substr($t->subject, 0, 100) }}...
-                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                             @else
                                                 {{ $t->subject }}
                                             @endif
@@ -2940,7 +2940,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <div style="font-weight: 600; color: #0f172a;">
                                             @if(mb_strlen($t->subject ?? '') > 100)
                                                 {{ mb_substr($t->subject, 0, 100) }}...
-                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                                <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                             @else
                                                 {{ $t->subject }}
                                             @endif
@@ -3026,7 +3026,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     <strong>Subject:</strong>
                                     @if(mb_strlen($t->subject ?? '') > 100)
                                         {{ mb_substr($t->subject, 0, 100) }}...
-                                        <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                        <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                     @else
                                         {{ $t->subject }}
                                     @endif
@@ -3169,7 +3169,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 <strong>Subject:</strong>
                                 @if(mb_strlen($t->subject ?? '') > 100)
                                     {{ mb_substr($t->subject, 0, 100) }}...
-                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link">show more</button>
+                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
                                 @else
                                     {{ $t->subject }}
                                 @endif
@@ -3378,12 +3378,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                         </div>
 
                         <!-- Subject field -->
-                        <div class="receive-field-row receive-field-row--particulars">
-                            <span class="receive-field-label">Subject:</span>
+                        <div class="receive-field-row receive-field-row--particulars" style="grid-template-columns: 110px minmax(0, 1fr); align-items: start; min-width: 0; width: 100%;">
+                            <span class="receive-field-label" style="padding-top: 8px;">Subject:</span>
                             @if ($editingAll)
-                                <textarea class="receive-field-input" wire:model="particulars" style="min-height: 72px; resize: vertical;"></textarea>
+                                <textarea class="receive-field-input" wire:model="particulars" style="min-height: 72px; max-height: 160px; resize: vertical; min-width: 0; max-width: 100%; word-break: break-word;"></textarea>
                             @else
-                                <div class="receive-particulars-display" style="width: 100%;">
+                                <div class="receive-particulars-display" style="width: 100%; min-width: 0; max-width: 100%; min-height: 48px; max-height: 120px; overflow-y: auto; overflow-x: hidden; overflow-wrap: anywhere; word-break: break-word; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; background-color: #f8fafc; color: #334155; line-height: 1.5;">
                                     {{ $particulars ?: 'No subject provided.' }}
                                 </div>
                             @endif

@@ -429,22 +429,25 @@
 }
 
 .dts-show-more-link {
-    background: transparent;
-    border: none;
-    color: #2563eb;
-    font-size: inherit;
-    font-weight: 500;
-    cursor: pointer;
-    padding: 0;
-    margin-left: 3px;
-    font-family: inherit;
-    text-decoration: underline;
-    display: inline;
-    white-space: nowrap;
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+    color: #2563eb !important;
+    font-size: inherit !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    padding: 0 !important;
+    margin-left: 2px !important;
+    font-family: inherit !important;
+    text-decoration: underline !important;
+    display: inline !important;
+    white-space: nowrap !important;
+    vertical-align: baseline !important;
+    line-height: inherit !important;
 }
 .dts-show-more-link:hover {
-    color: #1d4ed8;
-    text-decoration: underline;
+    color: #1d4ed8 !important;
+    text-decoration: underline !important;
 }
 
 .dts-box-empty {

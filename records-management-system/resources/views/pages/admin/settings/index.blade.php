@@ -663,6 +663,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ['key' => 'dcs_recycle_delete_code'],
                     [
                         'value' => trim($this->dcsRecycleDeleteCode),
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'rate_limit_enabled'],
                     [
                         'value' => $this->rateLimitEnabled ? 'true' : 'false',
@@ -703,7 +708,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                              ", RDPReq: " . ($this->rdpRequiredUploadFile ? 'true' : 'false') .
                              ", DTSReq: " . ($this->dtsRequiredUploadFile ? 'true' : 'false') .
                              ", InactivityTimeout: " . $this->tabCloseIdleTimeoutMinutes . " mins" .
-                             ", DcsDeleteCode: " . (trim($this->dcsRecycleDeleteCode) !== '' ? 'set' : 'cleared');
+                             ", DcsDeleteCode: " . (trim($this->dcsRecycleDeleteCode) !== '' ? 'set' : 'cleared') .
                              ", RateLimit: " . ($this->rateLimitEnabled ? 'true (' . $this->rateLimitDtsCreatePerMinute . '/min)' : 'false');
 
                 \DB::table('sys_admin_logs')->insert([

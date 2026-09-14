@@ -669,6 +669,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 'updated_at'             => now(),
             ]);
 
+            DB::table('rdp_record')->where('id', $recordId)->update([
+                'utility_value' => $recordId,
+            ]);
+
             foreach ($this->utility_values as $uId) {
                 DB::table('rdp_utility_manager')->insert([
                     'record_holder'  => $recordId,
@@ -825,6 +829,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 'is_draft'               => false,
                 'created_at'             => now(),
                 'updated_at'             => now(),
+            ]);
+
+            DB::table('rdp_record')->where('id', $recordId)->update([
+                'utility_value' => $recordId,
             ]);
 
             foreach ($this->utility_values as $uId) {

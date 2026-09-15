@@ -85,6 +85,9 @@
                                     <a href="{{ route('dcs.register.create', absolute: false) }}" class="{{ request()->routeIs('dcs.register.create') || request()->routeIs('dcs.register.revised') ? 'active-sub' : '' }}">Register</a>
                                 </li>
                                 <li>
+                                    <a href="{{ route('dcs.register.drafts', absolute: false) }}" class="{{ request()->routeIs('dcs.register.drafts') ? 'active-sub' : '' }}">Drafts</a>
+                                </li>
+                                <li>
                                     <a href="{{ route('dcs.register.update', absolute: false) }}" class="{{ request()->routeIs('dcs.register.update') || request()->routeIs('dcs.register.edit') || request()->routeIs('dcs.register.history') ? 'active-sub' : '' }}">Update</a>
                                 </li>
                             </ul>

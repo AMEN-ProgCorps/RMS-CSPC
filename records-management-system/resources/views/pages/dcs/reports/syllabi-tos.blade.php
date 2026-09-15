@@ -134,12 +134,31 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
     </section>
 
+    <div class="rpt-body-slot">
+        <div
+            class="rpt-preview-loading rpt-body-loading"
+            wire:loading.flex
+            wire:target="collegeId,schoolYearId,semesterId,yearLevel,deadline,saveRemark"
+        >
+            <div class="rpt-state-spinner" aria-hidden="true"></div>
+            <h4>Loading report…</h4>
+            <p>Fetching records and preparing the preview.</p>
+        </div>
+
     @if(! $report['ready'])
-        <section class="rpt-state-pick">
+        <section
+            class="rpt-state-pick"
+            wire:loading.class="is-dimmed"
+            wire:target="collegeId,schoolYearId,semesterId,yearLevel,deadline"
+        >
             <p class="rpt-template-status">Select a college, academic year, and semester to load the monitoring table. Pick a syllabus deadline to filter that cohort and save remarks.</p>
         </section>
     @else
-        <section class="rpt-results">
+        <section
+            class="rpt-results"
+            wire:loading.class="is-dimmed"
+            wire:target="collegeId,schoolYearId,semesterId,yearLevel,deadline,saveRemark"
+        >
             <div class="rpt-results-head">
                 <div class="rpt-results-meta">
                     <h3>
@@ -442,4 +461,5 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
         </section>
     @endif
+    </div>
 </main>

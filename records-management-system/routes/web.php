@@ -576,8 +576,12 @@ Route::middleware(['auth'])
             Volt::route('/dashboard', 'pages.dcs.index')->name('dashboard');
 
             Route::get('/view-document', function (\Illuminate\Http\Request $request) {
+                // Relative signed URLs validate with absolute:false; absolute APP_URL
+                // links use whileIgnoring(['v']). Accept either so local + deployed View both work.
+                $signatureOk = $request->hasValidSignatureWhileIgnoring(['v'])
+                    || $request->hasValidSignature(absolute: false);
                 abort_unless(
-                    $request->hasValidSignatureWhileIgnoring(['v']),
+                    $signatureOk,
                     403,
                     'This document link is invalid or has expired.'
                 );
@@ -728,6 +732,7 @@ Route::middleware(['auth'])
                     Route::get('/register/revised', fn () => redirect()->route('dcs.register.create', ['type' => 'revised']))
                         ->name('register.revised');
                     Volt::route('/register/update', 'pages.dcs.register.update')->name('register.update');
+                    Volt::route('/register/drafts', 'pages.dcs.register.drafts')->name('register.drafts');
                     Volt::route('/register/history/{docNo}', 'pages.dcs.register.history')->name('register.history');
                     Volt::route('/register/{id}/edit', 'pages.dcs.register.edit')->name('register.edit');
                     Route::put('/register/{id}', fn (Request $request, $id) => RegisterUpdateHelper::update($request, (int) $id))

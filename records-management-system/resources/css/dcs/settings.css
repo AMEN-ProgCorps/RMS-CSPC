@@ -95,7 +95,8 @@ body {
     padding: 12px 14px;
     border: none;
     background: transparent;
-    color: var(--set-text-muted);
+    /* Soft black in light; token flips for dark */
+    color: var(--set-tab-inactive, #2d2d2d);
     font-size: 0.82rem;
     font-weight: 600;
     cursor: pointer;
@@ -108,7 +109,11 @@ body {
     min-height: 44px;
 }
 
-.tab-btn i { font-size: 0.78rem; flex-shrink: 0; }
+.tab-btn i {
+    font-size: 0.78rem;
+    flex-shrink: 0;
+    color: inherit;
+}
 
 .tab-btn:hover {
     color: var(--set-accent);
@@ -696,7 +701,7 @@ body {
     text-transform: none;
     letter-spacing: 0;
     font-weight: 500;
-    color: #94a3b8;
+    color: #475569;
 }
 
 .st-faculty-hint {

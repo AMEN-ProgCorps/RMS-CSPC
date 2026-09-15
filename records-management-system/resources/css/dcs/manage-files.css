@@ -99,7 +99,7 @@
     left: 11px;
     top: 50%;
     transform: translateY(-50%);
-    color: #64748b;
+    color: #475569;
     font-size: 13px;
     pointer-events: none;
     z-index: 1;
@@ -168,7 +168,7 @@
 
 .mf-icon-btn:hover {
     background: #f8fafc;
-    border-color: #64748b;
+    border-color: #475569;
     color: #0f172a;
 }
 

@@ -336,18 +336,23 @@
         elseif (request()->routeIs('dcs.register.*')) {
             $sectionTitle = 'Document Registration';
             $tabs = [
-                [
-                    'label' => 'Register',
-                    'url' => route('dcs.register.create'),
-                    'active' => request()->routeIs('dcs.register.create') || request()->routeIs('dcs.register.revised'),
-                ],
-                [
-                    'label' => 'Update',
-                    'url' => route('dcs.register.update'),
-                    'active' => request()->routeIs('dcs.register.update')
-                        || request()->routeIs('dcs.register.edit')
-                        || request()->routeIs('dcs.register.history'),
-                ],
+                    [
+                        'label' => 'Register',
+                        'url' => route('dcs.register.create'),
+                        'active' => request()->routeIs('dcs.register.create') || request()->routeIs('dcs.register.revised'),
+                    ],
+                    [
+                        'label' => 'Drafts',
+                        'url' => route('dcs.register.drafts'),
+                        'active' => request()->routeIs('dcs.register.drafts'),
+                    ],
+                    [
+                        'label' => 'Update',
+                        'url' => route('dcs.register.update'),
+                        'active' => request()->routeIs('dcs.register.update')
+                            || request()->routeIs('dcs.register.edit')
+                            || request()->routeIs('dcs.register.history'),
+                    ],
             ];
         }
         // 3. Document Review

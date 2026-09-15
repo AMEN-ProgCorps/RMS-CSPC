@@ -273,11 +273,14 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-divider {
     display: flex;
     align-items: center;
     padding: 10px 12px;
-    color: var(--text-muted);
+    /* Inactive sidenav: solid black (readable vs faded grey) */
+    color: #000000 !important;
     text-decoration: none;
     cursor: pointer;
+    font-family: 'Inter', system-ui, sans-serif;
     font-size: 0.875rem;
     font-weight: 500;
+    line-height: 1.25;
     border-radius: var(--radius);
     transition: all var(--transition-fast);
     position: relative;
@@ -303,42 +306,43 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-divider {
     align-items: center;
     justify-content: center;
     font-size: 1rem;
-    color: var(--text-subtle);
+    /* Inactive sidenav icons: solid black */
+    color: #000000 !important;
     border-radius: var(--radius-sm);
     transition: all var(--transition-fast);
     margin-right: 10px;
     background: transparent;
 }
 
-/* Hover */
+/* Hover — match DTS/RDP (#043899) */
 .nav-item > a:hover,
 .nav-item.dropdown > span:hover,
 .nav-item.dropdown summary:hover {
-    background: var(--surface-hover);
-    color: var(--text);
+    background: #eef2ff;
+    color: #043899 !important;
 }
 
 .nav-item > a:hover i:not(.arrow),
 .nav-item.dropdown > span:hover i:not(.arrow),
 .nav-item.dropdown summary:hover i:not(.arrow) {
-    color: var(--accent);
-    background: var(--accent-subtle);
+    color: #043899 !important;
+    background: #eef2ff;
 }
 
-/* Active */
+/* Active — match DTS/RDP (font-weight 700) */
 .nav-item.active > a,
 .nav-item.active.dropdown > span,
 .nav-item.active.dropdown summary {
-    background: var(--surface-active);
-    color: var(--accent);
-    font-weight: 600;
+    background: #eef2ff !important;
+    color: #043899 !important;
+    font-weight: 700 !important;
 }
 
 .nav-item.active > a i:not(.arrow),
 .nav-item.active.dropdown > span i:not(.arrow),
 .nav-item.active.dropdown summary i:not(.arrow) {
-    color: var(--accent);
-    background: var(--accent-subtle);
+    color: #043899 !important;
+    background: #eef2ff;
 }
 
 /* Active indicator bar */
@@ -350,7 +354,7 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-divider {
     transform: translateY(-50%);
     width: 3px;
     height: 20px;
-    background: var(--accent);
+    background: #043899;
     border-radius: 0 2px 2px 0;
     animation: indicatorSlide 0.25s ease forwards;
 }
@@ -364,7 +368,7 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-divider {
 .arrow {
     margin-left: auto;
     font-size: 0.7rem;
-    color: var(--text-subtle);
+    color: #000000;
     transition: transform var(--transition), opacity var(--transition);
     width: auto !important;
     min-width: auto !important;
@@ -402,9 +406,10 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-divider {
     align-items: center;
     gap: 10px;
     padding: 8px 12px 8px 46px;
-    color: var(--text-muted);
+    color: #000000;
+    font-family: 'Inter', system-ui, sans-serif;
     font-size: 0.82rem;
-    font-weight: 450;
+    font-weight: 500;
     text-decoration: none;
     border-radius: var(--radius-sm);
     transition: all var(--transition-fast);
@@ -413,28 +418,28 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-divider {
 }
 
 .sub-dropdown li a:hover {
-    color: var(--accent);
-    background: var(--accent-glow);
+    color: #043899;
+    background: rgba(4, 56, 153, 0.05);
 }
 
 .sub-dropdown li a:hover .sub-dot {
-    background: var(--accent);
+    background: #043899;
     transform: scale(1.3);
 }
 
 .sub-dropdown li a.active-sub {
-    color: #FFB800;
-    font-weight: 600;
+    color: #043899;
+    font-weight: 700;
     background: var(--accent-subtle);
 }
 
 .sub-dropdown li a.active-sub .sub-dot {
-    background: #FFB800;
+    background: #043899;
 }
 
 .sub-dropdown li a:hover,
 .sub-dropdown li a.active-sub:hover {
-    color: #FFB800;
+    color: #043899;
 }
 
 /* ─── Tooltip ─── */
@@ -749,19 +754,19 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover {
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub {
-    color: #FFB800;
-    font-weight: 600;
+    color: #043899;
+    font-weight: 700;
     background: var(--surface-active);
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub .sub-dot {
-    background: #FFB800;
-    box-shadow: 0 0 0 3px rgba(255, 184, 0, 0.15);
+    background: #043899;
+    box-shadow: 0 0 0 3px rgba(4, 56, 153, 0.15);
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover,
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub:hover {
-    color: #FFB800;
+    color: #043899;
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float .sub-dot {

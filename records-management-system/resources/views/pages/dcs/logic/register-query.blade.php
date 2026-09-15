@@ -780,11 +780,42 @@ class RegisterQueryHelper
         });
     }
 
-    /** Registered DCS inventory: office scope plus no office-intake placeholders. */
+    /** Registered DCS inventory: office scope plus no office-intake placeholders; exclude drafts. */
     public static function applyRegisteredDocumentScope($query, string $drAlias = 'dr'): void
     {
         self::applyOfficeScope($query, $drAlias);
         self::applyExcludeOfficeIntakeRequests($query, $drAlias);
+        self::applyExcludeDrafts($query, $drAlias);
+    }
+
+    public static function supportsDrafts(): bool
+    {
+        return Schema::hasColumn('dcs_document_requests', 'is_draft');
+    }
+
+    public static function applyExcludeDrafts($query, string $drAlias = 'dr'): void
+    {
+        if (! self::supportsDrafts()) {
+            return;
+        }
+        $query->where(function ($q) use ($drAlias) {
+            $q->whereNull($drAlias . '.is_draft')
+                ->orWhere($drAlias . '.is_draft', false);
+        });
+    }
+
+    /** Draft request IDs visible to the current user (for Update list resume). */
+    public static function draftRequestIds(): array
+    {
+        if (! self::supportsDrafts()) {
+            return [];
+        }
+        $q = DB::table('dcs_document_requests as dr')->where('dr.is_draft', true);
+        self::applyNotDeleted($q, 'dr');
+        self::applyOfficeScope($q, 'dr');
+        self::applyExcludeOfficeIntakeRequests($q, 'dr');
+
+        return self::intIds($q->pluck('dr.id'));
     }
 
     public static function isOfficeIntakeScanPath(string $path): bool
@@ -1700,6 +1731,9 @@ class RegisterQueryHelper
         if (self::supportsRevisionStatus()) {
             $select[] = 'ml.revision_status';
         }
+        if (self::supportsDrafts()) {
+            $select[] = 'dr.is_draft';
+        }
         $query->select($select);
 
         if ($docTypeId !== '' && $docTypeId !== 'all') {
@@ -1729,8 +1763,11 @@ class RegisterQueryHelper
         $mapRow = function ($doc): array {
             $docNo = trim((string) ($doc->doc_no ?? ''));
             $title = $doc->ml_title ?: ($doc->drf_title ?: 'N/A');
+            $isDraft = self::supportsDrafts() && !empty($doc->is_draft);
             $status = strtolower(trim((string) ($doc->revision_status ?? '')));
-            if ($status === '') {
+            if ($isDraft) {
+                $status = 'draft';
+            } elseif ($status === '') {
                 $status = 'latest';
             }
 
@@ -1743,9 +1780,10 @@ class RegisterQueryHelper
                 'rev_no' => (int) ($doc->revise_no ?? 0),
                 'doc_type' => $doc->doc_type_name ?? 'N/A',
                 'revision_status' => $status,
-                'is_latest' => $status !== 'obsolete',
+                'is_draft' => $isDraft,
+                'is_latest' => $status !== 'obsolete' && $status !== 'draft',
                 'edit_url' => route('dcs.register.edit', $doc->id),
-                'history_url' => $docNo !== '' ? route('dcs.register.history', $docNo) : null,
+                'history_url' => (!$isDraft && $docNo !== '') ? route('dcs.register.history', $docNo) : null,
                 'can_delete' => $status !== 'obsolete',
             ];
         };
@@ -1765,8 +1803,9 @@ class RegisterQueryHelper
             $sorted = $family->sortByDesc('rev_no')->sortByDesc('request_id')->values();
 
             // Heal: tip must be the highest revise_no (e.g. Rev 10 beats Rev 7).
+            // Never rewrite draft rows into latest/obsolete.
             $tipRow = $sorted->first();
-            if ($tipRow && ($tipRow['doc_no'] ?? 'N/A') !== 'N/A') {
+            if ($tipRow && empty($tipRow['is_draft']) && ($tipRow['doc_no'] ?? 'N/A') !== 'N/A') {
                 $latestRows = $family->filter(fn ($r) => !empty($r['is_latest']));
                 $tipIsLatest = !empty($tipRow['is_latest']);
                 $needsHeal = !$tipIsLatest
@@ -1775,6 +1814,9 @@ class RegisterQueryHelper
 
                 if ($needsHeal) {
                     $family = $family->map(function ($r) use ($tipRow) {
+                        if (!empty($r['is_draft'])) {
+                            return $r;
+                        }
                         $isTip = (int) $r['request_id'] === (int) $tipRow['request_id'];
                         $r['revision_status'] = $isTip ? 'latest' : 'obsolete';
                         $r['is_latest'] = $isTip;
@@ -1786,7 +1828,7 @@ class RegisterQueryHelper
                 }
             }
 
-            $parent = $sorted->first(fn ($r) => !empty($r['is_latest'])) ?? $sorted->first();
+            $parent = $sorted->first(fn ($r) => !empty($r['is_draft']) || !empty($r['is_latest'])) ?? $sorted->first();
             $children = $family
                 ->filter(fn ($r) => $r['request_id'] !== $parent['request_id'])
                 ->sortByDesc('rev_no')
@@ -1829,6 +1871,96 @@ class RegisterQueryHelper
 
         return [
             'rows' => $pageGroups,
+            'total' => $total,
+            'current_page' => $page,
+            'last_page' => $lastPage,
+            'per_page' => $perPage,
+        ];
+    }
+
+    /** Draft registrations only — for Document Registration → Drafts. */
+    public static function draftList(string $search, string $docTypeId, int $page, int $perPage = 15): array
+    {
+        $empty = [
+            'rows' => [],
+            'total' => 0,
+            'current_page' => 1,
+            'last_page' => 1,
+            'per_page' => $perPage,
+        ];
+
+        $draftIds = self::draftRequestIds();
+        if ($draftIds === []) {
+            return $empty;
+        }
+
+        $query = DB::table('dcs_document_requests as dr')
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
+            ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+            ->leftJoin('dcs_document_request_form as drf', 'drf.request_id', '=', 'dr.id')
+            ->leftJoin('dcs_document_change_notice as dcn', 'dcn.request_id', '=', 'dr.id')
+            ->whereIn('dr.id', $draftIds);
+        self::applyNotDeleted($query, 'dr');
+        $select = [
+            'dr.id',
+            'dr.doc_type_id',
+            'dr.sub_type_id',
+            'dr.updated_at',
+            'dt.doc_type_name',
+            'ml.doc_no',
+            'ml.doc_title as ml_title',
+            'ml.revise_no',
+            'drf.doc_title as drf_title',
+        ];
+        if (self::supportsDrafts()) {
+            $select[] = 'dr.is_draft';
+        }
+        $query->select($select);
+
+        if ($docTypeId !== '' && $docTypeId !== 'all') {
+            $query->where('dr.doc_type_id', (int) $docTypeId);
+        }
+
+        $search = trim($search);
+        if ($search !== '') {
+            $like = '%' . $search . '%';
+            $query->where(function ($q) use ($like) {
+                $q->whereRaw('dr.id::text ilike ?', [$like])
+                    ->orWhere('ml.doc_no', 'ilike', $like)
+                    ->orWhere('ml.doc_title', 'ilike', $like)
+                    ->orWhere('drf.drf_no', 'ilike', $like)
+                    ->orWhere('drf.doc_title', 'ilike', $like)
+                    ->orWhere('dcn.dcn_no', 'ilike', $like);
+            });
+        }
+
+        $documents = $query->orderByDesc('dr.updated_at')->orderByDesc('dr.id')->get();
+        $rows = $documents->map(function ($doc) {
+            $docNo = trim((string) ($doc->doc_no ?? ''));
+            $title = $doc->ml_title ?: ($doc->drf_title ?: 'Untitled draft');
+
+            return [
+                'request_id' => (int) $doc->id,
+                'doc_type_id' => (int) ($doc->doc_type_id ?? 0),
+                'doc_no' => $docNo !== '' ? $docNo : '—',
+                'title' => $title,
+                'rev_no' => (int) ($doc->revise_no ?? 0),
+                'doc_type' => $doc->doc_type_name ?? 'N/A',
+                'revision_status' => 'draft',
+                'is_draft' => true,
+                'edit_url' => route('dcs.register.edit', $doc->id),
+                'updated_at' => $doc->updated_at ?? null,
+                'can_delete' => true,
+            ];
+        })->values();
+
+        $total = $rows->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min(max(1, $page), $lastPage);
+        $pageRows = $rows->slice(($page - 1) * $perPage, $perPage)->values()->all();
+
+        return [
+            'rows' => $pageRows,
             'total' => $total,
             'current_page' => $page,
             'last_page' => $lastPage,
@@ -5252,6 +5384,25 @@ class RegisterQueryHelper
         $revisions = $dcn
             ? DB::table('dcs_doc_revision')->where('dcn_id', $dcn->id)->get()
             : collect();
+        // DCN revision rows often lack scanned_copy (create only allowed prior
+        // revision paths). Fall back to the matching prior masterlist scan so
+        // Update DOCUMENT REVISIONS matches Database obsolete/latest PDFs.
+        $revisions = $revisions->map(function ($rev) use ($docRequest) {
+            if (! empty($rev->scanned_copy)) {
+                return $rev;
+            }
+            $fallback = RegisterPersistHelper::masterlistScanPathForRevision(
+                (string) ($rev->document_no ?? ''),
+                $rev->revision_no ?? null,
+                (int) ($docRequest->doc_type_id ?? 0) ?: null,
+                ! empty($docRequest->sub_type_id) ? (int) $docRequest->sub_type_id : null
+            );
+            if ($fallback) {
+                $rev->scanned_copy = $fallback;
+            }
+
+            return $rev;
+        });
 
         $retrieval = DB::table('dcs_document_retrieval')->where('request_id', $id)->first();
         $retrievalOfficeColumns = ['r.office_id', 'r.copies', 'o.office_name'];

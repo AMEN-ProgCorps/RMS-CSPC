@@ -18,6 +18,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $subTypeId = 'all';
     public string $originator = '';
     public string $sourceUnit = '';
+    public string $receivedBy = '';
     public string $status = '';
     public string $revisionStatus = 'all';
     public string $dateFrom = '';
@@ -64,6 +65,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->subTypeId = 'all';
         $this->originator = '';
         $this->sourceUnit = '';
+        $this->receivedBy = '';
         $this->status = '';
         $this->revisionStatus = 'all';
         $this->dateFrom = '';
@@ -265,6 +267,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         ->join('dcs_masterlist_source_offices as so', 'so.masterlist_id', '=', 'ml.id')
                         ->whereColumn('ml.request_id', 'dr.id')
                         ->where('so.office_id', $officeId);
+                });
+            }
+
+            if ($this->receivedBy !== '') {
+                $officeId = $this->receivedBy;
+                $query->whereExists(function ($q) use ($officeId) {
+                    $q->select(DB::raw(1))
+                        ->from('dcs_document_distribution as dist')
+                        ->join('dcs_distribution_offices as dof', 'dof.distribution_id', '=', 'dist.id')
+                        ->whereColumn('dist.request_id', 'dr.id')
+                        ->where('dof.office_id', $officeId);
                 });
             }
 
@@ -801,6 +814,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     categories: {{ json_encode($categoryState) }},
     expandedRevs: {},
     openCourses: {},
+    openOffices: {},
     init() {
         try {
             const saved = JSON.parse(sessionStorage.getItem('dcs-db-expand') || '{}');
@@ -812,6 +826,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             }
             if (saved.openCourses && typeof saved.openCourses === 'object') {
                 this.openCourses = saved.openCourses;
+            }
+            if (saved.openOffices && typeof saved.openOffices === 'object') {
+                this.openOffices = saved.openOffices;
             }
             if (saved.open && typeof saved.open === 'object') {
                 this.open = Object.assign({}, this.open, saved.open);
@@ -854,6 +871,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 categories: this.categories,
                 expandedRevs: this.expandedRevs,
                 openCourses: this.openCourses,
+                openOffices: this.openOffices,
                 open: this.open,
             }));
         } catch (e) {}
@@ -934,6 +952,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <label>Source Unit</label>
         <select wire:model="sourceUnit">
             <option value="">All Units</option>
+            @foreach($offices ?? [] as $office)
+                <option value="{{ $office->id }}">{{ $office->office_name }}</option>
+            @endforeach
+        </select>
+    </div>
+    <div class="db-filter-group">
+        <label>Received By</label>
+        <select wire:model="receivedBy">
+            <option value="">All Offices</option>
             @foreach($offices ?? [] as $office)
                 <option value="{{ $office->id }}">{{ $office->office_name }}</option>
             @endforeach
@@ -1182,7 +1209,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @endif
                         @endforeach
                     @empty
-                        <tr><td colspan="47" style="text-align:center;padding:40px;color:#94a3b8;">No documents found</td></tr>
+                        <tr><td colspan="47" style="text-align:center;padding:40px;color:#475569;">No documents found</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -1216,3 +1243,84 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
 </main>
 </div>
+
+<script>
+window.dcsOfficesClamp = function (offices) {
+    return {
+        offices: Array.isArray(offices) ? offices.filter(Boolean) : [],
+        expanded: false,
+        needsMore: false,
+        collapsedText: '',
+        fullText: '',
+        _ro: null,
+        init() {
+            this.fullText = this.offices.join(', ');
+            this.collapsedText = this.fullText;
+            this.$nextTick(() => this.recompute());
+            if (typeof ResizeObserver !== 'undefined') {
+                this._ro = new ResizeObserver(() => {
+                    if (!this.expanded) this.recompute();
+                });
+                this.$nextTick(() => {
+                    if (this.$refs.view) this._ro.observe(this.$refs.view);
+                });
+            }
+        },
+        lineHeightPx() {
+            const view = this.$refs.view;
+            if (!view) return 18;
+            const lh = parseFloat(getComputedStyle(view).lineHeight);
+            return Number.isFinite(lh) && lh > 0 ? lh : 18;
+        },
+        fitsTwoLines(text) {
+            const measure = this.$refs.measure;
+            const view = this.$refs.view;
+            if (!measure || !view) return true;
+            const width = view.clientWidth || view.offsetWidth;
+            if (width < 8) return true;
+            measure.style.width = width + 'px';
+            measure.textContent = text;
+            const maxH = (this.lineHeightPx() * 2) + 2;
+            return measure.scrollHeight <= maxH;
+        },
+        recompute() {
+            if (!this.offices.length) {
+                this.collapsedText = '';
+                this.needsMore = false;
+                return;
+            }
+            const full = this.offices.join(', ');
+            if (this.fitsTwoLines(full)) {
+                this.collapsedText = full;
+                this.needsMore = false;
+                return;
+            }
+            // Find the largest prefix of complete office names that still fits in 2 lines
+            // with room for the inline "See more" control.
+            let best = 1;
+            let lo = 1;
+            let hi = this.offices.length;
+            while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                const candidate = this.offices.slice(0, mid).join(', ') + ' See more';
+                if (this.fitsTwoLines(candidate)) {
+                    best = mid;
+                    lo = mid + 1;
+                } else {
+                    hi = mid - 1;
+                }
+            }
+            if (best < 1) best = 1;
+            this.collapsedText = this.offices.slice(0, best).join(', ');
+            this.needsMore = best < this.offices.length;
+        },
+        expand() {
+            this.expanded = true;
+        },
+        collapse() {
+            this.expanded = false;
+            this.$nextTick(() => this.recompute());
+        },
+    };
+};
+</script>

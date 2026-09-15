@@ -1432,10 +1432,75 @@ body {
     min-height: 0;
     background: #f1f5f9;
     border-top: 1px solid var(--rpt-border);
+    position: relative;
+}
+
+.rpt-body-slot {
+    position: relative;
+    min-height: 280px;
+}
+
+.rpt-body-loading {
+    min-height: 280px;
+    border-radius: 0 0 var(--rpt-radius, 10px) var(--rpt-radius, 10px);
+}
+
+.rpt-results.is-dimmed,
+.rpt-state-pick.is-dimmed {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+.rpt-subs.is-busy .rpt-sub {
+    cursor: wait;
 }
 
 .rpt-preview-shell--frame {
     min-height: 420px;
+}
+
+.rpt-preview-frame-wrap {
+    position: relative;
+    min-height: 420px;
+}
+
+.rpt-preview-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 48px 24px;
+    text-align: center;
+    background: rgba(248, 250, 252, 0.92);
+    backdrop-filter: blur(2px);
+}
+
+.rpt-preview-loading h4 {
+    margin: 4px 0 0;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--rpt-text);
+}
+
+.rpt-preview-loading p {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--rpt-text-subtle);
+    max-width: 280px;
+    line-height: 1.5;
+}
+
+.rpt-preview-frame.is-loading {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.opcr-doc.is-dimmed {
+    opacity: 0.45;
+    pointer-events: none;
 }
 
 .rpt-preview-shell--table {
@@ -1478,7 +1543,7 @@ body {
 
 .opcr-doc-republic {
     font-size: 0.72rem;
-    color: #64748b;
+    color: #475569;
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
@@ -1494,7 +1559,7 @@ body {
 
 .opcr-doc-loc {
     font-size: 0.72rem;
-    color: #64748b;
+    color: #475569;
 }
 
 .opcr-doc-rule {
@@ -1671,7 +1736,7 @@ body {
 .mon-pct-good { color: #1d4ed8; }
 .mon-pct-mid { color: #b45309; }
 .mon-pct-low { color: #b91c1c; }
-.mon-pct-empty { color: #64748b; }
+.mon-pct-empty { color: #475569; }
 
 .mon-remark {
     width: 100%;
@@ -1687,7 +1752,7 @@ body {
 
 .mon-remark-empty {
     background: #fff;
-    color: #64748b;
+    color: #475569;
     border-color: #cbd5e1;
 }
 

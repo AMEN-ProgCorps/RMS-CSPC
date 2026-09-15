@@ -1236,14 +1236,17 @@ async function applyOcrToPages(pages, pageNumbers, sideMeta, setStatus, warnings
     let done = 0;
     const total = unique.length;
     let cursor = 0;
+    const progressBase = typeof sideMeta.progressBase === 'number' ? sideMeta.progressBase : 20;
+    const progressSpan = typeof sideMeta.progressSpan === 'number' ? sideMeta.progressSpan : 55;
+
+    const reportProgress = (label) => {
+        if (!setStatus) return;
+        const pct = Math.round(progressBase + (done / Math.max(total, 1)) * progressSpan);
+        setStatus(label, 'loading', pct);
+    };
 
     const ocrOne = async (pageNo) => {
-        if (setStatus) {
-            setStatus(
-                `OCR ${sideMeta.label}: page ${pageNo} (${done + 1}/${total})…`,
-                'loading'
-            );
-        }
+        reportProgress(`OCR ${sideMeta.label}: page ${pageNo} (${done + 1}/${total})…`);
 
         let results = [];
         try {
@@ -1263,12 +1266,7 @@ async function applyOcrToPages(pages, pageNumbers, sideMeta, setStatus, warnings
         // Storage OCR returned nothing usable — OCR the rendered page image once.
         if (!tokens.some(tokenPaintable) && !(row?.text) && doc) {
             try {
-                if (setStatus) {
-                    setStatus(
-                        `OCR ${sideMeta.label}: re-reading page ${pageNo} from image…`,
-                        'loading'
-                    );
-                }
+                reportProgress(`OCR ${sideMeta.label}: re-reading page ${pageNo} from image…`);
                 const blob = await renderPageJpegBlob(doc, pageNo);
                 if (blob) {
                     const imageFile = new File([blob], `drr-page-${pageNo}.jpg`, { type: 'image/jpeg' });
@@ -1303,6 +1301,7 @@ async function applyOcrToPages(pages, pageNumbers, sideMeta, setStatus, warnings
             };
         }
         done++;
+        reportProgress(`OCR ${sideMeta.label}: page ${pageNo} (${done}/${total})…`);
     };
 
     const workers = Array.from({ length: Math.min(OCR_CONCURRENCY, unique.length) }, async () => {
@@ -3029,13 +3028,53 @@ function frameClassForSlot(slot, side, stats = null) {
     return '';
 }
 
-function setStatus(root, text, type = 'loading') {
+function ensureCompareLegend(root) {
+    const parent = root?.parentElement;
+    if (!parent) return null;
+
+    // Prefer an existing static legend in the register modal.
+    let legend = parent.querySelector('[data-drr-compare-legend="1"]')
+        || parent.querySelector('.reg-compare-legend, .drr-compare-legend');
+    if (!legend) {
+        legend = document.createElement('div');
+        legend.className = 'drr-compare-legend reg-compare-legend';
+        parent.insertBefore(legend, root);
+    }
+    legend.dataset.drrCompareLegend = '1';
+    legend.setAttribute('aria-label', 'Highlight legend');
+    legend.innerHTML = ''
+        + '<span class="drr-leg drr-leg-del reg-compare-leg reg-compare-leg-del">'
+        + '<i class="drr-leg-swatch is-del" aria-hidden="true"></i>Removed</span>'
+        + '<span class="drr-leg drr-leg-ins reg-compare-leg reg-compare-leg-ins">'
+        + '<i class="drr-leg-swatch is-ins" aria-hidden="true"></i>Added</span>'
+        + '<span class="drr-leg drr-leg-chg reg-compare-leg reg-compare-leg-chg">'
+        + '<i class="drr-leg-swatch is-chg" aria-hidden="true"></i>Changed</span>';
+    legend.style.display = '';
+
+    // Keep legend above the progress/status strip.
+    const host = parent.querySelector('[data-review-status-host="1"]');
+    if (host && legend.nextElementSibling !== host) {
+        parent.insertBefore(legend, host);
+    } else if (!host && legend.nextElementSibling !== root) {
+        parent.insertBefore(legend, root);
+    }
+    return legend;
+}
+
+function setStatus(root, text, type = 'loading', progress = null) {
+    ensureCompareLegend(root);
+
     let host = root.parentElement?.querySelector('[data-review-status-host="1"]');
     if (!host) {
         host = document.createElement('div');
         host.setAttribute('data-review-status-host', '1');
         host.className = 'drr-compare-status-host';
-        root.parentElement?.insertBefore(host, root);
+        const legend = root.parentElement?.querySelector('[data-drr-compare-legend="1"]');
+        if (legend) {
+            legend.after(host);
+        } else {
+            root.parentElement?.insertBefore(host, root);
+        }
     }
 
     let el = host.querySelector('[data-review-status]');
@@ -3052,6 +3091,7 @@ function setStatus(root, text, type = 'loading') {
         el.innerHTML = '';
         host.style.display = 'none';
         root.classList.remove('is-comparing', 'has-compare-error');
+        root.__drrProgressPct = null;
         return;
     }
 
@@ -3064,19 +3104,73 @@ function setStatus(root, text, type = 'loading') {
     root.classList.toggle('is-comparing', kind === 'loading');
     root.classList.toggle('has-compare-error', kind === 'error');
 
+    let pct = null;
+    if (kind === 'loading') {
+        if (typeof progress === 'number' && Number.isFinite(progress)) {
+            pct = Math.max(0, Math.min(100, Math.round(progress)));
+            root.__drrProgressPct = pct;
+        } else if (typeof root.__drrProgressPct === 'number') {
+            pct = root.__drrProgressPct;
+        }
+    } else if (kind === 'success') {
+        pct = 100;
+        root.__drrProgressPct = 100;
+    } else {
+        root.__drrProgressPct = null;
+    }
+
+    const progressHtml = kind === 'loading' || kind === 'success'
+        ? buildCompareProgressHtml(pct, kind === 'success')
+        : '';
+
     if (kind === 'loading') {
         el.innerHTML = '<span class="drr-compare-spinner" aria-hidden="true"></span>'
-            + `<span class="drr-compare-status-text">${escapeAttr(text)}</span>`;
+            + `<span class="drr-compare-status-text">${escapeAttr(text)}</span>`
+            + progressHtml;
     } else if (kind === 'error') {
         el.innerHTML = '<i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i>'
             + `<span class="drr-compare-status-text">${escapeAttr(text)}</span>`;
     } else if (kind === 'success') {
         el.innerHTML = '<i class="fa-solid fa-circle-check" aria-hidden="true"></i>'
-            + `<span class="drr-compare-status-text">${escapeAttr(text)}</span>`;
+            + `<span class="drr-compare-status-text">${escapeAttr(text)}</span>`
+            + progressHtml;
     } else {
         el.innerHTML = `<span class="drr-compare-status-text">${escapeAttr(text)}</span>`;
     }
     host.style.display = '';
+    syncStageProgressBars(root, pct, kind === 'loading');
+}
+
+function buildCompareProgressHtml(pct, complete = false) {
+    const determinate = typeof pct === 'number';
+    const width = determinate ? `${pct}%` : '35%';
+    const label = determinate ? `${pct}%` : '';
+    const aria = determinate
+        ? `role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"`
+        : `role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-busy="true"`;
+    return `<div class="drr-compare-progress-wrap">`
+        + `<div class="drr-compare-progress${determinate ? '' : ' is-indeterminate'}${complete ? ' is-complete' : ''}" ${aria}>`
+        + `<div class="drr-compare-progress-fill" style="width:${width}"></div>`
+        + `</div>`
+        + (label ? `<span class="drr-compare-progress-pct">${label}</span>` : '')
+        + `</div>`;
+}
+
+function syncStageProgressBars(root, pct, loading) {
+    if (!root) return;
+    root.querySelectorAll('.drr-compare-placeholder').forEach((ph) => {
+        let bar = ph.querySelector('.drr-compare-progress-wrap');
+        if (!loading) {
+            bar?.remove();
+            return;
+        }
+        const html = buildCompareProgressHtml(typeof pct === 'number' ? pct : null);
+        if (bar) {
+            bar.outerHTML = html;
+        } else {
+            ph.insertAdjacentHTML('beforeend', html);
+        }
+    });
 }
 
 function escapeAttr(s) {
@@ -3092,8 +3186,12 @@ function showStagePlaceholder(stage, message) {
     stage.innerHTML = '';
     const ph = document.createElement('div');
     ph.className = 'drr-page-empty drr-compare-placeholder';
+    const root = stage.closest('#registerPdfCompare, #drr-pdf-compare, #drr-adhoc-pdf-compare, .drr-scans')
+        || stage.closest('[id]');
+    const pct = typeof root?.__drrProgressPct === 'number' ? root.__drrProgressPct : null;
     ph.innerHTML = '<span class="drr-compare-spinner" aria-hidden="true"></span>'
-        + `<span>${escapeAttr(message || 'Loading…')}</span>`;
+        + `<span>${escapeAttr(message || 'Loading…')}</span>`
+        + buildCompareProgressHtml(pct);
     stage.appendChild(ph);
 }
 
@@ -3263,7 +3361,9 @@ export async function runPdfCompare(root, options = {}) {
 
     showStagePlaceholder(leftStage, 'Preparing comparison…');
     showStagePlaceholder(rightStage, 'Preparing comparison…');
-    setStatus(root, 'Starting document comparison…', 'loading');
+    root.__drrProgressPct = 2;
+    ensureCompareLegend(root);
+    setStatus(root, 'Starting document comparison…', 'loading', 2);
     // Reset filter so a prior "changed only" session does not stick.
     root.__drrShowChangedOnly = false;
 
@@ -3272,21 +3372,21 @@ export async function runPdfCompare(root, options = {}) {
             try {
                 const memHit = peekMemoryCompareCache(cacheKey);
                 if (memHit) {
-                    setStatus(root, 'Restoring comparison from this session…', 'loading');
+                    setStatus(root, 'Restoring comparison from this session…', 'loading', 15);
                     const ok = await paintCached(root, memHit, cacheKey);
                     if (ok) {
-                        setStatus(root, 'Comparison restored from local cache.', 'success');
+                        setStatus(root, 'Comparison restored from local cache.', 'success', 100);
                         root.dataset.cacheRestored = cacheKey;
                         return;
                     }
                 }
 
-                setStatus(root, 'Checking local compare cache…', 'loading');
+                setStatus(root, 'Checking local compare cache…', 'loading', 10);
                 const cached = await getCompareCache(cacheKey);
                 if (cached) {
                     const ok = await paintCached(root, cached, cacheKey);
                     if (ok) {
-                        setStatus(root, 'Comparison restored from local cache.', 'success');
+                        setStatus(root, 'Comparison restored from local cache.', 'success', 100);
                         root.dataset.cacheRestored = cacheKey;
                         return;
                     }
@@ -3303,7 +3403,7 @@ export async function runPdfCompare(root, options = {}) {
             return;
         }
 
-        setStatus(root, 'Loading PDFs…', 'loading');
+        setStatus(root, 'Loading PDFs…', 'loading', 18);
         showStagePlaceholder(leftStage, 'Loading previous PDF…');
         showStagePlaceholder(rightStage, 'Loading latest PDF…');
 
@@ -3350,11 +3450,15 @@ export async function runPdfCompare(root, options = {}) {
             label: 'previous',
             file: leftFile,
             storagePath: storagePathFromUrl(leftUrl),
+            progressBase: 22,
+            progressSpan: 28,
         };
         const rightMeta = {
             label: 'new',
             file: rightFile,
             storagePath: storagePathFromUrl(rightUrl),
+            progressBase: 50,
+            progressSpan: 28,
         };
 
         if (!leftMeta.storagePath && !leftMeta.file) {
@@ -3366,7 +3470,7 @@ export async function runPdfCompare(root, options = {}) {
             return;
         }
 
-        setStatus(root, 'Preparing page-by-page content compare…', 'loading');
+        setStatus(root, 'Preparing page-by-page content compare…', 'loading', 20);
         // Never treat overlapping pages as "unchanged" / skip OCR. That was why
         // only trailing "new" pages got highlights while Page 2 diffs stayed blank.
         const visualByPage = new Map();
@@ -3380,14 +3484,15 @@ export async function runPdfCompare(root, options = {}) {
         setStatus(
             root,
             `Reading words on all ${maxPageNo} page${maxPageNo === 1 ? '' : 's'} (full content compare)…`,
-            'loading'
+            'loading',
+            22
         );
         showStagePlaceholder(leftStage, 'Reading previous PDF…');
         showStagePlaceholder(rightStage, 'Reading latest PDF…');
 
-        const statusFn = (t, kind = 'loading') => {
+        const statusFn = (t, kind = 'loading', progress = null) => {
             if (!root.__drrRunning || root.__drrAbort) return;
-            setStatus(root, t, kind);
+            setStatus(root, t, kind, progress);
         };
 
         const [leftPages, rightPages] = await Promise.all([
@@ -3405,7 +3510,7 @@ export async function runPdfCompare(root, options = {}) {
             return;
         }
 
-        setStatus(root, 'Aligning pages…', 'loading');
+        setStatus(root, 'Aligning pages…', 'loading', 80);
         await harmonizeCompareTokens(
             leftPages,
             rightPages,
@@ -3442,7 +3547,7 @@ export async function runPdfCompare(root, options = {}) {
         }
         delete root.dataset.compareFailed;
 
-        setStatus(root, 'Rendering comparison…', 'loading');
+        setStatus(root, 'Rendering comparison…', 'loading', 85);
         if (leftStage) {
             leftStage.innerHTML = '';
             delete leftStage.dataset.scrollSync;
@@ -3457,7 +3562,7 @@ export async function runPdfCompare(root, options = {}) {
             rightPages,
             visualByPage
         );
-        setStatus(root, 'Comparing page-by-page and highlighting differences…', 'loading');
+        setStatus(root, 'Comparing page-by-page and highlighting differences…', 'loading', 88);
         const changeAnalysis = analyzeAlignmentChanges(alignment, leftPages, rightPages);
         const width = Math.max(leftStage?.clientWidth || rightStage?.clientWidth || 480, 280);
 
@@ -3480,7 +3585,8 @@ export async function runPdfCompare(root, options = {}) {
 
         async function renderChunk(limit = CHUNK_SIZE) {
             const end = Math.min(offset + limit, total);
-            setStatus(root, `Rendering pages ${offset + 1}–${end} of ${total}…`, 'loading');
+            const renderPct = Math.round(88 + ((end / Math.max(total, 1)) * 10));
+            setStatus(root, `Rendering pages ${offset + 1}–${end} of ${total}…`, 'loading', renderPct);
 
             for (let i = offset; i < end; i++) {
                 if (root.__drrAbort) return;
@@ -3643,7 +3749,8 @@ export async function runPdfCompare(root, options = {}) {
                 trulyIdentical
                     ? 'Comparison complete — these revisions look identical.'
                     : 'Comparison finished but no word highlights could be painted. Hard-refresh and try again if text should differ.',
-                trulyIdentical ? 'success' : 'info'
+                trulyIdentical ? 'success' : 'info',
+                trulyIdentical ? 100 : null
                     );
                     return;
                 }
@@ -3692,7 +3799,8 @@ export async function runPdfCompare(root, options = {}) {
                     + (addedCount ? ` · ${addedCount} new` : '')
                     + (removedCount ? ` · ${removedCount} removed` : '')
                     + '.',
-            warnBits.length ? 'info' : 'success'
+            warnBits.length ? 'info' : 'success',
+            warnBits.length ? null : 100
         );
     } catch (err) {
         console.error('DRR compare failed', err);

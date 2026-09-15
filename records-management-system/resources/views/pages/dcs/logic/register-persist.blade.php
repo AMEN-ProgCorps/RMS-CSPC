@@ -217,12 +217,13 @@ class RegisterPersistHelper
     /** Original client filename for the masterlist scan (when column exists). */
     public static function masterlistOriginalNameFromRequest(Request $request): ?string
     {
-        if (!$request->hasFile('uploadScannedCopy')) {
-            return null;
+        $convention = self::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate'));
+        $ext = 'pdf';
+        if ($request->hasFile('uploadScannedCopy')) {
+            $ext = $request->file('uploadScannedCopy')->getClientOriginalExtension() ?: 'pdf';
         }
-        $name = trim((string) $request->file('uploadScannedCopy')->getClientOriginalName());
 
-        return $name !== '' ? $name : null;
+        return DocumentStorageService::sanitizeDcsScanBasename($convention) . '.' . $ext;
     }
 
     public static function applyMasterlistOriginalName(array &$row, Request $request, bool $onlyIfUploaded = true): void
@@ -237,6 +238,90 @@ class RegisterPersistHelper
         if ($original !== null) {
             $row['scanned_masterlist_original_name'] = $original;
         }
+    }
+
+    /**
+     * When title/date/rev change on update without a new upload, rename the stored scan
+     * and refresh the display name to match the convention.
+     */
+    public static function syncExistingMasterlistScanName(Request $request, ?string $existingPath): array
+    {
+        $result = [
+            'path' => $existingPath,
+            'original_name' => null,
+        ];
+        if (!is_string($existingPath) || trim($existingPath) === '') {
+            return $result;
+        }
+
+        $convention = self::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate'));
+        $ext = pathinfo($existingPath, PATHINFO_EXTENSION) ?: 'pdf';
+        $desiredName = DocumentStorageService::sanitizeDcsScanBasename($convention) . '.' . $ext;
+        $result['original_name'] = $desiredName;
+
+        $currentBase = pathinfo($existingPath, PATHINFO_FILENAME);
+        $desiredBase = pathinfo($desiredName, PATHINFO_FILENAME);
+        if (strcasecmp($currentBase, $desiredBase) === 0) {
+            return $result;
+        }
+
+        $newPath = DocumentStorageService::renameDcsScanToBasename($existingPath, $convention);
+        if (is_string($newPath) && $newPath !== '') {
+            $result['path'] = $newPath;
+            $result['original_name'] = basename($newPath);
+        }
+
+        return $result;
+    }
+
+    /** Keep DRF title aligned with the masterlist / shared document title. */
+    public static function syncDrfTitleForRequest(int $requestId, ?string $title): void
+    {
+        $title = trim((string) $title);
+        if ($requestId < 1 || $title === '') {
+            return;
+        }
+        if (! Schema::hasTable('dcs_document_request_form')) {
+            return;
+        }
+        DB::table('dcs_document_request_form')
+            ->where('request_id', $requestId)
+            ->update(array_filter([
+                'doc_title' => $title,
+                'updated_at' => Schema::hasColumn('dcs_document_request_form', 'updated_at') ? now() : null,
+            ], fn ($v) => $v !== null));
+    }
+
+    /**
+     * Rename masterlist scan after the registration transaction committed
+     * (file moves are not transactional — avoid orphaning the PDF on rollback).
+     */
+    public static function syncMasterlistScanNameAfterCommit(Request $request, int $requestId): void
+    {
+        if ($requestId < 1 || $request->hasFile('uploadScannedCopy')) {
+            return;
+        }
+        $ml = DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first();
+        if (! $ml || empty($ml->scanned_masterlist)) {
+            return;
+        }
+
+        $synced = self::syncExistingMasterlistScanName($request, (string) $ml->scanned_masterlist);
+        $newPath = $synced['path'] ?? null;
+        $original = $synced['original_name'] ?? null;
+        if (! is_string($newPath) || $newPath === '') {
+            return;
+        }
+
+        $payload = ['scanned_masterlist' => $newPath];
+        if ($original && Schema::hasColumn('dcs_masterlist_registration', 'scanned_masterlist_original_name')) {
+            $payload['scanned_masterlist_original_name'] = $original;
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+
+        DB::table('dcs_masterlist_registration')->where('id', $ml->id)->update($payload);
     }
 
     public static function rejectInactiveOfficeIds(Request $request): ?RedirectResponse
@@ -291,13 +376,19 @@ class RegisterPersistHelper
 
     public static function syncedDocTitle(Request $request): ?string
     {
-        $drf = trim((string) $request->input('drfTitle', ''));
-        if ($drf !== '') {
-            return $drf;
-        }
+        // Masterlist / syllabi title is the controlled-document source of truth.
+        // Prefer them over a stale DRF title left in the form when DRF is unchecked.
         $ml = trim((string) $request->input('masterlistDocTitle', ''));
+        if ($ml !== '') {
+            return $ml;
+        }
+        $syllabi = trim((string) $request->input('syllabiDocTitle', ''));
+        if ($syllabi !== '') {
+            return $syllabi;
+        }
+        $drf = trim((string) $request->input('drfTitle', ''));
 
-        return $ml !== '' ? $ml : null;
+        return $drf !== '' ? $drf : null;
     }
 
     /**
@@ -424,12 +515,167 @@ class RegisterPersistHelper
 
     public static function validateCheckedSections(Request $request): ?RedirectResponse
     {
-        $checked = array_map('intval', $request->input('checklists', []));
-        if ($checked === []) {
+        $checked = self::withRequiredMasterlistChecklist(
+            array_map('intval', $request->input('checklists', []))
+        );
+
+        if (! in_array(3, $checked, true)) {
+            return back()->withInput()->with('error', 'Masterlist Registration is required.');
+        }
+
+        if (! $request->boolean('save_as_draft') && $checked === []) {
             return back()->withInput()->with('error', 'Select at least one checklist section.');
         }
 
         return null;
+    }
+
+    /**
+     * Masterlist must contain some substance (always on). Drafts cannot be empty shells.
+     */
+    public static function validateMasterlistHasData(Request $request, bool $requireScan = false): ?RedirectResponse
+    {
+        $docNo = trim((string) $request->input('masterlistDocNo', ''));
+        $title = trim((string) (self::syncedDocTitle($request)
+            ?: $request->input('masterlistDocTitle')
+            ?: $request->input('drfTitle')
+            ?: $request->input('syllabiDocTitle')
+            ?: ''));
+        $effectivity = trim((string) $request->input('masterlistEffectivityDate', ''));
+        $pages = trim((string) $request->input('masterlistNoOfPages', ''));
+        $hasUpload = $request->hasFile('uploadScannedCopy');
+        $hasExistingScan = (bool) $request->boolean('has_existing_masterlist_scan');
+
+        $hasData = $docNo !== ''
+            || $title !== ''
+            || $effectivity !== ''
+            || ($pages !== '' && $pages !== '0')
+            || $hasUpload
+            || $hasExistingScan;
+
+        if (! $hasData) {
+            return back()->withInput()->with(
+                'error',
+                'Masterlist Registration needs data (Document No, Title, Effectivity Date, or a scanned master copy) before saving.'
+            );
+        }
+
+        if ($requireScan && ! $hasUpload && ! $hasExistingScan) {
+            $subType = self::dcsDocType($request->input('sub_type_id'));
+            if (! self::isSyllabiLikeSubTypeRow($subType)) {
+                return back()->withInput()->with(
+                    'error',
+                    'Upload the scanned master copy in Masterlist Registration before saving.'
+                );
+            }
+        }
+
+        return null;
+    }
+
+    /** Ensure checklist id 3 (Masterlist) is always included. */
+    public static function withRequiredMasterlistChecklist(array $checked): array
+    {
+        $checked = array_values(array_unique(array_map('intval', $checked)));
+        if (! in_array(3, $checked, true)) {
+            $checked[] = 3;
+        }
+
+        return $checked;
+    }
+
+    /**
+     * Parent doc-type code for scan filenames: INT / IF / EXT / F / LB.
+     */
+    public static function parentDocTypeCode(mixed $docTypeId): string
+    {
+        $type = self::dcsDocType($docTypeId);
+        if (! $type) {
+            return 'INT';
+        }
+        if (! empty($type->parent_id)) {
+            $type = self::dcsDocType($type->parent_id) ?: $type;
+        }
+        $name = mb_strtolower(trim((string) ($type->doc_type_name ?? '')));
+
+        if (str_contains($name, 'internal form')) {
+            return 'IF';
+        }
+        if ($name === 'forms' || str_starts_with($name, 'form')) {
+            return 'F';
+        }
+        if (str_contains($name, 'logbook')) {
+            return 'LB';
+        }
+        if (str_contains($name, 'external')) {
+            return 'EXT';
+        }
+        if ($name === 'internal' || str_starts_with($name, 'internal')) {
+            return 'INT';
+        }
+
+        return 'INT';
+    }
+
+    /**
+     * Build convention basename (no extension):
+     * {Y-m-d}_{FORM}_{DOCTYPE}_{Document_Title}_Rev{N}
+     * FORM: DRF | DOC | D&R | DCN | DRR
+     */
+    public static function buildScanBasename(Request $request, string $formToken, ?string $date): string
+    {
+        $datePart = self::formatScanDatePart($date);
+        $typeCode = self::parentDocTypeCode($request->input('doc_type_id'));
+        $title = trim((string) (self::syncedDocTitle($request)
+            ?: $request->input('masterlistDocTitle')
+            ?: $request->input('drfTitle')
+            ?: 'Untitled'));
+        $titlePart = self::titleToScanSegment($title);
+        $rev = self::resolveReviseNo($request);
+
+        return "{$datePart}_{$formToken}_{$typeCode}_{$titlePart}_Rev{$rev}";
+    }
+
+    public static function formatScanDatePart(?string $date): string
+    {
+        $date = trim((string) $date);
+        if ($date === '') {
+            return now()->format('Y-m-d');
+        }
+        try {
+            return \Carbon\Carbon::parse($date)->format('Y-m-d');
+        } catch (\Throwable) {
+            return now()->format('Y-m-d');
+        }
+    }
+
+    public static function titleToScanSegment(string $title): string
+    {
+        $title = trim(preg_replace('/\s+/u', '_', $title) ?? '');
+        // Keep letters, numbers, underscore, hyphen, ampersand (for consistency with D&R token).
+        $title = preg_replace('/[^\p{L}\p{N}_&\-]+/u', '', $title) ?? '';
+        $title = trim($title, '_');
+
+        return $title !== '' ? $title : 'Untitled';
+    }
+
+    public static function storeDcsScanUpload($file, array &$uploadedFiles, string $category, ?string $conventionBase = null): string
+    {
+        $original = null;
+        $useConvention = false;
+        if ($conventionBase !== null && trim($conventionBase) !== '') {
+            $ext = 'pdf';
+            if ($file instanceof \Illuminate\Http\UploadedFile) {
+                $ext = $file->getClientOriginalExtension() ?: 'pdf';
+            }
+            $base = pathinfo($conventionBase, PATHINFO_FILENAME) ?: $conventionBase;
+            $original = DocumentStorageService::sanitizeDcsScanBasename($base) . '.' . $ext;
+            $useConvention = true;
+        }
+        $path = DocumentStorageService::storeDcsScan($file, auth()->user(), $original, $category, $useConvention);
+        $uploadedFiles[] = $path;
+
+        return $path;
     }
 
     public static function isKnownPublicScanPath(string $path, array $extraAllowed = []): bool
@@ -443,14 +689,6 @@ class RegisterPersistHelper
         }
 
         return DocumentStorageService::dcsScanExists($path);
-    }
-
-    private static function storeDcsScanUpload($file, array &$uploadedFiles, string $category): string
-    {
-        $path = DocumentStorageService::storeDcsScan($file, auth()->user(), null, $category);
-        $uploadedFiles[] = $path;
-
-        return $path;
     }
 
     public static function dcsScanFields(string $table, string $pathColumn, ?string $path): array
@@ -489,13 +727,12 @@ class RegisterPersistHelper
 
         self::blankStringsToNull($request);
         $mode = $request->input('registration_mode', 'new');
+        $saveAsDraft = $request->boolean('save_as_draft');
 
-        if ($mode === 'revised') {
+        if ($mode === 'revised' && ! $saveAsDraft) {
             $subType = self::dcsDocType($request->input('sub_type_id'));
             $isSyllabi = self::isSyllabiLikeSubTypeRow($subType);
-            $docNo = trim((string) ($isSyllabi
-                ? $request->input('syllabiDocNo')
-                : $request->input('masterlistDocNo')));
+            $docNo = trim((string) $request->input('masterlistDocNo'));
             $fromDocNo = trim((string) $request->input('revised_from_doc_no', ''));
             $lookupDocNo = $fromDocNo !== '' ? $fromDocNo : $docNo;
             $docTypeId = $request->input('doc_type_id');
@@ -586,7 +823,7 @@ class RegisterPersistHelper
             $request->validate([
                 'doc_type_id' => 'required|integer|exists:dcs_doc_types,id',
                 'version_id' => 'required|integer|exists:dcs_version_type,id',
-                'approval_status' => 'required|in:applicable,not_applicable',
+                'approval_status' => $saveAsDraft ? 'nullable|in:applicable,not_applicable' : 'required|in:applicable,not_applicable',
                 'masterlistRevisionNo' => 'nullable|integer|min:0',
             ]);
         }
@@ -594,21 +831,26 @@ class RegisterPersistHelper
         $request->validate(array_merge([
             'doc_type_id' => 'required|integer|exists:dcs_doc_types,id',
             'version_id' => 'required|integer|exists:dcs_version_type,id',
-            'approval_status' => 'required|in:applicable,not_applicable',
+            'approval_status' => $saveAsDraft ? 'nullable|in:applicable,not_applicable' : 'required|in:applicable,not_applicable',
         ], self::scanFileRules()));
 
         $subType = self::dcsDocType($request->sub_type_id);
         $isSyllabi = self::isSyllabiLikeSubTypeRow($subType);
 
-        if ($redirect = self::validateSyllabiLikeRequestRows($request)) {
-            return $redirect;
+        if (! $saveAsDraft) {
+            if ($redirect = self::validateSyllabiLikeRequestRows($request)) {
+                return $redirect;
+            }
         }
         if ($redirect = self::validateCheckedSections($request)) {
             return $redirect;
         }
+        if ($redirect = self::validateMasterlistHasData($request, requireScan: ! $saveAsDraft)) {
+            return $redirect;
+        }
 
-        if ($mode === 'new') {
-            $docNo = $isSyllabi ? $request->input('syllabiDocNo') : $request->input('masterlistDocNo');
+        if ($mode === 'new' && ! $saveAsDraft) {
+            $docNo = $request->input('masterlistDocNo');
             $docTypeId = (int) $request->input('doc_type_id');
             $subTypeId = $request->input('sub_type_id');
 
@@ -632,23 +874,31 @@ class RegisterPersistHelper
             $now = now();
             $userId = auth()->id();
 
-            $requestId = DB::table('dcs_document_requests')->insertGetId([
+            $requestId = DB::table('dcs_document_requests')->insertGetId(array_filter([
                 'version_id' => $request->version_id,
                 'doc_type_id' => $request->doc_type_id,
                 'sub_type_id' => $request->sub_type_id ?: null,
-                'approval_status' => $request->approval_status,
+                'approval_status' => $request->input('approval_status', 'not_applicable') ?: 'not_applicable',
+                'is_draft' => RegisterQueryHelper::supportsDrafts() ? $saveAsDraft : null,
                 'created_by' => $userId,
                 'created_at' => $now,
                 'updated_at' => $now,
-            ]);
+            ], fn ($v) => $v !== null));
 
             $docTypeId = $request->doc_type_id;
-            $checkedChecklists = array_map('intval', $request->input('checklists', []));
+            $checkedChecklists = self::withRequiredMasterlistChecklist(
+                array_map('intval', $request->input('checklists', []))
+            );
 
             if (in_array(1, $checkedChecklists, true)) {
                 $drfFile = null;
                 if ($request->hasFile('drfFile')) {
-                    $drfFile = self::storeDcsScanUpload($request->file('drfFile'), $uploadedFiles, 'drf');
+                    $drfFile = self::storeDcsScanUpload(
+                        $request->file('drfFile'),
+                        $uploadedFiles,
+                        'drf',
+                        self::buildScanBasename($request, 'DRF', $request->input('drfDate'))
+                    );
                 }
 
                 $drfOfficeIds = array_values(array_filter($request->input('drfSourceUnit', [])));
@@ -682,8 +932,12 @@ class RegisterPersistHelper
             if (in_array(2, $checkedChecklists, true)) {
                 $dcnFile = null;
                 if ($request->hasFile('dcnFile')) {
-                    $dcnFile = self::storeDcsScanUpload($request->file('dcnFile'), $uploadedFiles, 'dcn');
-                    $uploadedFiles[] = $dcnFile;
+                    $dcnFile = self::storeDcsScanUpload(
+                        $request->file('dcnFile'),
+                        $uploadedFiles,
+                        'dcn',
+                        self::buildScanBasename($request, 'DCN', $request->input('noticeDate'))
+                    );
                 }
 
                 $dcnOfficeIds = array_values(array_filter($request->input('dcnSourceUnit', [])));
@@ -736,7 +990,12 @@ class RegisterPersistHelper
             if (in_array(3, $checkedChecklists, true) && !$isSyllabi) {
                 $masterlistFile = null;
                 if ($request->hasFile('uploadScannedCopy')) {
-                    $masterlistFile = self::storeDcsScanUpload($request->file('uploadScannedCopy'), $uploadedFiles, 'masterlist');
+                    $masterlistFile = self::storeDcsScanUpload(
+                        $request->file('uploadScannedCopy'),
+                        $uploadedFiles,
+                        'masterlist',
+                        self::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate'))
+                    );
                     $uploadedFiles[] = $masterlistFile;
                 }
 
@@ -767,7 +1026,9 @@ class RegisterPersistHelper
                 ], self::dcsScanFields('dcs_masterlist_registration', 'scanned_masterlist', $masterlistFile));
                 self::applyMasterlistOriginalName($masterlistRow, $request);
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
-                    $masterlistRow['revision_status'] = 'latest';
+                    // Enum is latest|obsolete|archived (NOT NULL). Drafts use archived so they
+                    // stay out of the live unique index / latest listings; is_draft is the flag.
+                    $masterlistRow['revision_status'] = $saveAsDraft ? 'archived' : 'latest';
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistRow['originator_id'] = $originator['originator_id'];
@@ -812,7 +1073,12 @@ class RegisterPersistHelper
                     if ($masterlistFile) {
                         $filesToDelete[] = $masterlistFile;
                     }
-                    $masterlistFile = self::storeDcsScanUpload($request->file('uploadScannedCopy'), $uploadedFiles, 'masterlist');
+                    $masterlistFile = self::storeDcsScanUpload(
+                        $request->file('uploadScannedCopy'),
+                        $uploadedFiles,
+                        'masterlist',
+                        self::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate'))
+                    );
                     $uploadedFiles[] = $masterlistFile;
                 }
 
@@ -824,15 +1090,15 @@ class RegisterPersistHelper
                 $originator = self::resolveOriginator($request->masterlistOriginator);
                 $masterlistData = [
                     'doc_type_id' => $docTypeId,
-                    'doc_no' => $request->syllabiDocNo,
-                    'doc_title' => $request->syllabiDocTitle,
+                    'doc_no' => $request->masterlistDocNo,
+                    'doc_title' => $request->syllabiDocTitle ?: $request->masterlistDocTitle,
                     'doc_receipt_date' => $request->masterlistReceiptDate,
                     'doc_receipt_time' => $request->masterlistReceiptTime,
                     'doc_registered_date' => $request->masterlistRegisteredDate,
                     'doc_registered_time' => $request->masterlistRegisteredTime,
                     'time_spent' => $masterlistTimeSpent,
-                    'effectivity_date' => $request->syllabiEffectivityDate,
-                    'deadline' => $request->syllabiDeadline,
+                    'effectivity_date' => $request->masterlistEffectivityDate,
+                    'deadline' => $request->deadlineOfSubmission,
                     'revise_no' => self::resolveReviseNo($request),
                     'no_pages' => $totalPages,
                     'originator_name' => $originator['originator_name'],
@@ -844,7 +1110,7 @@ class RegisterPersistHelper
                 );
                 self::applyMasterlistOriginalName($masterlistData, $request);
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
-                    $masterlistData['revision_status'] = 'latest';
+                    $masterlistData['revision_status'] = $saveAsDraft ? 'archived' : 'latest';
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
@@ -859,7 +1125,7 @@ class RegisterPersistHelper
                 if ($mode === 'revised' && Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
                     $fromDocNo = self::resolveRevisedFromDocNo(
                         $request,
-                        trim((string) $request->syllabiDocNo),
+                        trim((string) $request->masterlistDocNo),
                         (int) $docTypeId,
                         $request->sub_type_id ? (int) $request->sub_type_id : null
                     );
@@ -891,8 +1157,16 @@ class RegisterPersistHelper
             if (in_array(4, $checkedChecklists, true)) {
                 $retrievalFile = null;
                 if ($request->hasFile('scannedRet')) {
-                    $retrievalFile = self::storeDcsScanUpload($request->file('scannedRet'), $uploadedFiles, 'retrieval');
-                    $uploadedFiles[] = $retrievalFile;
+                    $retrievalFile = self::storeDcsScanUpload(
+                        $request->file('scannedRet'),
+                        $uploadedFiles,
+                        'retrieval',
+                        self::buildScanBasename(
+                            $request,
+                            'DRR',
+                            $request->input('retrievalDate') ?: $request->input('retrievalFormDate')
+                        )
+                    );
                 }
 
                 $retrievalTimeSpent = null;
@@ -941,7 +1215,12 @@ class RegisterPersistHelper
             if (in_array(5, $checkedChecklists, true)) {
                 $distFile = null;
                 if ($request->hasFile('scanneddist')) {
-                    $distFile = self::storeDcsScanUpload($request->file('scanneddist'), $uploadedFiles, 'distribution');
+                    $distFile = self::storeDcsScanUpload(
+                        $request->file('scanneddist'),
+                        $uploadedFiles,
+                        'distribution',
+                        self::buildScanBasename($request, 'D&R', $request->input('drfDate'))
+                    );
                     $uploadedFiles[] = $distFile;
                 }
 
@@ -950,7 +1229,7 @@ class RegisterPersistHelper
                     $distTimeSpent = intval($request->distributionTimeSpent);
                 }
 
-                $distributionId = DB::table('dcs_document_distribution')->insertGetId(array_merge([
+                $distRow = array_merge([
                     'request_id' => $requestId,
                     'doc_distribution_date_actual' => $request->distributionDate,
                     'doc_distribution_time_actual' => $request->distributionTime,
@@ -961,7 +1240,8 @@ class RegisterPersistHelper
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
-                ], self::dcsScanFields('dcs_document_distribution', 'scanned_distribution', $distFile)));
+                ], self::dcsScanFields('dcs_document_distribution', 'scanned_distribution', $distFile));
+                $distributionId = DB::table('dcs_document_distribution')->insertGetId($distRow);
 
                 if ($request->has('distOffice')) {
                     self::saveDistributionOffices($distributionId, $request);
@@ -978,7 +1258,7 @@ class RegisterPersistHelper
             }
 
             $savedMl = DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first();
-            if ($savedMl) {
+            if ($savedMl && ! $saveAsDraft) {
                 self::syncRevisionStatusForMasterlist((int) $savedMl->id);
 
                 // When a revision renumbers the document, mark the previous number's family obsolete.
@@ -1017,25 +1297,26 @@ class RegisterPersistHelper
             }
 
             RegisterPersistHelper::logAdminChange(
-                'Registered document #' . $requestId
-                . (!empty($savedMl->doc_no) ? ' — ' . $savedMl->doc_no : '')
-                . (isset($savedMl->revise_no) ? ' (Rev ' . $savedMl->revise_no . ')' : '')
-                . (!empty($savedMl->doc_title) ? ': ' . $savedMl->doc_title : '')
+                ($saveAsDraft ? 'Saved draft #' : 'Registered document #') . $requestId
+                . (!empty($savedMl?->doc_no) ? ' — ' . $savedMl->doc_no : '')
+                . (isset($savedMl?->revise_no) ? ' (Rev ' . $savedMl->revise_no . ')' : '')
+                . (!empty($savedMl?->doc_title) ? ': ' . $savedMl->doc_title : '')
             );
 
             \App\Services\DcsAuditService::log(
-                'register.create',
+                $saveAsDraft ? 'register.draft' : 'register.create',
                 'register',
                 (int) $requestId,
                 null,
                 [
                     'doc_no' => $savedMl->doc_no ?? null,
                     'revise_no' => $savedMl->revise_no ?? null,
+                    'is_draft' => $saveAsDraft,
                 ]
             );
 
             $docNo = trim((string) ($savedMl->doc_no ?? ''));
-            if ($docNo !== '') {
+            if ($docNo !== '' && ! $saveAsDraft) {
                 $registrarName = RegisterQueryHelper::currentUserDisplayName();
                 $revNo = isset($savedMl->revise_no) ? (int) $savedMl->revise_no : null;
                 $notifyOfficeIds = array_merge(
@@ -1058,7 +1339,9 @@ class RegisterPersistHelper
             }
 
             return redirect()->route('dcs.register.edit', $requestId)
-                ->with('success', 'Document registered successfully!');
+                ->with('success', $saveAsDraft
+                    ? 'Draft saved. Continue anytime from Document Registration → Drafts.'
+                    : 'Document registered successfully!');
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -1258,21 +1541,104 @@ class RegisterPersistHelper
         return null;
     }
 
+    /**
+     * Prior masterlist scanned copy for a DCN "Documents for Revision" row
+     * (matched by document no. + revise_no). Used when dcs_doc_revision.scanned_copy
+     * was never stored — the Database tip/obsolete rows still have scanned_masterlist.
+     */
+    public static function masterlistScanPathForRevision(
+        string $docNo,
+        mixed $reviseNo,
+        ?int $docTypeId = null,
+        ?int $subTypeId = null
+    ): ?string {
+        $docNo = trim($docNo);
+        if ($docNo === '' || $reviseNo === null || $reviseNo === '') {
+            return null;
+        }
+        if (! Schema::hasTable('dcs_masterlist_registration')) {
+            return null;
+        }
+
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->where('ml.doc_no', $docNo)
+            ->where('ml.revise_no', (int) $reviseNo)
+            ->whereNotNull('ml.scanned_masterlist')
+            ->where('ml.scanned_masterlist', '!=', '');
+
+        if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
+            $query->whereNull('dr.deleted_at');
+        }
+        if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+            $query->where(function ($w) {
+                $w->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
+        }
+        if ($docTypeId !== null && $docTypeId > 0) {
+            $query->where('dr.doc_type_id', $docTypeId);
+        }
+        if ($subTypeId !== null && $subTypeId > 0) {
+            $query->where('dr.sub_type_id', $subTypeId);
+        } elseif ($subTypeId === null && $docTypeId !== null && $docTypeId > 0) {
+            $query->whereNull('dr.sub_type_id');
+        }
+
+        $path = $query->orderByDesc('ml.id')->value('ml.scanned_masterlist');
+        if (! is_string($path) || trim($path) === '') {
+            return null;
+        }
+
+        $path = ltrim(str_replace(['../', '..\\'], '', $path), '/');
+        if ($path === '' || str_contains($path, '..')) {
+            return null;
+        }
+
+        return DocumentStorageService::dcsScanExists($path) ? $path : null;
+    }
+
     public static function resolveRevisionScannedCopyPath(Request $request, int $i, array &$uploadedFiles, array $allowedPaths = []): ?string
     {
         if ($request->hasFile('scannedCopy') && isset($request->file('scannedCopy')[$i])) {
-            $path = self::storeDcsScanUpload($request->file('scannedCopy')[$i], $uploadedFiles, 'revisions');
+            $rowTitle = trim((string) ($request->input('documentTitle')[$i] ?? ''));
+            $base = self::buildScanBasename($request, 'DCN', $request->input('noticeDate'));
+            if ($rowTitle !== '') {
+                // Prefer per-row title in the basename when present.
+                $datePart = self::formatScanDatePart($request->input('noticeDate'));
+                $typeCode = self::parentDocTypeCode($request->input('doc_type_id'));
+                $rev = self::resolveReviseNo($request);
+                $base = "{$datePart}_DCN_{$typeCode}_" . self::titleToScanSegment($rowTitle) . "_Rev{$rev}";
+            }
+            $path = self::storeDcsScanUpload($request->file('scannedCopy')[$i], $uploadedFiles, 'revisions', $base);
 
             return $path;
         }
 
+        $docNo = trim((string) ($request->input('documentNo')[$i] ?? ''));
+        $rowRev = $request->input('revisionNo')[$i] ?? null;
+        $docTypeId = (int) ($request->input('doc_type_id') ?? 0);
+        $subTypeRaw = $request->input('sub_type_id');
+        $subTypeId = ($subTypeRaw !== null && $subTypeRaw !== '') ? (int) $subTypeRaw : null;
+        $masterlistPath = self::masterlistScanPathForRevision(
+            $docNo,
+            $rowRev,
+            $docTypeId > 0 ? $docTypeId : null,
+            $subTypeId
+        );
+        if ($masterlistPath) {
+            $allowedPaths[] = $masterlistPath;
+        }
+
         $source = $request->input('revisionScannedPath')[$i] ?? null;
-        if (!is_string($source) || trim($source) === '') {
+        if (! is_string($source) || trim($source) === '') {
+            $source = $masterlistPath;
+        }
+        if (! is_string($source) || trim($source) === '') {
             return null;
         }
 
         $source = ltrim(str_replace(['../', '..\\'], '', $source), '/');
-        if (!self::isKnownPublicScanPath($source, $allowedPaths)) {
+        if (! self::isKnownPublicScanPath($source, $allowedPaths)) {
             return null;
         }
 
@@ -1527,12 +1893,25 @@ class RegisterPersistHelper
         }
 
         $file = $request->file($inputName)[$index];
+        $category = DocumentStorageService::normalizeDcsCategory($directory);
+        $convention = null;
+        if ($category === 'syllabi' || $category === 'drf') {
+            $convention = self::buildScanBasename($request, 'DRF', $request->input('drfDate') ?: $request->input('syllabiEffectivityDate'));
+        }
+        $original = null;
+        $useConvention = false;
+        if ($convention) {
+            $ext = $file->getClientOriginalExtension() ?: 'pdf';
+            $original = DocumentStorageService::sanitizeDcsScanBasename($convention) . '.' . $ext;
+            $useConvention = true;
+        }
 
         return DocumentStorageService::storeDcsScan(
             $file,
             auth()->user(),
-            null,
-            DocumentStorageService::normalizeDcsCategory($directory)
+            $original,
+            $category,
+            $useConvention
         );
     }
 
@@ -1661,6 +2040,7 @@ class RegisterPersistHelper
 
         // Heal live "archived" → obsolete only (never soft-deleted recycle-bin rows —
         // those stay archived so their doc_no remains free for reuse).
+        // Also skip drafts: Save Draft stores revision_status=archived + is_draft.
         $legacyArchived = [];
         if (RegisterQueryHelper::supportsArchivedRevisionStatus()) {
             $legacyQuery = DB::table('dcs_masterlist_registration as m')
@@ -1670,6 +2050,7 @@ class RegisterPersistHelper
                 ->where('m.revision_status', 'archived')
                 ->select('m.id', 'm.doc_no', 'm.revise_no', 'm.doc_type_id');
             RegisterQueryHelper::applyNotDeleted($legacyQuery, 'dr');
+            RegisterQueryHelper::applyExcludeDrafts($legacyQuery, 'dr');
             $legacyArchived = $legacyQuery->get();
         }
 

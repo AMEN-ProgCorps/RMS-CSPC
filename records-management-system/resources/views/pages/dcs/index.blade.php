@@ -67,26 +67,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ];
 
         $year = (int) now('Asia/Manila')->year;
-        $holidays = [];
-        foreach ([$year, $year + 1] as $y) {
-            $holidays["{$y}-01-01"] = "New Year's Day";
-            $holidays["{$y}-04-09"] = 'The Day of Valor';
-            $holidays["{$y}-05-01"] = 'Labor Day';
-            $holidays["{$y}-06-12"] = 'Independence Day';
-            $holidays["{$y}-08-21"] = 'Ninoy Aquino Day';
-            $heroes = \Carbon\Carbon::create($y, 8, 31, 0, 0, 0, 'Asia/Manila');
-            $heroes->subDays(($heroes->dayOfWeek - \Carbon\Carbon::MONDAY + 7) % 7);
-            $holidays[$heroes->toDateString()] = 'National Heroes Day';
-            $holidays["{$y}-11-01"] = "All Saints' Day";
-            $holidays["{$y}-11-30"] = 'Bonifacio Day';
-            $holidays["{$y}-12-25"] = 'Christmas Day';
-            $holidays["{$y}-12-30"] = 'Rizal Day';
-            if (function_exists('easter_date')) {
-                $easter = \Carbon\Carbon::createFromTimestamp(easter_date($y), 'UTC')->timezone('Asia/Manila');
-                $holidays[$easter->copy()->subDays(3)->toDateString()] = 'Maundy Thursday';
-                $holidays[$easter->copy()->subDays(2)->toDateString()] = 'Good Friday';
-            }
-        }
+        $holidays = \App\Helpers\CalendarHelper::philippineHolidays($year, $year + 1);
 
         return [
             'isLimitedDcs' => false,

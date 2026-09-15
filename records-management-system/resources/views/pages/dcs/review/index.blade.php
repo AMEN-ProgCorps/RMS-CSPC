@@ -167,6 +167,22 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
 }; ?>
 
 <div>
+{{-- Full-viewport overlay (outside .drr-container so fixed covers header + sidenav) --}}
+@if($selectedDocNo === '')
+    <div
+        class="drr-page-loading"
+        wire:loading.flex
+        wire:target="selectDocument"
+        aria-live="polite"
+        aria-busy="true"
+    >
+        <div class="drr-page-loading-card">
+            <div class="drr-page-spinner" aria-hidden="true"></div>
+            <h4>Opening review…</h4>
+            <p>Loading revisions and scanned copies.</p>
+        </div>
+    </div>
+@endif
 <div class="drr-container main-content">
     <div class="drr-header">
         <div>
@@ -186,7 +202,10 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
     </div>
 
     @if($selectedDocNo === '')
-        <section class="drr-adhoc-card" id="drrAdhocCard" aria-labelledby="drrAdhocHeading">
+        <section class="drr-adhoc-card" id="drrAdhocCard" aria-labelledby="drrAdhocHeading"
+            wire:loading.class="is-dimmed"
+            wire:target="selectDocument"
+        >
             <div class="drr-adhoc-head">
                 <div>
                     <h2 id="drrAdhocHeading" class="drr-adhoc-title">
@@ -221,7 +240,10 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
             <p class="drr-adhoc-error" id="drrAdhocError" hidden role="alert"></p>
         </section>
 
-        <section class="drr-list-block" aria-labelledby="drrListHeading">
+        <section class="drr-list-block" aria-labelledby="drrListHeading"
+            wire:loading.class="is-dimmed"
+            wire:target="selectDocument"
+        >
             <div class="drr-list-head">
                 <div>
                     <h2 id="drrListHeading" class="drr-list-title">Registered documents</h2>
@@ -273,8 +295,19 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                                     <td><span class="drr-rev-pill">Rev {{ $doc['rev_no'] }}</span></td>
                                     <td class="drr-rev-count">{{ $doc['rev_count'] }}</td>
                                     <td>
-                                        <button type="button" class="drr-btn-review" wire:click="selectDocument(@js($doc['doc_no']))">
-                                            <i class="fa-solid fa-code-compare" aria-hidden="true"></i> Review
+                                        <button
+                                            type="button"
+                                            class="drr-btn-review"
+                                            wire:click="selectDocument(@js($doc['doc_no']))"
+                                            wire:loading.attr="disabled"
+                                            wire:target="selectDocument"
+                                        >
+                                            <span wire:loading.remove.delay wire:target="selectDocument">
+                                                <i class="fa-solid fa-code-compare" aria-hidden="true"></i> Review
+                                            </span>
+                                            <span wire:loading.delay wire:target="selectDocument">
+                                                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Opening…
+                                            </span>
                                         </button>
                                     </td>
                                 </tr>
@@ -375,10 +408,10 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                 </div>
 
                 @if($canCompare)
-                    <div class="drr-legend">
-                        <span class="drr-leg drr-leg-del">Removed</span>
-                        <span class="drr-leg drr-leg-ins">Added</span>
-                        <span class="drr-leg drr-leg-chg">Changed</span>
+                    <div class="drr-legend" aria-label="Highlight legend">
+                        <span class="drr-leg drr-leg-del"><i class="drr-leg-swatch is-del" aria-hidden="true"></i>Removed</span>
+                        <span class="drr-leg drr-leg-ins"><i class="drr-leg-swatch is-ins" aria-hidden="true"></i>Added</span>
+                        <span class="drr-leg drr-leg-chg"><i class="drr-leg-swatch is-chg" aria-hidden="true"></i>Changed</span>
                     </div>
                 @endif
             </div>
@@ -486,10 +519,10 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
             </button>
         </div>
         <div class="drr-adhoc-modal-body">
-            <div class="drr-legend drr-adhoc-legend">
-                <span class="drr-leg drr-leg-del">Removed</span>
-                <span class="drr-leg drr-leg-ins">Added</span>
-                <span class="drr-leg drr-leg-chg">Changed</span>
+            <div class="drr-legend drr-adhoc-legend" aria-label="Highlight legend">
+                <span class="drr-leg drr-leg-del"><i class="drr-leg-swatch is-del" aria-hidden="true"></i>Removed</span>
+                <span class="drr-leg drr-leg-ins"><i class="drr-leg-swatch is-ins" aria-hidden="true"></i>Added</span>
+                <span class="drr-leg drr-leg-chg"><i class="drr-leg-swatch is-chg" aria-hidden="true"></i>Changed</span>
             </div>
             <div class="drr-scans" id="drr-adhoc-pdf-compare">
                 <div class="drr-scan is-changed">

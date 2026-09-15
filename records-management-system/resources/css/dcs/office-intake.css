@@ -55,7 +55,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 .ofi-toolbar-hint {
     margin: 0;
     font-size: 13px;
-    color: #64748b;
+    color: #475569;
     max-width: 720px;
     line-height: 1.45;
 }
@@ -115,7 +115,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     border: 0;
     background: transparent;
     padding: 8px 10px;
-    color: #64748b;
+    color: #475569;
     cursor: pointer;
 }
 .ofi-source-results,
@@ -147,7 +147,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 .ofi-source-empty {
     padding: 10px 12px;
     font-size: 12px;
-    color: #94a3b8;
+    color: #475569;
 }
 .ofi-source-chips {
     display: flex;
@@ -169,12 +169,12 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 .ofi-chip-x {
     border: 0;
     background: transparent;
-    color: #64748b;
+    color: #475569;
     cursor: pointer;
     font-size: 14px;
     line-height: 1;
 }
-.ofi-muted { color: #94a3b8; font-weight: 500; }
+.ofi-muted { color: #475569; font-weight: 500; }
 
 .ofi-table-wrap {
     overflow-x: auto;
@@ -193,7 +193,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    color: #64748b;
+    color: #475569;
     background: #f8fafc;
     padding: 8px 8px;
     border-bottom: 1px solid #e2e8f0;
@@ -263,7 +263,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 .ofi-header p {
     margin: 0;
     font-size: 13px;
-    color: #64748b;
+    color: #475569;
     max-width: 640px;
     line-height: 1.45;
 }
@@ -313,7 +313,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 .ofi-stat-label {
     font-size: 12px;
     font-weight: 700;
-    color: #64748b;
+    color: #475569;
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
@@ -327,7 +327,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 .ofi-stat-value.is-dcn { color: #0f766e; }
 .ofi-stat-hint {
     font-size: 13px;
-    color: #64748b;
+    color: #475569;
 }
 .ofi-table {
     width: 100%;
@@ -339,7 +339,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: #64748b;
+    color: #475569;
     border-bottom: 1px solid #e2e8f0;
     padding: 8px 10px;
 }
@@ -356,7 +356,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 }
 .ofi-empty {
     text-align: center;
-    color: #94a3b8;
+    color: #475569;
     padding: 28px 10px !important;
 }
 .ofi-alert {
@@ -410,7 +410,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 }
 .ofi-radio-row { display: flex; gap: 20px; font-size: 13px; color: #0f172a; }
 .ofi-radio-row label { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
-.ofi-hint { font-size: 12px; color: #64748b; margin: 0 0 10px; line-height: 1.5; }
+.ofi-hint { font-size: 12px; color: #475569; margin: 0 0 10px; line-height: 1.5; }
 
 /* Office DRF create — match official form with comfortable vertical rhythm */
 .ofi-drf-form {
@@ -664,7 +664,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     border: none;
     border-radius: 50%;
     background: transparent;
-    color: #64748b;
+    color: #475569;
     cursor: pointer;
     flex-shrink: 0;
     transition: background 0.15s ease, color 0.15s ease;
@@ -685,7 +685,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 .ofi-distribute-empty {
     padding: 10px 12px 2px;
     font-size: 12px;
-    color: #94a3b8;
+    color: #475569;
     font-style: italic;
 }
 .ofi-distribute-grid {
@@ -739,7 +739,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     white-space: pre-wrap;
 }
 .ofi-show-form .ofi-show-value.is-empty {
-    color: #94a3b8;
+    color: #475569;
 }
 .ofi-doc-type-badges {
     display: flex;
@@ -757,7 +757,7 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     background: #f8fafc;
     font-size: 0.82rem;
     font-weight: 600;
-    color: #94a3b8;
+    color: #475569;
 }
 .ofi-doc-type-badge.is-active {
     border-color: #93c5fd;
@@ -958,7 +958,7 @@ body.ofi-modal-open {
     justify-content: center;
     gap: 10px;
     min-height: 220px;
-    color: #64748b;
+    color: #475569;
     font-size: 14px;
     font-weight: 500;
 }
@@ -1016,7 +1016,7 @@ body.ofi-modal-open {
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: #94a3b8;
+    color: #475569;
 }
 
 .ofi-review-meta-grid dd {
@@ -1058,7 +1058,7 @@ body.ofi-modal-open {
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: #64748b;
+    color: #475569;
 }
 
 .ofi-review-fields {
@@ -1080,7 +1080,7 @@ body.ofi-modal-open {
     margin: 0 0 4px;
     font-size: 12px;
     font-weight: 600;
-    color: #64748b;
+    color: #475569;
 }
 
 .ofi-review-field dd {
@@ -1140,7 +1140,7 @@ body.ofi-modal-open {
 
 .ofi-review-empty {
     font-size: 13px;
-    color: #94a3b8;
+    color: #475569;
     font-style: italic;
 }
 

@@ -3091,27 +3091,46 @@
         chatBox.scrollTop += shift;
       }
 
+      // Re-verify on next animation frame after browser layout reflow
+      requestAnimationFrame(function() {
+        if (!chatBox || !anchorInfo || !anchorInfo.el || !anchorInfo.el.parentNode) return;
+        const curBoxRect = chatBox.getBoundingClientRect();
+        const nowTop = anchorInfo.el.getBoundingClientRect().top - curBoxRect.top;
+        const subShift = nowTop - anchorInfo.offsetTop;
+        if (Math.abs(subShift) > 0.5) {
+          chatBox.scrollTop += subShift;
+        }
+      });
+
       if (prependedItems && prependedItems.length > 0) {
         prependedItems.forEach(item => {
           if (!item.querySelectorAll) return;
           item.querySelectorAll('img').forEach(img => {
             if (!img.complete && !img.dataset.anchorBound) {
               img.dataset.anchorBound = '1';
-              img.addEventListener('load', function() {
-                if (anchorInfo.el && anchorInfo.el.parentNode) {
+              let prevH = img.offsetHeight || 0;
+              const onImgSettle = function() {
+                const newH = img.offsetHeight || 0;
+                const delta = newH - prevH;
+                prevH = newH;
+                if (delta > 0 && chatBox) {
                   const curBoxRect = chatBox.getBoundingClientRect();
-                  const nowTop = anchorInfo.el.getBoundingClientRect().top - curBoxRect.top;
-                  const imgShift = nowTop - anchorInfo.offsetTop;
-                  if (Math.abs(imgShift) > 0.5) {
-                    chatBox.scrollTop += imgShift;
+                  const imgRect = img.getBoundingClientRect();
+                  if (imgRect.top < curBoxRect.top + 50) {
+                    chatBox.scrollTop += delta;
                   }
                 }
-              }, { once: true });
+              };
+              img.addEventListener('load', onImgSettle, { once: true });
+              img.addEventListener('error', onImgSettle, { once: true });
             }
           });
         });
       }
     }
+
+    window.captureScrollAnchor = captureScrollAnchor;
+    window.restoreScrollAnchor = restoreScrollAnchor;
 
     // Keeps the chat window capped at maxCount messages by trimming the
     // trailing (newest/bottom) ones — used right after prepending an older
@@ -3837,6 +3856,7 @@
           adminConvCursor = data.nextCursor || '';
           adminConvViewingOlder = true;
 
+          const anchor = (typeof captureScrollAnchor === 'function') ? captureScrollAnchor() : (window.captureScrollAnchor ? window.captureScrollAnchor() : null);
           const prevScrollHeight = chatBox.scrollHeight;
           const prevScrollTop = chatBox.scrollTop;
 
@@ -3865,17 +3885,22 @@
           }
 
           if (!adminConvHasMore) showNoMoreOlderNotice();
-          const safePrevScrollTop = Math.max(0, prevScrollTop);
-          const heightDiff = chatBox.scrollHeight - prevScrollHeight;
-          if (heightDiff > 0) {
-            const targetST = safePrevScrollTop + heightDiff;
-            chatBox.scrollTop = targetST;
-          }
-          trimWindowFromBottom(MAX_WINDOW);
-
-          if (adminConvHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges();
           applyEmojiOnly();
+          trimWindowFromBottom(MAX_WINDOW);
+
+          const restoreFn = (typeof restoreScrollAnchor === 'function') ? restoreScrollAnchor : (window.restoreScrollAnchor ? window.restoreScrollAnchor : null);
+          if (anchor && restoreFn) {
+            restoreFn(anchor, oldItems);
+          } else {
+            const safePrevScrollTop = Math.max(0, prevScrollTop);
+            const heightDiff = chatBox.scrollHeight - prevScrollHeight;
+            if (heightDiff > 0) {
+              chatBox.scrollTop = safePrevScrollTop + heightDiff;
+            }
+          }
+
+          if (adminConvHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           attachImageLoadListeners();
           return;
         }

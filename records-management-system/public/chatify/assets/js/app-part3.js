@@ -97,9 +97,10 @@
     // opening the full image in a brand new browser tab. Uses event
     // delegation on document since message bubbles (and their images) are
     // constantly re-rendered by chat polling.
-    const imageViewerModal    = document.getElementById('imageViewerModal');
-    const imageViewerImg      = document.getElementById('imageViewerImg');
-    const imageViewerCloseBtn = document.getElementById('imageViewerCloseBtn');
+    const imageViewerModal       = document.getElementById('imageViewerModal');
+    const imageViewerImg         = document.getElementById('imageViewerImg');
+    const imageViewerCloseBtn    = document.getElementById('imageViewerCloseBtn');
+    const imageViewerDownloadBtn = document.getElementById('imageViewerDownloadBtn');
 
     function openImageViewer(src, alt) {
       if (!imageViewerModal || !imageViewerImg) return;
@@ -360,6 +361,61 @@
         closeImageViewer();
       }
     });
+
+    // Download: button next to close button triggers download of currently viewed image
+    function downloadCurrentImage() {
+      if (!imageViewerImg || !imageViewerImg.src) return;
+      const src = imageViewerImg.src;
+      let filename = (imageViewerImg.alt && imageViewerImg.alt.trim()) ? imageViewerImg.alt.trim() : '';
+      if (!filename) {
+        try {
+          const urlObj = new URL(src, window.location.href);
+          const pathname = urlObj.pathname;
+          filename = pathname.substring(pathname.lastIndexOf('/') + 1) || 'image.png';
+        } catch(e) {
+          filename = 'image.png';
+        }
+      }
+      if (!filename.includes('.')) {
+        filename += '.png';
+      }
+
+      fetch(src)
+        .then(function(res) {
+          if (!res.ok) throw new Error('Network response was not ok');
+          return res.blob();
+        })
+        .then(function(blob) {
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(function() {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(blobUrl);
+          }, 250);
+        })
+        .catch(function() {
+          const a = document.createElement('a');
+          a.href = src;
+          a.download = filename;
+          a.target = '_blank';
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(function() {
+            document.body.removeChild(a);
+          }, 250);
+        });
+    }
+
+    if (imageViewerDownloadBtn) {
+      imageViewerDownloadBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        downloadCurrentImage();
+      });
+    }
 
     // Logout modal DOM refs
     const logoutModal = document.getElementById("logoutModal");
@@ -1599,38 +1655,24 @@
     // Monitor scroll position
     chatBox.addEventListener('scroll', function() {
       const atBottom = isAtBottom();
+      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
       
-      if (atBottom) {
+      if (atBottom && !viewingOlder) {
         shouldAutoScroll = true;
         userScrolledUp = false;
         hideScrollIndicator();
         if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) {
           markRead(activeDM);
         }
-
-        // ── Bi-directional infinite scroll: snap back to latest window ────
-        // If the user has scrolled back to the bottom of an older window
-        // (not via the "Go to bottom" button but through natural scrolling),
-        // treat it the same as clicking "Go to bottom" — reset the viewing-
-        // older state and reload the freshest messages from the DB. This
-        // ensures that the trimmed-from-bottom messages never permanently
-        // disappear; the user just needs to scroll back to bottom and the
-        // latest window re-appears automatically.
-        if (isGlobalChat && gcViewingOlder) {
-          gcViewingOlder = false;
-        }
-        if (!isGlobalChat && activeAdminConv && adminConvViewingOlder) {
-          adminConvViewingOlder = false;
-        }
-        if (!isGlobalChat && !activeAdminConv && activeDM && dmViewingOlder) {
-          dmViewingOlder = false;
-        }
-        // ─────────────────────────────────────────────────────────────────
       } else {
         shouldAutoScroll = false;
         userScrolledUp = true;
-        // Show scroll button when initial load is done AND user has scrolled up > 200px away from bottom
-        if (chatFullyLoaded && !isMobileVirtualKeyboardActive()) {
+        if (viewingOlder) {
+          // While viewing older history, always show the "Go to bottom" button
+          // so the user can easily jump back to latest messages anytime.
+          showScrollIndicator(0);
+        } else if (chatFullyLoaded && !isMobileVirtualKeyboardActive()) {
+          // Show scroll button when initial load is done AND user has scrolled up > 200px away from bottom
           const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
           if (distance > 200) {
             const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
@@ -1836,6 +1878,7 @@
         gcCursor = '';
         removePaginationBtn();
         forceBottomScrollState('__global__');
+        if (typeof globalChatCache !== 'undefined') globalChatCache = null;
         chatBox.innerHTML = '';
         isFirstLoad = true;
         chatFullyLoaded = false;
@@ -1858,6 +1901,9 @@
         dmCursor = '';
         removePaginationBtn();
         forceBottomScrollState(activeDM);
+        if (typeof dmMessageCache !== 'undefined' && dmMessageCache && dmMessageCache.delete) {
+          dmMessageCache.delete(activeDM);
+        }
         chatBox.innerHTML = '';
         isFirstLoad = true;
         chatFullyLoaded = false;
@@ -2023,6 +2069,7 @@
         gcCursor = data.nextCursor || '';
         gcViewingOlder = true;
 
+        const anchor = (typeof captureScrollAnchor === 'function') ? captureScrollAnchor() : (window.captureScrollAnchor ? window.captureScrollAnchor() : null);
         const prevScrollHeight = chatBox.scrollHeight;
         const prevScrollTop = chatBox.scrollTop;
 
@@ -2051,17 +2098,22 @@
         }
 
         if (!gcHasMore) showNoMoreOlderNotice();
-        const safePrevScrollTop = Math.max(0, prevScrollTop);
-        const heightDiff = chatBox.scrollHeight - prevScrollHeight;
-        if (heightDiff > 0) {
-          const targetST = safePrevScrollTop + heightDiff;
-          chatBox.scrollTop = targetST;
-        }
-        trimWindowFromBottom(MAX_WINDOW);
-
-        if (gcHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         applyAdminBadges();
         applyEmojiOnly();
+        trimWindowFromBottom(MAX_WINDOW);
+
+        const restoreFn = (typeof restoreScrollAnchor === 'function') ? restoreScrollAnchor : (window.restoreScrollAnchor ? window.restoreScrollAnchor : null);
+        if (anchor && restoreFn) {
+          restoreFn(anchor, oldItems);
+        } else {
+          const safePrevScrollTop = Math.max(0, prevScrollTop);
+          const heightDiff = chatBox.scrollHeight - prevScrollHeight;
+          if (heightDiff > 0) {
+            chatBox.scrollTop = safePrevScrollTop + heightDiff;
+          }
+        }
+
+        if (gcHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
         attachImageLoadListeners();
         return;
       }
@@ -2322,6 +2374,7 @@
         const existingSeen = chatBox.querySelector('.seen-indicator');
         if (existingSeen) existingSeen.remove();
 
+        const anchor = (typeof captureScrollAnchor === 'function') ? captureScrollAnchor() : (window.captureScrollAnchor ? window.captureScrollAnchor() : null);
         const prevScrollHeight = chatBox.scrollHeight;
         const prevScrollTop = chatBox.scrollTop;
 
@@ -2350,16 +2403,22 @@
         }
 
         if (!dmHasMore) showNoMoreOlderNotice();
-        const safePrevScrollTop = Math.max(0, prevScrollTop);
-        const heightDiff = chatBox.scrollHeight - prevScrollHeight;
-        if (heightDiff > 0) {
-          const targetST = safePrevScrollTop + heightDiff;
-          chatBox.scrollTop = targetST;
-        }
+        applyAdminBadges();
+        applyEmojiOnly();
         trimWindowFromBottom(MAX_WINDOW);
 
+        const restoreFn = (typeof restoreScrollAnchor === 'function') ? restoreScrollAnchor : (window.restoreScrollAnchor ? window.restoreScrollAnchor : null);
+        if (anchor && restoreFn) {
+          restoreFn(anchor, oldItems);
+        } else {
+          const safePrevScrollTop = Math.max(0, prevScrollTop);
+          const heightDiff = chatBox.scrollHeight - prevScrollHeight;
+          if (heightDiff > 0) {
+            chatBox.scrollTop = safePrevScrollTop + heightDiff;
+          }
+        }
+
         if (dmHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
-        applyAdminBadges(); applyEmojiOnly();
         attachImageLoadListeners();
         return;
       }

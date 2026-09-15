@@ -739,7 +739,16 @@ try {
        tab: clicking any .chat-viewable-image now opens it here instead, with
        an X button in the top-right corner to close. -->
   <div class="image-viewer-modal" id="imageViewerModal" aria-hidden="true" style="display:none;">
-    <button type="button" class="image-viewer-close" id="imageViewerCloseBtn" aria-label="Close image preview" title="Close">&times;</button>
+    <div class="image-viewer-actions">
+      <button type="button" class="image-viewer-btn image-viewer-close" id="imageViewerCloseBtn" aria-label="Close image preview" title="Close">&times;</button>
+      <button type="button" class="image-viewer-btn image-viewer-download" id="imageViewerDownloadBtn" aria-label="Download image" title="Download image">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+      </button>
+    </div>
     <img src="" alt="" id="imageViewerImg" class="image-viewer-img">
   </div>
 

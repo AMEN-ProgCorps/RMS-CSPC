@@ -2547,18 +2547,25 @@
       cursor: grabbing;
     }
 
-    .image-viewer-close {
+    .image-viewer-actions {
       position: fixed;
       top: 16px;
       left: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 100001;
+    }
+
+    .image-viewer-btn,
+    .image-viewer-close {
+      position: relative;
       width: 40px;
       height: 40px;
       border-radius: 50%;
       border: none;
       background: rgba(255, 255, 255, 0.12);
       color: #fff;
-      font-size: 26px;
-      line-height: 1;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -2566,12 +2573,32 @@
       z-index: 100001;
       transition: background-color 0.2s ease, transform 0.15s ease;
       -webkit-tap-highlight-color: transparent;
+      padding: 0;
+      box-sizing: border-box;
     }
 
+    .image-viewer-close {
+      font-size: 26px;
+      line-height: 1;
+    }
+
+    .image-viewer-download {
+      font-size: 18px;
+    }
+
+    .image-viewer-download svg {
+      display: block;
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+    }
+
+    .image-viewer-btn:hover,
     .image-viewer-close:hover {
       background: rgba(255, 255, 255, 0.24);
     }
 
+    .image-viewer-btn:active,
     .image-viewer-close:active {
       transform: scale(0.92);
     }
@@ -2580,9 +2607,10 @@
       .image-viewer-modal {
         padding: 56px 12px 12px;
       }
-      .image-viewer-close {
+      .image-viewer-actions {
         top: 10px;
         left: 10px;
+        gap: 8px;
       }
     }
 

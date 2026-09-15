@@ -1447,16 +1447,24 @@ async function ocrPageBatch({ file, storagePath, pages }, attempt = 0) {
         return pages.map((page) => ({ page, text: '', words: [], used_ocr: true, ok: false }));
     }
 
+    const token = csrfToken();
+    if (token) {
+        body.append('_token', token);
+    }
+
     let res;
     try {
         res = await fetch('/dcs/api/drr/ocr-pages', {
             method: 'POST',
             headers: {
-                'X-CSRF-TOKEN': csrfToken(),
+                'X-CSRF-TOKEN': token,
+                'X-Requested-With': 'XMLHttpRequest',
                 Accept: 'application/json',
             },
             body,
             credentials: 'same-origin',
+            // Do not follow HTML redirects to /portal — that hid real 401/403 causes.
+            redirect: 'manual',
         });
     } catch (err) {
         if (attempt < 1) {
@@ -1466,6 +1474,13 @@ async function ocrPageBatch({ file, storagePath, pages }, attempt = 0) {
         const error = new Error(friendlyError(err, 'OCR request failed.'));
         error.cause = err;
         throw error;
+    }
+
+    if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+        throw new Error(
+            `OCR blocked by redirect (${res.status || 'opaque'}) to another page (often /portal). ` +
+                'Stay signed in on desktop DCS and retry. If this continues, your session or DCS access was rejected.'
+        );
     }
 
     if (res.status === 504 && attempt < 1) {

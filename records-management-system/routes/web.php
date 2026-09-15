@@ -638,6 +638,8 @@ Route::middleware(['auth'])
             })->name('api.signed-scan-url');
 
             // Office intake (RFIO full users + limited non-RFIO offices)
+            Volt::route('/office/documents', 'pages.dcs.office.documents')->name('office.documents');
+
             Volt::route('/office/drf', 'pages.dcs.office.drf-index')->name('office.drf.index');
             Volt::route('/office/drf/create', 'pages.dcs.office.drf-create')->name('office.drf.create');
             Route::post('/office/drf', fn (Request $request) => OfficeIntakeHelper::storeDrf($request))->name('office.drf.store');

@@ -737,4 +737,213 @@ class OfficeIntakeHelper
 
         return $labels->isEmpty() ? null : json_encode($labels->all());
     }
+
+    /** Parent doc-type groups shown in office document inventory. */
+    public static function documentGroupDefs(): array
+    {
+        return [
+            'internal_docs' => 'Internal',
+            'internal_forms' => 'Internal Forms',
+            'external_docs' => 'External',
+            'forms' => 'Forms',
+            'logbooks' => 'Logbooks',
+        ];
+    }
+
+    public static function documentGroupLabel(string $groupKey): string
+    {
+        return self::documentGroupDefs()[$groupKey] ?? 'Documents';
+    }
+
+    /** @return list<int> */
+    public static function docTypeIdsForGroup(string $groupKey): array
+    {
+        $parentId = RegisterQueryHelper::parentTypeIdMap()[$groupKey] ?? null;
+        if (! $parentId) {
+            return [];
+        }
+
+        return DB::table('dcs_doc_types')
+            ->where(function ($q) use ($parentId) {
+                $q->where('id', $parentId)->orWhere('parent_id', $parentId);
+            })
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Base masterlist query for the current office's registered documents.
+     * Visibility matches Inventory Source Unit: dcs_masterlist_source_offices
+     * for the signed-in office (by office_id, with office_name fallback).
+     */
+    protected static function officeMasterlistQuery(?int $officeId = null)
+    {
+        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
+        $officeName = trim((string) (
+            auth()->user()?->details?->office?->office_name
+            ?? RegisterQueryHelper::currentOfficeName()
+            ?? ''
+        ));
+        if ($officeName === '—') {
+            $officeName = '';
+        }
+
+        $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $query = DB::table('dcs_masterlist_registration as ml');
+
+        if ((! $officeId && $officeName === '') || ! Schema::hasTable('dcs_masterlist_source_offices')) {
+            $query->whereRaw('1 = 0');
+
+            return $query;
+        }
+
+        // Same Source Unit linkage Inventory displays under SOURCE UNIT.
+        $query->whereExists(function ($q) use ($officeId, $officeName, $officeTable) {
+            $q->select(DB::raw(1))
+                ->from('dcs_masterlist_source_offices as so')
+                ->leftJoin($officeTable . ' as o_su', 'o_su.id', '=', 'so.office_id')
+                ->whereColumn('so.masterlist_id', 'ml.id')
+                ->where(function ($match) use ($officeId, $officeName) {
+                    if ($officeId) {
+                        $match->where('so.office_id', (int) $officeId);
+                    }
+                    if ($officeName !== '') {
+                        $match->orWhereRaw('LOWER(TRIM(o_su.office_name)) = ?', [mb_strtolower($officeName)]);
+                    }
+                });
+        });
+
+        $query->whereExists(function ($q) {
+            $q->select(DB::raw(1))
+                ->from('dcs_document_requests as dr')
+                ->whereColumn('dr.id', 'ml.request_id');
+            RegisterQueryHelper::applyNotDeleted($q, 'dr');
+            RegisterQueryHelper::applyExcludeOfficeIntakeRequests($q, 'dr');
+            RegisterQueryHelper::applyExcludeDrafts($q, 'dr');
+        });
+
+        // Same visibility as Inventory for non-draft docs: exclude archived only.
+        if (RegisterQueryHelper::supportsRevisionStatus()) {
+            $query->where(function ($q) {
+                $q->whereNull('ml.revision_status')
+                    ->orWhere('ml.revision_status', '')
+                    ->orWhereIn('ml.revision_status', ['latest', 'obsolete']);
+            });
+        }
+
+        return $query;
+    }
+
+    /**
+     * Filter by parent document type the same way Inventory type tabs do
+     * (dcs_document_requests.doc_type_id = parent type id).
+     */
+    protected static function applyMasterlistGroupFilter($query, string $groupKey)
+    {
+        $parentId = RegisterQueryHelper::parentTypeIdMap()[$groupKey] ?? null;
+        if (! $parentId) {
+            $query->whereRaw('1 = 0');
+
+            return $query;
+        }
+
+        return $query->where(function ($q) use ($parentId) {
+            $q->where('ml.doc_type_id', (int) $parentId)
+                ->orWhereExists(function ($r) use ($parentId) {
+                    $r->select(DB::raw(1))
+                        ->from('dcs_document_requests as dr')
+                        ->whereColumn('dr.id', 'ml.request_id')
+                        ->where('dr.doc_type_id', (int) $parentId);
+                })
+                ->orWhereExists(function ($r) use ($parentId) {
+                    $r->select(DB::raw(1))
+                        ->from('dcs_document_requests as dr')
+                        ->join('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
+                        ->whereColumn('dr.id', 'ml.request_id')
+                        ->where('st.parent_id', (int) $parentId);
+                })
+                ->orWhereExists(function ($r) use ($parentId) {
+                    $r->select(DB::raw(1))
+                        ->from('dcs_doc_types as mt')
+                        ->whereColumn('mt.id', 'ml.doc_type_id')
+                        ->where('mt.parent_id', (int) $parentId);
+                });
+        });
+    }
+
+    /** @return int */
+    public static function officeDocumentTotal(?int $officeId = null): int
+    {
+        return (int) self::officeMasterlistQuery($officeId)->count();
+    }
+
+    /**
+     * Groups for office document inventory.
+     * When $onlyWithDocuments is false, every parent type is returned (count may be 0).
+     *
+     * @return list<array{key: string, label: string, count: int}>
+     */
+    public static function officeDocumentGroups(?int $officeId = null, bool $onlyWithDocuments = true): array
+    {
+        $groups = [];
+        foreach (self::documentGroupDefs() as $key => $label) {
+            $count = (int) self::applyMasterlistGroupFilter(self::officeMasterlistQuery($officeId), $key)->count();
+            if ($onlyWithDocuments && $count < 1) {
+                continue;
+            }
+            $groups[] = [
+                'key' => $key,
+                'label' => $label,
+                'count' => $count,
+            ];
+        }
+
+        return $groups;
+    }
+
+    /**
+     * @return list<array{item_no: int, doc_no: string, rev_no: int, doc_title: string, effectivity_date: string|null}>
+     */
+    public static function listOfficeDocuments(string $groupKey, ?int $officeId = null): array
+    {
+        $query = self::officeMasterlistQuery($officeId);
+        if ($groupKey !== '' && $groupKey !== 'all') {
+            if (! isset(self::documentGroupDefs()[$groupKey])) {
+                return [];
+            }
+            $query = self::applyMasterlistGroupFilter($query, $groupKey);
+        }
+
+        $records = $query
+            ->orderByRaw("CASE WHEN COALESCE(TRIM(ml.doc_no), '') = '' THEN 1 ELSE 0 END")
+            ->orderBy('ml.doc_no')
+            ->orderBy('ml.id')
+            ->get([
+                'ml.id',
+                'ml.doc_no',
+                'ml.revise_no',
+                'ml.doc_title',
+                'ml.effectivity_date',
+            ]);
+
+        $rows = [];
+        $itemNo = 0;
+        foreach ($records as $ml) {
+            $itemNo++;
+            $rows[] = [
+                'item_no' => $itemNo,
+                'doc_no' => (string) ($ml->doc_no ?? ''),
+                'rev_no' => (int) ($ml->revise_no ?? 0),
+                'doc_title' => (string) ($ml->doc_title ?? ''),
+                'effectivity_date' => $ml->effectivity_date
+                    ? \Carbon\Carbon::parse($ml->effectivity_date)->format('M d, Y')
+                    : null,
+            ];
+        }
+
+        return $rows;
+    }
 }

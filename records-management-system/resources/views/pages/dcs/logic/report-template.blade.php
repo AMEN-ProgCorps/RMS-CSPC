@@ -44,7 +44,8 @@ class ReportTemplateHelper
         $pdfContent = file_get_contents($file->getRealPath());
         $token = 'DCS-TPL-' . strtoupper(Str::random(8));
         $safeBase = Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME), '_') ?: 'template';
-        $pdfPath = self::DCS_TEMPLATE_OFFICE . "/DCS/report_templates/{$token}_{$safeBase}.pdf";
+        $templatesFolder = DocumentStorageService::dcsCategoryFolderName('report_templates');
+        $pdfPath = self::DCS_TEMPLATE_OFFICE . "/DCS/{$templatesFolder}/{$token}_{$safeBase}.pdf";
         $previewPath = null;
 
         try {
@@ -52,7 +53,7 @@ class ReportTemplateHelper
             @mkdir(dirname($tempPdf), 0775, true);
             file_put_contents($tempPdf, $pdfContent);
 
-            $imageName = self::DCS_TEMPLATE_OFFICE . '/DCS/report_templates/previews/' . $token . '.jpg';
+            $imageName = self::DCS_TEMPLATE_OFFICE . "/DCS/{$templatesFolder}/previews/" . $token . '.jpg';
             $imageFull = Storage::disk('local')->path('temp/report-templates/' . uniqid('preview_', true) . '.jpg');
             @mkdir(dirname($imageFull), 0775, true);
             PdfPageRenderer::savePage($tempPdf, $imageFull, 1);

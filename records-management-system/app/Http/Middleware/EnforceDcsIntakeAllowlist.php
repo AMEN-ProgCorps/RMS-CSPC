@@ -14,6 +14,7 @@ class EnforceDcsIntakeAllowlist
     private const ALLOWED_ROUTE_NAMES = [
         'dcs',
         'dcs.dashboard',
+        'dcs.office.documents',
         'dcs.office.drf.index',
         'dcs.office.drf.create',
         'dcs.office.drf.show',
@@ -40,7 +41,7 @@ class EnforceDcsIntakeAllowlist
 
         RegisterPersistHelper::logDcsBlockedAccess($request, 'intake allowlist');
 
-        abort(403, 'Office intake users may only access DRF/DCN forms and originator document lookup.');
+        abort(403, 'Office intake users may only access DRF/DCN forms, office documents, and originator document lookup.');
     }
 
     private function isAllowed(Request $request): bool

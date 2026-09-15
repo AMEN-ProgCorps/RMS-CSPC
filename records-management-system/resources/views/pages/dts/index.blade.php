@@ -184,21 +184,21 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                   })
                   ->whereNotExists(function($q) use ($logsTable) {
                       $q->select(DB::raw(1))
-                        ->from($logsTable . ' as destLog')
-                        ->whereColumn('destLog.transaction_id', 'dt.transaction_id')
-                        ->whereColumn('destLog.office_code', 'dt.current_office')
+                        ->from($logsTable . ' as destlog')
+                        ->whereColumn('destlog.transaction_id', 'dt.transaction_id')
+                        ->whereColumn('destlog.office_code', 'dt.current_office')
                         ->where(function($sub) {
-                            $sub->where('destLog.type', 'received')
+                            $sub->where('destlog.type', 'received')
                                 ->orWhere(function($sub2) {
-                                    $sub2->whereNotNull('destLog.date_in')
-                                         ->where('destLog.type', '!=', 'forwarded');
+                                    $sub2->whereNotNull('destlog.date_in')
+                                         ->where('destlog.type', '!=', 'forwarded');
                                 });
                         })
-                        ->whereRaw("destLog.id = (
+                        ->whereRaw("destlog.id = (
                             SELECT MAX(dl2.id) 
                             FROM {$logsTable} dl2 
-                            WHERE dl2.transaction_id = destLog.transaction_id 
-                              AND dl2.office_code = destLog.office_code
+                            WHERE dl2.transaction_id = destlog.transaction_id 
+                              AND dl2.office_code = destlog.office_code
                         )");
                   });
         } elseif ($isReceived) {

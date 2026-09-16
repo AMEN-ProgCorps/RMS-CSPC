@@ -556,6 +556,9 @@
       // Never snap or jump scroll position while the user is actively touch-dragging or scrolling
       if (isUserScrollingOrTouching && !force) return;
 
+      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+      if (viewingOlder && !force) return;
+
       cancelActiveScrollAnimation();
 
       if (force || shouldAutoScroll) {
@@ -1695,6 +1698,8 @@
     chatBox.addEventListener('load', function(event) {
       if (isUserScrollingOrTouching) return;
       if (event.target.tagName === 'IMG') {
+        const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+        if (viewingOlder) return; // Never auto-scroll to bottom when user is viewing older messages
         if (shouldAutoScroll || !userScrolledUp || isAtBottom()) {
           scrollToBottom(true, true);
         }
@@ -4979,6 +4984,7 @@
     // content arriving and shouldn't move anything.
     const scrollAnchorHeights = new WeakMap();
     const scrollAnchorObserver = ('ResizeObserver' in window) ? new ResizeObserver(function(entries) {
+      if (!chatBox) return;
       const chatRect = chatBox.getBoundingClientRect();
       entries.forEach(function(entry) {
         const el = entry.target;
@@ -4989,11 +4995,12 @@
         const delta = newHeight - prevHeight;
         if (!delta) return;
         const elRect = el.getBoundingClientRect();
-        if (elRect.top < chatRect.top) {
+        if (elRect.bottom <= chatRect.top + 2) {
           chatBox.scrollTop += delta;
         }
       });
     }) : null;
+    window.scrollAnchorObserver = scrollAnchorObserver;
 
     function attachImageLoadListeners() {
       if (!chatBox) return;

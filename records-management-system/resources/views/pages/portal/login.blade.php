@@ -56,9 +56,22 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
         </div>
 
         <div class="login-body-wrapper">
-            @if(session('error'))
+            @if(session('error') || session('status') || session('warning') || $errors->any())
                 <div class="login-alert-error">
-                    <span>{{ session('error') }}</span>
+                    <svg class="alert-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                    </svg>
+                    <div class="alert-text">
+                        @if(session('error'))
+                            <span>{{ session('error') }}</span>
+                        @elseif(session('warning'))
+                            <span>{{ session('warning') }}</span>
+                        @elseif(session('status'))
+                            <span>{{ session('status') }}</span>
+                        @elseif($errors->any())
+                            <span>{{ $errors->first() }}</span>
+                        @endif
+                    </div>
                 </div>
             @endif
 

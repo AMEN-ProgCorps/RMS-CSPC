@@ -379,15 +379,35 @@ body {
 
 .login-alert-error {
     width: 80%;
-    margin-top: 15px;
-    padding: 10px 14px;
-    background: rgba(255, 77, 77, 0.25);
-    border: 1px solid rgba(255, 77, 77, 0.6);
-    border-radius: 6px;
-    color: #FFD4D4;
+    margin: 4px auto 22px auto;
+    padding: 12px 16px;
+    background: rgba(220, 38, 38, 0.28);
+    border: 1px solid rgba(248, 113, 113, 0.65);
+    border-radius: 8px;
+    color: #FEE2E2;
     font-size: 13px;
-    text-align: center;
-    backdrop-filter: blur(4px);
+    line-height: 1.45;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-align: left;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    box-sizing: border-box;
+}
+
+.login-alert-error .alert-icon {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    flex-shrink: 0;
+    color: #FCA5A5;
+}
+
+.login-alert-error .alert-text {
+    flex: 1;
+    word-break: break-word;
+    font-weight: 500;
 }
 
 /* ===========================

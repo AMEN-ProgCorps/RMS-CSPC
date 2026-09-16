@@ -3060,69 +3060,72 @@
     // inside #chat-box before inserting older history.
     function captureScrollAnchor() {
       if (!chatBox) return null;
-      const boxRect = chatBox.getBoundingClientRect();
+      const scrollTop = chatBox.scrollTop;
+      const prevScrollHeight = chatBox.scrollHeight;
       const messages = Array.from(chatBox.querySelectorAll('.message-container'));
-      if (messages.length === 0) return null;
+      if (messages.length === 0) {
+        return { el: null, msgId: null, prevOffsetTop: 0, offsetFromTop: 0, prevScrollTop: scrollTop, prevScrollHeight: prevScrollHeight };
+      }
 
+      // Find the first message whose bottom edge is at or below the current viewport top
       let anchorEl = null;
       for (let i = 0; i < messages.length; i++) {
-        const rect = messages[i].getBoundingClientRect();
-        if (rect.bottom >= boxRect.top + 5) {
-          anchorEl = messages[i];
+        const el = messages[i];
+        if ((el.offsetTop + el.offsetHeight) >= scrollTop + 2) {
+          anchorEl = el;
           break;
         }
       }
       if (!anchorEl) anchorEl = messages[0];
 
-      const anchorTop = anchorEl.getBoundingClientRect().top - boxRect.top;
-      return { el: anchorEl, offsetTop: anchorTop };
+      return {
+        el: anchorEl,
+        msgId: anchorEl.getAttribute('data-msg-id'),
+        prevOffsetTop: anchorEl.offsetTop,
+        offsetFromTop: anchorEl.offsetTop - scrollTop,
+        prevScrollTop: scrollTop,
+        prevScrollHeight: prevScrollHeight
+      };
     }
 
-    // Restores scroll position so anchorEl remains at the exact pixel offset,
-    // and attaches image load listeners to prepended media to compensate for
-    // layout shifts as images load.
+    // Restores scroll position so anchorEl remains at the exact pixel offset.
+    // Uses DOM offsetTop and scrollHeight in pure layout pixels (completely immune
+    // to CSS zoom, DPI scaling, and transform differences), preventing viewport jumping.
     function restoreScrollAnchor(anchorInfo, prependedItems) {
-      if (!chatBox || !anchorInfo || !anchorInfo.el || !anchorInfo.el.parentNode) return;
+      if (!chatBox || !anchorInfo) return;
 
-      const boxRect = chatBox.getBoundingClientRect();
-      const currentTop = anchorInfo.el.getBoundingClientRect().top - boxRect.top;
-      const shift = currentTop - anchorInfo.offsetTop;
-      if (Math.abs(shift) > 0.5) {
-        chatBox.scrollTop += shift;
+      let restored = false;
+      const anchorEl = (anchorInfo.el && anchorInfo.el.parentNode) ? anchorInfo.el : (
+        anchorInfo.msgId ? chatBox.querySelector(`.message-container[data-msg-id="${anchorInfo.msgId}"]`) : null
+      );
+
+      // Preferred: Pin to the exact anchor element using DOM offsetTop
+      if (anchorEl && typeof anchorInfo.offsetFromTop === 'number') {
+        const targetScrollTop = anchorEl.offsetTop - anchorInfo.offsetFromTop;
+        if (targetScrollTop >= 0) {
+          chatBox.scrollTop = targetScrollTop;
+          restored = true;
+        }
       }
 
-      // Re-verify on next animation frame after browser layout reflow
-      requestAnimationFrame(function() {
-        if (!chatBox || !anchorInfo || !anchorInfo.el || !anchorInfo.el.parentNode) return;
-        const curBoxRect = chatBox.getBoundingClientRect();
-        const nowTop = anchorInfo.el.getBoundingClientRect().top - curBoxRect.top;
-        const subShift = nowTop - anchorInfo.offsetTop;
-        if (Math.abs(subShift) > 0.5) {
-          chatBox.scrollTop += subShift;
+      // Fallback: Use exact scrollHeight difference
+      if (!restored && typeof anchorInfo.prevScrollHeight === 'number') {
+        const heightDiff = chatBox.scrollHeight - anchorInfo.prevScrollHeight;
+        if (heightDiff > 0) {
+          chatBox.scrollTop = Math.max(0, anchorInfo.prevScrollTop + heightDiff);
+          restored = true;
         }
-      });
+      }
 
-      if (prependedItems && prependedItems.length > 0) {
+      // Register prepended images with ResizeObserver so any late image load above
+      // the visible viewport adjusts scrollTop smoothly without duplicate callbacks
+      if (prependedItems && prependedItems.length > 0 && typeof scrollAnchorObserver !== 'undefined' && scrollAnchorObserver) {
         prependedItems.forEach(item => {
           if (!item.querySelectorAll) return;
-          item.querySelectorAll('img').forEach(img => {
-            if (!img.complete && !img.dataset.anchorBound) {
-              img.dataset.anchorBound = '1';
-              let prevH = img.offsetHeight || 0;
-              const onImgSettle = function() {
-                const newH = img.offsetHeight || 0;
-                const delta = newH - prevH;
-                prevH = newH;
-                if (delta > 0 && chatBox) {
-                  const curBoxRect = chatBox.getBoundingClientRect();
-                  const imgRect = img.getBoundingClientRect();
-                  if (imgRect.top < curBoxRect.top + 50) {
-                    chatBox.scrollTop += delta;
-                  }
-                }
-              };
-              img.addEventListener('load', onImgSettle, { once: true });
-              img.addEventListener('error', onImgSettle, { once: true });
+          item.querySelectorAll('img:not(.avatar-img)').forEach(img => {
+            if (!img.dataset.scrollListener) {
+              img.dataset.scrollListener = '1';
+              scrollAnchorObserver.observe(img);
             }
           });
         });

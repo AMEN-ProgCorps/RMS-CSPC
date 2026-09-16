@@ -119,6 +119,18 @@ new class extends Component {
                 ->values();
         }
 
+        // Hide office-intake submit notices once RFIO has already registered them.
+        $this->notifications = $this->notifications
+            ->filter(function ($row) {
+                $intake = \App\Helpers\OfficeIntakeHelper::parseIntakeNotificationUrl($row->redirect_url ?? null);
+                if (! $intake) {
+                    return true;
+                }
+
+                return ! \App\Helpers\OfficeIntakeHelper::isIntakeRegistered($intake['type'], $intake['id']);
+            })
+            ->values();
+
         $this->unreadCount = $this->notifications->where('status', 'unread')->count();
     }
 

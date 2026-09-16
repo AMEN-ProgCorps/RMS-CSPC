@@ -42,6 +42,9 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
             'departmentDateLabel' => $departmentParts['date_label'],
             'immutableMessage' => OfficeIntakeHelper::IMMUTABLE_MESSAGE,
             'isIntakeReviewer' => RegisterQueryHelper::canBrowseAllOfficeIntake(),
+            'canEdit' => OfficeIntakeHelper::canOfficeEditIntake('dcn', $this->id),
+            'editReason' => trim((string) ($dcn->edit_unlock_reason ?? '')),
+            'isRegistered' => OfficeIntakeHelper::isIntakeRegistered('dcn', $this->id),
         ];
     }
 }; ?>
@@ -52,18 +55,39 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
             <a href="{{ ($isIntakeReviewer ?? false) ? route('dcs', absolute: false) : route('dcs.office.dcn.index', absolute: false) }}" class="reg-btn reg-btn-cancel">
                 <i class="fa-solid fa-arrow-left"></i> {{ ($isIntakeReviewer ?? false) ? 'Back to DCS' : 'Back to list' }}
             </a>
-            <a href="{{ route('dcs.office.dcn.print', $dcn->id, absolute: false) }}" target="_blank" class="reg-btn reg-btn-save">
-                <i class="fa-solid fa-print"></i> Print form
-            </a>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                @if($canEdit ?? false)
+                    <a href="{{ route('dcs.office.dcn.edit', $dcn->id, absolute: false) }}" class="reg-btn reg-btn-save">
+                        <i class="fa-solid fa-pen"></i> Edit form
+                    </a>
+                @endif
+                <a href="{{ route('dcs.office.dcn.print', $dcn->id, absolute: false) }}" target="_blank" class="reg-btn reg-btn-save">
+                    <i class="fa-solid fa-print"></i> Print form
+                </a>
+            </div>
         </div>
 
         @if(session('success'))
             <div class="ofi-alert ok">{{ session('success') }}</div>
         @endif
 
+        @if(($canEdit ?? false) && ($editReason ?? '') !== '')
+            <div class="ofi-alert err">
+                <strong>RFIO asked for corrections:</strong> {{ $editReason }}
+            </div>
+        @endif
+
         <div class="ofi-lock-banner">
-            <i class="fa-solid fa-lock"></i>
-            <span>{{ $immutableMessage }}</span>
+            @if($isRegistered ?? false)
+                <i class="fa-solid fa-circle-check"></i>
+                <span>This document has been registered / controlled by RFIO.</span>
+            @elseif($canEdit ?? false)
+                <i class="fa-solid fa-unlock"></i>
+                <span>RFIO enabled editing so you can correct and resubmit this form.</span>
+            @else
+                <i class="fa-solid fa-lock"></i>
+                <span>{{ $immutableMessage }}</span>
+            @endif
         </div>
 
         <section class="reg-card ofi-show-card ofi-dcn-card">

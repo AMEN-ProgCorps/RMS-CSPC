@@ -112,6 +112,99 @@ class DcsNotificationService
         static::createNotification($targetOfficeCode, $message, $url);
     }
 
+    /** Office corrected an existing intake form — notify RFIO without implying a brand-new form. */
+    public static function notifyOfficeIntakeResubmitted(
+        string $targetOfficeCode,
+        string $submitterName,
+        string $type,
+        int $intakeId,
+        string $title = ''
+    ): void {
+        $name = static::displayName($submitterName);
+        $type = strtolower($type);
+        $formLabel = $type === 'dcn' ? 'Document Change Notice' : 'Document Request Form';
+        $label = trim($title) !== '' ? ": {$title}" : '';
+        $message = "Updated {$formLabel}{$label} was resubmitted by {$name} after RFIO correction and is ready for review.";
+        $url = '/dcs/office/' . ($type === 'dcn' ? 'dcn' : 'drf') . '/' . $intakeId;
+
+        static::createNotification($targetOfficeCode, $message, $url);
+    }
+
+    /**
+     * Remove RFIO office-intake submit notifications for a DRF/DCN once it is registered
+     * or returned/resubmitted. Keeps ?registered=1 success notices.
+     */
+    public static function dismissOfficeIntakeNotifications(string $type, int $id): void
+    {
+        $type = strtolower(trim($type));
+        $id = (int) $id;
+        if (! in_array($type, ['drf', 'dcn'], true) || $id < 1) {
+            return;
+        }
+
+        try {
+            $notifTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+            $notifContentTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+            $notifDivTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+
+            $rows = DB::table($notifContentTbl)
+                ->whereNotNull('redirect_url')
+                ->where('redirect_url', '!=', '')
+                ->get(['id', 'redirect_url', 'content']);
+
+            $contentIds = [];
+            foreach ($rows as $row) {
+                $url = (string) ($row->redirect_url ?? '');
+                if ($url === '' || str_contains($url, 'registered=1') || str_contains($url, '/edit')) {
+                    continue;
+                }
+
+                $parsed = \App\Helpers\OfficeIntakeHelper::parseIntakeNotificationUrl($url);
+                if ($parsed && $parsed['type'] === $type && (int) $parsed['id'] === $id) {
+                    $contentIds[] = (int) $row->id;
+                    continue;
+                }
+
+                // Fallback: exact office path match (avoid /drf/1 matching /drf/12)
+                if (preg_match('#/dcs/office/' . preg_quote($type, '#') . '/' . $id . '(?:/|$|\?)#', $url)) {
+                    $contentIds[] = (int) $row->id;
+                    continue;
+                }
+
+                $content = (string) ($row->content ?? '');
+                if (
+                    str_contains($content, 'ready for RFIO processing')
+                    && (
+                        str_contains($url, '/dcs/office/' . $type . '/' . $id)
+                        || (str_contains($url, 'intake=' . $type) && (str_contains($url, 'id=' . $id) || str_contains($url, 'intake_id=' . $id)))
+                    )
+                ) {
+                    $contentIds[] = (int) $row->id;
+                }
+            }
+
+            $contentIds = array_values(array_unique(array_filter($contentIds)));
+            if ($contentIds === []) {
+                return;
+            }
+
+            $notificationIds = DB::table($notifTbl)
+                ->whereIn('contents', $contentIds)
+                ->pluck('id')
+                ->map(fn ($v) => (int) $v)
+                ->all();
+
+            if ($notificationIds !== []) {
+                DB::table($notifDivTbl)->whereIn('id', $notificationIds)->delete();
+                DB::table($notifTbl)->whereIn('id', $notificationIds)->delete();
+            }
+
+            DB::table($notifContentTbl)->whereIn('id', $contentIds)->delete();
+        } catch (\Throwable $e) {
+            Log::error('DcsNotificationService dismissOfficeIntakeNotifications: ' . $e->getMessage());
+        }
+    }
+
     public static function notifyDocumentStamped(
         string $officeCode,
         string $stamperName,

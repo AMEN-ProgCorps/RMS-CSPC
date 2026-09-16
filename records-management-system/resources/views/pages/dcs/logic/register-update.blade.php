@@ -128,7 +128,7 @@ class RegisterUpdateHelper
         }
         $hasExistingScan = $ml && ! empty($ml->scanned_masterlist);
         $request->merge(['has_existing_masterlist_scan' => $hasExistingScan ? 1 : 0]);
-        if ($redirect = RegisterPersistHelper::validateMasterlistHasData($request, requireScan: ! $saveAsDraft)) {
+        if ($redirect = RegisterPersistHelper::validateMasterlistHasData($request, requireScan: false)) {
             return $redirect;
         }
 
@@ -338,7 +338,7 @@ class RegisterUpdateHelper
                     $masterlistData['keywords'] = $keywordVal;
                 }
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
-                    $masterlistData['revision_status'] = $saveAsDraft ? 'archived' : 'latest';
+                    $masterlistData['revision_status'] = $saveAsDraft ? 'obsolete' : 'latest';
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
                     $newDocNo = trim((string) ($request->masterlistDocNo ?? ''));
@@ -454,7 +454,7 @@ class RegisterUpdateHelper
                     $masterlistData['keywords'] = $syllabiKeywordVal;
                 }
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
-                    $masterlistData['revision_status'] = $saveAsDraft ? 'archived' : 'latest';
+                    $masterlistData['revision_status'] = $saveAsDraft ? 'obsolete' : 'latest';
                 }
                 if ($masterlist) {
                     DB::table('dcs_masterlist_registration')->where('id', $masterlist->id)->update($masterlistData);
@@ -657,10 +657,19 @@ class RegisterUpdateHelper
                 ['doc_no' => $ml->doc_no ?? $docNo ?? null, 'is_draft' => $saveAsDraft]
             );
 
+            $successMessage = $saveAsDraft
+                ? 'Draft saved. Continue anytime from Document Registration → Drafts.'
+                : 'Document updated successfully!';
+
+            if ($saveAsDraft) {
+                $leaveTo = RegisterPersistHelper::safeDraftLeaveRedirect($request->input('draft_leave_to'));
+                if ($leaveTo) {
+                    return redirect()->to($leaveTo)->with('success', $successMessage);
+                }
+            }
+
             return redirect()->route('dcs.register.edit', $id)
-                ->with('success', $saveAsDraft
-                    ? 'Draft saved. Continue anytime from Document Registration → Drafts.'
-                    : 'Document updated successfully!');
+                ->with('success', $successMessage);
         } catch (\Throwable $e) {
             DB::rollBack();
             foreach ($uploadedFiles as $file) {
@@ -688,17 +697,27 @@ class RegisterUpdateHelper
         abort_unless($docRequest, 404);
         RegisterQueryHelper::assertCanAccessRequest($id);
 
+        $isDraft = RegisterQueryHelper::supportsDrafts() && ! empty($docRequest->is_draft);
+        $listRoute = $isDraft ? 'dcs.register.drafts' : 'dcs.register.update';
+
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
         $mlStatus = strtolower(trim((string) ($ml->revision_status ?? 'latest')));
-        if ($ml && $ml->doc_no && RegisterQueryHelper::supportsRevisionStatus() && $mlStatus !== 'latest') {
+        // Drafts use is_draft + obsolete status (DCS has no "archived" status).
+        if (
+            ! $isDraft
+            && $ml
+            && $ml->doc_no
+            && RegisterQueryHelper::supportsRevisionStatus()
+            && $mlStatus !== 'latest'
+        ) {
             return self::flashRedirect(
-                'dcs.register.update',
+                $listRoute,
                 'error',
                 'Only the latest revision can be deleted.'
             );
         }
 
-        $promoteDocNo = $ml?->doc_no ?? null;
+        $promoteDocNo = $isDraft ? null : ($ml?->doc_no ?? null);
         $promoteTypeId = (int) $docRequest->doc_type_id;
         $promoteSubTypeId = $docRequest->sub_type_id ? (int) $docRequest->sub_type_id : null;
 
@@ -711,15 +730,11 @@ class RegisterUpdateHelper
             }
             DB::table('dcs_document_requests')->where('id', $id)->update($update);
 
-            // Soft-delete: tip is archived (frees unique doc_no slot), then promote
-            // the previous live revision to latest (live statuses: latest | obsolete).
+            // Soft-delete tip → obsolete, then promote the previous live revision to latest.
             if ($ml && RegisterQueryHelper::supportsRevisionStatus()) {
-                $status = RegisterQueryHelper::supportsArchivedRevisionStatus()
-                    ? 'archived'
-                    : 'obsolete';
                 DB::table('dcs_masterlist_registration')
                     ->where('id', $ml->id)
-                    ->update(['revision_status' => $status, 'updated_at' => $now]);
+                    ->update(['revision_status' => 'obsolete', 'updated_at' => $now]);
             }
 
             if ($promoteDocNo) {
@@ -734,15 +749,15 @@ class RegisterUpdateHelper
             DB::commit();
 
             RegisterPersistHelper::logAdminChange(
-                'Deleted document #' . $id
+                ($isDraft ? 'Deleted draft #' : 'Deleted document #') . $id
                 . (!empty($ml->doc_no) ? ' — ' . $ml->doc_no : '')
                 . (!empty($ml->doc_title) ? ': ' . $ml->doc_title : '')
             );
 
             return self::flashRedirect(
-                'dcs.register.update',
+                $listRoute,
                 'success',
-                'Document moved to Recycle Bin.'
+                $isDraft ? 'Draft moved to Recycle Bin.' : 'Document moved to Recycle Bin.'
             );
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -750,7 +765,7 @@ class RegisterUpdateHelper
             Log::error("Document delete failed [{$refId}]: " . $e->getMessage());
 
             return self::flashRedirect(
-                'dcs.register.update',
+                $listRoute,
                 'error',
                 'Failed to delete document. Please try again. (ref: ' . $refId . ')'
             );

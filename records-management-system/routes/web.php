@@ -643,6 +643,7 @@ Route::middleware(['auth'])
             Volt::route('/office/drf', 'pages.dcs.office.drf-index')->name('office.drf.index');
             Volt::route('/office/drf/create', 'pages.dcs.office.drf-create')->name('office.drf.create');
             Route::post('/office/drf', fn (Request $request) => OfficeIntakeHelper::storeDrf($request))->name('office.drf.store');
+            Volt::route('/office/drf/{id}/edit', 'pages.dcs.office.drf-edit')->name('office.drf.edit');
             Volt::route('/office/drf/{id}', 'pages.dcs.office.drf-show')->name('office.drf.show');
             Route::get('/office/drf/{id}/print', function (int $id) {
                 OfficeIntakeHelper::assertCanAccessIntake();
@@ -656,12 +657,14 @@ Route::middleware(['auth'])
 
                 return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices'));
             })->name('office.drf.print');
-            Route::match(['put', 'patch', 'post'], '/office/drf/{id}', fn () => OfficeIntakeHelper::rejectMutation())
-                ->name('office.drf.update');
+            Route::match(['put', 'patch', 'post'], '/office/drf/{id}', function (Request $request, int $id) {
+                return OfficeIntakeHelper::updateDrf($request, $id);
+            })->name('office.drf.update');
 
             Volt::route('/office/dcn', 'pages.dcs.office.dcn-index')->name('office.dcn.index');
             Volt::route('/office/dcn/create', 'pages.dcs.office.dcn-create')->name('office.dcn.create');
             Route::post('/office/dcn', fn (Request $request) => OfficeIntakeHelper::storeDcn($request))->name('office.dcn.store');
+            Volt::route('/office/dcn/{id}/edit', 'pages.dcs.office.dcn-edit')->name('office.dcn.edit');
             Volt::route('/office/dcn/{id}', 'pages.dcs.office.dcn-show')->name('office.dcn.show');
             Route::get('/office/dcn/{id}/print', function (int $id) {
                 OfficeIntakeHelper::assertCanAccessIntake();
@@ -676,8 +679,9 @@ Route::middleware(['auth'])
 
                 return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices'));
             })->name('office.dcn.print');
-            Route::match(['put', 'patch', 'post'], '/office/dcn/{id}', fn () => OfficeIntakeHelper::rejectMutation())
-                ->name('office.dcn.update');
+            Route::match(['put', 'patch', 'post'], '/office/dcn/{id}', function (Request $request, int $id) {
+                return OfficeIntakeHelper::updateDcn($request, $id);
+            })->name('office.dcn.update');
 
             // Document lookup for office DCN (and full Register) — available to all DCS users
             Route::get('/api/documents/search', fn (Request $request) => RegisterQueryHelper::searchDocuments($request));
@@ -692,6 +696,24 @@ Route::middleware(['auth'])
 
                 return response()->json($payload);
             })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.show');
+
+            Route::post('/api/office-intake/{type}/{id}/received', function (string $type, int $id) {
+                return response()->json(OfficeIntakeHelper::markReceived($type, $id));
+            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.received');
+
+            Route::delete('/api/office-intake/{type}/{id}/received', function (string $type, int $id) {
+                return response()->json(OfficeIntakeHelper::clearReceived($type, $id));
+            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.received.clear');
+
+            Route::post('/api/office-intake/{type}/{id}/begin-register', function (string $type, int $id) {
+                return response()->json(OfficeIntakeHelper::beginRegister($type, $id));
+            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.begin-register');
+
+            Route::post('/api/office-intake/{type}/{id}/unlock-edit', function (string $type, int $id, Request $request) {
+                $reason = (string) $request->input('reason', '');
+
+                return response()->json(OfficeIntakeHelper::unlockForEdit($type, $id, $reason));
+            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.unlock-edit');
 
             Route::middleware(['dcs.full'])->group(function () {
                 Route::get('/api/documents/{id}/checklist/{type}', function (int $id, string $type) {

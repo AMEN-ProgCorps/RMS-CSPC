@@ -700,6 +700,8 @@ class RegisterQueryHelper
 
     /**
      * Office intake DRF/DCN are pre-registration forms only — never part of RFIO inventory.
+     * Once RFIO has registered them (rfio_registered_at set), they must NOT hide the
+     * controlled dcs_document_requests row from Update / Database.
      */
     public static function isOfficeIntakeRequestId(int $requestId): bool
     {
@@ -708,19 +710,25 @@ class RegisterQueryHelper
         }
 
         if (Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
-            if (DB::table('dcs_document_request_form')
+            $drfQ = DB::table('dcs_document_request_form')
                 ->where('request_id', $requestId)
-                ->where('is_office_intake', true)
-                ->exists()) {
+                ->where('is_office_intake', true);
+            if (Schema::hasColumn('dcs_document_request_form', 'rfio_registered_at')) {
+                $drfQ->whereNull('rfio_registered_at');
+            }
+            if ($drfQ->exists()) {
                 return true;
             }
         }
 
         if (Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
-            if (DB::table('dcs_document_change_notice')
+            $dcnQ = DB::table('dcs_document_change_notice')
                 ->where('request_id', $requestId)
-                ->where('is_office_intake', true)
-                ->exists()) {
+                ->where('is_office_intake', true);
+            if (Schema::hasColumn('dcs_document_change_notice', 'rfio_registered_at')) {
+                $dcnQ->whereNull('rfio_registered_at');
+            }
+            if ($dcnQ->exists()) {
                 return true;
             }
         }
@@ -743,6 +751,9 @@ class RegisterQueryHelper
                         ->from('dcs_document_request_form as oi_drf')
                         ->whereColumn('oi_drf.request_id', $drAlias . '.id')
                         ->where('oi_drf.is_office_intake', true);
+                    if (Schema::hasColumn('dcs_document_request_form', 'rfio_registered_at')) {
+                        $sub->whereNull('oi_drf.rfio_registered_at');
+                    }
                 });
             }
             if (Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
@@ -751,6 +762,9 @@ class RegisterQueryHelper
                         ->from('dcs_document_change_notice as oi_dcn')
                         ->whereColumn('oi_dcn.request_id', $drAlias . '.id')
                         ->where('oi_dcn.is_office_intake', true);
+                    if (Schema::hasColumn('dcs_document_change_notice', 'rfio_registered_at')) {
+                        $sub->whereNull('oi_dcn.rfio_registered_at');
+                    }
                 });
             }
         });

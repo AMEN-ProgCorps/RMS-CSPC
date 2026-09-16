@@ -52,6 +52,8 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
             <table class="ofi-table">
                 <thead>
                     <tr>
+                        <th>Title</th>
+                        <th>Status</th>
                         <th>Date</th>
                         <th>Date Created</th>
                         <th>Originator</th>
@@ -61,6 +63,14 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                 <tbody>
                     @forelse($rows as $row)
                         <tr>
+                            <td>{{ ($row->document_title ?? '') !== '' ? $row->document_title : '—' }}</td>
+                            <td>
+                                @if(!empty($row->is_registered))
+                                    <span class="ofi-status-pill is-registered">Registered</span>
+                                @else
+                                    <span class="ofi-status-pill is-pending">Submitted</span>
+                                @endif
+                            </td>
                             <td>{{ $row->dcn_date ? \Carbon\Carbon::parse($row->dcn_date)->format('M d, Y') : '—' }}</td>
                             <td>{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->format('M d, Y g:i A') : '—' }}</td>
                             <td>{{ $row->originator_name ?: '—' }}</td>
@@ -71,7 +81,7 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="4" class="ofi-empty">No Document Change Notices yet. Create one to get started.</td>
+                            <td colspan="6" class="ofi-empty">No Document Change Notices yet. Create one to get started.</td>
                         </tr>
                     @endforelse
                 </tbody>

@@ -91,7 +91,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'officeDcnCount' => 0,
             'stats' => $stats,
             'typeIds' => $typeIds,
+            'userDisplayName' => trim(implode(' ', array_filter([
+                auth()->user()?->details?->first_name,
+                auth()->user()?->details?->last_name,
+            ]))) ?: (auth()->user()?->username ?? 'User'),
             'headerDate' => now('Asia/Manila')->format('l, F j, Y'),
+            'headerTime' => now('Asia/Manila')->format('g:i:s A'),
             'holidays' => $holidays,
             'canDatabase' => RegisterQueryHelper::canAccessDcsModule('database'),
             'canRegister' => RegisterQueryHelper::canAccessDcsModule('register'),
@@ -207,7 +212,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     <span class="ofi-dash-list-title">{{ $row->doc_title ?: 'Untitled DRF' }}</span>
                                     <span class="ofi-dash-list-meta">
                                         {{ $row->drf_date ? \Carbon\Carbon::parse($row->drf_date)->format('M d, Y') : 'No date' }}
-                                        @if(!empty($row->drf_no)) · {{ $row->drf_no }} @endif
+                                        @if(!empty($row->is_registered))
+                                            · Registered
+                                        @elseif(!empty($row->drf_no))
+                                            · {{ $row->drf_no }}
+                                        @endif
                                     </span>
                                 </a>
                             </li>
@@ -313,15 +322,19 @@ document.addEventListener('alpine:init', () => {
         class="dash-calendar-shell"
         @keydown.escape.window="modal !== null && (modal = null)"
     >
-        <div class="dashboard-header">
-            <div class="welcome-text">
-                <h1 class="page-title">Document Control System</h1>
+        <div class="dashboard-header dash-welcome-bar">
+            <div class="welcome-text dash-welcome-copy">
+                <p class="header-greeting">Document Control System</p>
+                <h1 class="page-title">
+                    Welcome, <span class="dash-welcome-name">{{ explode(' ', trim((string) $userDisplayName))[0] ?: 'User' }}</span>
+                </h1>
+                <p class="dash-welcome-sub">Manage registrations, revisions, and office document control from one place.</p>
             </div>
-            <button type="button" class="header-date dash-calendar-trigger" @click.stop="toggleCalendar()" :aria-expanded="calendarOpen.toString()">
+            <button type="button" class="header-date dash-calendar-trigger dash-welcome-calendar" @click.stop="toggleCalendar()" :aria-expanded="calendarOpen.toString()">
                 <i class="fa-regular fa-calendar"></i>
                 <span class="dash-calendar-trigger-text">
                     <span class="dash-calendar-trigger-date">{{ $headerDate }}</span>
-                    <span class="dash-calendar-trigger-time" x-text="nowClock" x-cloak></span>
+                    <span class="dash-calendar-trigger-time" x-text="nowClock" x-cloak>{{ $headerTime ?? '' }}</span>
                 </span>
                 <i class="fa-solid fa-chevron-down dash-calendar-chevron" :class="{ 'is-open': calendarOpen }"></i>
             </button>
@@ -1117,6 +1130,9 @@ document.addEventListener('alpine:init', () => {
                 try {
                     localStorage.setItem(this.calendarPersistKey, open ? '1' : '0');
                 } catch (e) {}
+                if (open) {
+                    this.loadAll();
+                }
             });
 
             this.$nextTick(() => {
@@ -1209,8 +1225,8 @@ document.addEventListener('alpine:init', () => {
         },
         get dayEvents() { return this.events.filter(ev => this.occursOn(ev, this.activeIso)); },
         get allEventsList() {
-            return this.events
-                .filter(ev => !ev.readonly)
+            return (Array.isArray(this.events) ? this.events : [])
+                .slice()
                 .sort((a, b) => {
                     const da = String(b.date || '').slice(0, 10).localeCompare(String(a.date || '').slice(0, 10));
                     if (da !== 0) return da;

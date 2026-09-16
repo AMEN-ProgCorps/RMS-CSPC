@@ -6,14 +6,33 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Component {
-    public function mount(): void
+new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Component {
+    public int $id;
+
+    public function mount($id): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
+        $this->id = (int) $id;
+        abort_unless(OfficeIntakeHelper::canOfficeEditIntake('dcn', $this->id), 403, OfficeIntakeHelper::IMMUTABLE_MESSAGE);
     }
 
     public function with(): array
     {
+        $dcn = OfficeIntakeHelper::findOfficeDcn($this->id);
+        abort_unless($dcn, 404);
+
+        $dept = OfficeIntakeHelper::parseDepartmentDate($dcn->department_date ?? null);
+        $selectedOfficeId = null;
+        if (($dept['department_code'] ?? '') !== '' || ($dept['department'] ?? '') !== '') {
+            $needle = trim((string) (($dept['department_code'] ?? '') !== '' ? $dept['department_code'] : $dept['department']));
+            $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+            $selectedOfficeId = \Illuminate\Support\Facades\DB::table($officeTbl)
+                ->where(function ($q) use ($needle) {
+                    $q->where('office_code', $needle)->orWhere('office_name', $needle);
+                })
+                ->value('id');
+        }
+
         $catalog = RegisterQueryHelper::jsCatalog();
         $offices = $catalog['offices'] ?? [];
         $clusters = $catalog['clusters'] ?? [];
@@ -52,7 +71,11 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
         }
 
         return [
+            'dcn' => $dcn,
             'groupedOffices' => $groupedOffices,
+            'selectedOfficeId' => old('departmentOfficeId', $selectedOfficeId),
+            'departmentDate' => old('departmentDate', $dept['date_iso'] ?? ''),
+            'editReason' => trim((string) ($dcn->edit_unlock_reason ?? '')),
         ];
     }
 }; ?>
@@ -60,11 +83,17 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
 <div class="ofi-page">
     <div class="ofi-inner">
         <div class="ofi-toolbar">
-            <a href="{{ route('dcs.office.dcn.index', absolute: false) }}" class="reg-btn reg-btn-cancel">
-                <i class="fa-solid fa-arrow-left"></i> Back to list
+            <a href="{{ route('dcs.office.dcn.show', $dcn->id, absolute: false) }}" class="reg-btn reg-btn-cancel">
+                <i class="fa-solid fa-arrow-left"></i> Back
             </a>
-            <p class="ofi-toolbar-hint">Fill in the Document Change Notice (CSPC-F-DCC-01), save, then print and submit the signed copy to RFIO.</p>
+            <p class="ofi-toolbar-hint">Correct the Document Change Notice, then save to resubmit to RFIO. The document will lock again after save.</p>
         </div>
+
+        @if($editReason !== '')
+            <div class="ofi-alert err">
+                <strong>RFIO correction note:</strong> {{ $editReason }}
+            </div>
+        @endif
 
         @if($errors->any())
             <div class="ofi-alert err">
@@ -72,8 +101,9 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
             </div>
         @endif
 
-        <form method="POST" action="{{ route('dcs.office.dcn.store', absolute: false) }}" id="ofiDcnForm">
+        <form method="POST" action="{{ route('dcs.office.dcn.update', $dcn->id, absolute: false) }}" id="ofiDcnForm">
             @csrf
+            @method('PUT')
             <section class="reg-card ofi-dcn-card">
                 <div class="reg-card-header">
                     <span>Document Change Notice</span>
@@ -85,12 +115,11 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                             <div class="ofi-dcn-doc-fields">
                                 <div class="reg-field">
                                     <label for="dcnDocumentTitle">Document Title <span class="ofi-req">*</span></label>
-                                    <input type="text" id="dcnDocumentTitle" name="documentTitle" value="{{ old('documentTitle') }}" required maxlength="255" placeholder="Enter document title" autocomplete="off">
+                                    <input type="text" id="dcnDocumentTitle" name="documentTitle" value="{{ old('documentTitle', $dcn->document_title) }}" required maxlength="255" placeholder="Enter document title" autocomplete="off">
                                 </div>
                                 <div class="reg-field">
                                     <label for="dcnDocumentNo">Document no. <span class="ofi-req">*</span></label>
-                                    <input type="text" id="dcnDocumentNo" name="documentNo" value="{{ old('documentNo') }}" required maxlength="150" placeholder="Enter document no." autocomplete="off">
-                                    <p class="ofi-hint">Create a new Document Change Notice — no need to look up an existing registered document.</p>
+                                    <input type="text" id="dcnDocumentNo" name="documentNo" value="{{ old('documentNo', $dcn->document_no) }}" required maxlength="150" placeholder="Enter document no." autocomplete="off">
                                 </div>
                             </div>
                         </div>
@@ -99,25 +128,25 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                             <label class="ofi-dcn-section-label">Detailed Description of Change:</label>
                             <div class="reg-field">
                                 <label for="changeFrom">From <span class="ofi-req">*</span></label>
-                                <textarea id="changeFrom" name="changeFrom" rows="4" required maxlength="5000" placeholder="Describe the current state…">{{ old('changeFrom') }}</textarea>
+                                <textarea id="changeFrom" name="changeFrom" rows="4" required maxlength="5000" placeholder="Describe the current state…">{{ old('changeFrom', $dcn->change_from) }}</textarea>
                             </div>
                             <div class="reg-field">
                                 <label for="changeTo">To <span class="ofi-req">*</span></label>
-                                <textarea id="changeTo" name="changeTo" rows="4" required maxlength="5000" placeholder="Describe the proposed change…">{{ old('changeTo') }}</textarea>
+                                <textarea id="changeTo" name="changeTo" rows="4" required maxlength="5000" placeholder="Describe the proposed change…">{{ old('changeTo', $dcn->change_to) }}</textarea>
                             </div>
                         </div>
 
                         <div class="ofi-dcn-box-section">
                             <label class="ofi-dcn-section-label" for="dcnJustification">Justification of Change: <span class="ofi-req">*</span></label>
                             <div class="reg-field">
-                                <textarea id="dcnJustification" name="dcnJustification" rows="3" required maxlength="5000" placeholder="Enter justification for this change…">{{ old('dcnJustification') }}</textarea>
+                                <textarea id="dcnJustification" name="dcnJustification" rows="3" required maxlength="5000" placeholder="Enter justification for this change…">{{ old('dcnJustification', $dcn->brief_purpose) }}</textarea>
                             </div>
                         </div>
 
                         <div class="ofi-dcn-box-section">
                             <div class="reg-field">
                                 <label for="originatorName">Originator/ Signature <span class="ofi-req">*</span></label>
-                                <input type="text" id="originatorName" name="originatorName" value="{{ old('originatorName') }}" required maxlength="255" placeholder="Enter originator name">
+                                <input type="text" id="originatorName" name="originatorName" value="{{ old('originatorName', $dcn->originator_name) }}" required maxlength="255" placeholder="Enter originator name">
                             </div>
                             <div class="reg-grid-2-1">
                                 <div class="reg-field">
@@ -136,7 +165,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                                                             : ($name !== '' ? $name : $code);
                                                     @endphp
                                                     @if($officeId > 0 && $label !== '')
-                                                        <option value="{{ $officeId }}" @selected((string) old('departmentOfficeId') === (string) $officeId)>{{ $label }}</option>
+                                                        <option value="{{ $officeId }}" @selected((string) $selectedOfficeId === (string) $officeId)>{{ $label }}</option>
                                                     @endif
                                                 @endforeach
                                             </optgroup>
@@ -145,12 +174,12 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                                 </div>
                                 <div class="reg-field">
                                     <label for="departmentDate">Date <span class="ofi-req">*</span></label>
-                                    <input type="date" id="departmentDate" name="departmentDate" value="{{ old('departmentDate') }}" required>
+                                    <input type="date" id="departmentDate" name="departmentDate" value="{{ $departmentDate }}" required>
                                 </div>
                             </div>
                             <div class="reg-field">
                                 <label for="reviewedByDate">Reviewed by/ Date <span class="ofi-req">*</span></label>
-                                <input type="text" id="reviewedByDate" name="reviewedByDate" value="{{ old('reviewedByDate') }}" required maxlength="255" placeholder="Enter reviewer name and/or date">
+                                <input type="text" id="reviewedByDate" name="reviewedByDate" value="{{ old('reviewedByDate', $dcn->reviewed_by_date) }}" required maxlength="255" placeholder="Enter reviewer name and/or date">
                             </div>
                         </div>
                     </div>
@@ -166,7 +195,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
 
             <div class="reg-form-actions ofi-reg-actions">
                 <button type="submit" id="ofiDcnSaveBtn" class="reg-btn reg-btn-save" disabled>
-                    <i class="fa-solid fa-lock"></i> Save (cannot edit later)
+                    <i class="fa-solid fa-paper-plane"></i> Save &amp; resubmit to RFIO
                 </button>
             </div>
         </form>
@@ -192,13 +221,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
         if (!confirmBox.checked) {
             e.preventDefault();
             alert('Please confirm that all the inputted data are correct before saving.');
-            return;
         }
-        if (!form.checkValidity()) {
-            return;
-        }
-        saveBtn.disabled = true;
-        saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
     });
 })();
 </script>

@@ -6,21 +6,46 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Component {
-    public function mount(): void
+new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Component {
+    public int $id;
+
+    public function mount($id): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
+        $this->id = (int) $id;
+        abort_unless(OfficeIntakeHelper::canOfficeEditIntake('drf', $this->id), 403, OfficeIntakeHelper::IMMUTABLE_MESSAGE);
     }
 
     public function with(): array
     {
+        $drf = OfficeIntakeHelper::findOfficeDrf($this->id);
+        abort_unless($drf, 404);
+
+        $catalog = collect(RegisterQueryHelper::jsCatalog()['offices'] ?? []);
+        $distributeIds = [];
+        foreach (OfficeIntakeHelper::decodeDistributeTo($drf->distribute_to ?? null) as $stored) {
+            $stored = trim((string) $stored);
+            $match = $catalog->first(function ($o) use ($stored) {
+                $code = trim((string) ($o['office_code'] ?? ''));
+                $name = trim((string) ($o['office_name'] ?? ''));
+
+                return ($code !== '' && strcasecmp($code, $stored) === 0)
+                    || ($name !== '' && strcasecmp($name, $stored) === 0);
+            });
+            if ($match && ! empty($match['office_id'])) {
+                $distributeIds[] = (int) $match['office_id'];
+            }
+        }
+
         return [
+            'drf' => $drf,
             'offices' => RegisterQueryHelper::jsCatalog()['offices'] ?? [],
             'clusters' => RegisterQueryHelper::jsCatalog()['clusters'] ?? [],
-            'oldDistributeOfficeIds' => array_values(array_filter(array_map(
+            'oldDistributeOfficeIds' => array_values(array_unique(array_filter(array_map(
                 'intval',
-                (array) old('distributeToOffice', [])
-            ))),
+                (array) old('distributeToOffice', $distributeIds)
+            )))),
+            'editReason' => trim((string) ($drf->edit_unlock_reason ?? '')),
         ];
     }
 }; ?>
@@ -28,11 +53,17 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
 <div class="ofi-page">
     <div class="ofi-inner">
         <div class="ofi-toolbar">
-            <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="reg-btn reg-btn-cancel">
-                <i class="fa-solid fa-arrow-left"></i> Back to list
+            <a href="{{ route('dcs.office.drf.show', $drf->id, absolute: false) }}" class="reg-btn reg-btn-cancel">
+                <i class="fa-solid fa-arrow-left"></i> Back
             </a>
-            <p class="ofi-toolbar-hint">Fill in the form, save, then print and submit the signed copy to RFIO. Scanned DRF uploads are handled by RFIO during document registration.</p>
+            <p class="ofi-toolbar-hint">Correct the form, then save to resubmit to RFIO. The document will lock again after save.</p>
         </div>
+
+        @if($editReason !== '')
+            <div class="ofi-alert err">
+                <strong>RFIO correction note:</strong> {{ $editReason }}
+            </div>
+        @endif
 
         @if($errors->any())
             <div class="ofi-alert err">
@@ -40,8 +71,9 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             </div>
         @endif
 
-        <form method="POST" action="{{ route('dcs.office.drf.store', absolute: false) }}" id="ofiDrfForm">
+        <form method="POST" action="{{ route('dcs.office.drf.update', $drf->id, absolute: false) }}" id="ofiDrfForm">
             @csrf
+            @method('PUT')
             <section class="reg-card" id="section-1">
                 <div class="reg-card-header">
                     <span>Document Request Form</span>
@@ -50,27 +82,27 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                     <div class="reg-grid-2-1">
                         <div class="reg-field">
                             <label>Originator <span class="ofi-req">*</span></label>
-                            <input type="text" name="originatorName" value="{{ old('originatorName') }}" required maxlength="255" placeholder="Name of originator">
+                            <input type="text" name="originatorName" value="{{ old('originatorName', $drf->originator_name) }}" required maxlength="255" placeholder="Name of originator">
                         </div>
                         <div class="reg-field">
                             <label>Date <span class="ofi-req">*</span></label>
-                            <input type="date" id="drfDate" name="drfDate" value="{{ old('drfDate') }}" required>
+                            <input type="date" id="drfDate" name="drfDate" value="{{ old('drfDate', $drf->drf_date ? \Carbon\Carbon::parse($drf->drf_date)->format('Y-m-d') : '') }}" required>
                         </div>
                     </div>
                     <div class="reg-field">
                         <label>Document Title <span class="ofi-req">*</span></label>
-                        <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle') }}" required maxlength="255" placeholder="Enter document title">
+                        <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle', $drf->doc_title) }}" required maxlength="255" placeholder="Enter document title">
                     </div>
                     <div class="reg-field">
                         <label>Type of document <span class="ofi-req">*</span></label>
                         <div class="ofi-radio-row">
-                            <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" required @checked(old('docTypeKind', 'internal') === 'internal')> Internal</label>
-                            <label class="ofi-radio"><input type="radio" name="docTypeKind" value="external" @checked(old('docTypeKind') === 'external')> External</label>
+                            <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" required @checked(old('docTypeKind', $drf->doc_type_kind ?: 'internal') === 'internal')> Internal</label>
+                            <label class="ofi-radio"><input type="radio" name="docTypeKind" value="external" @checked(old('docTypeKind', $drf->doc_type_kind) === 'external')> External</label>
                         </div>
                     </div>
                     <div class="reg-field">
                         <label>Description/reason for request (define in detail) <span class="ofi-req">*</span></label>
-                        <textarea name="descriptionReason" rows="4" required maxlength="5000" placeholder="Define in detail…">{{ old('descriptionReason') }}</textarea>
+                        <textarea name="descriptionReason" rows="4" required maxlength="5000" placeholder="Define in detail…">{{ old('descriptionReason', $drf->description_reason) }}</textarea>
                     </div>
                     <div class="reg-field">
                         <label>Distribute document to (department/position) <span class="ofi-req">*</span></label>
@@ -103,7 +135,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
 
             <div class="reg-form-actions ofi-reg-actions">
                 <button type="submit" id="ofiDrfSaveBtn" class="reg-btn reg-btn-save" disabled>
-                    <i class="fa-solid fa-lock"></i> Save (cannot edit later)
+                    <i class="fa-solid fa-paper-plane"></i> Save &amp; resubmit to RFIO
                 </button>
             </div>
         </form>
@@ -158,13 +190,6 @@ window.__ofiSourceConfigs = [
             alert('Select at least one office to distribute the document to.');
             return;
         }
-
-        if (!form.checkValidity()) {
-            return;
-        }
-
-        saveBtn.disabled = true;
-        saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
     });
 })();
 </script>

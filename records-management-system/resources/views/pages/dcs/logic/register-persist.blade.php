@@ -530,8 +530,23 @@ class RegisterPersistHelper
         return null;
     }
 
+    /** Allow only same-app relative paths after draft leave autosave. */
+    public static function safeDraftLeaveRedirect(mixed $raw): ?string
+    {
+        $path = trim((string) $raw);
+        if ($path === '' || ! str_starts_with($path, '/') || str_starts_with($path, '//')) {
+            return null;
+        }
+        if (str_contains($path, "\0") || preg_match('/[\s\\\\]/', $path)) {
+            return null;
+        }
+
+        return $path;
+    }
+
     /**
-     * Masterlist must contain some substance (always on). Drafts cannot be empty shells.
+     * Masterlist must contain some substance (always on). Drafts cannot be empty shells
+     * or Document No alone — drafts need at least one other filled masterlist field.
      */
     public static function validateMasterlistHasData(Request $request, bool $requireScan = false): ?RedirectResponse
     {
@@ -543,17 +558,45 @@ class RegisterPersistHelper
             ?: ''));
         $effectivity = trim((string) $request->input('masterlistEffectivityDate', ''));
         $pages = trim((string) $request->input('masterlistNoOfPages', ''));
+        $keywords = trim((string) $request->input('keywords', ''));
+        $deadline = trim((string) $request->input('deadlineOfSubmission', ''));
+        $receiptDate = trim((string) $request->input('masterlistReceiptDate', ''));
         $hasUpload = $request->hasFile('uploadScannedCopy');
         $hasExistingScan = (bool) $request->boolean('has_existing_masterlist_scan');
+        $hasOriginator = collect((array) $request->input('masterlistOriginator', []))
+            ->merge((array) $request->input('masterlistOriginatorNames', []))
+            ->filter(fn ($v) => trim((string) $v) !== '')
+            ->isNotEmpty()
+            || trim((string) $request->input('masterlistOriginatorName', '')) !== '';
+        $hasSource = collect((array) $request->input('masterlistOfficeIds', []))
+            ->merge((array) $request->input('masterlistSourceOffice', []))
+            ->merge((array) $request->input('sourceOffice', []))
+            ->filter()
+            ->isNotEmpty();
 
-        $hasData = $docNo !== ''
-            || $title !== ''
-            || $effectivity !== ''
-            || ($pages !== '' && $pages !== '0')
-            || $hasUpload
-            || $hasExistingScan;
+        $flags = [
+            'docNo' => $docNo !== '',
+            'title' => $title !== '',
+            'effectivity' => $effectivity !== '',
+            'pages' => $pages !== '' && $pages !== '0',
+            'keywords' => $keywords !== '',
+            'deadline' => $deadline !== '',
+            'receiptDate' => $receiptDate !== '',
+            'originator' => $hasOriginator,
+            'sourceUnit' => $hasSource,
+            'scannedCopy' => $hasUpload || $hasExistingScan,
+        ];
+        $filledCount = count(array_filter($flags));
+        $saveAsDraft = $request->boolean('save_as_draft');
 
-        if (! $hasData) {
+        if ($saveAsDraft) {
+            if ($filledCount < 2 || ($flags['docNo'] && $filledCount === 1)) {
+                return back()->withInput()->with(
+                    'error',
+                    'To save a draft, fill Document No plus at least one other masterlist field (e.g. Title, Effectivity Date, Pages, Keywords, Originator, or Source Unit).'
+                );
+            }
+        } elseif ($filledCount < 1) {
             return back()->withInput()->with(
                 'error',
                 'Masterlist Registration needs data (Document No, Title, Effectivity Date, or a scanned master copy) before saving.'
@@ -845,7 +888,7 @@ class RegisterPersistHelper
         if ($redirect = self::validateCheckedSections($request)) {
             return $redirect;
         }
-        if ($redirect = self::validateMasterlistHasData($request, requireScan: ! $saveAsDraft)) {
+        if ($redirect = self::validateMasterlistHasData($request, requireScan: false)) {
             return $redirect;
         }
 
@@ -1026,9 +1069,9 @@ class RegisterPersistHelper
                 ], self::dcsScanFields('dcs_masterlist_registration', 'scanned_masterlist', $masterlistFile));
                 self::applyMasterlistOriginalName($masterlistRow, $request);
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
-                    // Enum is latest|obsolete|archived (NOT NULL). Drafts use archived so they
-                    // stay out of the live unique index / latest listings; is_draft is the flag.
-                    $masterlistRow['revision_status'] = $saveAsDraft ? 'archived' : 'latest';
+                    // DCS statuses are latest | obsolete only. Drafts use obsolete + is_draft
+                    // so they stay out of the live unique index and inventory listings.
+                    $masterlistRow['revision_status'] = $saveAsDraft ? 'obsolete' : 'latest';
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistRow['originator_id'] = $originator['originator_id'];
@@ -1110,7 +1153,7 @@ class RegisterPersistHelper
                 );
                 self::applyMasterlistOriginalName($masterlistData, $request);
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
-                    $masterlistData['revision_status'] = $saveAsDraft ? 'archived' : 'latest';
+                    $masterlistData['revision_status'] = $saveAsDraft ? 'obsolete' : 'latest';
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
@@ -1316,32 +1359,56 @@ class RegisterPersistHelper
             );
 
             $docNo = trim((string) ($savedMl->doc_no ?? ''));
-            if ($docNo !== '' && ! $saveAsDraft) {
-                $registrarName = RegisterQueryHelper::currentUserDisplayName();
-                $revNo = isset($savedMl->revise_no) ? (int) $savedMl->revise_no : null;
-                $notifyOfficeIds = array_merge(
-                    (array) $request->input('distOffice', []),
-                    (array) $request->input('masterlistOfficeIds', [])
-                );
-                $actorOffice = RegisterQueryHelper::currentOfficeCode();
-                foreach (DcsNotificationService::officeCodesFromIds($notifyOfficeIds) as $officeCode) {
-                    if ($actorOffice !== null && strcasecmp($officeCode, $actorOffice) === 0) {
-                        continue;
+            if (! $saveAsDraft) {
+                if ($docNo !== '') {
+                    $registrarName = RegisterQueryHelper::currentUserDisplayName();
+                    $revNo = isset($savedMl->revise_no) ? (int) $savedMl->revise_no : null;
+                    $notifyOfficeIds = array_merge(
+                        (array) $request->input('distOffice', []),
+                        (array) $request->input('masterlistOfficeIds', [])
+                    );
+                    $actorOffice = RegisterQueryHelper::currentOfficeCode();
+                    foreach (DcsNotificationService::officeCodesFromIds($notifyOfficeIds) as $officeCode) {
+                        if ($actorOffice !== null && strcasecmp($officeCode, $actorOffice) === 0) {
+                            continue;
+                        }
+                        DcsNotificationService::notifyDocumentRegistered(
+                            $officeCode,
+                            $registrarName,
+                            $docNo,
+                            $requestId,
+                            $revNo
+                        );
                     }
-                    DcsNotificationService::notifyDocumentRegistered(
-                        $officeCode,
-                        $registrarName,
+                }
+
+                // Always close office-intake handoff (even when Document No. is still blank),
+                // so the submitting office is notified and the intake cannot be registered twice.
+                $pending = OfficeIntakeHelper::pendingRegisterIntake($request);
+                if ($pending && in_array($pending['type'], ['drf', 'dcn'], true) && $pending['id'] > 0) {
+                    OfficeIntakeHelper::markIntakeRegistered(
+                        $pending['type'],
+                        $pending['id'],
+                        (int) $requestId,
                         $docNo,
-                        $requestId,
-                        $revNo
+                        trim((string) ($savedMl->doc_title ?? ''))
                     );
                 }
             }
 
+            $successMessage = $saveAsDraft
+                ? 'Draft saved. Continue anytime from Document Registration → Drafts.'
+                : 'Document registered successfully!';
+
+            if ($saveAsDraft) {
+                $leaveTo = self::safeDraftLeaveRedirect($request->input('draft_leave_to'));
+                if ($leaveTo) {
+                    return redirect()->to($leaveTo)->with('success', $successMessage);
+                }
+            }
+
             return redirect()->route('dcs.register.edit', $requestId)
-                ->with('success', $saveAsDraft
-                    ? 'Draft saved. Continue anytime from Document Registration → Drafts.'
-                    : 'Document registered successfully!');
+                ->with('success', $successMessage);
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -2038,9 +2105,8 @@ class RegisterPersistHelper
             }
         }
 
-        // Heal live "archived" → obsolete only (never soft-deleted recycle-bin rows —
-        // those stay archived so their doc_no remains free for reuse).
-        // Also skip drafts: Save Draft stores revision_status=archived + is_draft.
+        // Heal live legacy "archived" → obsolete (DCS no longer uses archived).
+        // Skip drafts (is_draft) and soft-deleted recycle-bin rows.
         $legacyArchived = [];
         if (RegisterQueryHelper::supportsArchivedRevisionStatus()) {
             $legacyQuery = DB::table('dcs_masterlist_registration as m')

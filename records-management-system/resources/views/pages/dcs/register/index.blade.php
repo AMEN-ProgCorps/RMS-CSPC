@@ -28,6 +28,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <input type="hidden" id="registrationMode" name="registration_mode" value="{{ request()->query('type') === 'revised' ? 'revised' : 'new' }}">
         <input type="hidden" id="revisedFromDocNo" name="revised_from_doc_no" value="">
         <input type="hidden" id="saveAsDraft" name="save_as_draft" value="0">
+        <input type="hidden" id="officeIntakeType" name="office_intake_type" value="{{ in_array(request()->query('intake'), ['drf', 'dcn'], true) ? request()->query('intake') : '' }}">
+        <input type="hidden" id="officeIntakeId" name="office_intake_id" value="{{ ctype_digit((string) request()->query('intake_id')) ? request()->query('intake_id') : '' }}">
 
         @php
             $urlVersionType = request()->query('type');
@@ -704,7 +706,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <button type="button" id="btnGenerateDistribution" class="reg-btn reg-btn-generate" onclick="generateDistributionTemplate()" disabled title="Save the document first">
                     <i class="fa-solid fa-file-lines"></i> Generate
                 </button>
-                <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-cancel" onclick="confirmSaveDraft()">
+                <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                     <i class="fa-regular fa-floppy-disk"></i> Save Draft
                 </button>
                 <button type="button" id="btnSaveDocument" class="reg-btn reg-btn-save" onclick="confirmSave()">
@@ -725,6 +727,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <i class="fa-solid fa-xmark"></i>
             </button>
         </div>
+        <div id="regReviewSavingBanner" class="reg-review-saving-banner" hidden role="status" aria-live="polite">
+            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+            <span>Saving document… Please wait.</span>
+        </div>
         <div class="reg-modal-body" id="reviewContent">
             <!-- Populated by JS -->
         </div>
@@ -739,6 +745,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     </div>
 </div>
     </template>
+
+    @include('pages.dcs.register.partials.draft-modals')
 
     <template x-teleport="body">
     <div class="reg-modal-overlay" id="filePreviewModal" aria-hidden="true" onclick="if(event.target===this)closeFilePreviewModal()">
@@ -828,6 +836,7 @@ document.addEventListener('alpine:init', () => {
             window.syllabiCurrentStep = step;
         },
         closeReview() {
+            if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
             this.reviewOpen = false;
             const el = document.getElementById('dcsRegisterRoot');
             if (el) el.style.overflow = '';
@@ -1497,7 +1506,271 @@ document.addEventListener("DOMContentLoaded", async function () {
         overlayTitle: 'Originator',
         initial: []
     });
+
+    // Office intake → Register handoff (?intake=drf|dcn&intake_id=…)
+    try {
+        const pending = JSON.parse(sessionStorage.getItem('dcs_office_intake_pending') || 'null');
+        if (pending?.type && pending?.id) {
+            const typeEl = document.getElementById('officeIntakeType');
+            const idEl = document.getElementById('officeIntakeId');
+            if (typeEl && !typeEl.value) typeEl.value = pending.type;
+            if (idEl && !idEl.value) idEl.value = String(pending.id);
+        }
+    } catch (_) { /* ignore */ }
+
+    setTimeout(() => {
+        if (typeof applyOfficeIntakePrefillFromUrl === 'function') {
+            applyOfficeIntakePrefillFromUrl();
+        }
+    }, 120);
 });
+
+/**
+ * Prefill New/DCN registration from an office intake submission.
+ * Runs after version/type widgets exist (?type=new|revised&intake=…&intake_id=…).
+ */
+async function applyOfficeIntakePrefillFromUrl() {
+    const params = new URLSearchParams(location.search);
+    const intake = (params.get('intake') || '').toLowerCase();
+    const intakeId = params.get('intake_id');
+    if (!intakeId || (intake !== 'drf' && intake !== 'dcn')) {
+        return;
+    }
+    if (window.__officeIntakePrefillApplied) {
+        return;
+    }
+    window.__officeIntakePrefillApplied = true;
+
+    try {
+        const response = await fetch(
+            '/dcs/api/office-intake/' + encodeURIComponent(intake) + '/' + encodeURIComponent(intakeId),
+            {
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin',
+            }
+        );
+        if (!response.ok) {
+            throw new Error('Failed to load intake');
+        }
+        const data = await response.json();
+        if (!data?.registerPrefill) {
+            return;
+        }
+        await applyOfficeIntakePrefill(data.registerPrefill);
+    } catch (err) {
+        console.warn('Office intake prefill failed:', err);
+        window.__officeIntakePrefillApplied = false;
+    }
+}
+
+function officeIntakeSeedSource(widgetKey, offices) {
+    const widget = window.__sourceWidgets?.[widgetKey];
+    if (!widget || !Array.isArray(offices) || !offices.length) {
+        return;
+    }
+    const labels = offices
+        .map((o) => (o.office_code || o.office_name || o.code || o.name || '').trim())
+        .filter(Boolean);
+    if (labels.length) {
+        widget.seedFromString(labels.join(', '), true);
+        return;
+    }
+    const items = offices
+        .filter((o) => (o.office_id || o.id) && (o.office_name || o.name))
+        .map((o) => ({
+            type: 'office',
+            id: o.office_id || o.id,
+            label: o.office_name || o.name,
+        }));
+    if (items.length && typeof widget.setSelectedItems === 'function') {
+        widget.setSelectedItems(items);
+    }
+}
+
+function officeIntakeCheckChecklist(id) {
+    const cb = document.querySelector(
+        '#dynamicCheckboxes input[name="checklists[]"][value="' + id + '"]'
+    );
+    if (!cb) {
+        return;
+    }
+    cb.dataset.lastChecked = 'true';
+    cb.checked = true;
+    if (parseInt(id, 10) === 3) {
+        if (typeof lockMasterlistChecklistOn === 'function') {
+            lockMasterlistChecklistOn();
+        } else {
+            toggleSection(3, true);
+        }
+        return;
+    }
+    toggleSection(parseInt(id, 10), true);
+}
+
+async function applyOfficeIntakePrefill(prefill) {
+    if (!prefill || typeof prefill !== 'object') {
+        return;
+    }
+
+    // Document type (Internal / External) when intake specified a kind.
+    const docTypeEl = document.getElementById('docType');
+    if (docTypeEl && prefill.docTypeId) {
+        const opt = [...docTypeEl.options].find(
+            (o) => String(o.value) === String(prefill.docTypeId)
+        );
+        if (opt) {
+            docTypeEl.value = String(prefill.docTypeId);
+            docTypeEl.dataset.lastValid = String(prefill.docTypeId);
+            docTypeEl.disabled = false;
+            docTypeEl.removeAttribute('disabled');
+            if (typeof handleDocTypeChange === 'function') {
+                handleDocTypeChange();
+            }
+            // Intake may land on a parent with subtypes — still unlock sections for autofill.
+            const subTypeEl = document.getElementById('subType');
+            const needsSub = subTypeEl && !subTypeEl.disabled && [...subTypeEl.options].length > 1;
+            if (needsSub && typeof unlockChecklist === 'function') {
+                unlockChecklist();
+            }
+        }
+    } else if (typeof unlockChecklist === 'function') {
+        // Version already set via ?type= — unlock default checklists if type not set.
+        const versionEl = document.getElementById('versionType');
+        if (versionEl?.value) {
+            unlockChecklist();
+        }
+    }
+
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40)));
+
+    const checklistIds = Array.isArray(prefill.checklistIds)
+        ? prefill.checklistIds.map((id) => parseInt(id, 10)).filter((id) => !Number.isNaN(id))
+        : [];
+    if (checklistIds.length) {
+        const wanted = new Set(checklistIds);
+        document.querySelectorAll('#dynamicCheckboxes input[name="checklists[]"]').forEach((cb) => {
+            const id = parseInt(cb.value, 10);
+            if (id === 3) {
+                return;
+            }
+            const on = wanted.has(id);
+            cb.dataset.lastChecked = on ? 'true' : 'false';
+            cb.checked = on;
+            toggleSection(id, on);
+        });
+        if (wanted.has(3) && typeof lockMasterlistChecklistOn === 'function') {
+            lockMasterlistChecklistOn();
+        }
+    }
+
+    const setVal = (id, value) => {
+        if (value === null || value === undefined || value === '') {
+            return;
+        }
+        const el = document.getElementById(id);
+        if (el) {
+            el.value = value;
+        }
+    };
+
+    setVal('drfTitle', prefill.drfTitle);
+    setVal('drfDate', prefill.drfDate);
+    setVal('masterlistDocTitle', prefill.masterlistDocTitle || prefill.drfTitle || prefill.documentTitle);
+    setVal('masterlistDocNo', prefill.masterlistDocNo || prefill.documentNo);
+    setVal('dcnJustification', prefill.dcnJustification);
+    setVal('noticeDate', prefill.noticeDate);
+
+    if (prefill.descriptionReason) {
+        setVal('distributionRemarks', prefill.descriptionReason);
+    }
+
+    const revRow = document.querySelector('#revisionTableBody tr');
+    if (revRow) {
+        const noInput = revRow.querySelector('input[name="documentNo[]"]');
+        const titleInput = revRow.querySelector('input[name="documentTitle[]"]');
+        if (noInput && prefill.documentNo) {
+            noInput.value = prefill.documentNo;
+        }
+        if (titleInput && (prefill.documentTitle || prefill.masterlistDocTitle)) {
+            titleInput.value = prefill.documentTitle || prefill.masterlistDocTitle;
+        }
+    }
+
+    if (prefill.originatorName && window.__sourceWidgets?.masterlistOriginator) {
+        window.__sourceWidgets.masterlistOriginator.seedFromString(prefill.originatorName, true);
+    }
+
+    const sources = Array.isArray(prefill.sourceOffices) ? prefill.sourceOffices : [];
+    if (prefill.intake === 'dcn') {
+        officeIntakeSeedSource('dcn', sources);
+        officeIntakeSeedSource('masterlist', sources);
+    } else {
+        officeIntakeSeedSource('drf', sources);
+        officeIntakeSeedSource('masterlist', sources);
+    }
+
+    const distOffices = Array.isArray(prefill.distributeOffices) ? prefill.distributeOffices : [];
+    distOffices.forEach((o) => {
+        let officeId = o.office_id || o.id || null;
+        let officeName = o.office_name || o.name || '';
+        if (!officeId) {
+            const code = (o.office_code || o.code || '').trim();
+            const match =
+                (typeof findOfficeByLabelOrCode === 'function'
+                    ? findOfficeByLabelOrCode(code || officeName, allOffices || [])
+                    : null) ||
+                (allOffices || []).find(
+                    (x) =>
+                        (code &&
+                            String(x.office_code || '').toLowerCase() === code.toLowerCase()) ||
+                        (officeName &&
+                            String(x.office_name || '').toLowerCase() === officeName.toLowerCase())
+                );
+            if (match) {
+                officeId = match.office_id ?? match.id;
+                officeName = match.office_name || officeName;
+            }
+        }
+        if (officeId && typeof window.addOffice === 'function') {
+            window.addOffice(
+                officeId,
+                officeName || String(officeId),
+                'distBody',
+                'totalDistCopies',
+                'distResults'
+            );
+        }
+    });
+
+    if (typeof showFormActions === 'function') {
+        showFormActions();
+    } else {
+        const actions = document.getElementById('formActions');
+        if (actions) {
+            actions.style.display = '';
+        }
+    }
+
+    const intakeTypeEl = document.getElementById('officeIntakeType');
+    const intakeIdEl = document.getElementById('officeIntakeId');
+    if (intakeTypeEl && prefill.intake) {
+        intakeTypeEl.value = prefill.intake;
+    }
+    if (intakeIdEl && prefill.intakeId) {
+        intakeIdEl.value = String(prefill.intakeId);
+    }
+    try {
+        if (prefill.intake && prefill.intakeId) {
+            sessionStorage.setItem(
+                'dcs_office_intake_pending',
+                JSON.stringify({ type: prefill.intake, id: Number(prefill.intakeId) })
+            );
+        }
+    } catch (_) { /* ignore */ }
+}
 
 // ══════════════════════════════════════════════
 // DOCUMENT NO. LOOKUP
@@ -2670,16 +2943,11 @@ function lockRevisionScannedCopyCell(row, scannedCopyUrl) {
     if (!cell) return;
 
     if (scannedCopyUrl) {
-        // DCS scanned copies are PDF-only; signed URLs no longer end in ".pdf".
-        const isPdf = isDcsScanPdfUrl(scannedCopyUrl);
-        const iconClass = isPdf ? 'fa-solid fa-file-pdf' : 'fa-solid fa-file-word';
-        const linkClass = isPdf ? 'reg-revrow-viewfile reg-revrow-viewfile-pdf' : 'reg-revrow-viewfile reg-revrow-viewfile-doc';
-        const label = isPdf ? 'View PDF' : 'View Word document';
-
+        // DCS revision scanned copies are PDF-only — always use the red PDF icon.
         cell.style.textAlign = 'center';
         cell.innerHTML = `
-            <button type="button" class="${linkClass}" onclick="window.open('${scannedCopyUrl}', '_blank')" title="${label}">
-                <i class="${iconClass}"></i>
+            <button type="button" class="reg-revrow-viewfile reg-revrow-viewfile-pdf" onclick="window.open('${scannedCopyUrl}', '_blank')" title="View PDF">
+                <i class="fa-solid fa-file-pdf"></i>
             </button>
         `;
     } else {
@@ -4074,24 +4342,8 @@ function resetFileWidgetsIn(el) {
     });
 }
 
-function handleDocTypeChange() {
-    window.__isSyllabiMode = false;
-    window.__syllabiModeLabel = 'Syllabi';
-    window.__lastSubTypeId = null;
-    syllabiTitleManuallyEdited = false;
-    docNoDuplicate = false;
-    clearRevNoHint();
-    setSaveEnabled(true);
-    const docTypeSelect = document.getElementById("docType");
-    const docTypeId = parseInt(docTypeSelect.value);
-    const subTypeSelect = document.getElementById("subType");
-    const syllabiSection = document.getElementById("section-syllabi");
-
-    subTypeSelect.innerHTML = '<option value="" selected disabled>Select sub-type</option>';
-    subTypeSelect.disabled = true;
-
-    if (syllabiSection) syllabiSection.style.display = "none";
-
+/** Clear DRF/DCN/masterlist/distribution section inputs (keeps Version / Doc Type / Sub-Type). */
+function resetRegisterSectionInputs() {
     const hintEl = document.getElementById('docNoHint');
     if (hintEl) {
         hintEl.innerHTML = '';
@@ -4150,12 +4402,33 @@ function handleDocTypeChange() {
         bindRevisionRowSearch(newRow);
     }
 
-    resetSyllabiSection();
-    resetMasterlistNoOfPagesField();
-    setSyllabiStep(1);
+    if (typeof resetSyllabiSection === 'function') resetSyllabiSection();
+    if (typeof resetMasterlistNoOfPagesField === 'function') resetMasterlistNoOfPagesField();
+    if (typeof setSyllabiStep === 'function') setSyllabiStep(1);
 
     disableApproval();
     clearValidation();
+    docNoDuplicate = false;
+    if (typeof clearRevNoHint === 'function') clearRevNoHint();
+    setSaveEnabled(true);
+}
+
+function handleDocTypeChange() {
+    window.__isSyllabiMode = false;
+    window.__syllabiModeLabel = 'Syllabi';
+    window.__lastSubTypeId = null;
+    syllabiTitleManuallyEdited = false;
+    const docTypeSelect = document.getElementById("docType");
+    const docTypeId = parseInt(docTypeSelect.value);
+    const subTypeSelect = document.getElementById("subType");
+    const syllabiSection = document.getElementById("section-syllabi");
+
+    subTypeSelect.innerHTML = '<option value="" selected disabled>Select sub-type</option>';
+    subTypeSelect.disabled = true;
+
+    if (syllabiSection) syllabiSection.style.display = "none";
+
+    resetRegisterSectionInputs();
 
     if (!docTypeId) {
         lockChecklist();
@@ -4238,12 +4511,17 @@ function validateChecklistState() {
     }
 
     const isSyllabiLike = isSyllabiLikeSubType(subTypeId);
+    const subTypeChanged = String(subTypeId) !== String(window.__lastSubTypeId ?? '');
 
-    // Whenever the sub-type actually changes (e.g. Syllabi -> TOS/Rubrics, or either -> a
-    // non-syllabi sub-type), clear stale syllabi inputs so they don't carry over.
-    if (subTypeId !== window.__lastSubTypeId) {
+    // Changing sub-type must clear section inputs so data from the previous
+    // sub-type (e.g. Curriculum → Manuals/Policy) does not carry over.
+    if (subTypeChanged && window.__lastSubTypeId != null && String(window.__lastSubTypeId) !== '') {
+        resetRegisterSectionInputs();
+        if (syllabiSection) syllabiSection.style.display = "none";
+    } else if (subTypeChanged) {
         resetSyllabiSection();
     }
+
     window.__lastSubTypeId = subTypeId;
 
     window.__isSyllabiMode = isSyllabiLike;
@@ -4501,7 +4779,7 @@ function hasMasterlistScannedCopy() {
     return false;
 }
 
-function masterlistHasData() {
+function masterlistFilledFields() {
     const docNo = (document.getElementById('masterlistDocNo')?.value || '').trim();
     const title = (
         document.getElementById('masterlistDocTitle')?.value
@@ -4511,12 +4789,52 @@ function masterlistHasData() {
     ).trim();
     const effectivity = (document.getElementById('masterlistEffectivityDate')?.value || '').trim();
     const pages = (document.getElementById('masterlistNoOfPages')?.value || '').trim();
-    return !!(docNo || title || effectivity || (pages && pages !== '0') || hasMasterlistScannedCopy());
+    const keywords = (document.getElementById('keywords')?.value || '').trim();
+    const deadline = (document.getElementById('deadlineOfSubmission')?.value || '').trim();
+    const receiptDate = (document.getElementById('masterlistReceiptDate')?.value || '').trim();
+    const hasOriginator = !!(window.__sourceWidgets?.masterlistOriginator?.selected?.length);
+    const hasSource = !!(window.__sourceWidgets?.masterlist?.selected?.length);
+
+    return {
+        docNo: !!docNo,
+        title: !!title,
+        effectivity: !!effectivity,
+        pages: !!(pages && pages !== '0'),
+        keywords: !!keywords,
+        deadline: !!deadline,
+        receiptDate: !!receiptDate,
+        originator: hasOriginator,
+        sourceUnit: hasSource,
+        scannedCopy: hasMasterlistScannedCopy(),
+    };
 }
 
-/** Masterlist is always on — require some substance (and scan on final save). */
-function validateMasterlistRequired(errors, { requireScan = false } = {}) {
-    if (!masterlistHasData()) {
+function masterlistHasData() {
+    const f = masterlistFilledFields();
+    return Object.values(f).some(Boolean);
+}
+
+/** Drafts need more than Document No alone — at least one other masterlist input. */
+function masterlistHasDraftSubstance() {
+    const f = masterlistFilledFields();
+    const filledCount = Object.values(f).filter(Boolean).length;
+    if (filledCount < 2) return false;
+    // Document No by itself is not enough even if somehow counted twice.
+    if (f.docNo && filledCount === 1) return false;
+    return true;
+}
+
+/** Masterlist is always on — require some substance. Scanned copy is optional on save. */
+function validateMasterlistRequired(errors, { requireScan = false, forDraft = false } = {}) {
+    if (forDraft) {
+        if (!masterlistHasDraftSubstance()) {
+            errors.push({
+                field: 'masterlistDocTitle',
+                message: 'To save a draft, fill Document No plus at least one other masterlist field (e.g. Title, Effectivity Date, Pages, Keywords, Originator, or Source Unit).',
+            });
+            return;
+        }
+    } else if (!masterlistHasData()) {
         errors.push({
             field: 'masterlistDocNo',
             message: 'Masterlist Registration needs data (Document No, Title, Effectivity Date, or a scanned master copy).',
@@ -4955,8 +5273,9 @@ function validateForm() {
     // ── DCN revision rows must reference an actual registered document ──
     validateRevisionRowsLinked(errors);
 
-    // Masterlist always on — require substance (+ scan on final save).
-    validateMasterlistRequired(errors, { requireScan: true });
+    // Masterlist always on — require substance. Scanned copy is optional and
+    // surfaced in the review modal (confirm-anyway) instead of blocking save.
+    validateMasterlistRequired(errors, { requireScan: false });
 
     // Content fields are otherwise optional — missing values are
     // surfaced in the review modal instead, with a confirm-anyway step.
@@ -5195,6 +5514,9 @@ function collectMissingFields() {
         }
         if (!window.__sourceWidgets.masterlist || window.__sourceWidgets.masterlist.selected.length === 0) {
             missing.push("Masterlist: Source Unit");
+        }
+        if (!window.__isSyllabiMode && !hasMasterlistScannedCopy()) {
+            missing.push("Masterlist: Scanned Copy");
         }
     }
 
@@ -5660,6 +5982,7 @@ function buildDistributionReview(reviewContent) {
 }
 
 window.closeConfirmModal = function () {
+    if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
     const root = document.getElementById("dcsRegisterRoot");
     if (root && window.Alpine) {
         Alpine.$data(root).reviewOpen = false;
@@ -5681,35 +6004,188 @@ window.submitForm = function () {
     }
     const draftFlag = document.getElementById('saveAsDraft');
     if (draftFlag) draftFlag.value = '0';
+    window.__regFormSubmitting = true;
+    try {
+        const pending = JSON.parse(sessionStorage.getItem('dcs_office_intake_pending') || 'null');
+        if (pending?.type && pending?.id) {
+            const typeEl = document.getElementById('officeIntakeType');
+            const idEl = document.getElementById('officeIntakeId');
+            if (typeEl) typeEl.value = pending.type;
+            if (idEl) idEl.value = String(pending.id);
+        }
+        sessionStorage.removeItem('dcs_office_intake_pending');
+    } catch (_) { /* ignore */ }
+    showSavingDocumentOverlay();
     document.getElementById("masterForm").submit();
 };
 
-window.confirmSaveDraft = function () {
-    const version = document.getElementById('versionType')?.value;
-    const docType = document.getElementById('docType')?.value;
-    if (!version || !docType) {
-        alert('Select Version Type and Document Type before saving a draft.');
+function showSavingDocumentOverlay() {
+    const modal = document.getElementById('confirmModal');
+    const banner = document.getElementById('regReviewSavingBanner');
+    const confirmBtn = document.getElementById('btnConfirmSaveModal');
+    const isUpdate = !!document.getElementById('btnUpdateDocument');
+    const label = isUpdate ? 'Updating document…' : 'Saving document…';
+
+    if (modal?.classList.contains('is-open')) {
+        modal.classList.add('is-saving');
+        if (banner) {
+            const text = banner.querySelector('span');
+            if (text) text.textContent = label + ' Please wait.';
+            banner.hidden = false;
+        }
+        modal.querySelectorAll('.reg-modal-close, .reg-modal-footer .reg-btn-cancel').forEach((el) => {
+            el.disabled = true;
+            el.setAttribute('aria-disabled', 'true');
+        });
+        if (confirmBtn) {
+            confirmBtn.disabled = true;
+            confirmBtn.setAttribute('aria-disabled', 'true');
+            confirmBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> '
+                + (isUpdate ? 'Updating…' : 'Saving…');
+        }
         return;
     }
-    const draftErrors = [];
-    validateMasterlistRequired(draftErrors, { requireScan: false });
-    if (draftErrors.length > 0) {
-        showValidationErrors(draftErrors);
-        alert(draftErrors[0].message);
-        return;
+
+    let overlay = document.getElementById('regSavingOverlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'regSavingOverlay';
+        overlay.className = 'reg-saving-overlay';
+        overlay.setAttribute('role', 'status');
+        overlay.setAttribute('aria-live', 'polite');
+        overlay.innerHTML = `
+            <div class="reg-saving-card">
+                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                <div>
+                    <strong></strong>
+                    <p>Please wait while your document is being written.</p>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
     }
-    if (!confirm('Save this registration as a draft? You can finish it later from Document Registration → Drafts.')) {
-        return;
+    const title = overlay.querySelector('strong');
+    if (title) title.textContent = label;
+    overlay.classList.add('is-visible');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.setAttribute('aria-disabled', 'true');
     }
-    const draftFlag = document.getElementById('saveAsDraft');
-    if (draftFlag) draftFlag.value = '1';
-    // Ensure approval has a value for drafts even if untouched.
+}
+
+function prepareDraftSubmitDefaults() {
     const approvalChecked = document.querySelector('input[name="approval_status"]:checked');
     if (!approvalChecked) {
         const na = document.querySelector('input[name="approval_status"][value="not_applicable"]');
         if (na) na.checked = true;
     }
-    document.getElementById('masterForm').submit();
+}
+
+function registrationHasUserProgress() {
+    const form = document.getElementById('masterForm');
+    if (!form) return false;
+
+    // Real form content (masterlist / widgets) counts — shell selectors do not.
+    if (typeof masterlistHasData === 'function' && masterlistHasData()) return true;
+
+    if (window.__sourceWidgets) {
+        for (const widget of Object.values(window.__sourceWidgets)) {
+            if (Array.isArray(widget?.selected) && widget.selected.length > 0) {
+                return true;
+            }
+        }
+    }
+
+    // Version / Document Type / Sub-Type / Approval alone are navigation setup, not "unsaved work".
+    const ignoreIds = new Set([
+        'versionType',
+        'docType',
+        'subType',
+        'registrationMode',
+        'revisedFromDocNo',
+        'saveAsDraft',
+        'officeIntakeType',
+        'officeIntakeId',
+        'draftLeaveTo',
+        'confirmSaveAnyway',
+    ]);
+    const ignoreNames = new Set([
+        'version_id',
+        'doc_type_id',
+        'sub_type_id',
+        'registration_mode',
+        'revised_from_doc_no',
+        'save_as_draft',
+        'office_intake_type',
+        'office_intake_id',
+        'draft_leave_to',
+        'approval_status',
+        '_token',
+        'checklists[]',
+    ]);
+
+    const fields = form.querySelectorAll(
+        'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea, select'
+    );
+    for (const el of fields) {
+        if (el.disabled || el.readOnly) continue;
+        if (ignoreIds.has(el.id) || ignoreNames.has(el.name)) continue;
+        if (el.type === 'file') {
+            if (el.files && el.files.length) return true;
+            continue;
+        }
+        const val = (el.value || '').trim();
+        if (!val || val === '0') continue;
+        return true;
+    }
+    return false;
+}
+
+window.__regDraftCanSave = function () {
+    const version = document.getElementById('versionType')?.value;
+    const docType = document.getElementById('docType')?.value;
+    if (!version || !docType) return false;
+    const draftErrors = [];
+    validateMasterlistRequired(draftErrors, { requireScan: false, forDraft: true });
+    return draftErrors.length === 0;
+};
+
+window.__regDraftHasProgress = function () {
+    return registrationHasUserProgress();
+};
+
+window.__regDraftShouldAutosaveOnLeave = function () {
+    return true; // create page
+};
+
+window.__regDraftPrepareSubmit = function () {
+    prepareDraftSubmitDefaults();
+};
+
+window.__regDraftShowErrors = function (message) {
+    const draftErrors = [];
+    validateMasterlistRequired(draftErrors, { requireScan: false, forDraft: true });
+    if (draftErrors.length > 0) {
+        showValidationErrors(draftErrors);
+        if (window.__regDraftHighlightErrors) return;
+        if (typeof window.showDraftNoticeModal === 'function') {
+            window.showDraftNoticeModal(draftErrors[0].message);
+            return;
+        }
+        if (window.dcsShowToast) {
+            window.dcsShowToast(draftErrors[0].message, 'error');
+            return;
+        }
+    }
+    if (window.__regDraftHighlightErrors) return;
+    if (typeof window.showDraftNoticeModal === 'function') {
+        window.showDraftNoticeModal(message || 'Unable to save draft.');
+        return;
+    }
+    if (window.dcsShowToast) {
+        window.dcsShowToast(message || 'Unable to save draft.', 'error');
+        return;
+    }
 };
 
 // ══════════════════════════════════════════════
@@ -7271,3 +7747,4 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 @include('pages.dcs.register.partials.dist-office-groups-script')
+<script src="{{ asset('js/dcs/register-draft-guard.js') }}"></script>

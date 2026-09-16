@@ -38,9 +38,10 @@ body {
     bottom: 0;
     padding: var(--dcs-page-pad);
     background-color: var(--dash-bg);
-    /* Keep the dashboard fixed; nested widgets manage their own overflow. */
-    overflow: hidden;
     overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     transition: left var(--dcs-ease), padding var(--dcs-ease);
 }
 
@@ -56,14 +57,123 @@ body {
     gap: 4px;
 }
 
+.dash-welcome-bar {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: clamp(20px, 2vw, 28px);
+    position: relative;
+    z-index: 70;
+    overflow: visible;
+    padding: 18px 18px 18px 22px;
+    border-radius: var(--dcs-radius-lg, 12px);
+    background:
+        linear-gradient(135deg, rgba(0, 0, 128, 0.96) 0%, rgba(4, 56, 153, 0.94) 48%, rgba(0, 43, 122, 0.96) 100%);
+    box-shadow: 0 10px 28px rgba(0, 0, 128, 0.18);
+}
+
+.dash-welcome-bar::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 5px;
+    border-radius: var(--dcs-radius-lg, 12px) 0 0 var(--dcs-radius-lg, 12px);
+    background: var(--dcs-gold, #FFB800);
+}
+
+.dash-welcome-bar::after {
+    content: '';
+    position: absolute;
+    right: 18%;
+    top: -48px;
+    width: 180px;
+    height: 180px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 184, 0, 0.18) 0%, rgba(255, 184, 0, 0) 70%);
+    pointer-events: none;
+}
+
+.dash-welcome-copy {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-right: 8px;
+}
+
+.dash-welcome-bar .header-greeting {
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}
+
+.dash-welcome-bar .page-title {
+    color: #fff;
+    font-size: clamp(1.35rem, 1.1rem + 0.8vw, 1.75rem);
+    font-weight: 750;
+    letter-spacing: -0.02em;
+    margin: 0;
+    line-height: 1.25;
+}
+
+.dash-welcome-name {
+    color: var(--dcs-gold, #FFB800);
+}
+
+.dash-welcome-sub {
+    margin: 8px 0 0;
+    color: rgba(255, 255, 255, 0.78);
+    font-size: 0.86rem;
+    line-height: 1.45;
+    max-width: 46ch;
+}
+
+.dash-welcome-calendar.dash-calendar-trigger {
+    position: relative;
+    z-index: 2;
+    flex: 0 0 auto;
+    align-self: stretch;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    color: #fff;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.dash-welcome-calendar.dash-calendar-trigger:hover,
+.dash-welcome-calendar.dash-calendar-trigger[aria-expanded="true"] {
+    background: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 184, 0, 0.65);
+    box-shadow: 0 0 0 3px rgba(255, 184, 0, 0.18);
+}
+
+.dash-welcome-calendar .dash-calendar-trigger-date {
+    color: rgba(255, 255, 255, 0.88);
+}
+
+.dash-welcome-calendar .dash-calendar-trigger-time {
+    color: var(--dcs-gold, #FFB800);
+    border-left-color: rgba(255, 255, 255, 0.28);
+}
+
+.dash-welcome-calendar .dash-calendar-chevron {
+    color: rgba(255, 255, 255, 0.8);
+}
+
 .dashboard-header {
     width: 100%;
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: stretch;
     margin-bottom: clamp(20px, 2vw, 28px);
     flex-wrap: wrap;
-    gap: 12px;
+    gap: 14px;
     position: relative;
     z-index: 70;
     overflow: visible;
@@ -938,15 +1048,26 @@ body.dash-cl-open {
     padding: 8px 14px;
     border-radius: 999px;
     background: var(--dash-surface);
+    border: 1px solid var(--dcs-border, #e2e8f0);
     box-shadow: var(--dash-shadow);
     text-decoration: none;
-    color: inherit;
+    color: var(--dcs-accent, #043899);
     font-size: 0.78rem;
     font-weight: 600;
 }
-.dash-queue-chip strong { font-size: 1.05rem; }
-.dash-queue-chip.is-latest { color: #15803d; }
-.dash-queue-chip.is-obsolete { color: #b91c1c; }
+.dash-queue-chip strong { font-size: 1.05rem; color: var(--dcs-header, #000080); }
+.dash-queue-chip.is-latest {
+    color: var(--dcs-green, #059669);
+    background: var(--dcs-green-bg, #ecfdf5);
+    border-color: #a7f3d0;
+}
+.dash-queue-chip.is-latest strong { color: #047857; }
+.dash-queue-chip.is-obsolete {
+    color: var(--dcs-red, #dc2626);
+    background: var(--dcs-red-bg, #fef2f2);
+    border-color: var(--dcs-red-border, #fecaca);
+}
+.dash-queue-chip.is-obsolete strong { color: #b91c1c; }
 .dash-search-actions {
     display: flex;
     gap: 10px;
@@ -1020,11 +1141,11 @@ body.dash-cl-open {
     position: relative;
     z-index: 70;
     width: 100%;
-    height: 100%;
-    min-height: 0;
+    min-height: 100%;
+    height: auto;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow: visible;
 }
 
 .dash-calendar-trigger {
@@ -1128,36 +1249,55 @@ body.dash-cl-open {
     transition-delay: 0.06s;
 }
 
-/* On desktop, the calendar column is bounded by the dashboard viewport.
-   The event list takes the remaining space and is the only scrollable area. */
+/* Desktop calendar open: side panel scrolls; Events list scrolls inside. */
 @media (min-width: 1025px) {
     .dash-body.is-calendar-open {
-        align-items: stretch;
-    }
-
-    .dash-body.is-calendar-open .dash-calendar-panel,
-    .dash-body.is-calendar-open .dash-calendar-panel-inner,
-    .dash-body.is-calendar-open .dash-calendar-dropdown {
-        height: 100%;
+        align-items: start;
         min-height: 0;
     }
 
     .dash-body.is-calendar-open .dash-calendar-panel {
-        position: relative;
+        position: sticky;
+        top: 0;
+        display: flex;
+        flex-direction: column;
+        max-height: calc(100dvh - var(--header-height) - (var(--dcs-page-pad) * 2));
+        overflow: hidden;
+    }
+
+    .dash-body.is-calendar-open .dash-calendar-panel-inner {
+        min-height: 0;
+        height: 100%;
+        max-height: 100%;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .dash-body.is-calendar-open .dash-calendar-dropdown {
+        min-height: 0;
+        flex: 1 1 auto;
+        height: auto;
+        max-height: 100%;
+        overflow-x: hidden;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
     }
 
     .dash-body.is-calendar-open .upcoming-widget {
         display: flex;
-        flex: 1 1 auto;
+        flex: 0 1 auto;
         flex-direction: column;
         min-height: 0;
-        overflow: hidden;
     }
 
     .dash-body.is-calendar-open .upcoming-list {
-        flex: 1 1 auto;
-        max-height: none;
+        flex: 0 1 auto;
         min-height: 0;
+        max-height: min(320px, 42vh);
+        overflow-x: hidden;
+        overflow-y: auto;
     }
 }
 
@@ -1675,11 +1815,11 @@ body.dash-cl-open {
     flex-direction: column;
     gap: 6px;
     min-height: 0;
-    max-height: 220px;
+    max-height: min(260px, 36vh);
+    overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
-    scrollbar-width: thin;
-    scrollbar-color: var(--dash-border) transparent;
+    -webkit-overflow-scrolling: touch;
 }
 
 .upcoming-list::-webkit-scrollbar { width: 3px; }
@@ -2443,6 +2583,18 @@ body.dash-cl-open {
 
     .dashboard-header {
         margin-bottom: 16px;
+    }
+
+    .dash-welcome-bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 14px;
+        padding: 16px;
+    }
+
+    .dash-welcome-calendar.dash-calendar-trigger {
+        width: 100%;
+        justify-content: space-between;
     }
 
     .dash-search-bar {

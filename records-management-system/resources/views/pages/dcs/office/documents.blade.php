@@ -78,7 +78,8 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                 <h1>Office Documents</h1>
                 <p>
                     Documents appear here when RFIO lists <strong>{{ $officeName }}</strong>
-                    as a Source Unit on the masterlist.
+                    as a Source Unit on the masterlist, or when RFIO registers a DRF/DCN
+                    your office submitted.
                 </p>
             </div>
         </div>
@@ -138,6 +139,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                                 <th style="width:160px;">Document No.</th>
                                 <th style="width:72px;">Rev.</th>
                                 <th>Document Title</th>
+                                <th style="width:180px;">Originator</th>
                                 <th style="width:140px;">Effectivity Date</th>
                             </tr>
                         </thead>
@@ -148,6 +150,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                                     <td>{{ $row['doc_no'] !== '' ? $row['doc_no'] : '—' }}</td>
                                     <td>{{ $row['rev_no'] }}</td>
                                     <td>{{ $row['doc_title'] !== '' ? $row['doc_title'] : '—' }}</td>
+                                    <td>{{ ($row['originator'] ?? '') !== '' ? $row['originator'] : '—' }}</td>
                                     <td>{{ $row['effectivity_date'] ?? '—' }}</td>
                                 </tr>
                             @endforeach

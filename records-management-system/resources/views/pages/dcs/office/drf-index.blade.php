@@ -53,6 +53,7 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                 <thead>
                     <tr>
                         <th>Title</th>
+                        <th>Status</th>
                         <th>Date</th>
                         <th>Date Created</th>
                         <th style="width:160px;">Actions</th>
@@ -62,6 +63,13 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                     @forelse($rows as $row)
                         <tr>
                             <td>{{ $row->doc_title ?: '—' }}</td>
+                            <td>
+                                @if(!empty($row->is_registered))
+                                    <span class="ofi-status-pill is-registered">Registered</span>
+                                @else
+                                    <span class="ofi-status-pill is-pending">Submitted</span>
+                                @endif
+                            </td>
                             <td>{{ $row->drf_date ? \Carbon\Carbon::parse($row->drf_date)->format('M d, Y') : '—' }}</td>
                             <td>{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->format('M d, Y g:i A') : '—' }}</td>
                             <td class="ofi-actions">
@@ -71,7 +79,7 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="4" class="ofi-empty">No Document Request Forms yet. Create one to get started.</td>
+                            <td colspan="5" class="ofi-empty">No Document Request Forms yet. Create one to get started.</td>
                         </tr>
                     @endforelse
                 </tbody>

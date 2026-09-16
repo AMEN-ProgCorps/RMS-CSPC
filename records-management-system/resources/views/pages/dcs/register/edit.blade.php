@@ -253,7 +253,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                         <td><input type="number" name="revisionNo[]" placeholder="—" value="{{ $rev->revision_no }}" readonly class="reg-revrow-locked" tabindex="-1"></td>
                                         <td class="reg-rev-scan-cell" style="text-align:center;">
                                             @if($rev->scanned_copy)
-                                                <a href="{{ RegisterQueryHelper::scanUrl($rev->scanned_copy) }}" target="_blank" class="reg-revrow-viewfile" title="View scanned copy">
+                                                <a href="{{ RegisterQueryHelper::scanUrl($rev->scanned_copy) }}" target="_blank" class="reg-revrow-viewfile reg-revrow-viewfile-pdf" title="View PDF">
                                                     <i class="fa-solid fa-file-pdf"></i>
                                                 </a>
                                             @else
@@ -885,13 +885,17 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     </a>
                 </div>
                 <div class="reg-actions-right">
+                    <p id="regNoChangesHint" class="reg-no-changes-hint" hidden>
+                        <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                        No changes detected — edit a field to enable Update Document.
+                    </p>
                     <button type="button" id="btnGenerateDistribution" class="reg-btn reg-btn-generate" onclick="generateDistributionTemplate()">
                         <i class="fa-solid fa-file-lines"></i> Generate
                     </button>
-                    <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-cancel" onclick="confirmSaveDraft()">
+                    <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                         <i class="fa-regular fa-floppy-disk"></i> Save Draft
                     </button>
-                    <button type="button" class="reg-btn reg-btn-save" onclick="confirmSave()">
+                    <button type="button" id="btnUpdateDocument" class="reg-btn reg-btn-save" onclick="confirmSave()">
                         <i class="fa-solid fa-floppy-disk"></i> Update Document
                     </button>
                 </div>
@@ -908,6 +912,10 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <i class="fa-solid fa-xmark"></i>
                 </button>
             </div>
+            <div id="regReviewSavingBanner" class="reg-review-saving-banner" hidden role="status" aria-live="polite">
+                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                <span>Updating document… Please wait.</span>
+            </div>
             <div class="reg-modal-body" id="reviewContent">
                 <!-- Populated by JS -->
             </div>
@@ -922,6 +930,8 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
         </div>
     </div>
     </template>
+
+    @include('pages.dcs.register.partials.draft-modals')
 
     <template x-teleport="body">
     <div class="reg-modal-overlay" id="filePreviewModal" aria-hidden="true" onclick="if(event.target===this)closeFilePreviewModal()">
@@ -975,6 +985,7 @@ document.addEventListener('alpine:init', () => {
         reviewOpen: false,
         setSyllabiStep(step) { this.syllabiStep = step; window.syllabiCurrentStep = step; },
         closeReview() {
+            if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
             this.reviewOpen = false;
             const el = document.getElementById('dcsEditRoot');
             if (el) el.style.overflow = '';
@@ -1720,98 +1731,190 @@ document.addEventListener("DOMContentLoaded", async function () {
     }
 
     // ── Dirty state detection ──
+    // Leave warning / Update button only when the user actually changed something
+    // vs the loaded document — not merely because saved fields already have values.
     (function () {
-        const updateBtn = document.querySelector('.reg-btn-save');
+        const updateBtn = document.getElementById('btnUpdateDocument')
+            || document.querySelector('#formActions .reg-btn-save');
         if (!updateBtn) return;
         const initialState = {};
+        let stateCaptured = false;
+        let userInteracted = false;
+
+        function shouldIgnoreField(el) {
+            if (!el) return true;
+            const type = (el.type || '').toLowerCase();
+            if (type === 'hidden') {
+                const name = el.name || el.id || '';
+                // Track checklist / office / meaningful hiddens; skip CSRF & draft plumbing.
+                if (name === '_token' || name === 'save_as_draft' || name === 'draft_leave_to') return true;
+                if (el.id === 'saveAsDraft' || el.id === 'draftLeaveTo') return true;
+                return false;
+            }
+            if (type === 'button' || type === 'submit' || type === 'reset') return true;
+            const id = el.id || '';
+            const name = el.name || '';
+            // Search boxes / readonly computed displays are not user "document" edits.
+            if (/Search$/i.test(id) || /Search$/i.test(name)) return true;
+            if (/TimeSpentDisplay$/i.test(id)) return true;
+            if (el.readOnly && /TimeSpent/i.test(id)) return true;
+            if (el.classList?.contains('reg-reldocs-input')) return true;
+            return false;
+        }
+
+        function fieldKey(el) {
+            if (el.type === 'checkbox') {
+                return 'cb|' + (el.name || el.id) + '|' + (el.value || '');
+            }
+            if (el.type === 'radio') {
+                return 'radio|' + (el.name || el.id);
+            }
+            if (el.type === 'file') {
+                return 'file|' + (el.name || el.id);
+            }
+            return 'val|' + (el.name || el.id);
+        }
+
+        function readFieldValue(el) {
+            if (el.type === 'checkbox') return el.checked ? '1' : '0';
+            if (el.type === 'radio') {
+                return document.querySelector('input[name="' + CSS.escape(el.name) + '"]:checked')?.value || '';
+            }
+            if (el.type === 'file') return '';
+            return el.value ?? '';
+        }
 
         function captureInitialState() {
             const form = document.getElementById('masterForm');
             if (!form) return;
-            form.querySelectorAll('input, select, textarea').forEach(el => {
-                const key = el.name || el.id;
-                if (!key) return;
-                if (el.type === 'checkbox') {
-                    initialState[key + '|' + (el.value || '')] = el.checked;
-                } else if (el.type === 'radio') {
-                    initialState[key] = document.querySelector('input[name="' + el.name + '"]:checked')?.value || '';
-                } else if (el.type === 'file') {
-                    initialState['file|' + (el.name || el.id)] = '';
-                } else {
-                    initialState[key] = el.value;
-                }
+            Object.keys(initialState).forEach((k) => { delete initialState[k]; });
+            form.querySelectorAll('input, select, textarea').forEach((el) => {
+                if (shouldIgnoreField(el)) return;
+                const key = fieldKey(el);
+                if (!key || key === 'val|' || key === 'cb||' || key === 'radio|') return;
+                initialState[key] = readFieldValue(el);
             });
-            ['section-1', 'section-2', 'section-3', 'section-4', 'section-5', 'section-approval', 'section-approval-toggle', 'section-syllabi'].forEach(id => {
+            ['section-1', 'section-2', 'section-3', 'section-4', 'section-5', 'section-approval', 'section-approval-toggle', 'section-syllabi'].forEach((id) => {
                 const el = document.getElementById(id);
-                if (el) initialState['visible|' + id] = el.style.display !== 'none';
+                if (el) initialState['visible|' + id] = el.style.display !== 'none' ? '1' : '0';
             });
             const retBody = document.getElementById('retrievalBody');
             const distBody = document.getElementById('distBody');
-            initialState['officeCount|retrievalBody'] = retBody ? retBody.querySelectorAll('input[type="hidden"]').length : 0;
-            initialState['officeCount|distBody'] = distBody ? distBody.querySelectorAll('input[type="hidden"]').length : 0;
+            initialState['officeCount|retrievalBody'] = String(
+                retBody ? retBody.querySelectorAll('input[type="hidden"][name="retrievalOffice[]"]').length : 0
+            );
+            initialState['officeCount|distBody'] = String(
+                distBody ? distBody.querySelectorAll('input[type="hidden"][name="distOffice[]"]').length : 0
+            );
         }
 
-        let stateCaptured = false;
         function isDirty() {
-            if (!stateCaptured) return true;
+            // No baseline yet → treat as clean (loaded data is not "unsaved").
+            if (!stateCaptured) return false;
+            // Require a real user edit before blocking leave on published docs.
+            if (!userInteracted && !window.__isDraftDoc) return false;
+
             const form = document.getElementById('masterForm');
             if (!form) return false;
+
             let dirty = false;
-            form.querySelectorAll('input, select, textarea').forEach(el => {
-                if (dirty) return;
-                const key = el.name || el.id;
-                if (!key) return;
-                if (el.type === 'checkbox') {
-                    const initVal = initialState[key + '|' + (el.value || '')];
-                    if (initVal !== undefined && el.checked !== initVal) dirty = true;
-                } else if (el.type === 'radio') {
-                    const current = document.querySelector('input[name="' + el.name + '"]:checked')?.value || '';
-                    if (initialState[key] !== undefined && current !== initialState[key]) dirty = true;
-                } else if (el.type === 'file') {
+            form.querySelectorAll('input, select, textarea').forEach((el) => {
+                if (dirty || shouldIgnoreField(el)) return;
+                const key = fieldKey(el);
+                if (initialState[key] === undefined) return;
+                if (el.type === 'file') {
                     if (el.files && el.files.length > 0) dirty = true;
-                } else {
-                    if (initialState[key] !== undefined && el.value !== initialState[key]) dirty = true;
+                    return;
                 }
+                if (readFieldValue(el) !== initialState[key]) dirty = true;
             });
-            ['section-1', 'section-2', 'section-3', 'section-4', 'section-5', 'section-approval', 'section-approval-toggle', 'section-syllabi'].forEach(id => {
+
+            ['section-1', 'section-2', 'section-3', 'section-4', 'section-5', 'section-approval', 'section-approval-toggle', 'section-syllabi'].forEach((id) => {
                 if (dirty) return;
                 const el = document.getElementById(id);
-                if (el && initialState['visible|' + id] !== undefined) {
-                    if ((el.style.display !== 'none') !== initialState['visible|' + id]) dirty = true;
-                }
+                if (!el || initialState['visible|' + id] === undefined) return;
+                const now = el.style.display !== 'none' ? '1' : '0';
+                if (now !== initialState['visible|' + id]) dirty = true;
             });
-            ['retrievalBody', 'distBody'].forEach(bodyId => {
+
+            [
+                ['retrievalBody', 'retrievalOffice[]'],
+                ['distBody', 'distOffice[]'],
+            ].forEach(([bodyId, name]) => {
                 if (dirty) return;
                 const tbody = document.getElementById(bodyId);
-                if (!tbody) return;
-                const currentCount = tbody.querySelectorAll('input[type="hidden"]').length;
-                if (initialState['officeCount|' + bodyId] !== undefined && currentCount !== initialState['officeCount|' + bodyId]) dirty = true;
+                if (!tbody || initialState['officeCount|' + bodyId] === undefined) return;
+                const currentCount = String(tbody.querySelectorAll('input[type="hidden"][name="' + name + '"]').length);
+                if (currentCount !== initialState['officeCount|' + bodyId]) dirty = true;
             });
+
             return dirty;
         }
 
+        window.__regEditIsDirty = isDirty;
+        window.__regEditMarkClean = function () {
+            captureInitialState();
+            stateCaptured = true;
+            userInteracted = false;
+            updateButtonState();
+        };
+
         function updateButtonState() {
+            const hint = document.getElementById('regNoChangesHint');
             if (isDirty()) {
                 updateBtn.disabled = false;
                 updateBtn.style.opacity = '';
                 updateBtn.style.cursor = '';
                 updateBtn.title = '';
+                updateBtn.removeAttribute('aria-disabled');
+                if (hint) hint.hidden = true;
             } else {
                 updateBtn.disabled = true;
                 updateBtn.style.opacity = '0.45';
                 updateBtn.style.cursor = 'not-allowed';
-                updateBtn.title = 'No changes detected';
+                updateBtn.title = 'No changes detected — edit a field to enable Update Document.';
+                updateBtn.setAttribute('aria-disabled', 'true');
+                if (hint) hint.hidden = false;
             }
         }
 
-        setTimeout(() => { captureInitialState(); stateCaptured = true; updateButtonState(); }, 2000);
+        function refreshBaselineIfPristine() {
+            if (userInteracted) return;
+            captureInitialState();
+            stateCaptured = true;
+            updateButtonState();
+        }
+
+        updateButtonState();
+        setTimeout(refreshBaselineIfPristine, 400);
+        setTimeout(refreshBaselineIfPristine, 1200);
+        setTimeout(refreshBaselineIfPristine, 2500);
 
         const form = document.getElementById('masterForm');
         if (form) {
-            form.addEventListener('input', updateButtonState);
-            form.addEventListener('change', updateButtonState);
+            const onUserEdit = (event) => {
+                // Ignore script-driven input/change during hydration.
+                if (event && event.isTrusted === false) return;
+                if (event?.target && shouldIgnoreField(event.target)) return;
+                if (!stateCaptured) {
+                    captureInitialState();
+                    stateCaptured = true;
+                }
+                userInteracted = true;
+                updateButtonState();
+            };
+            form.addEventListener('input', onUserEdit, true);
+            form.addEventListener('change', onUserEdit, true);
         }
-        const observer = new MutationObserver(() => { setTimeout(updateButtonState, 100); });
+
+        // Widget re-renders before the user edits → refresh baseline, don't warn.
+        const observer = new MutationObserver(() => {
+            if (!userInteracted) {
+                setTimeout(refreshBaselineIfPristine, 50);
+                return;
+            }
+            setTimeout(updateButtonState, 100);
+        });
         if (form) observer.observe(form, { childList: true, subtree: true });
 
         const originalConfirmSave = window.confirmSave;
@@ -2714,12 +2817,9 @@ function lockRevisionScannedCopyCell(row, scannedCopyUrl) {
     if (!cell) return;
 
     if (scannedCopyUrl) {
-        const isPdf = isDcsScanPdfUrl(scannedCopyUrl);
-        const iconClass = isPdf ? 'fa-solid fa-file-pdf' : 'fa-solid fa-file-word';
-        const linkClass = isPdf ? 'reg-revrow-viewfile reg-revrow-viewfile-pdf' : 'reg-revrow-viewfile reg-revrow-viewfile-doc';
-        const label = isPdf ? 'View PDF' : 'View Word document';
+        // DCS revision scanned copies are PDF-only — always use the red PDF icon.
         cell.style.textAlign = 'center';
-        cell.innerHTML = `<button type="button" class="${linkClass}" onclick="window.open('${scannedCopyUrl}', '_blank')" title="${label}"><i class="${iconClass}"></i></button>`;
+        cell.innerHTML = `<button type="button" class="reg-revrow-viewfile reg-revrow-viewfile-pdf" onclick="window.open('${scannedCopyUrl}', '_blank')" title="View PDF"><i class="fa-solid fa-file-pdf"></i></button>`;
     } else {
         cell.style.textAlign = 'center';
         cell.innerHTML = `<div class="reg-file-error" style="margin:0;"><i class="fa-solid fa-circle-exclamation"></i> No scanned copy on file</div>`;
@@ -3899,7 +3999,7 @@ function hasMasterlistScannedCopy() {
     return false;
 }
 
-function masterlistHasData() {
+function masterlistFilledFields() {
     const docNo = (document.getElementById('masterlistDocNo')?.value || '').trim();
     const title = (
         document.getElementById('masterlistDocTitle')?.value
@@ -3909,11 +4009,50 @@ function masterlistHasData() {
     ).trim();
     const effectivity = (document.getElementById('masterlistEffectivityDate')?.value || '').trim();
     const pages = (document.getElementById('masterlistNoOfPages')?.value || '').trim();
-    return !!(docNo || title || effectivity || (pages && pages !== '0') || hasMasterlistScannedCopy());
+    const keywords = (document.getElementById('keywords')?.value || '').trim();
+    const deadline = (document.getElementById('deadlineOfSubmission')?.value || '').trim();
+    const receiptDate = (document.getElementById('masterlistReceiptDate')?.value || '').trim();
+    const hasOriginator = !!(window.__sourceWidgets?.masterlistOriginator?.selected?.length);
+    const hasSource = !!(window.__sourceWidgets?.masterlist?.selected?.length);
+
+    return {
+        docNo: !!docNo,
+        title: !!title,
+        effectivity: !!effectivity,
+        pages: !!(pages && pages !== '0'),
+        keywords: !!keywords,
+        deadline: !!deadline,
+        receiptDate: !!receiptDate,
+        originator: hasOriginator,
+        sourceUnit: hasSource,
+        scannedCopy: hasMasterlistScannedCopy(),
+    };
 }
 
-function validateMasterlistRequired(errors, { requireScan = false } = {}) {
-    if (!masterlistHasData()) {
+function masterlistHasData() {
+    const f = masterlistFilledFields();
+    return Object.values(f).some(Boolean);
+}
+
+/** Drafts need more than Document No alone — at least one other masterlist input. */
+function masterlistHasDraftSubstance() {
+    const f = masterlistFilledFields();
+    const filledCount = Object.values(f).filter(Boolean).length;
+    if (filledCount < 2) return false;
+    if (f.docNo && filledCount === 1) return false;
+    return true;
+}
+
+function validateMasterlistRequired(errors, { requireScan = false, forDraft = false } = {}) {
+    if (forDraft) {
+        if (!masterlistHasDraftSubstance()) {
+            errors.push({
+                field: 'masterlistDocTitle',
+                message: 'To save a draft, fill Document No plus at least one other masterlist field (e.g. Title, Effectivity Date, Pages, Keywords, Originator, or Source Unit).',
+            });
+            return;
+        }
+    } else if (!masterlistHasData()) {
         errors.push({
             field: 'masterlistDocNo',
             message: 'Masterlist Registration needs data (Document No, Title, Effectivity Date, or a scanned master copy).',
@@ -5615,7 +5754,7 @@ function validateForm() {
 
     validateTimeSpentFields(errors);
     validateRevisionRowsLinked(errors);
-    validateMasterlistRequired(errors, { requireScan: true });
+    validateMasterlistRequired(errors, { requireScan: false });
 
     return errors;
 }
@@ -5825,6 +5964,9 @@ function collectMissingFields() {
         checkText("Masterlist", "keywords", "Keywords");
         if (!window.__sourceWidgets.masterlistOriginator || window.__sourceWidgets.masterlistOriginator.selected.length === 0) missing.push("Masterlist: Originator");
         if (!window.__sourceWidgets.masterlist || window.__sourceWidgets.masterlist.selected.length === 0) missing.push("Masterlist: Source Unit");
+        if (!window.__isSyllabiMode && !hasMasterlistScannedCopy()) {
+            missing.push("Masterlist: Scanned Copy");
+        }
     }
 
     if (sectionVisible("section-4")) {
@@ -6178,6 +6320,7 @@ function buildDistributionReview(reviewContent) {
 }
 
 window.closeConfirmModal = function () {
+    if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
     const root = document.getElementById("dcsEditRoot");
     if (root && window.Alpine) Alpine.$data(root).reviewOpen = false;
     if (root) root.style.overflow = "";
@@ -6200,36 +6343,136 @@ window.submitForm = function () {
     const draftFlag = document.getElementById('saveAsDraft');
     if (draftFlag) draftFlag.value = '0';
     syncChecklistHiddenInputs();
+    window.__regFormSubmitting = true;
+    showSavingDocumentOverlay();
     document.getElementById("masterForm").submit();
 };
 
-window.confirmSaveDraft = function () {
-    const version = document.getElementById('versionType')?.value;
-    const docType = document.getElementById('docType')?.value;
-    if (!version || !docType) {
-        alert('Select Version Type and Document Type before saving a draft.');
+function showSavingDocumentOverlay() {
+    const modal = document.getElementById('confirmModal');
+    const banner = document.getElementById('regReviewSavingBanner');
+    const confirmBtn = document.getElementById('btnConfirmSaveModal');
+    const isUpdate = !!document.getElementById('btnUpdateDocument');
+    const label = isUpdate ? 'Updating document…' : 'Saving document…';
+
+    if (modal?.classList.contains('is-open')) {
+        modal.classList.add('is-saving');
+        if (banner) {
+            const text = banner.querySelector('span');
+            if (text) text.textContent = label + ' Please wait.';
+            banner.hidden = false;
+        }
+        modal.querySelectorAll('.reg-modal-close, .reg-modal-footer .reg-btn-cancel').forEach((el) => {
+            el.disabled = true;
+            el.setAttribute('aria-disabled', 'true');
+        });
+        if (confirmBtn) {
+            confirmBtn.disabled = true;
+            confirmBtn.setAttribute('aria-disabled', 'true');
+            confirmBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> '
+                + (isUpdate ? 'Updating…' : 'Saving…');
+        }
         return;
     }
-    const draftErrors = [];
-    validateMasterlistRequired(draftErrors, { requireScan: false });
-    if (draftErrors.length > 0) {
-        showValidationErrors(draftErrors);
-        alert(draftErrors[0].message);
-        return;
+
+    // Fallback when review modal is not open (e.g. draft leave autosave).
+    let overlay = document.getElementById('regSavingOverlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'regSavingOverlay';
+        overlay.className = 'reg-saving-overlay';
+        overlay.setAttribute('role', 'status');
+        overlay.setAttribute('aria-live', 'polite');
+        overlay.innerHTML = `
+            <div class="reg-saving-card">
+                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                <div>
+                    <strong></strong>
+                    <p>Please wait while your document is being written.</p>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
     }
-    if (!confirm('Save this registration as a draft? You can finish it later from Document Registration → Drafts.')) {
-        return;
+    const title = overlay.querySelector('strong');
+    if (title) title.textContent = label;
+    overlay.classList.add('is-visible');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.setAttribute('aria-disabled', 'true');
     }
-    const draftFlag = document.getElementById('saveAsDraft');
-    if (draftFlag) draftFlag.value = '1';
-    // Ensure approval has a value for drafts even if untouched.
+}
+
+function prepareDraftSubmitDefaults() {
     const approvalChecked = document.querySelector('input[name="approval_status"]:checked');
     if (!approvalChecked) {
         const na = document.querySelector('input[name="approval_status"][value="not_applicable"]');
         if (na) na.checked = true;
     }
-    syncChecklistHiddenInputs();
-    document.getElementById('masterForm').submit();
+    if (typeof syncChecklistHiddenInputs === 'function') syncChecklistHiddenInputs();
+}
+
+window.__regDraftCanSave = function () {
+    const version = document.getElementById('versionType')?.value;
+    const docType = document.getElementById('docType')?.value;
+    if (!version || !docType) return false;
+    const draftErrors = [];
+    validateMasterlistRequired(draftErrors, { requireScan: false, forDraft: true });
+    return draftErrors.length === 0;
+};
+
+window.__regDraftHasProgress = function () {
+    // Update/Edit: only block leave when the user actually changed loaded data.
+    if (typeof window.__regEditIsDirty === 'function') {
+        try {
+            return !!window.__regEditIsDirty();
+        } catch (_) {
+            return false;
+        }
+    }
+    // Drafts without dirty helper: any started registration counts as progress.
+    if (window.__isDraftDoc) {
+        return !!document.getElementById('versionType')?.value
+            || !!document.getElementById('docType')?.value
+            || (typeof masterlistHasData === 'function' && masterlistHasData());
+    }
+    // Published edit page should never warn just because saved fields have values.
+    return false;
+};
+
+window.__regDraftShouldAutosaveOnLeave = function () {
+    // Autosave drafts only. Published document edits keep beforeunload warning via hasProgress.
+    return !!window.__isDraftDoc;
+};
+
+window.__regDraftPrepareSubmit = function () {
+    prepareDraftSubmitDefaults();
+};
+
+window.__regDraftShowErrors = function (message) {
+    const draftErrors = [];
+    validateMasterlistRequired(draftErrors, { requireScan: false, forDraft: true });
+    if (draftErrors.length > 0) {
+        showValidationErrors(draftErrors);
+        if (window.__regDraftHighlightErrors) return;
+        if (typeof window.showDraftNoticeModal === 'function') {
+            window.showDraftNoticeModal(draftErrors[0].message);
+            return;
+        }
+        if (window.dcsShowToast) {
+            window.dcsShowToast(draftErrors[0].message, 'error');
+            return;
+        }
+    }
+    if (window.__regDraftHighlightErrors) return;
+    if (typeof window.showDraftNoticeModal === 'function') {
+        window.showDraftNoticeModal(message || 'Unable to save draft.');
+        return;
+    }
+    if (window.dcsShowToast) {
+        window.dcsShowToast(message || 'Unable to save draft.', 'error');
+        return;
+    }
 };
 
 // ══════════════════════════════════════════════
@@ -6425,4 +6668,5 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 @include('pages.dcs.register.partials.dist-office-groups-script')
+<script src="{{ asset('js/dcs/register-draft-guard.js') }}"></script>
 @endif

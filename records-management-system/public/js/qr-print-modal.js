@@ -126,16 +126,18 @@ window.openDynamicPrintModal = function(qrCodeValue) {
     var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(btoa(qrCodeValue));
     console.log('Generated QR URL:', qrUrl);
     document.getElementById('dynamicQrImage').src = qrUrl;
+    // Default include code option to false on opening modal
+    _includeQrCodeText = false;
     var dynText = document.getElementById('dynamicQrText');
     if (dynText) {
         dynText.textContent = qrCodeValue;
-        dynText.style.display = _includeQrCodeText ? 'block' : 'none';
+        dynText.style.display = 'none';
     }
 
     // Sync checkbox state
     var chk = document.getElementById('toggleQrCodeTextCheckbox');
     if (chk) {
-        chk.checked = _includeQrCodeText;
+        chk.checked = false;
     }
 
     // Reset to portrait layout
@@ -243,56 +245,93 @@ window.resetQrPosition = function() {
 window.executeDynamicPrint = function() {
     var dragContainer = document.getElementById('draggableQrContainer');
     if (!dragContainer) return;
-    var topPx = parseFloat(dragContainer.style.top);
-    var leftPx = parseFloat(dragContainer.style.left);
-    var qrImageSrc = document.getElementById('dynamicQrImage').src;
-    var qrTextVal = document.getElementById('dynamicQrText').textContent;
+    var topPx = parseFloat(dragContainer.style.top) || 40;
+    var leftPx = parseFloat(dragContainer.style.left) || 40;
+    var qrImgEl = document.getElementById('dynamicQrImage');
+    var qrTextVal = document.getElementById('dynamicQrText') ? document.getElementById('dynamicQrText').textContent : '';
+
+    // Prefer in-memory dataURL from the already-rendered QR image (instant, zero network latency)
+    var qrImageSrc = '';
+    if (qrImgEl) {
+        try {
+            var canvas = document.createElement('canvas');
+            canvas.width = qrImgEl.naturalWidth || 150;
+            canvas.height = qrImgEl.naturalHeight || 150;
+            var ctx = canvas.getContext('2d');
+            ctx.drawImage(qrImgEl, 0, 0);
+            var dataUrl = canvas.toDataURL('image/png');
+            if (dataUrl && dataUrl.length > 100) {
+                qrImageSrc = dataUrl;
+            }
+        } catch (e) {
+            console.warn('Canvas export failed, falling back to img.src:', e);
+        }
+        if (!qrImageSrc) {
+            qrImageSrc = qrImgEl.src;
+        }
+    }
 
     var pageSize = _qrPageLayout === 'portrait' ? 'letter portrait' : 'letter landscape';
     var bodyW = _qrPageLayout === 'portrait' ? '8.5in' : '11in';
     var bodyH = _qrPageLayout === 'portrait' ? '11in' : '8.5in';
 
-    var config = SIZE_CONFIGS[_qrCodeSize];
+    var config = SIZE_CONFIGS[_qrCodeSize] || SIZE_CONFIGS['big'];
+    var fontSize = _calculatedFontSize || config.fontSize || '11px';
+
+    var spanHtml = (_includeQrCodeText && qrTextVal) 
+        ? '<span>' + escapeHtml(qrTextVal) + '</span>' 
+        : '';
 
     var printWindow = window.open('', '_blank');
-    var css = '* { box-sizing: border-box; }'
-        + '@page { size: ' + pageSize + '; margin: 0; }'
-        + 'body { margin:0; padding:0; width:' + bodyW + '; height:' + bodyH + '; position:relative; background:white; }'
-        + '.qr-wrapper { position:absolute; top:' + topPx + 'px; left:' + leftPx + 'px; width:' + config.containerW + 'px; display:flex; flex-direction:column; align-items:center; gap:' + config.gap + '; padding:' + config.padding + '; }'
-        + '.qr-wrapper img { width:' + config.imgW + 'px; height:' + config.imgH + 'px; display:block; }'
-        + '.qr-wrapper span { font-family:monospace; font-weight:bold; font-size:' + _calculatedFontSize + '; color:#000; text-align:center; white-space:nowrap; overflow:hidden; width:100%; display:block; line-height:1.2; }';
-    printWindow.document.open();
-    var doc = printWindow.document;
-    var htmlEl = doc.createElement('html');
-    var headEl = doc.createElement('head');
-    var styleEl = doc.createElement('style');
-    styleEl.textContent = css;
-    headEl.appendChild(styleEl);
-
-    var bodyEl = doc.createElement('body');
-    var wrapperEl = doc.createElement('div');
-    wrapperEl.className = 'qr-wrapper';
-
-    var imgEl = doc.createElement('img');
-    imgEl.setAttribute('src', qrImageSrc);
-    imgEl.setAttribute('alt', 'QR');
-
-    wrapperEl.appendChild(imgEl);
-
-    if (_includeQrCodeText && qrTextVal) {
-        var spanEl = doc.createElement('span');
-        spanEl.textContent = qrTextVal;
-        wrapperEl.appendChild(spanEl);
+    if (!printWindow) {
+        alert('Please allow popups to print the QR code.');
+        return;
     }
 
-    bodyEl.appendChild(wrapperEl);
+    var html = '<!DOCTYPE html>'
+        + '<html>'
+        + '<head>'
+        + '<meta charset="utf-8">'
+        + '<title>Print QR Code</title>'
+        + '<style>'
+        + '* { box-sizing: border-box; margin: 0; padding: 0; }'
+        + '@page { size: ' + pageSize + '; margin: 0; }'
+        + 'body { margin: 0; padding: 0; width: ' + bodyW + '; height: ' + bodyH + '; position: relative; background: #ffffff; }'
+        + '.qr-wrapper { position: absolute; top: ' + topPx + 'px; left: ' + leftPx + 'px; width: ' + config.containerW + 'px; display: flex; flex-direction: column; align-items: center; gap: ' + config.gap + '; padding: ' + config.padding + '; }'
+        + '.qr-wrapper img { width: ' + config.imgW + 'px; height: ' + config.imgH + 'px; display: block; }'
+        + '.qr-wrapper span { font-family: monospace; font-weight: bold; font-size: ' + fontSize + '; color: #000000; text-align: center; white-space: nowrap; overflow: hidden; width: 100%; display: block; line-height: 1.2; margin-top: 2px; }'
+        + '</style>'
+        + '</head>'
+        + '<body>'
+        + '<div class="qr-wrapper">'
+        + '<img id="printQrImg" src="' + qrImageSrc + '" alt="QR">'
+        + spanHtml
+        + '</div>'
+        + '<script>'
+        + 'var hasPrinted = false;'
+        + 'function runPrint() {'
+        + '  if (hasPrinted) return;'
+        + '  hasPrinted = true;'
+        + '  window.focus();'
+        + '  window.print();'
+        + '  setTimeout(function() { window.close(); }, 500);'
+        + '}'
+        + 'var img = document.getElementById("printQrImg");'
+        + 'if (img && !img.complete) {'
+        + '  img.onload = function() { setTimeout(runPrint, 100); };'
+        + '  img.onerror = function() { runPrint(); };'
+        + '} else {'
+        + '  setTimeout(runPrint, 100);'
+        + '}'
+        + 'window.onload = function() { setTimeout(runPrint, 100); };'
+        + 'setTimeout(runPrint, 2500);'
+        + '<\/script>'
+        + '</body>'
+        + '</html>';
 
-    htmlEl.appendChild(headEl);
-    htmlEl.appendChild(bodyEl);
-    doc.appendChild(htmlEl);
-    doc.close();
-    printWindow.focus();
-    setTimeout(function() { printWindow.print(); printWindow.close(); }, 500);
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
 };
 
 // Drag logic

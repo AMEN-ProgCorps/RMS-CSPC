@@ -7,6 +7,11 @@
             <i class="fa-solid fa-arrows-up-down-left-right" style="margin-right: 8px;"></i> Arrange QR Code for Printing
         </h3>
         <div style="display: flex; gap: 10px; align-items: center;">
+            <label id="toggleQrCodeTextLabel" title="Include QR Code digits below the QR image" style="display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; font-size: 12.5px; font-weight: 600; color: #1e293b; padding: 6px 12px; border-radius: 6px; border: 1px solid #cbd5e1; background: #ffffff;">
+                <input type="checkbox" id="toggleQrCodeTextCheckbox" onchange="toggleIncludeQrDigits(this.checked)" style="cursor: pointer; width: 16px; height: 16px; accent-color: #3b82f6; margin: 0;">
+                <span>Include Code</span>
+            </label>
+            <div style="width: 1px; height: 24px; background: #cbd5e1;"></div>
             <div style="display: flex; align-items: center; gap: 6px;">
                 <span style="font-size: 12px; font-weight: 600; color: #475569;">Size:</span>
                 <select id="qrSizeSelect" onchange="changeQrSize(this.value)" style="background: #ffffff; color: #1e293b; border: 1px solid #cbd5e1; padding: 6px 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; outline: none;">
@@ -48,9 +53,9 @@
             </div>
             
             <!-- Draggable QR Code -->
-            <div id="draggableQrContainer" style="position: absolute; top: 40px; right: 40px; width: 150px; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: grab; padding: 8px; border: 2px dashed #94a3b8; background: rgba(255,255,255,0.8); border-radius: 8px; user-select: none; z-index: 10;">
+            <div id="draggableQrContainer" style="position: absolute; top: 40px; right: 40px; width: 150px; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: grab; padding: 8px; border: 2px dashed #94a3b8; background: rgba(255,255,255,0.8); border-radius: 8px; user-select: none; z-index: 10; box-sizing: border-box;">
                 <img id="dynamicQrImage" src="" alt="QR Code" style="width: 130px; height: 130px; pointer-events: none;">
-                <span id="dynamicQrText" style="display: none; font-family: monospace; font-weight: bold; font-size: 11px; color: #000; text-align: center; word-break: break-all; pointer-events: none;"></span>
+                <span id="dynamicQrText" style="display: none; font-family: monospace; font-weight: bold; font-size: 11px; color: #000; text-align: center; white-space: nowrap; overflow: hidden; width: 100%; pointer-events: none; line-height: 1.2;"></span>
             </div>
 
         </div>

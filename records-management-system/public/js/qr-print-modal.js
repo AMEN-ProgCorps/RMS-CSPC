@@ -7,6 +7,8 @@
 var _qrPageLayout = 'portrait';
 // Track current QR code size: 'small', 'medium', or 'big'
 var _qrCodeSize = 'big';
+// Track whether to include QR code text/digits below the QR image
+var _includeQrCodeText = false;
 // Calculated font size to ensure text fits in a single line
 var _calculatedFontSize = '11px';
 
@@ -47,6 +49,59 @@ var SIZE_CONFIGS = {
     }
 };
 
+// Calculate and auto-fit font size for QR digits
+window.updateQrTextFontSize = function() {
+    var txt = document.getElementById('dynamicQrText');
+    if (!txt) return;
+    var config = SIZE_CONFIGS[_qrCodeSize] || SIZE_CONFIGS['big'];
+    var paddingVal = parseFloat(config.padding) || 0;
+    var maxTextWidth = config.containerW - (paddingVal * 2);
+    var baseFontSize = parseFloat(config.fontSize) || 11;
+
+    // Temporarily make element measurable if hidden
+    var prevDisplay = txt.style.display;
+    var prevVisibility = txt.style.visibility;
+    if (prevDisplay === 'none') {
+        txt.style.visibility = 'hidden';
+        txt.style.display = 'block';
+    }
+
+    var size = baseFontSize;
+    txt.style.fontSize = size + 'px';
+    while (txt.scrollWidth > maxTextWidth && size > 5) {
+        size -= 0.5;
+        txt.style.fontSize = size + 'px';
+    }
+    _calculatedFontSize = txt.style.fontSize;
+
+    // Restore display & visibility state
+    txt.style.visibility = prevVisibility;
+    txt.style.display = _includeQrCodeText ? 'block' : 'none';
+};
+
+// Toggle including QR code digits below the QR image
+window.toggleIncludeQrDigits = function(checked) {
+    _includeQrCodeText = !!checked;
+    var txt = document.getElementById('dynamicQrText');
+    var chk = document.getElementById('toggleQrCodeTextCheckbox');
+    if (chk) chk.checked = _includeQrCodeText;
+    if (txt) {
+        txt.style.display = _includeQrCodeText ? 'block' : 'none';
+        if (_includeQrCodeText) {
+            window.updateQrTextFontSize();
+        }
+    }
+
+    // Clamp QR position within paper bounds if container height changed
+    var pc = document.getElementById('printPaperContainer');
+    var dc = document.getElementById('draggableQrContainer');
+    if (pc && dc) {
+        var maxTop = pc.offsetHeight - dc.offsetHeight;
+        var curTop = parseFloat(dc.style.top) || 0;
+        dc.style.top = Math.max(0, Math.min(curTop, maxTop)) + 'px';
+    }
+};
+
 window.openDynamicPrintModal = function(qrCodeValue) {
     console.log('openDynamicPrintModal called with value:', qrCodeValue);
     if (!qrCodeValue) {
@@ -71,7 +126,17 @@ window.openDynamicPrintModal = function(qrCodeValue) {
     var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(btoa(qrCodeValue));
     console.log('Generated QR URL:', qrUrl);
     document.getElementById('dynamicQrImage').src = qrUrl;
-    document.getElementById('dynamicQrText').textContent = qrCodeValue;
+    var dynText = document.getElementById('dynamicQrText');
+    if (dynText) {
+        dynText.textContent = qrCodeValue;
+        dynText.style.display = _includeQrCodeText ? 'block' : 'none';
+    }
+
+    // Sync checkbox state
+    var chk = document.getElementById('toggleQrCodeTextCheckbox');
+    if (chk) {
+        chk.checked = _includeQrCodeText;
+    }
 
     // Reset to portrait layout
     _qrPageLayout = 'portrait';
@@ -118,23 +183,11 @@ window.changeQrSize = function(sizeValue) {
     img.style.height = config.imgH + 'px';
     
     txt.style.whiteSpace = 'nowrap';
-    txt.style.display = 'none';
     txt.style.width = '100%';
+    txt.style.display = _includeQrCodeText ? 'block' : 'none';
 
     // Auto-adjust font size to fit container width
-    var paddingVal = parseFloat(config.padding) || 0;
-    var maxTextWidth = config.containerW - (paddingVal * 2); // available width inside container
-    var baseFontSize = parseFloat(config.fontSize) || 11;
-    
-    var size = baseFontSize;
-    txt.style.fontSize = size + 'px';
-    while (txt.scrollWidth > maxTextWidth && size > 5) {
-        size -= 0.5;
-        txt.style.fontSize = size + 'px';
-    }
-    
-    // Store calculated font size for printing
-    _calculatedFontSize = txt.style.fontSize;
+    window.updateQrTextFontSize();
 
     // Clamp position within current paper bounds so it doesn't overflow when changing size
     var pc = document.getElementById('printPaperContainer');
@@ -202,11 +255,12 @@ window.executeDynamicPrint = function() {
     var config = SIZE_CONFIGS[_qrCodeSize];
 
     var printWindow = window.open('', '_blank');
-    var css = '@page { size: ' + pageSize + '; margin: 0; }'
+    var css = '* { box-sizing: border-box; }'
+        + '@page { size: ' + pageSize + '; margin: 0; }'
         + 'body { margin:0; padding:0; width:' + bodyW + '; height:' + bodyH + '; position:relative; background:white; }'
         + '.qr-wrapper { position:absolute; top:' + topPx + 'px; left:' + leftPx + 'px; width:' + config.containerW + 'px; display:flex; flex-direction:column; align-items:center; gap:' + config.gap + '; padding:' + config.padding + '; }'
-        + '.qr-wrapper img { width:' + config.imgW + 'px; height:' + config.imgH + 'px; }'
-        + '.qr-wrapper span { font-family:monospace; font-weight:bold; font-size:' + _calculatedFontSize + '; color:#000; text-align:center; white-space:nowrap; overflow:hidden; }';
+        + '.qr-wrapper img { width:' + config.imgW + 'px; height:' + config.imgH + 'px; display:block; }'
+        + '.qr-wrapper span { font-family:monospace; font-weight:bold; font-size:' + _calculatedFontSize + '; color:#000; text-align:center; white-space:nowrap; overflow:hidden; width:100%; display:block; line-height:1.2; }';
     printWindow.document.open();
     var doc = printWindow.document;
     var htmlEl = doc.createElement('html');
@@ -224,6 +278,13 @@ window.executeDynamicPrint = function() {
     imgEl.setAttribute('alt', 'QR');
 
     wrapperEl.appendChild(imgEl);
+
+    if (_includeQrCodeText && qrTextVal) {
+        var spanEl = doc.createElement('span');
+        spanEl.textContent = qrTextVal;
+        wrapperEl.appendChild(spanEl);
+    }
+
     bodyEl.appendChild(wrapperEl);
 
     htmlEl.appendChild(headEl);

@@ -88,6 +88,76 @@
             background: #f8fafc;
         }
 
+        .toggle-subject-container {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            user-select: none;
+            margin-right: 8px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: background 0.15s ease;
+        }
+
+        .toggle-subject-container:hover {
+            background: #f1f5f9;
+        }
+
+        .toggle-subject-text {
+            font-size: 12px;
+            font-weight: 600;
+            color: #334155;
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 34px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+            position: absolute;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #cbd5e1;
+            transition: 0.2s ease;
+            border-radius: 18px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 2px;
+            bottom: 2px;
+            background-color: #ffffff;
+            transition: 0.2s ease;
+            border-radius: 50%;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: #003699;
+        }
+
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(16px);
+        }
+
         .sheet {
             width: 98%;
             max-width: 1550px;
@@ -415,6 +485,13 @@
             <h2>{{ $meta['title'] ?? 'DTS Report Preview' }}</h2>
         </div>
         <div class="actions-area">
+            <label class="toggle-subject-container" title="Toggle between summarized (255 characters) and complete subject">
+                <span class="toggle-subject-text">Show Complete Subject</span>
+                <span class="toggle-switch">
+                    <input type="checkbox" id="toggleSubjectSwitch" onchange="toggleSubjectDisplay(this.checked)">
+                    <span class="toggle-slider"></span>
+                </span>
+            </label>
             <button type="button" class="btn-print" onclick="window.print()">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
                 Print / Save as PDF
@@ -626,8 +703,20 @@
                                 </td>
 
                             @elseif($colKey === 'subject')
+                                @php
+                                    $rawSubject = (string)($val ?? '');
+                                    $isLongSubject = mb_strlen($rawSubject) > 255;
+                                    $truncatedSubject = $isLongSubject ? mb_substr($rawSubject, 0, 255) . '....' : $rawSubject;
+                                @endphp
                                 <td class="col-subject">
-                                    <div class="subject-cell">{{ $val }}</div>
+                                    <div class="subject-cell">
+                                        @if($isLongSubject)
+                                            <span class="subject-truncated">{{ $truncatedSubject }}</span>
+                                            <span class="subject-full" style="display: none;">{{ $rawSubject }}</span>
+                                        @else
+                                            <span>{{ $rawSubject }}</span>
+                                        @endif
+                                    </div>
                                 </td>
 
                             @else
@@ -666,9 +755,26 @@
     </div>
 
     <script>
-        // If autoPrint parameter is provided
+        function toggleSubjectDisplay(showAll) {
+            const truncatedList = document.querySelectorAll('.subject-truncated');
+            const fullList = document.querySelectorAll('.subject-full');
+            truncatedList.forEach(function(el) {
+                el.style.display = showAll ? 'none' : 'inline';
+            });
+            fullList.forEach(function(el) {
+                el.style.display = showAll ? 'inline' : 'none';
+            });
+        }
+
+        // If autoPrint parameter is provided or query parameter sets subject toggle
         window.addEventListener('load', function() {
             const urlParams = new URLSearchParams(window.location.search);
+            const toggleSwitch = document.getElementById('toggleSubjectSwitch');
+            if (toggleSwitch && (urlParams.get('show_all_subject') === '1' || urlParams.get('show_all') === '1')) {
+                toggleSwitch.checked = true;
+                toggleSubjectDisplay(true);
+            }
+
             if (urlParams.get('autoPrint') === '1') {
                 setTimeout(function() {
                     window.print();

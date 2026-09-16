@@ -1382,7 +1382,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                                     <span>'<strong>{{ $source_office }}</strong>' is not yet registered. It will be automatically added as a new external source office upon creation.</span>
                                 </div>
                             @endif
-                        </div>
+                        @endif
                         @error('source_office')
                             <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;"><i class="fa-solid fa-triangle-exclamation"></i> {{ $message }}</span>
                         @enderror

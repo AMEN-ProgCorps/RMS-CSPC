@@ -151,7 +151,7 @@ try {
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <title>Chatify - CSPC</title>
+  <title>CSPC - Chatify</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta charset="UTF-8">
   <meta name="description" content="Chatify - real-time messaging para sa CSPC.">

@@ -215,6 +215,8 @@
             font-size: 9px;
             letter-spacing: 0.3px;
             vertical-align: middle;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
 
         .report-table th.flow-super-hdr {
@@ -242,6 +244,24 @@
             color: #1e293b;
             vertical-align: top;
             line-height: 1.3;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        .report-table th.col-subject,
+        .report-table td.col-subject {
+            min-width: 140px;
+            max-width: 320px;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        .subject-cell {
+            font-size: 9.5px;
+            line-height: 1.35;
+            color: #1e293b;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
 
         .report-table tr:nth-child(even) td {
@@ -356,8 +376,19 @@
                 color: #000000 !important;
             }
 
+            .report-table th,
             .report-table td {
                 border: 1px solid #cbd5e1 !important;
+                color: #000000 !important;
+                overflow-wrap: anywhere !important;
+                word-break: break-word !important;
+            }
+
+            .report-table th.col-subject,
+            .report-table td.col-subject,
+            .subject-cell {
+                overflow-wrap: anywhere !important;
+                word-break: break-word !important;
                 color: #000000 !important;
             }
 
@@ -465,7 +496,7 @@
                                     @php $renderedFlowSupers[$fIndex] = true; @endphp
                                 @endif
                             @else
-                                <th rowspan="2" class="{{ in_array($colKey, ['item_no', 'status', 'elapsed_days', 'released_time', 'received_time']) ? 'align-center' : '' }}">
+                                <th rowspan="2" class="col-{{ $colKey }} {{ in_array($colKey, ['item_no', 'status', 'elapsed_days', 'released_time', 'received_time']) ? 'align-center' : '' }}">
                                     {{ $availableColumns[$colKey]['label'] ?? ucfirst(str_replace('_', ' ', $colKey)) }}
                                 </th>
                             @endif
@@ -476,7 +507,7 @@
                     <tr>
                         @foreach($selectedColumns as $colKey)
                             @if(in_array($colKey, $allFlowKeys))
-                                <th class="flow-sub-hdr {{ str_contains($colKey, 'elapsed_days') ? 'align-center' : '' }}">
+                                <th class="flow-sub-hdr col-{{ $colKey }} {{ str_contains($colKey, 'elapsed_days') ? 'align-center' : '' }}">
                                     {{ $availableColumns[$colKey]['sublabel'] ?? ($availableColumns[$colKey]['label'] ?? $colKey) }}
                                 </th>
                             @endif
@@ -486,7 +517,7 @@
                     <!-- Standard Single-tier Header Row -->
                     <tr>
                         @foreach($selectedColumns as $colKey)
-                            <th class="{{ in_array($colKey, ['item_no', 'status', 'elapsed_days', 'released_time', 'received_time']) ? 'align-center' : '' }}">
+                            <th class="col-{{ $colKey }} {{ in_array($colKey, ['item_no', 'status', 'elapsed_days', 'released_time', 'received_time']) ? 'align-center' : '' }}">
                                 {{ $availableColumns[$colKey]['label'] ?? ucfirst(str_replace('_', ' ', $colKey)) }}
                             </th>
                         @endforeach
@@ -590,12 +621,17 @@
                                 </td>
 
                             @elseif($colKey === 'elapsed_days')
-                                <td class="align-center">
-                                    <span style="font-weight: 600; color: #334155; font-size: 9.5px;">{{ $val }}</span>
+                                <td class="col-elapsed_days align-center">
+                                     <span style="font-weight: 600; color: #334155; font-size: 9.5px;">{{ $val }}</span>
+                                </td>
+
+                            @elseif($colKey === 'subject')
+                                <td class="col-subject">
+                                    <div class="subject-cell">{{ $val }}</div>
                                 </td>
 
                             @else
-                                <td class="{{ $isCenter ? 'align-center' : '' }}">
+                                <td class="col-{{ $colKey }} {{ $isCenter ? 'align-center' : '' }}">
                                     {{ $val }}
                                 </td>
                             @endif

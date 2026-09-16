@@ -860,7 +860,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             'source_office' => 'required|string',
             'requestor_name' => 'required|string|max:255',
             'requestor_label' => 'nullable|string|max:255',
-            'subject' => 'required|string',
+            'subject' => 'required|string|max:500',
             'transaction_flow' => 'required|string|exists:dts_transaction_flow,flow_code',
             'copy_furnished' => 'required|string|in:Yes,No',
             'cf_selected_offices' => 'nullable|array',
@@ -1469,7 +1469,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
                 <div class="form-row">
                     <div class="form-col subject-wrapper">
                         <label class="input-label">Subject:</label>
-                        <textarea wire:model="subject" class="textarea-input subject-area" placeholder="Enter subject..." rows="4"></textarea>
+                        <textarea wire:model="subject" class="textarea-input subject-area" placeholder="Enter subject..." rows="4" maxlength="500"></textarea>
                         @error('subject')
                             <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
                         @enderror

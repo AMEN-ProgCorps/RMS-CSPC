@@ -14,6 +14,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $emailAccessRequiredInternal = false;
     public bool $allowManualCompletionButton = false;
     public bool $autoForwardCreatedTransaction = true;
+    public bool $dtsQrIncludeCodeDefault = false;
     public bool $rdpRequiredUploadFile = false;
     public bool $dtsRequiredUploadFile = false;
     public int $tabCloseIdleTimeoutMinutes = 15;
@@ -318,6 +319,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $autoFwd = \DB::table('sys_system_settings')->where('key', 'dts_auto_forward_created_transaction')->value('value');
         $this->autoForwardCreatedTransaction = ($autoFwd !== 'false');
+
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $qrIncludeDefault = \DB::table($sysTable)->where('key', 'dts_qr_include_code_default')->value('value');
+        $this->dtsQrIncludeCodeDefault = ($qrIncludeDefault === 'true');
 
         $rdpReq = \DB::table('sys_system_settings')->where('key', 'rdp_required_upload_file')->value('value');
         $this->rdpRequiredUploadFile = ($rdpReq === 'true');
@@ -643,6 +648,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ['key' => 'dts_auto_forward_created_transaction'],
                     [
                         'value' => $this->autoForwardCreatedTransaction ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'dts_qr_include_code_default'],
+                    [
+                        'value' => $this->dtsQrIncludeCodeDefault ? 'true' : 'false',
                         'updated_at' => now(),
                     ]
                 );
@@ -1530,7 +1544,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                 </div>
             </div>
 
+            <!-- Card: Document Tracking System (DTS) Settings -->
+            <div class="settings-card">
+                <div>
+                    <div class="settings-card-header">
+                        <i class="fa-solid fa-qrcode" style="color: #2563eb;"></i>
+                        <h3>Document Tracking System (DTS) Settings</h3>
+                    </div>
 
+                    <!-- Setting: QR Code Digits Default State -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Include QR Code Digits by Default</span>
+                            <span class="setting-desc">Configures the default state of the "Include Code" toggle in the Arrange QR Code printing modal. When enabled, document tracking digits will automatically be displayed beneath the QR code image by default for printing.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="dtsQrIncludeCodeDefault">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
 
             <!-- Card: Session & Security Settings -->
             <div class="settings-card">

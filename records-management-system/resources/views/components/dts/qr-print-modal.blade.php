@@ -1,5 +1,20 @@
 <!-- Dynamic Movable QR Print Modal Component -->
-<div id="dynamicQrPrintModal" wire:ignore style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 99999; flex-direction: column;">
+@php
+    $sysSettingsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+    $dtsQrIncludeDefault = false;
+    try {
+        if (\Illuminate\Support\Facades\Schema::hasTable($sysSettingsTbl)) {
+            $val = \Illuminate\Support\Facades\DB::table($sysSettingsTbl)->where('key', 'dts_qr_include_code_default')->value('value');
+            $dtsQrIncludeDefault = ($val === 'true');
+        }
+    } catch (\Throwable $e) {
+        $dtsQrIncludeDefault = false;
+    }
+@endphp
+<div id="dynamicQrPrintModal" data-default-include-code="{{ $dtsQrIncludeDefault ? 'true' : 'false' }}" wire:ignore style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 99999; flex-direction: column;">
+    <script>
+        window.DTS_DEFAULT_INCLUDE_QR_CODE = {{ $dtsQrIncludeDefault ? 'true' : 'false' }};
+    </script>
     <style>
         #dynamicQrPrintModal .qr-toolbar-label {
             font-size: 12.5px;

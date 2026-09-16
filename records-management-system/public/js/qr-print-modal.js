@@ -126,18 +126,29 @@ window.openDynamicPrintModal = function(qrCodeValue) {
     var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(btoa(qrCodeValue));
     console.log('Generated QR URL:', qrUrl);
     document.getElementById('dynamicQrImage').src = qrUrl;
-    // Default include code option to false on opening modal
-    _includeQrCodeText = false;
+    // Read default include code setting from modal data-attribute or global variable
+    var defaultInclude = false;
+    if (qrModal && qrModal.getAttribute('data-default-include-code') === 'true') {
+        defaultInclude = true;
+    } else if (window.DTS_DEFAULT_INCLUDE_QR_CODE === true) {
+        defaultInclude = true;
+    }
+
+    _includeQrCodeText = defaultInclude;
     var dynText = document.getElementById('dynamicQrText');
     if (dynText) {
         dynText.textContent = qrCodeValue;
-        dynText.style.display = 'none';
+        dynText.style.display = _includeQrCodeText ? 'block' : 'none';
     }
 
     // Sync checkbox state
     var chk = document.getElementById('toggleQrCodeTextCheckbox');
     if (chk) {
-        chk.checked = false;
+        chk.checked = _includeQrCodeText;
+    }
+
+    if (_includeQrCodeText) {
+        window.updateQrTextFontSize();
     }
 
     // Reset to portrait layout

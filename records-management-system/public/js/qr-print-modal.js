@@ -288,6 +288,7 @@ window.executeDynamicPrint = function() {
 
     var config = SIZE_CONFIGS[_qrCodeSize] || SIZE_CONFIGS['big'];
     var fontSize = _calculatedFontSize || config.fontSize || '11px';
+    var safeQrImageSrc = escapeHtml(qrImageSrc || '');
 
     var spanHtml = (_includeQrCodeText && qrTextVal) 
         ? '<span>' + escapeHtml(qrTextVal) + '</span>' 
@@ -315,7 +316,7 @@ window.executeDynamicPrint = function() {
         + '</head>'
         + '<body>'
         + '<div class="qr-wrapper">'
-        + '<img id="printQrImg" src="' + qrImageSrc + '" alt="QR">'
+        + '<img id="printQrImg" src="' + safeQrImageSrc + '" alt="QR">'
         + spanHtml
         + '</div>'
         + '<script>'

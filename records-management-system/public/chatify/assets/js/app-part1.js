@@ -626,14 +626,15 @@
                       loadChatForced();
                     }
                   } else {
-                    const wasAtBottom = (typeof isAtBottom === 'function') ? isAtBottom() : true;
                     renderAndAppendWsMessage(data);
-                    if (wasAtBottom && shouldMarkReadNow()) {
+                    // renderAndAppendWsMessage already calls showScrollIndicator(1)
+                    // internally when the user is scrolled up — don't call it again
+                    // here or the counter increments twice per message (+2 instead of +1).
+                    // Only markRead needs to be handled separately.
+                    if ((typeof isAtBottom === 'function' ? isAtBottom() : false) && shouldMarkReadNow()) {
                       userScrolledUp = false;
                       shouldAutoScroll = true;
                       markRead(activeDM, data.msg_uuid || data.id);
-                    } else if (typeof showScrollIndicator === 'function' && !wasAtBottom) {
-                      showScrollIndicator(1);
                     }
                   }
                 } else {
@@ -3060,58 +3061,84 @@
     // inside #chat-box before inserting older history.
     function captureScrollAnchor() {
       if (!chatBox) return null;
-      const boxRect = chatBox.getBoundingClientRect();
+      const scrollTop = chatBox.scrollTop;
+      const prevScrollHeight = chatBox.scrollHeight;
       const messages = Array.from(chatBox.querySelectorAll('.message-container'));
-      if (messages.length === 0) return null;
+      if (messages.length === 0) {
+        return { el: null, msgId: null, prevOffsetTop: 0, offsetFromTop: 0, prevScrollTop: scrollTop, prevScrollHeight: prevScrollHeight };
+      }
 
+      // Find the first message whose bottom edge is at or below the current viewport top
       let anchorEl = null;
       for (let i = 0; i < messages.length; i++) {
-        const rect = messages[i].getBoundingClientRect();
-        if (rect.bottom >= boxRect.top + 5) {
-          anchorEl = messages[i];
+        const el = messages[i];
+        if ((el.offsetTop + el.offsetHeight) >= scrollTop + 2) {
+          anchorEl = el;
           break;
         }
       }
       if (!anchorEl) anchorEl = messages[0];
 
-      const anchorTop = anchorEl.getBoundingClientRect().top - boxRect.top;
-      return { el: anchorEl, offsetTop: anchorTop };
+      return {
+        el: anchorEl,
+        msgId: anchorEl.getAttribute('data-msg-id'),
+        prevOffsetTop: anchorEl.offsetTop,
+        offsetFromTop: anchorEl.offsetTop - scrollTop,
+        prevScrollTop: scrollTop,
+        prevScrollHeight: prevScrollHeight
+      };
     }
 
-    // Restores scroll position so anchorEl remains at the exact pixel offset,
-    // and attaches image load listeners to prepended media to compensate for
-    // layout shifts as images load.
+    // Restores scroll position so anchorEl remains at the exact pixel offset.
+    // Uses DOM offsetTop and scrollHeight in pure layout pixels (completely immune
+    // to CSS zoom, DPI scaling, and transform differences), preventing viewport jumping.
     function restoreScrollAnchor(anchorInfo, prependedItems) {
-      if (!chatBox || !anchorInfo || !anchorInfo.el || !anchorInfo.el.parentNode) return;
+      if (!chatBox || !anchorInfo) return;
 
-      const boxRect = chatBox.getBoundingClientRect();
-      const currentTop = anchorInfo.el.getBoundingClientRect().top - boxRect.top;
-      const shift = currentTop - anchorInfo.offsetTop;
-      if (Math.abs(shift) > 0.5) {
-        chatBox.scrollTop += shift;
+      let restored = false;
+      const anchorEl = (anchorInfo.el && anchorInfo.el.parentNode) ? anchorInfo.el : (
+        anchorInfo.msgId ? chatBox.querySelector(`.message-container[data-msg-id="${anchorInfo.msgId}"]`) : null
+      );
+
+      // Preferred: Pin to the exact anchor element using DOM offsetTop
+      if (anchorEl && typeof anchorInfo.offsetFromTop === 'number') {
+        const targetScrollTop = anchorEl.offsetTop - anchorInfo.offsetFromTop;
+        if (targetScrollTop >= 0) {
+          chatBox.scrollTop = targetScrollTop;
+          restored = true;
+        }
       }
 
-      if (prependedItems && prependedItems.length > 0) {
+      // Fallback: Use exact scrollHeight difference
+      if (!restored && typeof anchorInfo.prevScrollHeight === 'number') {
+        const heightDiff = chatBox.scrollHeight - anchorInfo.prevScrollHeight;
+        if (heightDiff > 0) {
+          chatBox.scrollTop = Math.max(0, anchorInfo.prevScrollTop + heightDiff);
+          restored = true;
+        }
+      }
+
+      // Register prepended images with ResizeObserver so any late image load above
+      // the visible viewport adjusts scrollTop smoothly without duplicate callbacks.
+      // Guard: only observe images whose parent element is actually connected to the
+      // DOM — filtered-out duplicate items are never inserted, so their images would
+      // generate phantom delta adjustments (detached el.getBoundingClientRect().bottom
+      // is 0, which always passes the "above viewport" test and falsely bumps scrollTop).
+      if (prependedItems && prependedItems.length > 0 && typeof scrollAnchorObserver !== 'undefined' && scrollAnchorObserver) {
         prependedItems.forEach(item => {
-          if (!item.querySelectorAll) return;
-          item.querySelectorAll('img').forEach(img => {
-            if (!img.complete && !img.dataset.anchorBound) {
-              img.dataset.anchorBound = '1';
-              img.addEventListener('load', function() {
-                if (anchorInfo.el && anchorInfo.el.parentNode) {
-                  const curBoxRect = chatBox.getBoundingClientRect();
-                  const nowTop = anchorInfo.el.getBoundingClientRect().top - curBoxRect.top;
-                  const imgShift = nowTop - anchorInfo.offsetTop;
-                  if (Math.abs(imgShift) > 0.5) {
-                    chatBox.scrollTop += imgShift;
-                  }
-                }
-              }, { once: true });
+          if (!item.querySelectorAll || !item.isConnected) return;
+          item.querySelectorAll('img:not(.avatar-img)').forEach(img => {
+            if (!img.dataset.scrollListener) {
+              img.dataset.scrollListener = '1';
+              scrollAnchorObserver.observe(img);
             }
           });
         });
       }
     }
+
+    window.captureScrollAnchor = captureScrollAnchor;
+    window.restoreScrollAnchor = restoreScrollAnchor;
 
     // Keeps the chat window capped at maxCount messages by trimming the
     // trailing (newest/bottom) ones — used right after prepending an older
@@ -3837,6 +3864,7 @@
           adminConvCursor = data.nextCursor || '';
           adminConvViewingOlder = true;
 
+          const anchor = (typeof captureScrollAnchor === 'function') ? captureScrollAnchor() : (window.captureScrollAnchor ? window.captureScrollAnchor() : null);
           const prevScrollHeight = chatBox.scrollHeight;
           const prevScrollTop = chatBox.scrollTop;
 
@@ -3850,10 +3878,12 @@
           );
 
           const frag = document.createDocumentFragment();
+          const insertedItems = []; // only items actually inserted into DOM
           oldItems.forEach(el => {
             const msgId = el.getAttribute('data-msg-id');
             if (!msgId || !existingIds.has(msgId)) {
               frag.appendChild(el);
+              insertedItems.push(el);
             }
           });
 
@@ -3865,17 +3895,22 @@
           }
 
           if (!adminConvHasMore) showNoMoreOlderNotice();
-          const safePrevScrollTop = Math.max(0, prevScrollTop);
-          const heightDiff = chatBox.scrollHeight - prevScrollHeight;
-          if (heightDiff > 0) {
-            const targetST = safePrevScrollTop + heightDiff;
-            chatBox.scrollTop = targetST;
-          }
-          trimWindowFromBottom(MAX_WINDOW);
-
-          if (adminConvHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           applyAdminBadges();
           applyEmojiOnly();
+          trimWindowFromBottom(MAX_WINDOW);
+
+          const restoreFn = (typeof restoreScrollAnchor === 'function') ? restoreScrollAnchor : (window.restoreScrollAnchor ? window.restoreScrollAnchor : null);
+          if (anchor && restoreFn) {
+            restoreFn(anchor, insertedItems);
+          } else {
+            const safePrevScrollTop = Math.max(0, prevScrollTop);
+            const heightDiff = chatBox.scrollHeight - prevScrollHeight;
+            if (heightDiff > 0) {
+              chatBox.scrollTop = safePrevScrollTop + heightDiff;
+            }
+          }
+
+          if (adminConvHasMore && !document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
           attachImageLoadListeners();
           return;
         }

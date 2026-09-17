@@ -963,7 +963,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     @endif
 
     {{-- Main Two-Column Scanner Grid --}}
-    <div style="display: grid; grid-template-columns: 1fr 1.15fr; gap: 24px; align-items: start;">
+    <div class="scanner-main-layout" style="display: grid; grid-template-columns: 1fr 1.15fr; gap: 24px; align-items: start;">
 
         {{-- Left Column: Scanner Hardware & Live Camera Viewport --}}
         <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
@@ -1055,7 +1055,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
             {{-- Keyboard Shortcut Helper Tips --}}
             <div style="margin-top: 18px; padding: 12px 14px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0; font-size: 12px; color: #64748b;">
-                <div style="font-weight: 700; color: #334155; margin-bottom: 4px;">⚡ Fast Workflow Tips:</div>
+                <div style="font-weight: 700; color: #334155; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-bolt" style="color: #0284c7;"></i>
+                    <span>Fast Workflow Tips:</span>
+                </div>
                 <ul style="margin: 0; padding-left: 18px; line-height: 1.5;">
                     <li>Handheld USB/Bluetooth barcode guns auto-focus and trigger instantly.</li>
                     <li>Toggle <strong>Auto-Action on Scan</strong> to auto-receive incoming documents or auto-forward already received documents in rapid succession.</li>
@@ -1350,6 +1353,21 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             from { opacity: 0; transform: scale(0.96); }
             to { opacity: 1; transform: scale(1); }
         }
+        @media (max-width: 1024px) {
+            .scanner-main-layout {
+                grid-template-columns: 1fr !important;
+                gap: 16px !important;
+            }
+        }
+        @media (max-width: 640px) {
+            .advanced-scanner-wrapper {
+                padding: 12px 8px !important;
+            }
+            .scanner-viewport-box {
+                min-height: 220px !important;
+                height: 240px !important;
+            }
+        }
     </style>
 
     {{-- Available Codes / Actionable Transactions Modal --}}
@@ -1389,11 +1407,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                         </button>
                         <button type="button" wire:click="$set('availableFilter', 'incoming')"
                                 style="padding: 6px 12px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'incoming' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
-                            📥 Incoming / To Receive ({{ $this->availableCounts['incoming'] }})
+                            <i class="fa-solid fa-inbox" style="margin-right: 4px;"></i> Incoming / To Receive ({{ $this->availableCounts['incoming'] }})
                         </button>
                         <button type="button" wire:click="$set('availableFilter', 'received')"
                                 style="padding: 6px 12px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'received' ? 'background: #ffffff; color: #16a34a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
-                            📤 In Custody / To Forward ({{ $this->availableCounts['received'] }})
+                            <i class="fa-solid fa-paper-plane" style="margin-right: 4px;"></i> In Custody / To Forward ({{ $this->availableCounts['received'] }})
                         </button>
                     </div>
 
@@ -1421,11 +1439,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                                             </span>
                                             @if(!$item->is_received)
                                                 <span style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
-                                                    📥 Pending Receipt
+                                                    <i class="fa-solid fa-inbox" style="margin-right: 3px;"></i> Pending Receipt
                                                 </span>
                                             @else
                                                 <span style="font-size: 10px; font-weight: 700; background: #dcfce7; color: #15803d; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
-                                                    📤 In Custody / Ready to Forward
+                                                    <i class="fa-solid fa-paper-plane" style="margin-right: 3px;"></i> In Custody / Ready to Forward
                                                 </span>
                                             @endif
                                             <span style="font-size: 10px; font-weight: 600; background: #f1f5f9; color: #475569; padding: 2px 7px; border-radius: 5px;">

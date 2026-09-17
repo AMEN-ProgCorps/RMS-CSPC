@@ -354,12 +354,14 @@
         return window.innerWidth >= 768;
     }
 
+    let chatifyLoadedOnce = false;
+
     function speculatePreloadChatifyIframe() {
         if (!isTabletOrDesktop()) return;
         const iframe = document.getElementById('chatify-iframe');
-        if (iframe && (!iframe.src || iframe.src.includes('about:blank'))) {
+        if (iframe && (!iframe.src || iframe.src.includes('about:blank') || iframe.src === '')) {
             const loader = document.getElementById('chatify-iframe-loader');
-            if (loader) loader.style.display = 'flex';
+            if (loader && !chatifyLoadedOnce) loader.style.display = 'flex';
             iframe.src = iframe.getAttribute('data-src');
         }
     }
@@ -537,6 +539,7 @@
         const iframe = document.getElementById('chatify-iframe');
         const loader = document.getElementById('chatify-iframe-loader');
         if (iframe) {
+            chatifyLoadedOnce = false;
             if (loader) loader.style.display = 'flex';
             iframe.src = iframe.getAttribute('data-src') + '?t=' + new Date().getTime();
         }
@@ -606,6 +609,7 @@
     }
 
     window.hideChatifyLoader = function() {
+        chatifyLoadedOnce = true;
         const loader = document.getElementById('chatify-iframe-loader');
         if (loader) {
             loader.style.display = 'none';
@@ -626,15 +630,18 @@
 
         if (!isTabletOrDesktop()) {
             card.style.display = 'none';
-            if (iframe) iframe.src = 'about:blank';
             return;
         }
 
         if (show) {
-            if (iframe && (!iframe.src || iframe.src.includes('about:blank'))) {
+            if (iframe && (!iframe.src || iframe.src.includes('about:blank') || iframe.src === '')) {
                 const loader = document.getElementById('chatify-iframe-loader');
-                if (loader) loader.style.display = 'flex';
+                if (loader && !chatifyLoadedOnce) loader.style.display = 'flex';
                 iframe.src = iframe.getAttribute('data-src');
+            } else if (chatifyLoadedOnce) {
+                // Already loaded and cached in DOM — keep loader hidden
+                const loader = document.getElementById('chatify-iframe-loader');
+                if (loader) loader.style.display = 'none';
             }
 
             card.style.display = 'flex';
@@ -655,13 +662,13 @@
                 setTimeout(() => {
                     if (!isOpen) {
                         card.style.display = 'none';
-                        if (iframe) iframe.src = 'about:blank';
+                        // Keep iframe intact in DOM (cached) instead of resetting to about:blank
                     }
                 }, 250);
             } else {
                 card.style.display = 'none';
                 card.style.opacity = '0';
-                if (iframe) iframe.src = 'about:blank';
+                // Keep iframe intact in DOM (cached) instead of resetting to about:blank
             }
 
             if (iconChat && iconClose) {

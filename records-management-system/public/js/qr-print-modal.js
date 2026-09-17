@@ -7,6 +7,8 @@
 var _qrPageLayout = 'portrait';
 // Track current QR code size: 'small', 'medium', or 'big'
 var _qrCodeSize = 'big';
+// Track whether to include QR code text/digits below the QR image
+var _includeQrCodeText = false;
 // Calculated font size to ensure text fits in a single line
 var _calculatedFontSize = '11px';
 
@@ -47,6 +49,59 @@ var SIZE_CONFIGS = {
     }
 };
 
+// Calculate and auto-fit font size for QR digits
+window.updateQrTextFontSize = function() {
+    var txt = document.getElementById('dynamicQrText');
+    if (!txt) return;
+    var config = SIZE_CONFIGS[_qrCodeSize] || SIZE_CONFIGS['big'];
+    var paddingVal = parseFloat(config.padding) || 0;
+    var maxTextWidth = config.containerW - (paddingVal * 2);
+    var baseFontSize = parseFloat(config.fontSize) || 11;
+
+    // Temporarily make element measurable if hidden
+    var prevDisplay = txt.style.display;
+    var prevVisibility = txt.style.visibility;
+    if (prevDisplay === 'none') {
+        txt.style.visibility = 'hidden';
+        txt.style.display = 'block';
+    }
+
+    var size = baseFontSize;
+    txt.style.fontSize = size + 'px';
+    while (txt.scrollWidth > maxTextWidth && size > 5) {
+        size -= 0.5;
+        txt.style.fontSize = size + 'px';
+    }
+    _calculatedFontSize = txt.style.fontSize;
+
+    // Restore display & visibility state
+    txt.style.visibility = prevVisibility;
+    txt.style.display = _includeQrCodeText ? 'block' : 'none';
+};
+
+// Toggle including QR code digits below the QR image
+window.toggleIncludeQrDigits = function(checked) {
+    _includeQrCodeText = !!checked;
+    var txt = document.getElementById('dynamicQrText');
+    var chk = document.getElementById('toggleQrCodeTextCheckbox');
+    if (chk) chk.checked = _includeQrCodeText;
+    if (txt) {
+        txt.style.display = _includeQrCodeText ? 'block' : 'none';
+        if (_includeQrCodeText) {
+            window.updateQrTextFontSize();
+        }
+    }
+
+    // Clamp QR position within paper bounds if container height changed
+    var pc = document.getElementById('printPaperContainer');
+    var dc = document.getElementById('draggableQrContainer');
+    if (pc && dc) {
+        var maxTop = pc.offsetHeight - dc.offsetHeight;
+        var curTop = parseFloat(dc.style.top) || 0;
+        dc.style.top = Math.max(0, Math.min(curTop, maxTop)) + 'px';
+    }
+};
+
 window.openDynamicPrintModal = function(qrCodeValue) {
     console.log('openDynamicPrintModal called with value:', qrCodeValue);
     if (!qrCodeValue) {
@@ -71,7 +126,30 @@ window.openDynamicPrintModal = function(qrCodeValue) {
     var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(btoa(qrCodeValue));
     console.log('Generated QR URL:', qrUrl);
     document.getElementById('dynamicQrImage').src = qrUrl;
-    document.getElementById('dynamicQrText').textContent = qrCodeValue;
+    // Read default include code setting from modal data-attribute or global variable
+    var defaultInclude = false;
+    if (qrModal && qrModal.getAttribute('data-default-include-code') === 'true') {
+        defaultInclude = true;
+    } else if (window.DTS_DEFAULT_INCLUDE_QR_CODE === true) {
+        defaultInclude = true;
+    }
+
+    _includeQrCodeText = defaultInclude;
+    var dynText = document.getElementById('dynamicQrText');
+    if (dynText) {
+        dynText.textContent = qrCodeValue;
+        dynText.style.display = _includeQrCodeText ? 'block' : 'none';
+    }
+
+    // Sync checkbox state
+    var chk = document.getElementById('toggleQrCodeTextCheckbox');
+    if (chk) {
+        chk.checked = _includeQrCodeText;
+    }
+
+    if (_includeQrCodeText) {
+        window.updateQrTextFontSize();
+    }
 
     // Reset to portrait layout
     _qrPageLayout = 'portrait';
@@ -118,23 +196,11 @@ window.changeQrSize = function(sizeValue) {
     img.style.height = config.imgH + 'px';
     
     txt.style.whiteSpace = 'nowrap';
-    txt.style.display = 'none';
     txt.style.width = '100%';
+    txt.style.display = _includeQrCodeText ? 'block' : 'none';
 
     // Auto-adjust font size to fit container width
-    var paddingVal = parseFloat(config.padding) || 0;
-    var maxTextWidth = config.containerW - (paddingVal * 2); // available width inside container
-    var baseFontSize = parseFloat(config.fontSize) || 11;
-    
-    var size = baseFontSize;
-    txt.style.fontSize = size + 'px';
-    while (txt.scrollWidth > maxTextWidth && size > 5) {
-        size -= 0.5;
-        txt.style.fontSize = size + 'px';
-    }
-    
-    // Store calculated font size for printing
-    _calculatedFontSize = txt.style.fontSize;
+    window.updateQrTextFontSize();
 
     // Clamp position within current paper bounds so it doesn't overflow when changing size
     var pc = document.getElementById('printPaperContainer');
@@ -190,48 +256,94 @@ window.resetQrPosition = function() {
 window.executeDynamicPrint = function() {
     var dragContainer = document.getElementById('draggableQrContainer');
     if (!dragContainer) return;
-    var topPx = parseFloat(dragContainer.style.top);
-    var leftPx = parseFloat(dragContainer.style.left);
-    var qrImageSrc = document.getElementById('dynamicQrImage').src;
-    var qrTextVal = document.getElementById('dynamicQrText').textContent;
+    var topPx = parseFloat(dragContainer.style.top) || 40;
+    var leftPx = parseFloat(dragContainer.style.left) || 40;
+    var qrImgEl = document.getElementById('dynamicQrImage');
+    var qrTextVal = document.getElementById('dynamicQrText') ? document.getElementById('dynamicQrText').textContent : '';
+
+    // Prefer in-memory dataURL from the already-rendered QR image (instant, zero network latency)
+    var qrImageSrc = '';
+    if (qrImgEl) {
+        try {
+            var canvas = document.createElement('canvas');
+            canvas.width = qrImgEl.naturalWidth || 150;
+            canvas.height = qrImgEl.naturalHeight || 150;
+            var ctx = canvas.getContext('2d');
+            ctx.drawImage(qrImgEl, 0, 0);
+            var dataUrl = canvas.toDataURL('image/png');
+            if (dataUrl && dataUrl.length > 100) {
+                qrImageSrc = dataUrl;
+            }
+        } catch (e) {
+            console.warn('Canvas export failed, falling back to img.src:', e);
+        }
+        if (!qrImageSrc) {
+            qrImageSrc = qrImgEl.src;
+        }
+    }
 
     var pageSize = _qrPageLayout === 'portrait' ? 'letter portrait' : 'letter landscape';
     var bodyW = _qrPageLayout === 'portrait' ? '8.5in' : '11in';
     var bodyH = _qrPageLayout === 'portrait' ? '11in' : '8.5in';
 
-    var config = SIZE_CONFIGS[_qrCodeSize];
+    var config = SIZE_CONFIGS[_qrCodeSize] || SIZE_CONFIGS['big'];
+    var fontSize = _calculatedFontSize || config.fontSize || '11px';
+    var safeQrImageSrc = escapeHtml(qrImageSrc || '');
+
+    var spanHtml = (_includeQrCodeText && qrTextVal) 
+        ? '<span>' + escapeHtml(qrTextVal) + '</span>' 
+        : '';
 
     var printWindow = window.open('', '_blank');
-    var css = '@page { size: ' + pageSize + '; margin: 0; }'
-        + 'body { margin:0; padding:0; width:' + bodyW + '; height:' + bodyH + '; position:relative; background:white; }'
-        + '.qr-wrapper { position:absolute; top:' + topPx + 'px; left:' + leftPx + 'px; width:' + config.containerW + 'px; display:flex; flex-direction:column; align-items:center; gap:' + config.gap + '; padding:' + config.padding + '; }'
-        + '.qr-wrapper img { width:' + config.imgW + 'px; height:' + config.imgH + 'px; }'
-        + '.qr-wrapper span { font-family:monospace; font-weight:bold; font-size:' + _calculatedFontSize + '; color:#000; text-align:center; white-space:nowrap; overflow:hidden; }';
+    if (!printWindow) {
+        alert('Please allow popups to print the QR code.');
+        return;
+    }
+
+    var html = '<!DOCTYPE html>'
+        + '<html>'
+        + '<head>'
+        + '<meta charset="utf-8">'
+        + '<title>Print QR Code</title>'
+        + '<style>'
+        + '* { box-sizing: border-box; margin: 0; padding: 0; }'
+        + '@page { size: ' + pageSize + '; margin: 0; }'
+        + 'body { margin: 0; padding: 0; width: ' + bodyW + '; height: ' + bodyH + '; position: relative; background: #ffffff; }'
+        + '.qr-wrapper { position: absolute; top: ' + topPx + 'px; left: ' + leftPx + 'px; width: ' + config.containerW + 'px; display: flex; flex-direction: column; align-items: center; gap: ' + config.gap + '; padding: ' + config.padding + '; }'
+        + '.qr-wrapper img { width: ' + config.imgW + 'px; height: ' + config.imgH + 'px; display: block; }'
+        + '.qr-wrapper span { font-family: monospace; font-weight: bold; font-size: ' + fontSize + '; color: #000000; text-align: center; white-space: nowrap; overflow: hidden; width: 100%; display: block; line-height: 1.2; margin-top: 2px; }'
+        + '</style>'
+        + '</head>'
+        + '<body>'
+        + '<div class="qr-wrapper">'
+        + '<img id="printQrImg" src="' + safeQrImageSrc + '" alt="QR">'
+        + spanHtml
+        + '</div>'
+        + '<script>'
+        + 'var hasPrinted = false;'
+        + 'function runPrint() {'
+        + '  if (hasPrinted) return;'
+        + '  hasPrinted = true;'
+        + '  window.focus();'
+        + '  window.print();'
+        + '  setTimeout(function() { window.close(); }, 500);'
+        + '}'
+        + 'var img = document.getElementById("printQrImg");'
+        + 'if (img && !img.complete) {'
+        + '  img.onload = function() { setTimeout(runPrint, 100); };'
+        + '  img.onerror = function() { runPrint(); };'
+        + '} else {'
+        + '  setTimeout(runPrint, 100);'
+        + '}'
+        + 'window.onload = function() { setTimeout(runPrint, 100); };'
+        + 'setTimeout(runPrint, 2500);'
+        + '<\/script>'
+        + '</body>'
+        + '</html>';
+
     printWindow.document.open();
-    var doc = printWindow.document;
-    var htmlEl = doc.createElement('html');
-    var headEl = doc.createElement('head');
-    var styleEl = doc.createElement('style');
-    styleEl.textContent = css;
-    headEl.appendChild(styleEl);
-
-    var bodyEl = doc.createElement('body');
-    var wrapperEl = doc.createElement('div');
-    wrapperEl.className = 'qr-wrapper';
-
-    var imgEl = doc.createElement('img');
-    imgEl.setAttribute('src', qrImageSrc);
-    imgEl.setAttribute('alt', 'QR');
-
-    wrapperEl.appendChild(imgEl);
-    bodyEl.appendChild(wrapperEl);
-
-    htmlEl.appendChild(headEl);
-    htmlEl.appendChild(bodyEl);
-    doc.appendChild(htmlEl);
-    doc.close();
-    printWindow.focus();
-    setTimeout(function() { printWindow.print(); printWindow.close(); }, 500);
+    printWindow.document.write(html);
+    printWindow.document.close();
 };
 
 // Drag logic

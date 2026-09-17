@@ -151,27 +151,49 @@ new class extends Component {
         // 1. Mark notification as read
         $this->markAsRead($notificationId);
 
-        // 2. Office intake submissions open in a modal on the current DCS page
-        // (Livewire requests hit /livewire/update — do not use request()->is('dcs*') here)
+        // 2. Office intake submissions / correction unlocks
         if ($notification && $notification->redirect_url) {
             $intake = \App\Helpers\OfficeIntakeHelper::parseIntakeNotificationUrl($notification->redirect_url);
             if ($intake) {
                 $this->showDropdown = false;
                 $this->dispatch('close-notifications');
 
-                if ($this->isOnDcsPage()) {
-                    $this->dispatch('open-office-intake-modal', type: $intake['type'], id: $intake['id']);
-                    $this->js(
-                        'window.dispatchEvent(new CustomEvent("open-office-intake-modal",{detail:'
-                        . json_encode(['type' => $intake['type'], 'id' => $intake['id']])
-                        . '}));'
-                    );
-                } else {
+                // Office correction unlock → open the editable form directly
+                if (! empty($intake['edit'])) {
                     $this->redirect(
-                        '/dcs?intake=' . $intake['type'] . '&id=' . $intake['id'],
+                        route(
+                            $intake['type'] === 'dcn' ? 'dcs.office.dcn.edit' : 'dcs.office.drf.edit',
+                            $intake['id'],
+                            absolute: false
+                        ),
                         navigate: false
                     );
+
+                    return;
                 }
+
+                if (\App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+                    $this->redirect(
+                        route(
+                            'dcs.requests.show',
+                            ['type' => $intake['type'], 'id' => $intake['id']],
+                            absolute: false
+                        ),
+                        navigate: false
+                    );
+
+                    return;
+                }
+
+                // Office user: open their submitted form (view/show — edit if unlocked)
+                $this->redirect(
+                    route(
+                        $intake['type'] === 'dcn' ? 'dcs.office.dcn.show' : 'dcs.office.drf.show',
+                        $intake['id'],
+                        absolute: false
+                    ),
+                    navigate: false
+                );
 
                 return;
             }

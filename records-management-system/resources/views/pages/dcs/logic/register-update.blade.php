@@ -62,12 +62,38 @@ class RegisterUpdateHelper
 
         $previousDocNo = $ml?->doc_no ?? null;
 
+        // Drafts saved without a sub-type may set it on edit; otherwise keep locked value.
+        $isDraftRecord = RegisterQueryHelper::supportsDrafts() && ! empty($docRequest->is_draft);
+        $resolvedSubTypeId = $docRequest->sub_type_id ? (int) $docRequest->sub_type_id : null;
+        if ($isDraftRecord && $resolvedSubTypeId === null) {
+            $postedSubType = $request->input('sub_type_id');
+            if ($postedSubType !== null && $postedSubType !== '') {
+                $postedSubTypeId = (int) $postedSubType;
+                $isValidChild = DB::table('dcs_doc_types')
+                    ->where('id', $postedSubTypeId)
+                    ->where('parent_id', (int) $docRequest->doc_type_id)
+                    ->exists();
+                if ($isValidChild) {
+                    $resolvedSubTypeId = $postedSubTypeId;
+                    $docRequest->sub_type_id = $postedSubTypeId;
+                }
+            }
+        }
+
+        // Doc types with sub-types require one before update / draft save can proceed.
+        $docTypeHasChildren = DB::table('dcs_doc_types')
+            ->where('parent_id', (int) $docRequest->doc_type_id)
+            ->exists();
+        if ($docTypeHasChildren && $resolvedSubTypeId === null) {
+            return back()->withInput()->with('error', 'Sub-Type Document is required. Please select a sub-type before saving.');
+        }
+
         $docNo = $request->input('masterlistDocNo');
         if ($docNo && ! $saveAsDraft) {
             $result = RegisterPersistHelper::findMatchingRegistrationRows(
                 $docNo,
                 (int) $docRequest->doc_type_id,
-                $docRequest->sub_type_id ? (int) $docRequest->sub_type_id : null
+                $resolvedSubTypeId
             );
             if ($result['found']) {
                 $reviseNo = RegisterPersistHelper::resolveReviseNo($request, $ml?->revise_no);
@@ -120,7 +146,7 @@ class RegisterUpdateHelper
             $checkedChecklists[] = 5;
         }
         $request->merge([
-            'sub_type_id' => $docRequest->sub_type_id,
+            'sub_type_id' => $resolvedSubTypeId,
             'checklists' => array_values(array_unique($checkedChecklists)),
         ]);
         if ($redirect = RegisterPersistHelper::validateCheckedSections($request)) {
@@ -142,7 +168,7 @@ class RegisterUpdateHelper
             DB::table('dcs_document_requests')->where('id', $id)->update(array_filter([
                 'version_id' => $docRequest->version_id,
                 'doc_type_id' => $docRequest->doc_type_id,
-                'sub_type_id' => $docRequest->sub_type_id ?: null,
+                'sub_type_id' => $resolvedSubTypeId,
                 'approval_status' => $approvalStatus,
                 'is_draft' => RegisterQueryHelper::supportsDrafts() ? $saveAsDraft : null,
                 'updated_by' => auth()->id(),
@@ -683,7 +709,7 @@ class RegisterUpdateHelper
         }
     }
 
-    public static function destroy(int $id): RedirectResponse
+    public static function destroy(int $id, string $reason = ''): RedirectResponse
     {
         if (!RegisterQueryHelper::supportsSoftDelete()) {
             return self::flashRedirect(
@@ -699,6 +725,22 @@ class RegisterUpdateHelper
 
         $isDraft = RegisterQueryHelper::supportsDrafts() && ! empty($docRequest->is_draft);
         $listRoute = $isDraft ? 'dcs.register.drafts' : 'dcs.register.update';
+
+        $reason = trim(preg_replace('/\s+/u', ' ', $reason) ?? '');
+        if ($reason === '' || mb_strlen($reason) < 5) {
+            return self::flashRedirect(
+                $listRoute,
+                'error',
+                'A delete reason is required (at least 5 characters).'
+            );
+        }
+        if (mb_strlen($reason) > 1000) {
+            return self::flashRedirect(
+                $listRoute,
+                'error',
+                'Delete reason must be 1000 characters or fewer.'
+            );
+        }
 
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
         $mlStatus = strtolower(trim((string) ($ml->revision_status ?? 'latest')));
@@ -728,6 +770,9 @@ class RegisterUpdateHelper
             if (Schema::hasColumn('dcs_document_requests', 'deleted_by')) {
                 $update['deleted_by'] = auth()->id();
             }
+            if (Schema::hasColumn('dcs_document_requests', 'deleted_reason')) {
+                $update['deleted_reason'] = $reason;
+            }
             DB::table('dcs_document_requests')->where('id', $id)->update($update);
 
             // Soft-delete tip → obsolete, then promote the previous live revision to latest.
@@ -752,12 +797,15 @@ class RegisterUpdateHelper
                 ($isDraft ? 'Deleted draft #' : 'Deleted document #') . $id
                 . (!empty($ml->doc_no) ? ' — ' . $ml->doc_no : '')
                 . (!empty($ml->doc_title) ? ': ' . $ml->doc_title : '')
+                . ' — reason: ' . $reason
             );
 
             return self::flashRedirect(
                 $listRoute,
                 'success',
-                $isDraft ? 'Draft moved to Recycle Bin.' : 'Document moved to Recycle Bin.'
+                $isDraft
+                    ? 'Draft moved to Recycle Bin for HEAD Admin of DCS review.'
+                    : 'Document moved to Recycle Bin for HEAD Admin of DCS review.'
             );
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -805,6 +853,9 @@ class RegisterUpdateHelper
         if (Schema::hasColumn('dcs_document_requests', 'deleted_by')) {
             $update['deleted_by'] = null;
         }
+        if (Schema::hasColumn('dcs_document_requests', 'deleted_reason')) {
+            $update['deleted_reason'] = null;
+        }
         DB::table('dcs_document_requests')->where('id', $id)->update($update);
 
         if ($ml && RegisterQueryHelper::supportsRevisionStatus()) {
@@ -835,10 +886,18 @@ class RegisterUpdateHelper
 
     /**
      * Permanently remove a soft-deleted document and its files.
-     * Used by retention purge after 1 year in the Recycle Bin.
+     * Interactive deletes require Head of Document Control; retention purge skips the check.
      */
     public static function permanentDestroy(int $id, bool $redirect = true): ?RedirectResponse
     {
+        if ($redirect) {
+            abort_unless(
+                RegisterQueryHelper::canPermanentlyDeleteDcsDocuments(),
+                403,
+                'Only the HEAD Admin of DCS can permanently delete documents.'
+            );
+        }
+
         $docRequest = RegisterQueryHelper::findTrashedDocumentRequest($id);
         if (!$docRequest) {
             if (!$redirect) {

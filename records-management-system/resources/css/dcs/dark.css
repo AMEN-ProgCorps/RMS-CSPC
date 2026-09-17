@@ -1772,6 +1772,24 @@
     color: #f8fafc !important;
 }
 
+[data-theme="dark"] .upd-modal-textarea {
+    background: #0f172a !important;
+    border-color: #334155 !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .upd-modal-error {
+    color: #fca5a5 !important;
+}
+
+[data-theme="dark"] .rb-delete-reason {
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .rb-delete-reason.is-empty {
+    color: #64748b !important;
+}
+
 [data-theme="dark"] .rb-callout-text strong span,
 [data-theme="dark"] .rb-callout-text a,
 [data-theme="dark"] .upd-modal-link {
@@ -1891,6 +1909,33 @@
 
 [data-theme="dark"] .ofi-modal-loading {
     color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .dcs-loading-overlay,
+[data-theme="dark"] .upd-loading-overlay,
+[data-theme="dark"] .ofi-loading-overlay,
+[data-theme="dark"] .db-loading-overlay,
+[data-theme="dark"] .rpt-preview-loading {
+    background: rgba(15, 23, 42, 0.88) !important;
+}
+
+[data-theme="dark"] .dcs-loading-overlay h4,
+[data-theme="dark"] .upd-loading-overlay h4,
+[data-theme="dark"] .ofi-loading-overlay h4,
+[data-theme="dark"] .db-loading-overlay h4 {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .dcs-loading-overlay p,
+[data-theme="dark"] .upd-loading-overlay p,
+[data-theme="dark"] .ofi-loading-overlay p,
+[data-theme="dark"] .db-loading-overlay p {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .dcs-loading-spinner {
+    border-color: #334155 !important;
+    border-top-color: #93c5fd !important;
 }
 
 [data-theme="dark"] .ofi-review-hero,

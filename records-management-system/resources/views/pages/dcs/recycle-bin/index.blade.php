@@ -53,6 +53,7 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
             'settingsTotal' => $settings['total'],
             'deleteCodeConfigured' => $this->configuredDeleteCode() !== '',
             'isSettingsTab' => $this->tab === 'settings',
+            'canPermanentlyDelete' => RegisterQueryHelper::canPermanentlyDeleteDcsDocuments(),
         ];
     }
 
@@ -156,6 +157,11 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
     public function permanentDelete(): void
     {
         RegisterQueryHelper::assertFullDcsUser('recycle_bin');
+        abort_unless(
+            RegisterQueryHelper::canPermanentlyDeleteDcsDocuments(),
+            403,
+            'Only the HEAD Admin of DCS can permanently delete documents.'
+        );
         if (! $this->deleteId) {
             return;
         }
@@ -308,14 +314,20 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
                 @if($isSettingsTab)
                     Items deleted from DCS Settings stay here for
                     <strong>{{ $list['retention_years'] ?? 1 }} year</strong>.
-                    Use <strong>Restore</strong> to return them to Settings, or <strong>Delete forever</strong> with the
-                    operations secret code. After expiry, they are permanently removed.
+                    Use <strong>Restore</strong> to return them to Settings.
+                    @if($canPermanentlyDelete)
+                        The HEAD Admin of DCS may <strong>Delete forever</strong> with the operations secret code.
+                    @endif
+                    After expiry, they are permanently removed.
                 @else
-                    Documents deleted from the Update page stay here for
+                    Documents soft-deleted by DCS admins stay here for
                     <strong>{{ $list['retention_years'] ?? 1 }} year</strong>
-                    (same duration as the Admin Console Recycle Bin).
-                    Use <strong>Restore</strong> before the expiry date, or <strong>Delete forever</strong> with the
-                    operations secret code. After expiry, they are permanently deleted with their files.
+                    with their delete reason for HEAD Admin of DCS review.
+                    Use <strong>Restore</strong> before expiry.
+                    @if($canPermanentlyDelete)
+                        Only the HEAD Admin of DCS may <strong>Delete forever</strong> with the operations secret code.
+                    @endif
+                    After expiry, they are permanently deleted with their files.
                 @endif
             </p>
         </div>
@@ -344,6 +356,9 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
                             <th>Rev</th>
                         @endunless
                         <th>Deleted</th>
+                        @unless($isSettingsTab)
+                            <th>Reason</th>
+                        @endunless
                         <th>Expires</th>
                         <th style="width:260px;">Actions</th>
                     </tr>
@@ -377,6 +392,15 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
                                     <span class="rb-deleted-by">by {{ $doc['deleted_by'] }}</span>
                                 @endif
                             </td>
+                            @unless($isSettingsTab)
+                                <td data-label="Reason">
+                                    @if(!empty($doc['deleted_reason']))
+                                        <span class="rb-delete-reason" title="{{ $doc['deleted_reason'] }}">{{ $doc['deleted_reason'] }}</span>
+                                    @else
+                                        <span class="rb-delete-reason is-empty">No reason recorded</span>
+                                    @endif
+                                </td>
+                            @endunless
                             <td data-label="Expires">
                                 <span class="rb-expires-at">{{ $doc['expires_at'] }}</span>
                                 @if(isset($doc['days_left']))
@@ -393,10 +417,12 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
                                         wire:click="confirmRestore({{ $rowId }}, @js($doc['title']), @js($doc['doc_no']), @js($rowKind))">
                                         <i class="fa-solid fa-rotate-left"></i> Restore
                                     </button>
-                                    <button type="button" class="rb-btn rb-btn-delete" title="Permanently delete"
-                                        wire:click="confirmDelete({{ $rowId }}, @js($doc['title']), @js($doc['doc_no']), @js($rowKind))">
-                                        <i class="fa-solid fa-trash"></i> Delete
-                                    </button>
+                                    @if($canPermanentlyDelete)
+                                        <button type="button" class="rb-btn rb-btn-delete" title="Permanently delete"
+                                            wire:click="confirmDelete({{ $rowId }}, @js($doc['title']), @js($doc['doc_no']), @js($rowKind))">
+                                            <i class="fa-solid fa-trash"></i> Delete
+                                        </button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>

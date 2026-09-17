@@ -72,11 +72,17 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                         <label>Description/reason for request (define in detail) <span class="ofi-req">*</span></label>
                         <textarea name="descriptionReason" rows="4" required maxlength="5000" placeholder="Define in detail…">{{ old('descriptionReason') }}</textarea>
                     </div>
-                    <div class="reg-field">
-                        <label>Distribute document to (department/position) <span class="ofi-req">*</span></label>
+                    <div class="reg-field ofi-distribute-field">
+                        <label class="ofi-distribute-label">
+                            <span>Distribute document to (department/position) <span class="ofi-req">*</span></span>
+                            <span class="ofi-total-offices" aria-live="polite">
+                                total offices: <strong data-ofi-selected-count="distribute">0</strong>
+                            </span>
+                        </label>
                         <div class="reg-cluster-chips" data-ofi-cluster-widget="distribute" aria-label="Select offices by cluster"></div>
                         <p class="ofi-hint">
                             Search by office name or code — office <strong>code</strong> prints on the form.
+                            If more than 24 offices are selected, the print form shows “Please see attached list of offices” and lists them on following pages.
                             Click the <i class="fa-solid fa-chevron-down ofi-hint-icon"></i> arrow to view or remove selected offices.
                         </p>
                         <div class="reg-reldocs" id="drfDistributeWidget">
@@ -85,10 +91,66 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                                     placeholder="Type to search offices..." autocomplete="off">
                                 <button type="button" class="reg-reldocs-arrow-btn" id="drfDistributeArrowBtn" title="View selected offices">
                                     <i class="fa-solid fa-chevron-down"></i>
+                                    <span class="ofi-arrow-count" data-ofi-arrow-count="distribute" hidden>0</span>
                                 </button>
                             </div>
                             <div id="drfDistributeResults" class="reg-reldocs-dropdown" style="display:none;"></div>
                             <div id="drfDistributeInlineChips" class="reg-reldocs-dropdown reg-reldocs-selected-panel" style="display:none;"></div>
+                        </div>
+                    </div>
+
+                    <div class="ofi-sig-block">
+                        <p class="ofi-sig-heading">Signatories</p>
+                        <div class="ofi-sig-group">
+                            <p class="ofi-sig-label">Prepared by</p>
+                            <div class="reg-grid-2">
+                                <div class="reg-field">
+                                    <label for="preparedByName">Name <span class="ofi-req">*</span></label>
+                                    <input type="text" id="preparedByName" name="preparedByName"
+                                        value="{{ old('preparedByName') }}"
+                                        required maxlength="255" placeholder="Prepared by name">
+                                </div>
+                                <div class="reg-field">
+                                    <label for="preparedByDesignation">Designation <span class="ofi-req">*</span></label>
+                                    <input type="text" id="preparedByDesignation" name="preparedByDesignation"
+                                        value="{{ old('preparedByDesignation') }}"
+                                        required maxlength="255" placeholder="Prepared by designation">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ofi-sig-group">
+                            <p class="ofi-sig-label">Reviewed by</p>
+                            <div class="reg-grid-2">
+                                <div class="reg-field">
+                                    <label for="reviewedByName">Name <span class="ofi-req">*</span></label>
+                                    <input type="text" id="reviewedByName" name="reviewedByName"
+                                        value="{{ old('reviewedByName') }}"
+                                        required maxlength="255" placeholder="Reviewed by name">
+                                </div>
+                                <div class="reg-field">
+                                    <label for="reviewedByDesignation">Designation <span class="ofi-req">*</span></label>
+                                    <input type="text" id="reviewedByDesignation" name="reviewedByDesignation"
+                                        value="{{ old('reviewedByDesignation') }}"
+                                        required maxlength="255" placeholder="Reviewed by designation">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ofi-sig-group">
+                            <p class="ofi-sig-label">Approved by</p>
+                            <div class="reg-grid-2">
+                                <div class="reg-field">
+                                    <label for="approvedByName">Name <span class="ofi-req">*</span></label>
+                                    <input type="text" id="approvedByName" name="approvedByName"
+                                        value="{{ old('approvedByName') }}"
+                                        required maxlength="255" placeholder="Approved by name">
+                                </div>
+                                <div class="reg-field">
+                                    <label for="approvedByDesignation">Designation <span class="ofi-req">*</span></label>
+                                    <input type="text" id="approvedByDesignation" name="approvedByDesignation"
+                                        value="{{ old('approvedByDesignation') }}"
+                                        required maxlength="255" placeholder="Approved by designation">
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

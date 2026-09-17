@@ -15,7 +15,7 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
         $this->id = (int) $id;
 
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
-            $this->redirect('/dcs?intake=dcn&id=' . $this->id, navigate: false);
+            $this->redirect(route('dcs.requests.show', ['type' => 'dcn', 'id' => $this->id], absolute: false), navigate: false);
 
             return;
         }

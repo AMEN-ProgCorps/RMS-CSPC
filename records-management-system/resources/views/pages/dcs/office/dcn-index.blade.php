@@ -12,11 +12,7 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
         OfficeIntakeHelper::assertCanAccessIntake();
 
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
-            session()->flash(
-                'info',
-                'Office intake submissions from other offices appear in notifications. Open a notification to view a specific DRF or DCN.'
-            );
-            $this->redirect(route('dcs', absolute: false), navigate: true);
+            $this->redirect(route('dcs.requests.index', ['filter' => 'dcn'], absolute: false), navigate: true);
         }
     }
 
@@ -25,6 +21,7 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
         return [
             'rows' => OfficeIntakeHelper::listMyDcn(),
             'isLimited' => RegisterQueryHelper::isLimitedDcsUser(),
+            'isReviewer' => false,
         ];
     }
 }; ?>
@@ -33,12 +30,19 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
     <div class="ofi-inner">
         <div class="ofi-header">
             <div>
-                <h1>My Document Change Notices</h1>
-                <p>Create a DCN, print it, then submit the printed form to RFIO. Saved forms cannot be edited.</p>
+                @if($isReviewer ?? false)
+                    <h1>Office Document Change Notices</h1>
+                    <p>Review DCN submissions from offices. Open a form to view the official print template.</p>
+                @else
+                    <h1>My Document Change Notices</h1>
+                    <p>Create a DCN, print it, then submit the printed form to RFIO. Saved forms cannot be edited.</p>
+                @endif
             </div>
-            <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary">
-                <i class="fa-solid fa-plus"></i> New DCN
-            </a>
+            @unless($isReviewer ?? false)
+                <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary">
+                    <i class="fa-solid fa-plus"></i> New DCN
+                </a>
+            @endunless
         </div>
 
         @if(session('success'))
@@ -53,6 +57,10 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                 <thead>
                     <tr>
                         <th>Title</th>
+                        @if($isReviewer ?? false)
+                            <th>Office</th>
+                            <th>Submitted by</th>
+                        @endif
                         <th>Status</th>
                         <th>Date</th>
                         <th>Date Created</th>
@@ -64,6 +72,10 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                     @forelse($rows as $row)
                         <tr>
                             <td>{{ ($row->document_title ?? '') !== '' ? $row->document_title : '—' }}</td>
+                            @if($isReviewer ?? false)
+                                <td>{{ $row->submitting_office ?? '—' }}</td>
+                                <td>{{ $row->submitter_name ?? '—' }}</td>
+                            @endif
                             <td>
                                 @if(!empty($row->is_registered))
                                     <span class="ofi-status-pill is-registered">Registered</span>
@@ -72,16 +84,18 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                                 @endif
                             </td>
                             <td>{{ $row->dcn_date ? \Carbon\Carbon::parse($row->dcn_date)->format('M d, Y') : '—' }}</td>
-                            <td>{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->format('M d, Y g:i A') : '—' }}</td>
+                            <td>{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->timezone('Asia/Manila')->format('M d, Y g:i A') : '—' }}</td>
                             <td>{{ $row->originator_name ?: '—' }}</td>
                             <td class="ofi-actions">
                                 <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}" title="View"><i class="fa-solid fa-eye"></i></a>
-                                <a href="{{ route('dcs.office.dcn.print', $row->id, absolute: false) }}" target="_blank" title="Print"><i class="fa-solid fa-print"></i></a>
+                                <a href="{{ route('dcs.office.dcn.print', $row->id, absolute: false) }}" target="_blank" title="{{ ($isReviewer ?? false) ? 'Open print form' : 'Print' }}"><i class="fa-solid fa-print"></i></a>
                             </td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="6" class="ofi-empty">No Document Change Notices yet. Create one to get started.</td>
+                            <td colspan="{{ ($isReviewer ?? false) ? 8 : 6 }}" class="ofi-empty">
+                                {{ ($isReviewer ?? false) ? 'No office DCN submissions yet.' : 'No Document Change Notices yet. Create one to get started.' }}
+                            </td>
                         </tr>
                     @endforelse
                 </tbody>

@@ -215,6 +215,13 @@ body {
     display: flex; flex-direction: column;
 }
 
+.db-filter-foot .db-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
 .db-table-scroll {
     flex: 1; overflow: auto; min-height: 0;
 }

@@ -1029,15 +1029,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     <section class="db-controls">
         <div class="db-type-grid">
-            <button class="db-type-btn {{ $docTypeId === 'all' ? 'active' : '' }}" type="button" wire:click="setType('all')">ALL</button>
+            <button class="db-type-btn {{ $docTypeId === 'all' ? 'active' : '' }}" type="button" wire:click="setType('all')" wire:loading.attr="disabled">ALL</button>
             @foreach($docTypes ?? [] as $type)
-                <button class="db-type-btn {{ (string) $docTypeId === (string) $type->id ? 'active' : '' }}" type="button" wire:click="setType('{{ $type->id }}')">{{ strtoupper($type->doc_type_name) }}</button>
+                <button class="db-type-btn {{ (string) $docTypeId === (string) $type->id ? 'active' : '' }}" type="button" wire:click="setType('{{ $type->id }}')" wire:loading.attr="disabled">{{ strtoupper($type->doc_type_name) }}</button>
             @endforeach
         </div>
         <div class="db-controls-right">
             <div class="db-search-wrap">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                <input type="text" wire:model.live.debounce.400ms="search" placeholder="Search documents..." autocomplete="off">
+                <input type="text" wire:model.live.debounce.400ms="search" placeholder="Search documents..." autocomplete="off" wire:loading.attr="disabled">
             </div>
             <button class="db-collapse-btn" type="button" :class="{ 'is-collapsed': allCollapsed }" @click="collapseAll()" :title="allCollapsed ? 'Expand all columns' : 'Collapse all columns'">
                 <i class="fa-solid" :class="allCollapsed ? 'fa-expand' : 'fa-compress'"></i>
@@ -1055,6 +1055,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     </section>
 
     <section class="db-table-wrap" wire:loading.class="is-loading">
+        <div class="dcs-loading-overlay" wire:loading.flex>
+            <div class="dcs-loading-spinner" aria-hidden="true"></div>
+            <h4>Loading documents…</h4>
+            <p>Fetching records and preparing the preview.</p>
+        </div>
         <div class="db-table-scroll">
             <table class="db-table" id="inventoryTable">
                 <thead>

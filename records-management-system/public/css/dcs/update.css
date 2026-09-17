@@ -254,58 +254,6 @@ body {
     box-shadow: 0 24px 48px rgba(15,23,42,0.18); border: 1px solid var(--upd-border);
     animation: modalIn 0.2s ease;
 }
-.upd-modal-wide {
-    width: min(480px, 92vw);
-    text-align: left;
-}
-.upd-modal-wide .upd-modal-icon {
-    margin-left: auto;
-    margin-right: auto;
-}
-.upd-modal-wide h3 {
-    text-align: center;
-}
-.upd-modal-wide > p {
-    text-align: left;
-}
-.upd-modal-field {
-    margin: 0 0 20px;
-    text-align: left;
-}
-.upd-modal-field label {
-    display: block;
-    font-size: 0.78rem;
-    font-weight: 650;
-    color: var(--upd-text);
-    margin-bottom: 6px;
-}
-.upd-modal-field label span {
-    color: var(--upd-error);
-}
-.upd-modal-textarea {
-    width: 100%;
-    min-height: 84px;
-    resize: vertical;
-    border: 1.5px solid var(--upd-border);
-    border-radius: 10px;
-    padding: 10px 12px;
-    font-family: var(--upd-font, inherit);
-    font-size: 0.84rem;
-    color: var(--upd-text);
-    background: var(--upd-surface);
-    line-height: 1.45;
-}
-.upd-modal-textarea:focus {
-    outline: none;
-    border-color: var(--upd-accent);
-    box-shadow: 0 0 0 3px rgba(4, 56, 153, 0.12);
-}
-.upd-modal-error {
-    margin-top: 6px;
-    font-size: 0.78rem;
-    color: var(--upd-error);
-    font-weight: 600;
-}
 @keyframes modalIn { from { opacity:0; transform:scale(0.95) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
 .upd-modal-icon {
     width: 52px; height: 52px; border-radius: 14px; background: #fef2f2; color: var(--upd-error);

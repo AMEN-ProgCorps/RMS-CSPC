@@ -256,7 +256,8 @@
             background: transparent !important;
         }
         .fline.w-req { width: 1.54in !important; flex: 0 0 1.54in !important; }
-        .fline.w-date { width: 1.79in !important; flex: 0 0 1.79in !important; }
+        /* Keep Date: label in its original spot; only the underline grows to the right edge */
+        .fline.w-date { flex: 1 1 auto !important; width: auto !important; min-width: 1.79in !important; }
         .fline.w-fill { flex: 1 1 auto !important; width: auto !important; min-width: 0 !important; }
         .fline.w-fill .fline-val { white-space: normal !important; }
 
@@ -272,6 +273,7 @@
             background: transparent !important;
             font-size: 11pt !important;
             line-height: 1 !important;
+            width: 100% !important;
         }
         .lbl {
             flex: 0 0 auto !important;
@@ -285,6 +287,7 @@
             background: transparent !important;
             color: #000 !important;
         }
+        /* Fixed gap — same Date: label position as the official form */
         .meta-gap {
             flex: 0 0 2.87in !important;
             width: 2.87in !important;
@@ -485,6 +488,86 @@
             color: #000 !important;
         }
 
+        .attach-title {
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 12pt !important;
+            font-weight: 700 !important;
+            text-transform: uppercase !important;
+            text-align: center !important;
+            line-height: 1 !important;
+            margin: 0 0 11pt !important;
+            padding: 0 !important;
+            color: #000 !important;
+        }
+        .attach-table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            table-layout: fixed !important;
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 11pt !important;
+            line-height: 1 !important;
+        }
+        .attach-table th,
+        .attach-table td {
+            border: 1px solid #000 !important;
+            padding: 0 4px !important;
+            vertical-align: middle !important;
+            text-align: left !important;
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 11pt !important;
+            line-height: 1 !important;
+            height: 13pt !important;
+            max-height: 13pt !important;
+            overflow: hidden !important;
+            white-space: nowrap !important;
+            text-overflow: ellipsis !important;
+        }
+        .attach-table th {
+            font-weight: 700 !important;
+            text-align: center !important;
+            height: 14pt !important;
+            max-height: 14pt !important;
+        }
+        .attach-table col.c-no { width: 0.55in !important; }
+        .attach-table col.c-name { width: auto !important; }
+
+        /*
+         * Attach pages: pack office rows until long-bond body is full,
+         * then spill to the next page (footer stays pinned to bottom).
+         */
+        .sheet-attach .body {
+            display: flex !important;
+            flex-direction: column !important;
+            box-sizing: border-box !important;
+            height: calc(13in - 0.85in) !important;
+            min-height: calc(13in - 0.85in) !important;
+            max-height: calc(13in - 0.85in) !important;
+            padding: 0.08in 0.5in 0.12in !important;
+        }
+        .sheet-attach .attach-doc-title {
+            margin: 0 0 4pt !important;
+            height: 11pt !important;
+            min-height: 11pt !important;
+            max-height: 11pt !important;
+        }
+        .sheet-attach .attach-table {
+            flex: 0 0 auto !important;
+            margin: 0 !important;
+        }
+        .sheet-attach .footer-rule {
+            margin-top: auto !important;
+            margin-bottom: 0 !important;
+        }
+        .sheet-attach .footer {
+            margin: 0 !important;
+            padding: 2pt 0 0 !important;
+        }
+
+        .sheet-attach {
+            page-break-before: always !important;
+            break-before: page !important;
+        }
+
         @media print {
             html, body {
                 width: 8.5in !important;
@@ -502,10 +585,18 @@
                 min-height: 13in !important;
                 max-height: 13in !important;
                 overflow: hidden !important;
-                page-break-after: avoid !important;
-                break-after: avoid !important;
+            }
+            .sheet-main {
+                page-break-after: auto !important;
+                break-after: auto !important;
                 page-break-inside: avoid !important;
                 break-inside: avoid !important;
+            }
+            .sheet-attach {
+                page-break-before: always !important;
+                break-before: page !important;
+                page-break-after: auto !important;
+                break-after: auto !important;
             }
             .fline-rule,
             .desc-line .fline-rule,
@@ -549,20 +640,68 @@
             $packed[3] = trim($packed[3] . ' ' . $chunk);
         }
     }
-    $distribute = OfficeIntakeHelper::decodeDistributeTo($drf->distribute_to ?? null);
-    $distribute = array_pad(array_slice($distribute, 0, 24), 24, '');
+    $allDistribute = OfficeIntakeHelper::decodeDistributeTo($drf->distribute_to ?? null);
+    $allDistribute = array_values(array_filter(array_map(
+        fn ($code) => trim((string) $code),
+        $allDistribute
+    ), fn ($code) => $code !== ''));
+
+    $distributeOffices = OfficeIntakeHelper::drfDistributeOffices($drf);
+    $attachOfficeRows = collect($distributeOffices)->map(function (array $office) {
+        $name = trim((string) ($office['name'] ?? ''));
+        $code = trim((string) ($office['code'] ?? ''));
+
+        return $name !== '' ? $name : $code;
+    })->filter(fn ($label) => $label !== '')->values()->all();
+
+    $distributeOverflow = count($allDistribute) > 24;
+    /*
+     * Long bond attach body ≈ 11.5in after header/title/footer.
+     * Arial 11pt / line-height 1.0 @ ~13pt rows → ~62 offices before next page.
+     */
+    $attachPerPage = 62;
+    $attachPages = $distributeOverflow
+        ? array_chunk($attachOfficeRows, $attachPerPage)
+        : [];
+    $printPageTotal = $distributeOverflow ? (1 + max(1, count($attachPages))) : 1;
+
+    if ($distributeOverflow) {
+        $distribute = array_fill(0, 24, '');
+        $distribute[0] = 'Please see attached';
+        $distribute[1] = 'list of offices';
+    } else {
+        $distribute = array_pad(array_slice($allDistribute, 0, 24), 24, '');
+    }
+
     $preparedName = trim((string) ($drf->prepared_by_name ?? ''));
+    $preparedDesig = trim((string) ($drf->prepared_by_designation ?? ''));
+    $reviewedName = trim((string) ($drf->reviewed_by_name ?? ''));
+    $reviewedDesig = trim((string) ($drf->reviewed_by_designation ?? ''));
+    $approvedName = trim((string) ($drf->approved_by_name ?? ''));
+    $approvedDesig = trim((string) ($drf->approved_by_designation ?? ''));
+
     $docTitle = trim((string) ($drf->doc_title ?? ''));
     $drfDate = $drf->drf_date
         ? \Carbon\Carbon::parse($drf->drf_date)->format('F d, Y')
         : '';
 @endphp
+@php
+    $isReviewer = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake();
+    $viewerMode = ! empty($viewerMode);
+@endphp
 <div class="print-toolbar">
-    <button type="button" class="btn-print" onclick="document.title=''; window.print();">Print</button>
-    <button type="button" class="btn-close" onclick="window.close()">Close</button>
+    @if($viewerMode)
+        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIO review</span>
+    @else
+        @if($isReviewer)
+            <a href="{{ route('dcs.requests.index', absolute: false) }}" class="btn-close" style="text-decoration:none;display:inline-flex;align-items:center;">Back to Request</a>
+        @endif
+        <button type="button" class="btn-print" onclick="document.title=''; window.print();">Print</button>
+        <button type="button" class="btn-close" onclick="window.close()">Close</button>
+    @endif
 </div>
 
-<div class="sheet">
+<div class="sheet sheet-main">
     <header class="hdr-band">
         <div class="hdr-logo-cell">
             @if(!empty($logoSrc))
@@ -659,15 +798,15 @@
                 </tr>
                 <tr>
                     <td class="row-label">Name</td>
-                    <td class="col-c">{{ $preparedName }}</td>
-                    <td class="name-bold">NANCY S. PENETRANTE, MBA</td>
-                    <td class="name-bold">JOCELYN O. JINTALAN, DBA</td>
+                    <td class="name-bold">{{ $preparedName }}</td>
+                    <td class="name-bold">{{ $reviewedName }}</td>
+                    <td class="name-bold">{{ $approvedName }}</td>
                 </tr>
                 <tr>
                     <td class="row-label">Designation</td>
-                    <td class="col-c"></td>
-                    <td class="desig">ISO Vice Chairperson</td>
-                    <td class="desig">ISO Chairperson</td>
+                    <td class="col-c">{{ $preparedDesig }}</td>
+                    <td class="desig">{{ $reviewedDesig }}</td>
+                    <td class="desig">{{ $approvedDesig }}</td>
                 </tr>
                 <tr>
                     <td class="row-label">Date</td>
@@ -682,9 +821,70 @@
         <div class="footer">
             <span>Effectivity Date: January 2018</span>
             <span>Rev. 0</span>
-            <span>Page: 1 of 1</span>
+            <span>Page: 1 of {{ $printPageTotal }}</span>
         </div>
     </div>
 </div>
+
+@if($distributeOverflow)
+@foreach($attachPages as $pageIndex => $pageOffices)
+@php
+    $attachPageNo = $pageIndex + 2;
+    $rowOffset = $pageIndex * $attachPerPage;
+@endphp
+<div class="sheet sheet-attach">
+    <header class="hdr-band">
+        <div class="hdr-logo-cell">
+            @if(!empty($logoSrc))
+                <img src="{{ $logoSrc }}" alt="" class="hdr-logo">
+            @endif
+        </div>
+        <div class="hdr-text-cell">
+            <div class="hdr-republic">Republic of the Philippines</div>
+            <div class="hdr-name">Camarines Sur Polytechnic Colleges</div>
+            <div class="hdr-location">Nabua, Camarines Sur</div>
+        </div>
+        <div class="hdr-rule">
+            <div class="hdr-rule-line"></div>
+            <span class="hdr-rule-code">CSPC-F-DCC-06</span>
+        </div>
+    </header>
+
+    <div class="body">
+        <div class="row attach-doc-title">
+            <span class="lbl">Document Title :</span>
+            <div class="fline w-fill"><div class="fline-val">{{ $docTitle }}</div><div class="fline-rule"></div></div>
+        </div>
+        <table class="attach-table">
+            <colgroup>
+                <col class="c-no">
+                <col class="c-name">
+            </colgroup>
+            <thead>
+                <tr>
+                    <th>No.</th>
+                    <th>Name of Offices</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($pageOffices as $index => $officeLabel)
+                    <tr>
+                        <td style="text-align: center;">{{ $rowOffset + $index + 1 }}</td>
+                        <td>{{ $officeLabel }}</td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+
+        <div class="footer-rule"></div>
+        <div class="footer">
+            <span>Effectivity Date: January 2018</span>
+            <span>Rev. 0</span>
+            <span>Page: {{ $attachPageNo }} of {{ $printPageTotal }}</span>
+        </div>
+    </div>
+</div>
+@endforeach
+@endif
 </body>
 </html>

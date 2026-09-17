@@ -15,7 +15,7 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
         $this->id = (int) $id;
 
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
-            $this->redirect('/dcs?intake=drf&id=' . $this->id, navigate: false);
+            $this->redirect(route('dcs.requests.show', ['type' => 'drf', 'id' => $this->id], absolute: false), navigate: false);
 
             return;
         }
@@ -150,7 +150,12 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
                 </div>
 
                 <div class="reg-field">
-                    <label>Distribute document to (department/position)</label>
+                    <label class="ofi-distribute-label">
+                        <span>Distribute document to (department/position)</span>
+                        <span class="ofi-total-offices">
+                            total offices: <strong>{{ count($distributeOffices) }}</strong>
+                        </span>
+                    </label>
                     @if(!empty($distributeOffices))
                         <div class="ofi-show-chips">
                             @foreach($distributeOffices as $office)
@@ -167,6 +172,49 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
                     @else
                         <div class="ofi-show-value is-empty">—</div>
                     @endif
+                </div>
+
+                <div class="ofi-sig-block ofi-sig-block--show">
+                    <p class="ofi-sig-heading">Signatories</p>
+                    <div class="ofi-sig-group">
+                        <p class="ofi-sig-label">Prepared by</p>
+                        <div class="reg-grid-2">
+                            <div class="reg-field">
+                                <label>Name</label>
+                                <div class="ofi-show-value">{{ trim((string) data_get($drf, 'prepared_by_name', '')) ?: '—' }}</div>
+                            </div>
+                            <div class="reg-field">
+                                <label>Designation</label>
+                                <div class="ofi-show-value">{{ trim((string) data_get($drf, 'prepared_by_designation', '')) ?: '—' }}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="ofi-sig-group">
+                        <p class="ofi-sig-label">Reviewed by</p>
+                        <div class="reg-grid-2">
+                            <div class="reg-field">
+                                <label>Name</label>
+                                <div class="ofi-show-value">{{ trim((string) data_get($drf, 'reviewed_by_name', '')) ?: '—' }}</div>
+                            </div>
+                            <div class="reg-field">
+                                <label>Designation</label>
+                                <div class="ofi-show-value">{{ trim((string) data_get($drf, 'reviewed_by_designation', '')) ?: '—' }}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="ofi-sig-group">
+                        <p class="ofi-sig-label">Approved by</p>
+                        <div class="reg-grid-2">
+                            <div class="reg-field">
+                                <label>Name</label>
+                                <div class="ofi-show-value">{{ trim((string) data_get($drf, 'approved_by_name', '')) ?: '—' }}</div>
+                            </div>
+                            <div class="reg-field">
+                                <label>Designation</label>
+                                <div class="ofi-show-value">{{ trim((string) data_get($drf, 'approved_by_designation', '')) ?: '—' }}</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>

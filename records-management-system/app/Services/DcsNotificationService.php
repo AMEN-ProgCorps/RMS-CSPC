@@ -91,7 +91,7 @@ class DcsNotificationService
         $number = trim($drfNo) !== '' ? ' ' . trim($drfNo) : '';
         $label = trim($title) !== '' ? ": {$title}" : '';
         $message = "New Document Request Form{$number}{$label} was submitted by {$name} and is ready for RFIO processing.";
-        $url = '/dcs/office/drf/' . $drfId;
+        $url = '/dcs/requests/drf/' . $drfId;
 
         static::createNotification($targetOfficeCode, $message, $url);
     }
@@ -107,7 +107,7 @@ class DcsNotificationService
         $number = trim($dcnNo) !== '' ? ' ' . trim($dcnNo) : '';
         $docLabel = trim($docNo) !== '' ? " for document {$docNo}" : '';
         $message = "New Document Change Notice{$number}{$docLabel} was submitted by {$name} and is ready for RFIO processing.";
-        $url = '/dcs/office/dcn/' . $dcnId;
+        $url = '/dcs/requests/dcn/' . $dcnId;
 
         static::createNotification($targetOfficeCode, $message, $url);
     }
@@ -125,7 +125,7 @@ class DcsNotificationService
         $formLabel = $type === 'dcn' ? 'Document Change Notice' : 'Document Request Form';
         $label = trim($title) !== '' ? ": {$title}" : '';
         $message = "Updated {$formLabel}{$label} was resubmitted by {$name} after RFIO correction and is ready for review.";
-        $url = '/dcs/office/' . ($type === 'dcn' ? 'dcn' : 'drf') . '/' . $intakeId;
+        $url = '/dcs/requests/' . ($type === 'dcn' ? 'dcn' : 'drf') . '/' . $intakeId;
 
         static::createNotification($targetOfficeCode, $message, $url);
     }
@@ -165,8 +165,8 @@ class DcsNotificationService
                     continue;
                 }
 
-                // Fallback: exact office path match (avoid /drf/1 matching /drf/12)
-                if (preg_match('#/dcs/office/' . preg_quote($type, '#') . '/' . $id . '(?:/|$|\?)#', $url)) {
+                // Fallback: exact office/request path match (avoid /drf/1 matching /drf/12)
+                if (preg_match('#/dcs/(?:office|requests)/' . preg_quote($type, '#') . '/' . $id . '(?:/|$|\?)#', $url)) {
                     $contentIds[] = (int) $row->id;
                     continue;
                 }
@@ -176,6 +176,7 @@ class DcsNotificationService
                     str_contains($content, 'ready for RFIO processing')
                     && (
                         str_contains($url, '/dcs/office/' . $type . '/' . $id)
+                        || str_contains($url, '/dcs/requests/' . $type . '/' . $id)
                         || (str_contains($url, 'intake=' . $type) && (str_contains($url, 'id=' . $id) || str_contains($url, 'intake_id=' . $id)))
                     )
                 ) {

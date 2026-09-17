@@ -99,7 +99,14 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     </div>
                     <div class="reg-field">
                         <label>Sub-Type Document</label>
-                        <select id="subType" name="sub_type_id" autocomplete="off" disabled>
+                        {{-- Drafts saved without a sub-type stay editable so it can be filled later --}}
+                        <select id="subType" name="sub_type_id" autocomplete="off"
+                            @if(!empty($docRequest->is_draft) && empty($docRequest->sub_type_id))
+                                data-draft-unlock="1"
+                            @else
+                                disabled
+                            @endif
+                        >
                             <option value="" selected disabled>Select sub-type</option>
                         </select>
                         @if($docRequest->sub_type_id)
@@ -1584,6 +1591,9 @@ document.addEventListener("DOMContentLoaded", async function () {
 
         const subTypeSelect = document.getElementById("subType");
         const children = allDocTypes.filter(d => d.parent_id == CURRENT_DOC_TYPE_ID);
+        const draftSubTypeUnlock = !!subTypeSelect?.dataset?.draftUnlock
+            && !CURRENT_SUB_TYPE_ID
+            && !!(window.__isDraftDoc);
         if (children.length > 0) {
             children.forEach(c => {
                 const opt = new Option(c.doc_type_name, c.doc_type_id);
@@ -1591,10 +1601,16 @@ document.addEventListener("DOMContentLoaded", async function () {
                 subTypeSelect.add(opt);
             });
             subTypeSelect.dataset.lastValid = CURRENT_SUB_TYPE_ID || "";
+            if (draftSubTypeUnlock) {
+                subTypeSelect.disabled = false;
+                subTypeSelect.removeAttribute('disabled');
+            } else {
+                subTypeSelect.disabled = true;
+            }
         } else {
             subTypeSelect.dataset.lastValid = "";
+            subTypeSelect.disabled = true;
         }
-        subTypeSelect.disabled = true;
 
         injectHiddenForDisabled('versionType', 'version_id');
         injectHiddenForDisabled('docType', 'doc_type_id');
@@ -5743,6 +5759,16 @@ function validateForm() {
 
     if (docNoDuplicate) {
         errors.push({ field: "masterlistDocNo", message: "This document number is already registered. Please use a unique number." });
+        return errors;
+    }
+
+    const docTypeId = document.getElementById("docType")?.value || CURRENT_DOC_TYPE_ID;
+    const subTypeId = document.getElementById("subType")?.value || CURRENT_SUB_TYPE_ID || '';
+    const hasChildren = (allDocTypes || []).some(d => String(d.parent_id) === String(docTypeId));
+    if (hasChildren && !subTypeId) {
+        errors.push({ field: "subType", message: "Sub-Type is required." });
+        document.getElementById("subType")?.classList.add("reg-input-error");
+        document.getElementById("subType")?.focus();
         return errors;
     }
 

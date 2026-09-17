@@ -97,8 +97,9 @@
         @endif
 
         @if($isFullDcs)
+            @php $canReviewIntake = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake(); @endphp
             @if($canRegister)
-                @if($enableTopTabs)
+                @if($enableTopTabs && ! $canReviewIntake)
                     <li class="nav-item {{ request()->is('dcs/register*') ? 'active' : '' }}">
                         <a href="{{ route('dcs.register.create', absolute: false) }}">
                             <i class="fa-regular fa-pen-to-square"></i>
@@ -107,8 +108,8 @@
                         </a>
                     </li>
                 @else
-                    <li class="nav-item dropdown {{ request()->is('dcs/register*') ? 'active' : '' }}">
-                        <details {{ request()->is('dcs/register*') ? 'open' : '' }}>
+                    <li class="nav-item dropdown {{ request()->is('dcs/register*') || request()->routeIs('dcs.requests.*') ? 'active' : '' }}">
+                        <details {{ request()->is('dcs/register*') || request()->routeIs('dcs.requests.*') ? 'open' : '' }}>
                             <summary class="dropdown-trigger">
                                 <i class="fa-regular fa-pen-to-square"></i>
                                 <span>Document Registration</span>
@@ -125,10 +126,23 @@
                                 <li>
                                     <a href="{{ route('dcs.register.update', absolute: false) }}" class="{{ request()->routeIs('dcs.register.update') || request()->routeIs('dcs.register.edit') || request()->routeIs('dcs.register.history') ? 'active-sub' : '' }}">Update</a>
                                 </li>
+                                @if($canReviewIntake)
+                                    <li>
+                                        <a href="{{ route('dcs.requests.index', absolute: false) }}" class="{{ request()->routeIs('dcs.requests.*') ? 'active-sub' : '' }}">Request</a>
+                                    </li>
+                                @endif
                             </ul>
                         </details>
                     </li>
                 @endif
+            @elseif($canReviewIntake)
+                <li class="nav-item {{ request()->routeIs('dcs.requests.*') ? 'active' : '' }}">
+                    <a href="{{ route('dcs.requests.index', absolute: false) }}">
+                        <i class="fa-solid fa-inbox"></i>
+                        <span>Request</span>
+                        <span class="tooltip">Pending office DRF &amp; DCN</span>
+                    </a>
+                </li>
             @endif
 
             @if($canReports)
@@ -216,7 +230,7 @@
                     <a href="{{ route('dcs.recycle-bin', absolute: false) }}">
                         <i class="fa-solid fa-trash-can"></i>
                         <span>Recycle Bin</span>
-                        <span class="tooltip">Recycle Bin</span>
+                        <span class="tooltip">HEAD Admin — Recycle Bin</span>
                     </a>
                 </li>
             @endif

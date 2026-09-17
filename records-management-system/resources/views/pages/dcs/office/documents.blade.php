@@ -77,9 +77,9 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
             <div>
                 <h1>Office Documents</h1>
                 <p>
-                    Documents appear here when RFIO lists <strong>{{ $officeName }}</strong>
-                    as a Source Unit on the masterlist, or when RFIO registers a DRF/DCN
-                    your office submitted.
+                    Documents appear here only when RFIO distributes a controlled document
+                    to <strong>{{ $officeName }}</strong>. Forms your office submitted
+                    are not listed here.
                 </p>
             </div>
         </div>
@@ -110,7 +110,12 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
             @endforeach
         </nav>
 
-        <div class="ofi-card">
+        <div class="ofi-card" style="position:relative;" wire:loading.class="is-loading">
+            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType">
+                <div class="dcs-loading-spinner" aria-hidden="true"></div>
+                <h4>Loading documents…</h4>
+                <p>Fetching records and preparing the list.</p>
+            </div>
             <div class="ofi-doc-panel-head">
                 <h2>{{ $activeLabel }}</h2>
                 <span>{{ $activeCount }} {{ $activeCount === 1 ? 'document' : 'documents' }}</span>
@@ -121,7 +126,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                     <i class="fa-regular fa-folder-open" aria-hidden="true"></i>
                     @if($total < 1)
                         <strong>No documents yet</strong>
-                        <p>No masterlist documents list your office as a Source Unit yet.</p>
+                        <p>No controlled documents list your office in Document Distribution yet.</p>
                     @else
                         <strong>No {{ strtolower($activeLabel) }} documents</strong>
                         <p>
@@ -139,7 +144,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                                 <th style="width:160px;">Document No.</th>
                                 <th style="width:72px;">Rev.</th>
                                 <th>Document Title</th>
-                                <th style="width:180px;">Originator</th>
+                                <th style="width:100px;">Pages</th>
                                 <th style="width:140px;">Effectivity Date</th>
                             </tr>
                         </thead>
@@ -150,7 +155,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                                     <td>{{ $row['doc_no'] !== '' ? $row['doc_no'] : '—' }}</td>
                                     <td>{{ $row['rev_no'] }}</td>
                                     <td>{{ $row['doc_title'] !== '' ? $row['doc_title'] : '—' }}</td>
-                                    <td>{{ ($row['originator'] ?? '') !== '' ? $row['originator'] : '—' }}</td>
+                                    <td>{{ ($row['pages'] ?? '') !== '' ? $row['pages'] : '—' }}</td>
                                     <td>{{ $row['effectivity_date'] ?? '—' }}</td>
                                 </tr>
                             @endforeach

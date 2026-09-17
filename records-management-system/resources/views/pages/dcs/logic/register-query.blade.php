@@ -401,18 +401,13 @@ class RegisterQueryHelper
 
     /**
      * Per-module clearance. Requires full DCS (RFIO / View All / SADM) plus the module flag.
-     * Super Admin bypasses module flags.
+     * Super Admin bypasses module flags — except Recycle Bin (HEAD Admin of DCS),
+     * which requires an explicit dcs_can_recycle_bin grant and is not Super Admin identity.
      */
     public static function canAccessDcsModule(string $module): bool
     {
         $perms = auth()->user()?->permissions;
         if (!$perms) {
-            return false;
-        }
-        if (!empty($perms->is_sadm)) {
-            return true;
-        }
-        if (! self::isFullDcsUser()) {
             return false;
         }
 
@@ -422,7 +417,23 @@ class RegisterQueryHelper
             return false;
         }
 
-        return !empty($perms->{$column});
+        // HEAD Admin of DCS = Recycle Bin clearance only (not Super Admin / not system-wide admin).
+        if ($module === 'recycle_bin') {
+            if (empty($perms->dcs_can_recycle_bin)) {
+                return false;
+            }
+
+            return self::isFullDcsUser() || ! empty($perms->is_sadm);
+        }
+
+        if (! empty($perms->is_sadm)) {
+            return true;
+        }
+        if (! self::isFullDcsUser()) {
+            return false;
+        }
+
+        return ! empty($perms->{$column});
     }
 
     /**
@@ -461,6 +472,24 @@ class RegisterQueryHelper
         }
 
         abort_unless(self::isFullDcsUser(), 403, 'Full Document Control System access is required.');
+    }
+
+    /**
+     * HEAD Admin of DCS — Recycle Bin clearance (dcs_can_recycle_bin).
+     * Not Super Admin: Super Admin is system-wide (users, etc.) and does not own this role by default.
+     */
+    public static function isDocumentControlHead(): bool
+    {
+        return self::canAccessDcsModule('recycle_bin');
+    }
+
+    /**
+     * Permanent delete from Recycle Bin — HEAD Admin of DCS only (Recycle Bin clearance).
+     * Regular DCS admins soft-delete with a reason; they cannot destroy forever.
+     */
+    public static function canPermanentlyDeleteDcsDocuments(): bool
+    {
+        return self::isDocumentControlHead();
     }
 
     /** Full DCS operators with review-intake clearance may open any office intake form by ID. */
@@ -2018,6 +2047,9 @@ class RegisterQueryHelper
         if (Schema::hasColumn('dcs_document_requests', 'deleted_by')) {
             $select[] = 'dr.deleted_by';
         }
+        if (Schema::hasColumn('dcs_document_requests', 'deleted_reason')) {
+            $select[] = 'dr.deleted_reason';
+        }
 
         $query->select($select);
 
@@ -2067,6 +2099,7 @@ class RegisterQueryHelper
                     ? $deletedAt->format('M d, Y h:i A')
                     : '—',
                 'deleted_by' => $deletedBy,
+                'deleted_reason' => trim((string) ($doc->deleted_reason ?? '')) ?: null,
                 'expires_at' => $expiresAt ? $expiresAt->format('M d, Y') : '—',
                 'days_left' => $daysLeft,
             ];

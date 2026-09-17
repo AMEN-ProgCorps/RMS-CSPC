@@ -357,6 +357,22 @@ body {
     color: var(--rb-text-subtle);
 }
 
+.rb-delete-reason {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 0.76rem;
+    line-height: 1.4;
+    color: var(--rb-text);
+    max-width: 220px;
+}
+
+.rb-delete-reason.is-empty {
+    color: var(--rb-text-subtle);
+    font-style: italic;
+}
+
 .rb-expires-at {
     font-size: 0.78rem;
     font-weight: 600;

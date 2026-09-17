@@ -20,12 +20,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public ?int $deleteId = null;
     public string $deleteTitle = '';
     public int $deleteRev = 0;
+    public string $deleteReason = '';
+    public string $deleteError = '';
 
     public function with(): array
     {
         return [
             'docTypes' => RegisterQueryHelper::parentDocTypes(),
             'list' => RegisterQueryHelper::updateList($this->search, $this->docTypeId, $this->page),
+            'canReviewRecycleBin' => RegisterQueryHelper::isDocumentControlHead(),
         ];
     }
 
@@ -56,6 +59,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->deleteId = $id;
         $this->deleteTitle = $title;
         $this->deleteRev = $rev;
+        $this->deleteReason = '';
+        $this->deleteError = '';
     }
 
     public function closeDelete(): void
@@ -63,6 +68,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->deleteId = null;
         $this->deleteTitle = '';
         $this->deleteRev = 0;
+        $this->deleteReason = '';
+        $this->deleteError = '';
     }
 
     public function destroy(): void
@@ -71,7 +78,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             return;
         }
 
-        $response = RegisterUpdateHelper::destroy($this->deleteId);
+        $reason = trim(preg_replace('/\s+/u', ' ', $this->deleteReason) ?? '');
+        if ($reason === '' || mb_strlen($reason) < 5) {
+            $this->deleteError = 'Please enter a delete reason (at least 5 characters).';
+
+            return;
+        }
+        if (mb_strlen($reason) > 1000) {
+            $this->deleteError = 'Delete reason must be 1000 characters or fewer.';
+
+            return;
+        }
+
+        $response = RegisterUpdateHelper::destroy($this->deleteId, $reason);
         if ($response instanceof RedirectResponse) {
             $this->redirect($response->getTargetUrl(), navigate: true);
         }
@@ -106,7 +125,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </button>
     </div>
 
-    <div class="upd-table-card" x-data="{ expanded: {} }">
+    <div class="upd-table-card" x-data="{ expanded: {} }" style="position:relative;" wire:loading.class="is-loading">
+        <div class="dcs-loading-overlay" wire:loading.flex>
+            <div class="dcs-loading-spinner" aria-hidden="true"></div>
+            <h4>Loading documents…</h4>
+            <p>Fetching records and preparing the list.</p>
+        </div>
         <div class="upd-table-scroll" @if(count($list['rows']) === 0) style="display:none" @endif>
             <table class="upd-table">
                 <thead>
@@ -210,18 +234,33 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     @if($deleteId)
     @teleport('body')
     <div id="deleteModal" class="upd-modal-overlay" style="display:flex;">
-        <div class="upd-modal">
+        <div class="upd-modal upd-modal-wide">
             <div class="upd-modal-icon upd-modal-icon-recycle"><i class="fa-solid fa-trash-can"></i></div>
             <h3>Delete Document?</h3>
             <p>
-                This will move <strong>{{ $deleteTitle }}</strong> (Rev {{ $deleteRev }}) to the
-                <a href="{{ route('dcs.recycle-bin', absolute: false) }}" class="upd-modal-link">Recycle Bin</a>.
-                You can restore it within <strong>1 year</strong>; after that it is permanently deleted.
+                This will move <strong>{{ $deleteTitle }}</strong> (Rev {{ $deleteRev }}) to the Recycle Bin
+                for HEAD Admin of DCS review. It is not permanently deleted.
+                @if($canReviewRecycleBin)
+                    You can review it in the
+                    <a href="{{ route('dcs.recycle-bin', absolute: false) }}" class="upd-modal-link">Recycle Bin</a>.
+                @else
+                    Only the HEAD Admin of DCS can review it in the Recycle Bin or permanently delete it.
+                @endif
             </p>
+            <div class="upd-modal-field">
+                <label for="updDeleteReason">Delete reason <span>*</span></label>
+                <textarea id="updDeleteReason" class="upd-modal-textarea" rows="3"
+                    wire:model="deleteReason"
+                    placeholder="Explain why this document is being deleted..."
+                    maxlength="1000"></textarea>
+                @if($deleteError !== '')
+                    <div class="upd-modal-error">{{ $deleteError }}</div>
+                @endif
+            </div>
             <div class="upd-modal-actions">
                 <button type="button" class="upd-modal-btn upd-modal-cancel" wire:click="closeDelete">Cancel</button>
                 <button type="button" class="upd-modal-btn upd-modal-confirm" wire:click="destroy" wire:loading.attr="disabled">
-                    <i class="fa-solid fa-trash-can"></i> Delete
+                    <i class="fa-solid fa-trash-can"></i> Move to Recycle Bin
                 </button>
             </div>
         </div>

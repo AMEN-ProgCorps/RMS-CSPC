@@ -708,7 +708,7 @@ body {
 .rpt-state-spinner {
     width: 34px; height: 34px;
     border: 3px solid var(--rpt-border); border-top-color: var(--rpt-accent);
-    border-radius: 50%; margin: 0 auto; animation: rptSpin 0.7s linear infinite;
+    border-radius: 50%; margin: 0 auto; animation: dcsLoadingSpin 0.7s linear infinite;
 }
 .rpt-state h4 { font-size: 0.88rem; font-weight: 700; color: var(--rpt-text); margin-bottom: 4px; }
 .rpt-state p { font-size: 0.82rem; color: var(--rpt-text-subtle); max-width: 280px; margin: 0 auto; line-height: 1.5; }
@@ -837,6 +837,7 @@ body {
 @keyframes rptSlideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes rptDdIn { from { opacity: 0; transform: translateY(-4px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes rptSpin { to { transform: rotate(360deg); } }
+@keyframes dcsLoadingSpin { to { transform: rotate(360deg); } }
 
 /* ═══════════════════════════════════════════
    RESPONSIVE — Small laptops / tablets

@@ -513,9 +513,20 @@
         }
     }
 @endphp
+@php
+    $isReviewer = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake();
+    $viewerMode = ! empty($viewerMode);
+@endphp
 <div class="print-toolbar">
-    <button type="button" class="btn-print" onclick="document.title=''; window.print();">Print</button>
-    <button type="button" class="btn-close" onclick="window.close()">Close</button>
+    @if($viewerMode)
+        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIO review</span>
+    @else
+        @if($isReviewer)
+            <a href="{{ route('dcs.requests.index', absolute: false) }}" class="btn-close" style="text-decoration:none;display:inline-flex;align-items:center;">Back to Request</a>
+        @endif
+        <button type="button" class="btn-print" onclick="document.title=''; window.print();">Print</button>
+        <button type="button" class="btn-close" onclick="window.close()">Close</button>
+    @endif
 </div>
 
 <div class="sheet">

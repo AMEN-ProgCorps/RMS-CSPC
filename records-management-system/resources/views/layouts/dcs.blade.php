@@ -91,6 +91,8 @@
         @endif
     @elseif(request()->routeIs('dcs.office.*'))
         @vite(['resources/css/dcs/register.css', 'resources/css/dcs/office-intake.css'])
+    @elseif(request()->routeIs('dcs.requests.*'))
+        @vite(['resources/css/dcs/update.css', 'resources/css/dcs/office-intake.css'])
     @elseif(request()->routeIs('dcs.settings.index'))
         @vite(['resources/css/dcs/settings.css'])
     @elseif(request()->routeIs('dcs.register.create') || request()->routeIs('dcs.register.revised'))

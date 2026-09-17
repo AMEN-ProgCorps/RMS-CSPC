@@ -324,7 +324,7 @@ document.addEventListener('alpine:init', () => {
     >
         <div class="dashboard-header dash-welcome-bar">
             <div class="welcome-text dash-welcome-copy">
-                <p class="header-greeting">Document Control System</p>
+                <p class="header-greeting">Document Controller</p>
                 <h1 class="page-title">
                     Welcome, <span class="dash-welcome-name">{{ explode(' ', trim((string) $userDisplayName))[0] ?: 'User' }}</span>
                 </h1>

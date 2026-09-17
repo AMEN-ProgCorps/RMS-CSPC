@@ -1381,19 +1381,19 @@ class RegisterPersistHelper
                         );
                     }
                 }
+            }
 
-                // Always close office-intake handoff (even when Document No. is still blank),
-                // so the submitting office is notified and the intake cannot be registered twice.
-                $pending = OfficeIntakeHelper::pendingRegisterIntake($request);
-                if ($pending && in_array($pending['type'], ['drf', 'dcn'], true) && $pending['id'] > 0) {
-                    OfficeIntakeHelper::markIntakeRegistered(
-                        $pending['type'],
-                        $pending['id'],
-                        (int) $requestId,
-                        $docNo,
-                        trim((string) ($savedMl->doc_title ?? ''))
-                    );
-                }
+            // Close office-intake handoff on draft or final save so Request queue stays clear.
+            $pending = OfficeIntakeHelper::pendingRegisterIntake($request);
+            if ($pending && in_array($pending['type'], ['drf', 'dcn'], true) && $pending['id'] > 0) {
+                OfficeIntakeHelper::markIntakeRegistered(
+                    $pending['type'],
+                    $pending['id'],
+                    (int) $requestId,
+                    $docNo,
+                    trim((string) ($savedMl->doc_title ?? '')),
+                    ! $saveAsDraft
+                );
             }
 
             $successMessage = $saveAsDraft

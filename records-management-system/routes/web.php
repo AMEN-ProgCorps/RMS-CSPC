@@ -640,6 +640,12 @@ Route::middleware(['auth'])
             // Office intake (RFIO full users + limited non-RFIO offices)
             Volt::route('/office/documents', 'pages.dcs.office.documents')->name('office.documents');
 
+            // RFIO Request module — pending office DRF/DCN
+            Volt::route('/requests', 'pages.dcs.requests.index')->name('requests.index');
+            Volt::route('/requests/{type}/{id}', 'pages.dcs.requests.show')
+                ->whereIn('type', ['drf', 'dcn'])
+                ->name('requests.show');
+
             Volt::route('/office/drf', 'pages.dcs.office.drf-index')->name('office.drf.index');
             Volt::route('/office/drf/create', 'pages.dcs.office.drf-create')->name('office.drf.create');
             Route::post('/office/drf', fn (Request $request) => OfficeIntakeHelper::storeDrf($request))->name('office.drf.store');
@@ -654,8 +660,9 @@ Route::middleware(['auth'])
                 $logoPath = public_path('images/logo.png');
                 $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
                 $sourceOffices = OfficeIntakeHelper::drfSourceOffices($id);
+                $viewerMode = request()->boolean('view');
 
-                return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices'));
+                return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices', 'viewerMode'));
             })->name('office.drf.print');
             Route::match(['put', 'patch', 'post'], '/office/drf/{id}', function (Request $request, int $id) {
                 return OfficeIntakeHelper::updateDrf($request, $id);
@@ -676,8 +683,9 @@ Route::middleware(['auth'])
                 $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
                 $revisions = OfficeIntakeHelper::dcnRevisions($id);
                 $sourceOffices = OfficeIntakeHelper::dcnSourceOffices($id);
+                $viewerMode = request()->boolean('view');
 
-                return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices'));
+                return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode'));
             })->name('office.dcn.print');
             Route::match(['put', 'patch', 'post'], '/office/dcn/{id}', function (Request $request, int $id) {
                 return OfficeIntakeHelper::updateDcn($request, $id);

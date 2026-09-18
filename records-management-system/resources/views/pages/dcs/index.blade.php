@@ -11,10 +11,26 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function with(): array
     {
         if (RegisterQueryHelper::isLimitedDcsUser()) {
+            $drfRows = OfficeIntakeHelper::listMyDrf();
+            $dcnRows = OfficeIntakeHelper::listMyDcn();
+            $docGroups = OfficeIntakeHelper::officeDocumentGroups(null, false);
+            $docTotal = OfficeIntakeHelper::officeDocumentTotal();
+
             return [
                 'isLimitedDcs' => true,
-                'officeDrfCount' => OfficeIntakeHelper::listMyDrf()->count(),
-                'officeDcnCount' => OfficeIntakeHelper::listMyDcn()->count(),
+                'officeName' => auth()->user()?->details?->office?->office_name
+                    ?? auth()->user()?->details?->office?->office_code
+                    ?? 'Your office',
+                'userDisplayName' => trim(implode(' ', array_filter([
+                    auth()->user()?->details?->first_name,
+                    auth()->user()?->details?->last_name,
+                ]))) ?: (auth()->user()?->username ?? ''),
+                'officeDrfCount' => $drfRows->count(),
+                'officeDcnCount' => $dcnRows->count(),
+                'officeDocTotal' => $docTotal,
+                'officeDocGroups' => $docGroups,
+                'recentDrf' => $drfRows->take(4)->values(),
+                'recentDcn' => $dcnRows->take(4)->values(),
                 'headerDate' => now('Asia/Manila')->format('l, F j, Y'),
                 'headerTime' => now('Asia/Manila')->format('g:i:s A'),
                 'stats' => [],
@@ -67,26 +83,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         ];
 
         $year = (int) now('Asia/Manila')->year;
-        $holidays = [];
-        foreach ([$year, $year + 1] as $y) {
-            $holidays["{$y}-01-01"] = "New Year's Day";
-            $holidays["{$y}-04-09"] = 'The Day of Valor';
-            $holidays["{$y}-05-01"] = 'Labor Day';
-            $holidays["{$y}-06-12"] = 'Independence Day';
-            $holidays["{$y}-08-21"] = 'Ninoy Aquino Day';
-            $heroes = \Carbon\Carbon::create($y, 8, 31, 0, 0, 0, 'Asia/Manila');
-            $heroes->subDays(($heroes->dayOfWeek - \Carbon\Carbon::MONDAY + 7) % 7);
-            $holidays[$heroes->toDateString()] = 'National Heroes Day';
-            $holidays["{$y}-11-01"] = "All Saints' Day";
-            $holidays["{$y}-11-30"] = 'Bonifacio Day';
-            $holidays["{$y}-12-25"] = 'Christmas Day';
-            $holidays["{$y}-12-30"] = 'Rizal Day';
-            if (function_exists('easter_date')) {
-                $easter = \Carbon\Carbon::createFromTimestamp(easter_date($y), 'UTC')->timezone('Asia/Manila');
-                $holidays[$easter->copy()->subDays(3)->toDateString()] = 'Maundy Thursday';
-                $holidays[$easter->copy()->subDays(2)->toDateString()] = 'Good Friday';
-            }
-        }
+        $holidays = \App\Helpers\CalendarHelper::philippineHolidays($year, $year + 1);
 
         return [
             'isLimitedDcs' => false,
@@ -94,7 +91,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'officeDcnCount' => 0,
             'stats' => $stats,
             'typeIds' => $typeIds,
+            'userDisplayName' => trim(implode(' ', array_filter([
+                auth()->user()?->details?->first_name,
+                auth()->user()?->details?->last_name,
+            ]))) ?: (auth()->user()?->username ?? 'User'),
             'headerDate' => now('Asia/Manila')->format('l, F j, Y'),
+            'headerTime' => now('Asia/Manila')->format('g:i:s A'),
             'holidays' => $holidays,
             'canDatabase' => RegisterQueryHelper::canAccessDcsModule('database'),
             'canRegister' => RegisterQueryHelper::canAccessDcsModule('register'),
@@ -105,40 +107,186 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 }; ?>
 
 @if(!empty($isLimitedDcs))
-<div class="ofi-page" x-data="ofiDashboardClock()">
-    <div class="ofi-inner">
-        <div class="ofi-header">
-            <div>
-                <h1>Document Control System</h1>
-                <p>Create and print your Document Request Forms and Document Change Notices, then submit the printed copies to RFIO.</p>
+<div class="ofi-page ofi-dash" x-data="ofiDashboardClock()">
+    <div class="ofi-inner ofi-inner-wide">
+        <div class="ofi-dash-hero">
+            <div class="ofi-dash-hero-copy">
+                <p class="ofi-dash-kicker">{{ $officeName }}</p>
+                <h1>Welcome{{ $userDisplayName !== '' ? ', ' . explode(' ', $userDisplayName)[0] : '' }}</h1>
+                <p>Create and print DRF/DCN forms for RFIO, and browse documents that list your office as Source Unit.</p>
             </div>
-            <div class="header-date dash-calendar-trigger" aria-live="polite">
-                <i class="fa-regular fa-calendar"></i>
-                <span class="dash-calendar-trigger-text">
-                    <span class="dash-calendar-trigger-date">{{ $headerDate }}</span>
-                    <span class="dash-calendar-trigger-time" x-text="nowClock" x-cloak>{{ $headerTime }}</span>
-                </span>
+            <div class="ofi-dash-hero-meta" aria-live="polite">
+                <div class="ofi-dash-date">
+                    <i class="fa-regular fa-calendar"></i>
+                    <div>
+                        <span class="ofi-dash-date-label">Today</span>
+                        <strong>{{ $headerDate }}</strong>
+                        <span class="ofi-dash-clock" x-text="nowClock" x-cloak>{{ $headerTime }}</span>
+                    </div>
+                </div>
+                <div class="ofi-dash-hero-actions">
+                    <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> New DRF</a>
+                    <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> New DCN</a>
+                </div>
             </div>
         </div>
+
         @if(session('error'))
             <div class="ofi-alert err">{{ session('error') }}</div>
         @endif
-        <div class="ofi-stat-grid">
-            <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="ofi-card ofi-stat-card">
-                <div class="ofi-stat-label">My DRF</div>
-                <div class="ofi-stat-value is-drf">{{ (int) $officeDrfCount }}</div>
-                <div class="ofi-stat-hint">Document Request Forms you created</div>
+        @if(session('success'))
+            <div class="ofi-alert ok">{{ session('success') }}</div>
+        @endif
+        @if(session('info'))
+            <div class="ofi-alert ok">{{ session('info') }}</div>
+        @endif
+
+        <section class="ofi-dash-stats" aria-label="Office overview">
+            <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="ofi-dash-stat is-drf">
+                <div class="ofi-dash-stat-icon"><i class="fa-regular fa-file-lines"></i></div>
+                <div class="ofi-dash-stat-body">
+                    <span class="ofi-dash-stat-label">My DRF</span>
+                    <strong class="ofi-dash-stat-value">{{ (int) $officeDrfCount }}</strong>
+                    <span class="ofi-dash-stat-hint">Request forms you created</span>
+                </div>
             </a>
-            <a href="{{ route('dcs.office.dcn.index', absolute: false) }}" class="ofi-card ofi-stat-card">
-                <div class="ofi-stat-label">My DCN</div>
-                <div class="ofi-stat-value is-dcn">{{ (int) $officeDcnCount }}</div>
-                <div class="ofi-stat-hint">Document Change Notices you created</div>
+            <a href="{{ route('dcs.office.dcn.index', absolute: false) }}" class="ofi-dash-stat is-dcn">
+                <div class="ofi-dash-stat-icon"><i class="fa-solid fa-file-pen"></i></div>
+                <div class="ofi-dash-stat-body">
+                    <span class="ofi-dash-stat-label">My DCN</span>
+                    <strong class="ofi-dash-stat-value">{{ (int) $officeDcnCount }}</strong>
+                    <span class="ofi-dash-stat-hint">Change notices you created</span>
+                </div>
             </a>
+            <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}" class="ofi-dash-stat is-docs">
+                <div class="ofi-dash-stat-icon"><i class="fa-solid fa-folder-open"></i></div>
+                <div class="ofi-dash-stat-body">
+                    <span class="ofi-dash-stat-label">Office Documents</span>
+                    <strong class="ofi-dash-stat-value">{{ (int) $officeDocTotal }}</strong>
+                    <span class="ofi-dash-stat-hint">Listed with your office as Source Unit</span>
+                </div>
+            </a>
+        </section>
+
+        <section class="ofi-dash-panel">
+            <div class="ofi-dash-panel-head">
+                <div>
+                    <h2>Document types</h2>
+                    <p>Open a type to view registered documents for your office.</p>
+                </div>
+                <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}" class="ofi-dash-link">View all</a>
+            </div>
+            <div class="ofi-dash-type-grid">
+                @foreach($officeDocGroups as $group)
+                    <a
+                        href="{{ route('dcs.office.documents', ['type' => $group['key']], absolute: false) }}"
+                        class="ofi-dash-type {{ $group['count'] < 1 ? 'is-empty' : '' }}"
+                    >
+                        <span class="ofi-dash-type-label">{{ $group['label'] }}</span>
+                        <strong class="ofi-dash-type-count">{{ $group['count'] }}</strong>
+                        <span class="ofi-dash-type-meta">{{ $group['count'] === 1 ? 'document' : 'documents' }}</span>
+                    </a>
+                @endforeach
+            </div>
+        </section>
+
+        <div class="ofi-dash-split">
+            <section class="ofi-dash-panel">
+                <div class="ofi-dash-panel-head">
+                    <div>
+                        <h2>Recent DRF</h2>
+                        <p>Latest Document Request Forms from your account.</p>
+                    </div>
+                    <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="ofi-dash-link">See all</a>
+                </div>
+                @if($recentDrf->isEmpty())
+                    <div class="ofi-dash-empty">
+                        <p>No DRF yet.</p>
+                        <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> Create DRF</a>
+                    </div>
+                @else
+                    <ul class="ofi-dash-list">
+                        @foreach($recentDrf as $row)
+                            <li>
+                                <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}">
+                                    <span class="ofi-dash-list-title">{{ $row->doc_title ?: 'Untitled DRF' }}</span>
+                                    <span class="ofi-dash-list-meta">
+                                        {{ $row->drf_date ? \Carbon\Carbon::parse($row->drf_date)->format('M d, Y') : 'No date' }}
+                                        @if(!empty($row->is_registered))
+                                            · Registered
+                                        @elseif(!empty($row->drf_no))
+                                            · {{ $row->drf_no }}
+                                        @endif
+                                    </span>
+                                </a>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+            </section>
+
+            <section class="ofi-dash-panel">
+                <div class="ofi-dash-panel-head">
+                    <div>
+                        <h2>Recent DCN</h2>
+                        <p>Latest Document Change Notices from your account.</p>
+                    </div>
+                    <a href="{{ route('dcs.office.dcn.index', absolute: false) }}" class="ofi-dash-link">See all</a>
+                </div>
+                @if($recentDcn->isEmpty())
+                    <div class="ofi-dash-empty">
+                        <p>No DCN yet.</p>
+                        <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> Create DCN</a>
+                    </div>
+                @else
+                    <ul class="ofi-dash-list">
+                        @foreach($recentDcn as $row)
+                            <li>
+                                <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}">
+                                    <span class="ofi-dash-list-title">{{ $row->originator_name ?? ($row->dcn_no ?: 'Untitled DCN') }}</span>
+                                    <span class="ofi-dash-list-meta">
+                                        {{ $row->dcn_date ? \Carbon\Carbon::parse($row->dcn_date)->format('M d, Y') : 'No date' }}
+                                        @if(!empty($row->dcn_no)) · {{ $row->dcn_no }} @endif
+                                    </span>
+                                </a>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+            </section>
         </div>
-        <div class="ofi-header-actions">
-            <a href="{{ route('dcs.office.drf.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> New DRF</a>
-            <a href="{{ route('dcs.office.dcn.create', absolute: false) }}" class="ofi-btn primary"><i class="fa-solid fa-plus"></i> New DCN</a>
-        </div>
+
+        <section class="ofi-dash-panel ofi-dash-steps">
+            <div class="ofi-dash-panel-head">
+                <div>
+                    <h2>How office intake works</h2>
+                    <p>Follow these steps when submitting forms to RFIO.</p>
+                </div>
+            </div>
+            <ol class="ofi-dash-step-list">
+                <li>
+                    <span class="ofi-dash-step-num">1</span>
+                    <div>
+                        <strong>Create the form</strong>
+                        <p>Fill out a new DRF or DCN for your office.</p>
+                    </div>
+                </li>
+                <li>
+                    <span class="ofi-dash-step-num">2</span>
+                    <div>
+                        <strong>Print and sign</strong>
+                        <p>Print the saved form, then have it signed as required.</p>
+                    </div>
+                </li>
+                <li>
+                    <span class="ofi-dash-step-num">3</span>
+                    <div>
+                        <strong>Submit to RFIO</strong>
+                        <p>Bring the signed copy to Records &amp; Freedom of Information for registration.</p>
+                    </div>
+                </li>
+            </ol>
+        </section>
     </div>
 </div>
 <script>
@@ -174,15 +322,19 @@ document.addEventListener('alpine:init', () => {
         class="dash-calendar-shell"
         @keydown.escape.window="modal !== null && (modal = null)"
     >
-        <div class="dashboard-header">
-            <div class="welcome-text">
-                <h1 class="page-title">Document Control System</h1>
+        <div class="dashboard-header dash-welcome-bar">
+            <div class="welcome-text dash-welcome-copy">
+                <p class="header-greeting">Document Controller</p>
+                <h1 class="page-title">
+                    Welcome, <span class="dash-welcome-name">{{ explode(' ', trim((string) $userDisplayName))[0] ?: 'User' }}</span>
+                </h1>
+                <p class="dash-welcome-sub">Manage registrations, revisions, and office document control from one place.</p>
             </div>
-            <button type="button" class="header-date dash-calendar-trigger" @click.stop="toggleCalendar()" :aria-expanded="calendarOpen.toString()">
+            <button type="button" class="header-date dash-calendar-trigger dash-welcome-calendar" @click.stop="toggleCalendar()" :aria-expanded="calendarOpen.toString()">
                 <i class="fa-regular fa-calendar"></i>
                 <span class="dash-calendar-trigger-text">
                     <span class="dash-calendar-trigger-date">{{ $headerDate }}</span>
-                    <span class="dash-calendar-trigger-time" x-text="nowClock" x-cloak></span>
+                    <span class="dash-calendar-trigger-time" x-text="nowClock" x-cloak>{{ $headerTime ?? '' }}</span>
                 </span>
                 <i class="fa-solid fa-chevron-down dash-calendar-chevron" :class="{ 'is-open': calendarOpen }"></i>
             </button>
@@ -978,6 +1130,9 @@ document.addEventListener('alpine:init', () => {
                 try {
                     localStorage.setItem(this.calendarPersistKey, open ? '1' : '0');
                 } catch (e) {}
+                if (open) {
+                    this.loadAll();
+                }
             });
 
             this.$nextTick(() => {
@@ -1070,8 +1225,8 @@ document.addEventListener('alpine:init', () => {
         },
         get dayEvents() { return this.events.filter(ev => this.occursOn(ev, this.activeIso)); },
         get allEventsList() {
-            return this.events
-                .filter(ev => !ev.readonly)
+            return (Array.isArray(this.events) ? this.events : [])
+                .slice()
                 .sort((a, b) => {
                     const da = String(b.date || '').slice(0, 10).localeCompare(String(a.date || '').slice(0, 10));
                     if (da !== 0) return da;

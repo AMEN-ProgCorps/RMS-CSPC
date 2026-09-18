@@ -332,4 +332,125 @@ class CalendarHelper
             'readonly' => false,
         ];
     }
+
+    /**
+     * Philippine regular holidays (fixed + movable) keyed by Y-m-d.
+     *
+     * @return array<string, string>
+     */
+    public static function philippineHolidays(int ...$years): array
+    {
+        if ($years === []) {
+            $y = (int) now('Asia/Manila')->year;
+            $years = [$y - 1, $y, $y + 1];
+        }
+
+        $holidays = [];
+        foreach (array_unique($years) as $y) {
+            $y = (int) $y;
+            $holidays["{$y}-01-01"] = "New Year's Day";
+            $holidays["{$y}-04-09"] = 'The Day of Valor';
+            $holidays["{$y}-05-01"] = 'Labor Day';
+            $holidays["{$y}-06-12"] = 'Independence Day';
+            $holidays["{$y}-08-21"] = 'Ninoy Aquino Day';
+            $heroes = \Carbon\Carbon::create($y, 8, 31, 0, 0, 0, 'Asia/Manila');
+            $heroes->subDays(($heroes->dayOfWeek - \Carbon\Carbon::MONDAY + 7) % 7);
+            $holidays[$heroes->toDateString()] = 'National Heroes Day';
+            $holidays["{$y}-11-01"] = "All Saints' Day";
+            $holidays["{$y}-11-30"] = 'Bonifacio Day';
+            $holidays["{$y}-12-25"] = 'Christmas Day';
+            $holidays["{$y}-12-30"] = 'Rizal Day';
+            if (function_exists('easter_date')) {
+                $easter = \Carbon\Carbon::createFromTimestamp(easter_date($y), 'UTC')->timezone('Asia/Manila');
+                $holidays[$easter->copy()->subDays(3)->toDateString()] = 'Maundy Thursday';
+                $holidays[$easter->copy()->subDays(2)->toDateString()] = 'Good Friday';
+            }
+        }
+
+        return $holidays;
+    }
+
+    /** @return list<string> Y-m-d dates with a Suspension calendar event */
+    public static function suspensionEventDates(): array
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('dcs_calendar_events')) {
+            return [];
+        }
+
+        return DB::table('dcs_calendar_events as e')
+            ->join('dcs_calendar_categories as c', 'c.id', '=', 'e.category_id')
+            ->whereRaw('LOWER(TRIM(c.name)) = ?', ['suspension'])
+            ->pluck('e.event_date')
+            ->map(function ($d) {
+                if ($d instanceof \DateTimeInterface) {
+                    return $d->format('Y-m-d');
+                }
+
+                return substr((string) $d, 0, 10);
+            })
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Holidays + suspension event dates (weekends are handled separately in the calculator).
+     *
+     * @return list<string>
+     */
+    public static function nonWorkingDatesForTimeSpent(?int $fromYear = null, ?int $toYear = null): array
+    {
+        $now = (int) now('Asia/Manila')->year;
+        $fromYear ??= $now - 5;
+        $toYear ??= $now + 2;
+        if ($fromYear > $toYear) {
+            [$fromYear, $toYear] = [$toYear, $fromYear];
+        }
+
+        $holidayDates = array_keys(self::philippineHolidays(...range($fromYear, $toYear)));
+
+        return array_values(array_unique(array_merge($holidayDates, self::suspensionEventDates())));
+    }
+
+    /**
+     * Elapsed minutes between two datetimes excluding Sat/Sun, Philippine holidays,
+     * and calendar Suspension events. Returns null when end is before start.
+     */
+    public static function workingMinutesBetween(\Carbon\CarbonInterface $start, \Carbon\CarbonInterface $end): ?int
+    {
+        if ($end->lt($start)) {
+            return null;
+        }
+
+        $excluded = array_fill_keys(
+            self::nonWorkingDatesForTimeSpent((int) $start->year, (int) $end->year),
+            true
+        );
+
+        $total = 0;
+        $cursor = $start->copy()->startOfDay();
+        $lastDay = $end->copy()->startOfDay();
+
+        while ($cursor->lte($lastDay)) {
+            $iso = $cursor->toDateString();
+            $isWeekend = $cursor->isSaturday() || $cursor->isSunday();
+
+            if (!$isWeekend && !isset($excluded[$iso])) {
+                if ($cursor->isSameDay($start) && $cursor->isSameDay($end)) {
+                    $total += (int) $start->diffInMinutes($end);
+                } elseif ($cursor->isSameDay($start)) {
+                    $total += (int) $start->diffInMinutes($cursor->copy()->addDay()->startOfDay());
+                } elseif ($cursor->isSameDay($end)) {
+                    $total += (int) $cursor->copy()->startOfDay()->diffInMinutes($end);
+                } else {
+                    $total += 1440;
+                }
+            }
+
+            $cursor->addDay();
+        }
+
+        return max(0, $total);
+    }
 }

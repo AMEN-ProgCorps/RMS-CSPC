@@ -82,9 +82,7 @@ new class extends Component {
             }
         }
 
-        if (request()->is('dcs', 'dcs/*') && in_array('Document Control System', $allowedSubsystems, true)) {
-            $allowedSubsystems = ['Document Control System'];
-        }
+        $allowedSubsystems = \App\Helpers\RegisterQueryHelper::scopeBellSubsystemsForRequest($allowedSubsystems);
 
         // Fetch notifications list, combining with read/unread statuses in notification_div table
         $this->notifications = DB::table($notifTbl)
@@ -111,13 +109,7 @@ new class extends Component {
             )
             ->get();
 
-        // Limited DCS users only use office DRF/DCN intake — hide full-module deep links
-        // (register/stamping/etc.) that they cannot open.
-        if (\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()) {
-            $this->notifications = $this->notifications
-                ->filter(fn ($row) => \App\Helpers\RegisterQueryHelper::isAllowedNotificationForLimitedDcs($row->redirect_url ?? null))
-                ->values();
-        }
+        $this->notifications = \App\Helpers\RegisterQueryHelper::filterBellNotifications($this->notifications);
 
         $this->unreadCount = $this->notifications->where('status', 'unread')->count();
     }
@@ -139,27 +131,45 @@ new class extends Component {
         // 1. Mark notification as read
         $this->markAsRead($notificationId);
 
-        // 2. Office intake submissions open in a modal on the current DCS page
-        // (Livewire requests hit /livewire/update — do not use request()->is('dcs*') here)
+        // 2. Office intake submissions / correction unlocks
         if ($notification && $notification->redirect_url) {
             $intake = \App\Helpers\OfficeIntakeHelper::parseIntakeNotificationUrl($notification->redirect_url);
             if ($intake) {
                 $this->showDropdown = false;
                 $this->dispatch('close-notifications');
 
-                if ($this->isOnDcsPage()) {
-                    $this->dispatch('open-office-intake-modal', type: $intake['type'], id: $intake['id']);
-                    $this->js(
-                        'window.dispatchEvent(new CustomEvent("open-office-intake-modal",{detail:'
-                        . json_encode(['type' => $intake['type'], 'id' => $intake['id']])
-                        . '}));'
-                    );
-                } else {
+                // Office correction unlock → open the editable form directly
+                if (! empty($intake['edit'])) {
                     $this->redirect(
-                        '/dcs?intake=' . $intake['type'] . '&id=' . $intake['id'],
+                        route(
+                            $intake['type'] === 'dcn' ? 'dcs.office.dcn.edit' : 'dcs.office.drf.edit',
+                            $intake['id'],
+                            absolute: false
+                        ),
                         navigate: false
                     );
+
+                    return;
                 }
+
+                if (\App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+                    $this->redirect(
+                        \App\Helpers\OfficeIntakeHelper::rfioOpenIntakeUrl($intake['type'], $intake['id']),
+                        navigate: false
+                    );
+
+                    return;
+                }
+
+                // Office user: open their submitted form (view/show — edit if unlocked)
+                $this->redirect(
+                    route(
+                        $intake['type'] === 'dcn' ? 'dcs.office.dcn.show' : 'dcs.office.drf.show',
+                        $intake['id'],
+                        absolute: false
+                    ),
+                    navigate: false
+                );
 
                 return;
             }
@@ -302,7 +312,12 @@ new class extends Component {
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
             <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
         </svg>
-        <span id="header-notif-badge" class="notif-badge" style="{{ $unreadCount > 0 ? '' : 'display: none;' }}"></span>
+        <span
+            id="header-notif-badge"
+            class="notif-badge"
+            data-system-unread="{{ (int) $unreadCount }}"
+            @if($unreadCount < 1) style="display: none;" @endif
+        ></span>
     </button>
 
     <!-- Dropdown Menu -->

@@ -275,14 +275,14 @@
                 $sectionTitle = 'Office DRF';
                 $tabs = [
                     [
-                        'label' => 'Submission',
-                        'url' => url()->current(),
-                        'active' => request()->routeIs('dcs.office.drf.show') || request()->routeIs('dcs.office.drf.print'),
+                        'label' => 'All submissions',
+                        'url' => route('dcs.office.drf.index'),
+                        'active' => request()->routeIs('dcs.office.drf.index'),
                     ],
                     [
-                        'label' => 'DCS Dashboard',
-                        'url' => route('dcs'),
-                        'active' => false,
+                        'label' => 'View form',
+                        'url' => url()->current(),
+                        'active' => request()->routeIs('dcs.office.drf.show') || request()->routeIs('dcs.office.drf.print'),
                     ],
                 ];
             } else {
@@ -306,14 +306,14 @@
                 $sectionTitle = 'Office DCN';
                 $tabs = [
                     [
-                        'label' => 'Submission',
-                        'url' => url()->current(),
-                        'active' => request()->routeIs('dcs.office.dcn.show') || request()->routeIs('dcs.office.dcn.print'),
+                        'label' => 'All submissions',
+                        'url' => route('dcs.office.dcn.index'),
+                        'active' => request()->routeIs('dcs.office.dcn.index'),
                     ],
                     [
-                        'label' => 'DCS Dashboard',
-                        'url' => route('dcs'),
-                        'active' => false,
+                        'label' => 'View form',
+                        'url' => url()->current(),
+                        'active' => request()->routeIs('dcs.office.dcn.show') || request()->routeIs('dcs.office.dcn.print'),
                     ],
                 ];
             } else {
@@ -332,23 +332,35 @@
                 ];
             }
         }
-        // 2. Document Registration
-        elseif (request()->routeIs('dcs.register.*')) {
+        // 2. Document Registration (+ Request for RFIO)
+        elseif (request()->routeIs('dcs.register.*') || request()->routeIs('dcs.requests.*')) {
             $sectionTitle = 'Document Registration';
             $tabs = [
-                [
-                    'label' => 'Register',
-                    'url' => route('dcs.register.create'),
-                    'active' => request()->routeIs('dcs.register.create') || request()->routeIs('dcs.register.revised'),
-                ],
-                [
-                    'label' => 'Update',
-                    'url' => route('dcs.register.update'),
-                    'active' => request()->routeIs('dcs.register.update')
-                        || request()->routeIs('dcs.register.edit')
-                        || request()->routeIs('dcs.register.history'),
-                ],
+                    [
+                        'label' => 'Register',
+                        'url' => route('dcs.register.create'),
+                        'active' => request()->routeIs('dcs.register.create') || request()->routeIs('dcs.register.revised'),
+                    ],
+                    [
+                        'label' => 'Drafts',
+                        'url' => route('dcs.register.drafts'),
+                        'active' => request()->routeIs('dcs.register.drafts'),
+                    ],
+                    [
+                        'label' => 'Update',
+                        'url' => route('dcs.register.update'),
+                        'active' => request()->routeIs('dcs.register.update')
+                            || request()->routeIs('dcs.register.edit')
+                            || request()->routeIs('dcs.register.history'),
+                    ],
             ];
+            if ($isIntakeReviewer) {
+                $tabs[] = [
+                    'label' => 'Request',
+                    'url' => route('dcs.requests.index'),
+                    'active' => request()->routeIs('dcs.requests.*'),
+                ];
+            }
         }
         // 3. Document Review
         elseif (request()->routeIs('dcs.review')) {

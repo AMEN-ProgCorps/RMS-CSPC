@@ -27,6 +27,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         @csrf
         <input type="hidden" id="registrationMode" name="registration_mode" value="{{ request()->query('type') === 'revised' ? 'revised' : 'new' }}">
         <input type="hidden" id="revisedFromDocNo" name="revised_from_doc_no" value="">
+        <input type="hidden" id="saveAsDraft" name="save_as_draft" value="0">
+        <input type="hidden" id="officeIntakeType" name="office_intake_type" value="{{ in_array(request()->query('intake'), ['drf', 'dcn'], true) ? request()->query('intake') : '' }}">
+        <input type="hidden" id="officeIntakeId" name="office_intake_id" value="{{ ctype_digit((string) request()->query('intake_id')) ? request()->query('intake_id') : '' }}">
 
         @php
             $urlVersionType = request()->query('type');
@@ -90,7 +93,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     <td><input type="text" name="documentTitle[]" placeholder="Search or enter document title" autocomplete="off"></td>
                                     <td><input type="date" name="effectiveDate[]" readonly class="reg-revrow-locked" tabindex="-1"></td>
                                     <td><input type="number" name="revisionNo[]" placeholder="—" readonly class="reg-revrow-locked" tabindex="-1"></td>
-                                    <td class="reg-rev-scan-cell" style="text-align:center;color:#94a3b8;">—</td>
+                                    <td class="reg-rev-scan-cell" style="text-align:center;color:#475569;">—</td>
                                     <td class="reg-rev-purpose-cell">
                                         <input type="hidden" name="revisionPurpose[]" value="">
                                         <span class="reg-rev-purpose-text">—</span>
@@ -195,20 +198,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
 
                 <!-- ═══ DOCUMENT INFO ═══ -->
-                <div class="reg-grid-3">
-                    <div class="reg-field">
-                        <label>Document No.</label>
-                        <input type="text" id="syllabiDocNo" name="syllabiDocNo" placeholder="Enter Document No.">
-                    </div>
-                    <div class="reg-field">
-                        <label>Effectivity Date</label>
-                        <input type="date" id="syllabiEffectivityDate" name="syllabiEffectivityDate">
-                    </div>
-                    <div class="reg-field">
-                        <label>Deadline of Submission</label>
-                        <input type="date" id="syllabiDeadline" name="syllabiDeadline">
-                    </div>
-                </div>
                 <div class="reg-field" style="margin-bottom: 16px;">
                     <label>Document Title</label>
                     <input type="text" id="syllabiDocTitle" name="syllabiDocTitle" placeholder="Enter Document Title">
@@ -381,7 +370,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <!-- Row 1 -->
                     <div class="reg-field" id="mlFieldDocNo">
                         <label>Document No.</label>
-                        <input type="text" id="masterlistDocNo" name="masterlistDocNo" placeholder="Enter Document no.">
+                        <input type="text" id="masterlistDocNo" name="masterlistDocNo" placeholder="CSPC-F-YYY-XX" autocomplete="off">
+                        <span id="docNoPrefixHint" style="display:none;margin-top:4px;font-size:12px;color:#475569;"></span>
                         <span id="docNoHint" style="display:block;margin-top:4px;font-size:12px;"></span>
                     </div>
                     <div class="reg-field" id="mlFieldDeadline">
@@ -572,7 +562,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <div id="retrievalResults" class="reg-search-dropdown" style="display:none;"></div>
                         </div>
                     </div>
-                    <div class="reg-office-table-wrap">
+                    <div class="reg-office-table-wrap" id="retrievalOfficeWrap" data-office-body="retrievalBody">
                         <table class="reg-dist-table">
                             <thead>
                                 <tr>
@@ -601,6 +591,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             </tfoot>
                         </table>
                     </div>
+                    <button type="button" class="reg-office-see-more" id="retrievalSeeMore" data-office-wrap="retrievalOfficeWrap" onclick="toggleOfficeSeeMore(this)">
+                        See more
+                    </button>
                 </div>
             </div>
         </section>
@@ -663,7 +656,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </div>
                         @include('pages.dcs.register.partials.dist-office-toolbar')
                     </div>
-                    <div class="reg-office-table-wrap">
+                    <div class="reg-office-table-wrap" id="distOfficeWrap" data-office-body="distBody">
                         <table class="reg-dist-table">
                             <thead>
                                 <tr>
@@ -695,6 +688,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             </tfoot>
                         </table>
                     </div>
+                    <button type="button" class="reg-office-see-more" id="distSeeMore" data-office-wrap="distOfficeWrap" onclick="toggleOfficeSeeMore(this)">
+                        See more
+                    </button>
                 </div>
             </div>
         </section>
@@ -709,6 +705,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="reg-actions-right">
                 <button type="button" id="btnGenerateDistribution" class="reg-btn reg-btn-generate" onclick="generateDistributionTemplate()" disabled title="Save the document first">
                     <i class="fa-solid fa-file-lines"></i> Generate
+                </button>
+                <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
+                    <i class="fa-regular fa-floppy-disk"></i> Save Draft
                 </button>
                 <button type="button" id="btnSaveDocument" class="reg-btn reg-btn-save" onclick="confirmSave()">
                     <i class="fa-solid fa-floppy-disk"></i> Save Document
@@ -728,6 +727,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <i class="fa-solid fa-xmark"></i>
             </button>
         </div>
+        <div id="regReviewSavingBanner" class="reg-review-saving-banner" hidden role="status" aria-live="polite">
+            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+            <span>Saving document… Please wait.</span>
+        </div>
         <div class="reg-modal-body" id="reviewContent">
             <!-- Populated by JS -->
         </div>
@@ -742,6 +745,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     </div>
 </div>
     </template>
+
+    @include('pages.dcs.register.partials.draft-modals')
 
     <template x-teleport="body">
     <div class="reg-modal-overlay" id="filePreviewModal" aria-hidden="true" onclick="if(event.target===this)closeFilePreviewModal()">
@@ -796,10 +801,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </button>
             </div>
             <div class="reg-modal-body reg-modal-body--compare">
-                <div class="reg-compare-legend">
-                    <span class="reg-compare-leg reg-compare-leg-del">Removed</span>
-                    <span class="reg-compare-leg reg-compare-leg-ins">Added</span>
-                    <span class="reg-compare-leg reg-compare-leg-chg">Changed</span>
+                <div class="reg-compare-legend" data-drr-compare-legend="1" aria-label="Highlight legend">
+                    <span class="reg-compare-leg reg-compare-leg-del"><i class="drr-leg-swatch is-del" aria-hidden="true"></i>Removed</span>
+                    <span class="reg-compare-leg reg-compare-leg-ins"><i class="drr-leg-swatch is-ins" aria-hidden="true"></i>Added</span>
+                    <span class="reg-compare-leg reg-compare-leg-chg"><i class="drr-leg-swatch is-chg" aria-hidden="true"></i>Changed</span>
                 </div>
                 <div class="reg-compare-panels" id="registerPdfCompare">
                     <div class="reg-compare-panel">
@@ -831,6 +836,7 @@ document.addEventListener('alpine:init', () => {
             window.syllabiCurrentStep = step;
         },
         closeReview() {
+            if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
             this.reviewOpen = false;
             const el = document.getElementById('dcsRegisterRoot');
             if (el) el.style.overflow = '';
@@ -1500,7 +1506,297 @@ document.addEventListener("DOMContentLoaded", async function () {
         overlayTitle: 'Originator',
         initial: []
     });
+
+    // Office intake → Register handoff (?intake=drf|dcn&intake_id=…)
+    try {
+        const pending = JSON.parse(sessionStorage.getItem('dcs_office_intake_pending') || 'null');
+        if (pending?.type && pending?.id) {
+            const typeEl = document.getElementById('officeIntakeType');
+            const idEl = document.getElementById('officeIntakeId');
+            if (typeEl && !typeEl.value) typeEl.value = pending.type;
+            if (idEl && !idEl.value) idEl.value = String(pending.id);
+        }
+    } catch (_) { /* ignore */ }
+
+    setTimeout(() => {
+        if (typeof applyOfficeIntakePrefillFromUrl === 'function') {
+            applyOfficeIntakePrefillFromUrl();
+        }
+    }, 120);
 });
+
+/**
+ * Prefill New/DCN registration from an office intake submission.
+ * Runs after version/type widgets exist (?type=new|revised&intake=…&intake_id=…).
+ */
+async function applyOfficeIntakePrefillFromUrl() {
+    const params = new URLSearchParams(location.search);
+    const intake = (params.get('intake') || '').toLowerCase();
+    const intakeId = params.get('intake_id');
+    if (!intakeId || (intake !== 'drf' && intake !== 'dcn')) {
+        return;
+    }
+    if (window.__officeIntakePrefillApplied) {
+        return;
+    }
+    window.__officeIntakePrefillApplied = true;
+
+    try {
+        const response = await fetch(
+            '/dcs/api/office-intake/' + encodeURIComponent(intake) + '/' + encodeURIComponent(intakeId),
+            {
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin',
+            }
+        );
+        if (!response.ok) {
+            throw new Error('Failed to load intake');
+        }
+        const data = await response.json();
+        if (!data?.registerPrefill) {
+            return;
+        }
+        await applyOfficeIntakePrefill(data.registerPrefill);
+    } catch (err) {
+        console.warn('Office intake prefill failed:', err);
+        window.__officeIntakePrefillApplied = false;
+    }
+}
+
+function officeIntakeSeedSource(widgetKey, offices) {
+    const widget = window.__sourceWidgets?.[widgetKey];
+    if (!widget || !Array.isArray(offices) || !offices.length) {
+        return;
+    }
+    const labels = offices
+        .map((o) => (o.office_code || o.office_name || o.code || o.name || '').trim())
+        .filter(Boolean);
+    if (labels.length) {
+        widget.seedFromString(labels.join(', '), true);
+        return;
+    }
+    const items = offices
+        .filter((o) => (o.office_id || o.id) && (o.office_name || o.name))
+        .map((o) => ({
+            type: 'office',
+            id: o.office_id || o.id,
+            label: o.office_name || o.name,
+        }));
+    if (items.length && typeof widget.setSelectedItems === 'function') {
+        widget.setSelectedItems(items);
+    }
+}
+
+function officeIntakeCheckChecklist(id) {
+    const cb = document.querySelector(
+        '#dynamicCheckboxes input[name="checklists[]"][value="' + id + '"]'
+    );
+    if (!cb) {
+        return;
+    }
+    cb.dataset.lastChecked = 'true';
+    cb.checked = true;
+    if (parseInt(id, 10) === 3) {
+        if (typeof lockMasterlistChecklistOn === 'function') {
+            lockMasterlistChecklistOn();
+        } else {
+            toggleSection(3, true);
+        }
+        return;
+    }
+    toggleSection(parseInt(id, 10), true);
+}
+
+async function applyOfficeIntakePrefill(prefill) {
+    if (!prefill || typeof prefill !== 'object') {
+        return;
+    }
+
+    window.__officeIntakePrefill = prefill;
+
+    // Document type (Internal / External) when intake specified a kind.
+    const docTypeEl = document.getElementById('docType');
+    if (docTypeEl && prefill.docTypeId) {
+        const opt = [...docTypeEl.options].find(
+            (o) => String(o.value) === String(prefill.docTypeId)
+        );
+        if (opt) {
+            docTypeEl.value = String(prefill.docTypeId);
+            docTypeEl.dataset.lastValid = String(prefill.docTypeId);
+            docTypeEl.disabled = false;
+            docTypeEl.removeAttribute('disabled');
+            if (typeof handleDocTypeChange === 'function') {
+                handleDocTypeChange();
+            }
+            // Intake may land on a parent with subtypes — still unlock sections for autofill.
+            const subTypeEl = document.getElementById('subType');
+            const needsSub = subTypeEl && !subTypeEl.disabled && [...subTypeEl.options].length > 1;
+            if (needsSub && typeof unlockChecklist === 'function') {
+                unlockChecklist();
+            }
+        }
+    } else if (typeof unlockChecklist === 'function') {
+        // Version already set via ?type= — unlock default checklists if type not set.
+        const versionEl = document.getElementById('versionType');
+        if (versionEl?.value) {
+            unlockChecklist();
+        }
+    }
+
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40)));
+
+    applyOfficeIntakeChecklistAndFields(prefill);
+
+    if (typeof showFormActions === 'function') {
+        showFormActions();
+    } else {
+        const actions = document.getElementById('formActions');
+        if (actions) {
+            actions.style.display = '';
+        }
+    }
+
+    const intakeTypeEl = document.getElementById('officeIntakeType');
+    const intakeIdEl = document.getElementById('officeIntakeId');
+    if (intakeTypeEl && prefill.intake) {
+        intakeTypeEl.value = prefill.intake;
+    }
+    if (intakeIdEl && prefill.intakeId) {
+        intakeIdEl.value = String(prefill.intakeId);
+    }
+    try {
+        if (prefill.intake && prefill.intakeId) {
+            sessionStorage.setItem(
+                'dcs_office_intake_pending',
+                JSON.stringify({ type: prefill.intake, id: Number(prefill.intakeId) })
+            );
+        }
+    } catch (_) { /* ignore */ }
+}
+
+/** Apply checklist visibility + DCN/DRF/masterlist fields from office intake (safe to re-run after type/subtype change). */
+function applyOfficeIntakeChecklistAndFields(prefill) {
+    if (!prefill || typeof prefill !== 'object') {
+        return;
+    }
+
+    const checklistIds = Array.isArray(prefill.checklistIds)
+        ? prefill.checklistIds.map((id) => parseInt(id, 10)).filter((id) => !Number.isNaN(id))
+        : [];
+    if (checklistIds.length) {
+        const wanted = new Set(checklistIds);
+        document.querySelectorAll('#dynamicCheckboxes input[name="checklists[]"]').forEach((cb) => {
+            const id = parseInt(cb.value, 10);
+            if (id === 3) {
+                return;
+            }
+            const on = wanted.has(id);
+            cb.dataset.lastChecked = on ? 'true' : 'false';
+            cb.checked = on;
+            toggleSection(id, on);
+        });
+        if (wanted.has(3) && typeof lockMasterlistChecklistOn === 'function') {
+            lockMasterlistChecklistOn();
+        }
+    }
+
+    const setVal = (id, value) => {
+        if (value === null || value === undefined || value === '') {
+            return;
+        }
+        const el = document.getElementById(id);
+        if (el) {
+            el.value = value;
+        }
+    };
+
+    setVal('drfTitle', prefill.drfTitle);
+    setVal('drfDate', prefill.drfDate);
+    setVal('masterlistDocTitle', prefill.masterlistDocTitle || prefill.drfTitle || prefill.documentTitle);
+    setVal('masterlistDocNo', prefill.masterlistDocNo || prefill.documentNo);
+    setVal('dcnJustification', prefill.dcnJustification);
+    setVal('noticeDate', prefill.noticeDate);
+
+    if (prefill.descriptionReason) {
+        setVal('distributionRemarks', prefill.descriptionReason);
+    }
+
+    const revRow = document.querySelector('#revisionTableBody tr');
+    if (revRow) {
+        const noInput = revRow.querySelector('input[name="documentNo[]"]');
+        const titleInput = revRow.querySelector('input[name="documentTitle[]"]');
+        if (noInput && prefill.documentNo) {
+            noInput.value = prefill.documentNo;
+        }
+        if (titleInput && (prefill.documentTitle || prefill.masterlistDocTitle)) {
+            titleInput.value = prefill.documentTitle || prefill.masterlistDocTitle;
+        }
+    }
+
+    if (prefill.originatorName && window.__sourceWidgets?.masterlistOriginator) {
+        window.__sourceWidgets.masterlistOriginator.seedFromString(prefill.originatorName, true);
+    }
+
+    const sources = Array.isArray(prefill.sourceOffices) ? prefill.sourceOffices : [];
+    if (prefill.intake === 'dcn') {
+        officeIntakeSeedSource('dcn', sources);
+        officeIntakeSeedSource('masterlist', sources);
+    } else {
+        officeIntakeSeedSource('drf', sources);
+        officeIntakeSeedSource('masterlist', sources);
+    }
+
+    const distOffices = Array.isArray(prefill.distributeOffices) ? prefill.distributeOffices : [];
+    distOffices.forEach((o) => {
+        let officeId = o.office_id || o.id || null;
+        let officeName = o.office_name || o.name || '';
+        if (!officeId) {
+            const code = (o.office_code || o.code || '').trim();
+            const match =
+                (typeof findOfficeByLabelOrCode === 'function'
+                    ? findOfficeByLabelOrCode(code || officeName, allOffices || [])
+                    : null) ||
+                (allOffices || []).find(
+                    (x) =>
+                        (code &&
+                            String(x.office_code || '').toLowerCase() === code.toLowerCase()) ||
+                        (officeName &&
+                            String(x.office_name || '').toLowerCase() === officeName.toLowerCase())
+                );
+            if (match) {
+                officeId = match.office_id ?? match.id;
+                officeName = match.office_name || officeName;
+            }
+        }
+        if (officeId && typeof window.addOffice === 'function') {
+            const distBody = document.getElementById('distBody');
+            const already =
+                distBody &&
+                [...distBody.querySelectorAll('input[name="distOfficeId[]"]')].some(
+                    (inp) => String(inp.value) === String(officeId)
+                );
+            if (!already) {
+                window.addOffice(
+                    officeId,
+                    officeName || String(officeId),
+                    'distBody',
+                    'totalDistCopies',
+                    'distResults'
+                );
+            }
+        }
+    });
+}
+
+function restoreOfficeIntakePrefillIfNeeded() {
+    if (!window.__officeIntakePrefill || typeof applyOfficeIntakeChecklistAndFields !== 'function') {
+        return;
+    }
+    applyOfficeIntakeChecklistAndFields(window.__officeIntakePrefill);
+}
 
 // ══════════════════════════════════════════════
 // DOCUMENT NO. LOOKUP
@@ -1538,7 +1834,7 @@ function initDocNoLookup(revField) {
             window.__revisedFromDocNo = fromNo;
             if (docNo.toLowerCase() !== fromNo.toLowerCase()) {
                 if (hintEl) {
-                    hintEl.innerHTML = '<span style="color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Checking new document number...</span>';
+                    hintEl.innerHTML = '<span style="color:#475569"><i class="fa-solid fa-spinner fa-spin"></i> Checking new document number...</span>';
                     hintEl.style.color = '';
                     hintEl.dataset.valid = '';
                 }
@@ -1549,7 +1845,7 @@ function initDocNoLookup(revField) {
         }
 
         if (hintEl) {
-            hintEl.innerHTML = '<span style="color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Checking document...</span>';
+            hintEl.innerHTML = '<span style="color:#475569"><i class="fa-solid fa-spinner fa-spin"></i> Checking document...</span>';
             hintEl.style.color = '';
             hintEl.dataset.valid = '';
         }
@@ -1582,10 +1878,10 @@ function handleEmptyDocNo(hintEl, revField) {
     if (isRevisedMode()) {
         if (hintEl) {
             if (preservedFrom) {
-                hintEl.innerHTML = '<span style="color:#94a3b8"><i class="fa-solid fa-circle-info"></i> Enter the document number for this revision (linked from <strong>' +
+                hintEl.innerHTML = '<span style="color:#475569"><i class="fa-solid fa-circle-info"></i> Enter the document number for this revision (linked from <strong>' +
                     escapeHtml(preservedFrom) + '</strong> — keep the same number or assign a new one)</span>';
             } else {
-                hintEl.innerHTML = '<span style="color:#94a3b8"><i class="fa-solid fa-circle-info"></i> Pick a document in Documents for Revision (DCN) or enter its number here. You may keep the same number or assign a new one.</span>';
+                hintEl.innerHTML = '<span style="color:#475569"><i class="fa-solid fa-circle-info"></i> Pick a document in Documents for Revision (DCN) or enter its number here. You may keep the same number or assign a new one.</span>';
             }
             hintEl.style.color = '';
             hintEl.dataset.valid = '';
@@ -1975,11 +2271,136 @@ function isRevisedMode() {
     return hidden && hidden.value === 'revised';
 }
 
+/** CSPC + type-code prefixes (dept/control # left for the user). Manuals/Policy skipped. */
+const DOC_NO_PREFIX_BY_NAME = {
+    'forms': 'CSPC-F-',
+    'logbooks': 'CSPC-LB-',
+    'work instructions': 'CSPC-WI-',
+    'quality objectives': 'CSPC-QO-',
+    'fmea': 'CSPC-FMEA-',
+};
+
+function resolveSelectedDocTypeName() {
+    const subTypeId = document.getElementById('subType')?.value;
+    const docTypeId = document.getElementById('docType')?.value;
+    if (subTypeId) {
+        const sub = (allDocTypes || []).find(d => String(d.doc_type_id) === String(subTypeId));
+        return (sub?.doc_type_name || '').trim();
+    }
+    if (!docTypeId) return '';
+    const hasChildren = (allDocTypes || []).some(d => String(d.parent_id) === String(docTypeId));
+    if (hasChildren) return '';
+    const parent = (allDocTypes || []).find(d => String(d.doc_type_id) === String(docTypeId));
+    return (parent?.doc_type_name || '').trim();
+}
+
+function docNoPrefixForSelection() {
+    const name = resolveSelectedDocTypeName().toLowerCase();
+    if (!name) return null;
+    return DOC_NO_PREFIX_BY_NAME[name] || null;
+}
+
+function updateDocNoPrefixHint(prefix) {
+    const hint = document.getElementById('docNoPrefixHint');
+    if (!hint) return;
+    if (prefix) {
+        hint.textContent = 'Prefix filled — add dept/section code and control # (e.g. ' + prefix + 'YYY-XX).';
+        hint.style.display = 'block';
+    } else {
+        hint.textContent = '';
+        hint.style.display = 'none';
+    }
+}
+
+function clearDocNoAvailabilityHint() {
+    const hintEl = document.getElementById('docNoHint');
+    if (!hintEl) return;
+    hintEl.innerHTML = '';
+    hintEl.style.color = '';
+    hintEl.dataset.valid = '';
+    docNoDuplicate = false;
+}
+
+function canAutofillDocNo() {
+    if (isRevisedMode()) return false;
+    if (window.__requireDraftForDocNoAutofill) return !!window.__isDraftDoc;
+    return true;
+}
+
+function maybeAutofillDocNo() {
+    if (!canAutofillDocNo()) return;
+    const input = document.getElementById('masterlistDocNo');
+    if (!input) return;
+
+    const prefix = docNoPrefixForSelection();
+    const current = input.value.trim();
+    const priorAuto = (input.dataset.autodocno || '').trim();
+    const canOverwrite = current === '' || (priorAuto !== '' && current === priorAuto);
+
+    if (!prefix) {
+        // Type/subtype has no auto prefix — clear leftover auto value + availability message.
+        if (canOverwrite) {
+            if (current !== '' || priorAuto) {
+                input.value = '';
+                delete input.dataset.autodocno;
+                updateDocNoPrefixHint('');
+            }
+            clearDocNoAvailabilityHint();
+        } else if (current === '') {
+            clearDocNoAvailabilityHint();
+        }
+        return;
+    }
+
+    if (!canOverwrite) return;
+
+    input.value = prefix;
+    input.dataset.autodocno = prefix;
+    updateDocNoPrefixHint(prefix);
+    // Incomplete prefix only — clear stale availability; don't run check-docno yet.
+    clearDocNoAvailabilityHint();
+}
+
 /** Checklist 4 = Document Retrieval — only for revised documents. */
 function filterChecklistsForMode(checklists) {
     const list = Array.isArray(checklists) ? checklists : [];
     if (isRevisedMode()) return list;
     return list.filter(c => parseInt(c.checklist_id, 10) !== 4);
+}
+
+/** External / Forms / Logbooks (parent types with no sub-type). */
+function isLeafExternalFormsLogbookDocType() {
+    const docTypeId = document.getElementById('docType')?.value;
+    if (!docTypeId) return false;
+    const t = (allDocTypes || []).find(d => String(d.doc_type_id) === String(docTypeId));
+    if (!t || t.parent_id) return false;
+    const name = String(t.doc_type_name || '').trim().toLowerCase();
+    return name === 'external' || name.startsWith('external')
+        || name === 'forms' || name.startsWith('form')
+        || name === 'logbooks' || name.includes('logbook');
+}
+
+/**
+ * Visible checklist set:
+ * - New External/Forms/Logbooks: DRF (optional), Masterlist, Distribution
+ * - Revised External/Forms/Logbooks: DCN, DRF (unchecked), Masterlist, Retrieval, Distribution
+ * - Other types: version list (Retrieval only when revised)
+ */
+function filterChecklistsForDocType(checklists) {
+    let list = filterChecklistsForMode(checklists);
+    if (!isLeafExternalFormsLogbookDocType()) return list;
+    const allowed = isRevisedMode()
+        ? new Set([1, 2, 3, 4, 5])
+        : new Set([1, 3, 5]);
+    list = list.filter(c => allowed.has(parseInt(c.checklist_id, 10)));
+    if (isRevisedMode()) {
+        // Revised leaf order: DCN → DRF → Masterlist → Retrieval → Distribution
+        const order = { 2: 0, 1: 1, 3: 2, 4: 3, 5: 4 };
+        list = list.slice().sort((a, b) =>
+            (order[parseInt(a.checklist_id, 10)] ?? 99) - (order[parseInt(b.checklist_id, 10)] ?? 99)
+        );
+    }
+    return list;
 }
 
 function clearRetrievalSection() {
@@ -2086,12 +2507,12 @@ function applyRevisionMode() {
             revField.removeAttribute('title');
         }
         if (hintEl) {
-            hintEl.innerHTML = '<span style="color:#94a3b8"><i class="fa-solid fa-circle-info"></i> Required: pick the document being revised under Documents for Revision (DCN). Then enter/confirm the document number for this new revision.</span>';
+            hintEl.innerHTML = '<span style="color:#475569"><i class="fa-solid fa-circle-info"></i> Required: pick the document being revised under Documents for Revision (DCN). Then enter/confirm the document number for this new revision.</span>';
             hintEl.style.color = '';
             hintEl.dataset.valid = '';
         }
         setSaveEnabled(false);
-        const docNoInput = document.getElementById(window.__isSyllabiMode ? 'syllabiDocNo' : 'masterlistDocNo')
+        const docNoInput = document.getElementById('masterlistDocNo')
             || document.getElementById('masterlistDocNo');
         const docNo = docNoInput?.value.trim();
         if (docNo) {
@@ -2119,6 +2540,14 @@ function applyRevisionMode() {
     }
 
     syncRetrievalForMode();
+
+    // External / Forms / Logbooks: New vs Revised use different checklist sets — refresh if type already chosen.
+    const docTypeSelected = String(document.getElementById('docType')?.value || '').trim() !== '';
+    const formUnlocked = !!document.querySelector('#dynamicCheckboxes input[type="checkbox"]:not([disabled])')
+        || !!document.querySelector('#dynamicCheckboxes label.reg-check-locked');
+    if (docTypeSelected && formUnlocked && typeof unlockChecklist === 'function') {
+        unlockChecklist();
+    }
 }
 
 function setSaveEnabled(enabled) {
@@ -2152,7 +2581,7 @@ let revNoTimer = null;
 
 function getActiveDocNoForRevCheck() {
     if (window.__isSyllabiMode) {
-        return (document.getElementById('syllabiDocNo')?.value || document.getElementById('masterlistDocNo')?.value || '').trim();
+        return (document.getElementById('masterlistDocNo')?.value || '').trim();
     }
     return (document.getElementById('masterlistDocNo')?.value || '').trim();
 }
@@ -2176,7 +2605,7 @@ function initRevNoLookup() {
     // Re-check when type/subtype or doc no changes.
     document.getElementById('docType')?.addEventListener('change', scheduleRevNoCheck);
     document.getElementById('subType')?.addEventListener('change', scheduleRevNoCheck);
-    document.getElementById('syllabiDocNo')?.addEventListener('input', scheduleRevNoCheck);
+    document.getElementById('masterlistDocNo')?.addEventListener('input', scheduleRevNoCheck);
 }
 
 function scheduleRevNoCheck() {
@@ -2192,7 +2621,7 @@ function scheduleRevNoCheck() {
     }
 
     if (hint) {
-        hint.innerHTML = '<span style="color:#94a3b8"><i class="fa-solid fa-spinner fa-spin"></i> Checking revision…</span>';
+        hint.innerHTML = '<span style="color:#475569"><i class="fa-solid fa-spinner fa-spin"></i> Checking revision…</span>';
         hint.style.color = '';
         hint.dataset.valid = '';
     }
@@ -2523,21 +2952,28 @@ function lockRevisionRowFields(row) {
     });
 }
 
+function isDcsScanPdfUrl(urlOrPath) {
+    const s = String(urlOrPath || '');
+    if (!s) return true;
+    try {
+        const u = new URL(s, window.location.origin);
+        const pathParam = (u.searchParams.get('path') || '').toLowerCase();
+        if (pathParam.endsWith('.pdf') || pathParam.includes('.pdf')) return true;
+    } catch (_) { /* relative / plain path */ }
+    // Signed URLs end with &signature=… — look for .pdf in the string, not only the suffix.
+    return /\.pdf(?:$|[?#&])/i.test(s) || s.toLowerCase().includes('.pdf');
+}
+
 function lockRevisionScannedCopyCell(row, scannedCopyUrl) {
     const cell = row.querySelector('.reg-rev-scan-cell');
     if (!cell) return;
 
     if (scannedCopyUrl) {
-        const ext = scannedCopyUrl.split('.').pop().toLowerCase();
-        const isPdf = ext === 'pdf';
-        const iconClass = isPdf ? 'fa-solid fa-file-pdf' : 'fa-solid fa-file-word';
-        const linkClass = isPdf ? 'reg-revrow-viewfile reg-revrow-viewfile-pdf' : 'reg-revrow-viewfile reg-revrow-viewfile-doc';
-        const label = isPdf ? 'View PDF' : 'View Word document';
-
+        // DCS revision scanned copies are PDF-only — always use the red PDF icon.
         cell.style.textAlign = 'center';
         cell.innerHTML = `
-            <button type="button" class="${linkClass}" onclick="window.open('${scannedCopyUrl}', '_blank')" title="${label}">
-                <i class="${iconClass}"></i>
+            <button type="button" class="reg-revrow-viewfile reg-revrow-viewfile-pdf" onclick="window.open('${scannedCopyUrl}', '_blank')" title="View PDF">
+                <i class="fa-solid fa-file-pdf"></i>
             </button>
         `;
     } else {
@@ -3932,24 +4368,8 @@ function resetFileWidgetsIn(el) {
     });
 }
 
-function handleDocTypeChange() {
-    window.__isSyllabiMode = false;
-    window.__syllabiModeLabel = 'Syllabi';
-    window.__lastSubTypeId = null;
-    syllabiTitleManuallyEdited = false;
-    docNoDuplicate = false;
-    clearRevNoHint();
-    setSaveEnabled(true);
-    const docTypeSelect = document.getElementById("docType");
-    const docTypeId = parseInt(docTypeSelect.value);
-    const subTypeSelect = document.getElementById("subType");
-    const syllabiSection = document.getElementById("section-syllabi");
-
-    subTypeSelect.innerHTML = '<option value="" selected disabled>Select sub-type</option>';
-    subTypeSelect.disabled = true;
-
-    if (syllabiSection) syllabiSection.style.display = "none";
-
+/** Clear DRF/DCN/masterlist/distribution section inputs (keeps Version / Doc Type / Sub-Type). */
+function resetRegisterSectionInputs() {
     const hintEl = document.getElementById('docNoHint');
     if (hintEl) {
         hintEl.innerHTML = '';
@@ -4008,12 +4428,36 @@ function handleDocTypeChange() {
         bindRevisionRowSearch(newRow);
     }
 
-    resetSyllabiSection();
-    resetMasterlistNoOfPagesField();
-    setSyllabiStep(1);
+    if (typeof resetSyllabiSection === 'function') resetSyllabiSection();
+    if (typeof resetMasterlistNoOfPagesField === 'function') resetMasterlistNoOfPagesField();
+    if (typeof setSyllabiStep === 'function') setSyllabiStep(1);
 
     disableApproval();
     clearValidation();
+    docNoDuplicate = false;
+    if (typeof clearRevNoHint === 'function') clearRevNoHint();
+    setSaveEnabled(true);
+}
+
+function handleDocTypeChange() {
+    window.__isSyllabiMode = false;
+    window.__syllabiModeLabel = 'Syllabi';
+    window.__lastSubTypeId = null;
+    syllabiTitleManuallyEdited = false;
+    const docTypeSelect = document.getElementById("docType");
+    const docTypeId = parseInt(docTypeSelect.value);
+    const subTypeSelect = document.getElementById("subType");
+    const syllabiSection = document.getElementById("section-syllabi");
+
+    subTypeSelect.innerHTML = '<option value="" selected disabled>Select sub-type</option>';
+    subTypeSelect.disabled = true;
+
+    if (syllabiSection) syllabiSection.style.display = "none";
+
+    // Office intake already filled DCN/DRF/masterlist — don't wipe on type pick.
+    if (!window.__officeIntakePrefill) {
+        resetRegisterSectionInputs();
+    }
 
     if (!docTypeId) {
         lockChecklist();
@@ -4026,9 +4470,17 @@ function handleDocTypeChange() {
         children.forEach(c => subTypeSelect.add(new Option(c.doc_type_name, c.doc_type_id)));
         subTypeSelect.disabled = false;
         subTypeSelect.removeAttribute("disabled");
-        lockChecklist();
+        if (window.__officeIntakePrefill) {
+            // Keep intake DCN/DRF sections visible while Sub-Type is chosen.
+            restoreOfficeIntakePrefillIfNeeded();
+        } else {
+            lockChecklist();
+        }
+        maybeAutofillDocNo();
     } else {
         unlockChecklist();
+        maybeAutofillDocNo();
+        restoreOfficeIntakePrefillIfNeeded();
     }
 }
 
@@ -4057,7 +4509,7 @@ function resetSyllabiSection() {
         syllabiGroupCounter = 0;
     }
 
-    ['syllabiDocNo', 'syllabiDocTitle', 'syllabiEffectivityDate', 'syllabiDeadline'].forEach(id => {
+    ['syllabiDocTitle'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
@@ -4089,22 +4541,33 @@ function validateChecklistState() {
         window.__isSyllabiMode = false;
         window.__syllabiModeLabel = 'Syllabi';
         lockChecklist();
+        maybeAutofillDocNo();
         return;
     }
 
     const isSyllabiLike = isSyllabiLikeSubType(subTypeId);
+    const subTypeChanged = String(subTypeId) !== String(window.__lastSubTypeId ?? '');
 
-    // Whenever the sub-type actually changes (e.g. Syllabi -> TOS/Rubrics, or either -> a
-    // non-syllabi sub-type), clear stale syllabi inputs so they don't carry over.
-    if (subTypeId !== window.__lastSubTypeId) {
-        resetSyllabiSection();
+    // Changing sub-type must clear section inputs so data from the previous
+    // sub-type (e.g. Curriculum → Manuals/Policy) does not carry over.
+    // Office intake prefill must survive the first type/subtype choice.
+    if (!window.__officeIntakePrefill) {
+        if (subTypeChanged && window.__lastSubTypeId != null && String(window.__lastSubTypeId) !== '') {
+            resetRegisterSectionInputs();
+            if (syllabiSection) syllabiSection.style.display = "none";
+        } else if (subTypeChanged) {
+            resetSyllabiSection();
+        }
     }
+
     window.__lastSubTypeId = subTypeId;
 
     window.__isSyllabiMode = isSyllabiLike;
     window.__syllabiModeLabel = subTypeData ? subTypeData.doc_type_name : 'Syllabi';
 
     unlockChecklist();
+    maybeAutofillDocNo();
+    restoreOfficeIntakePrefillIfNeeded();
 
     if (!isSyllabiLike) {
         resetMasterlistNoOfPagesField();
@@ -4185,7 +4648,7 @@ function renderChecklists(checklists, disabled) {
     container.innerHTML = "";
 
     window.__lastVersionChecklists = Array.isArray(checklists) ? checklists.slice() : [];
-    const visible = filterChecklistsForMode(window.__lastVersionChecklists);
+    const visible = filterChecklistsForDocType(window.__lastVersionChecklists);
 
     visible.forEach(c => {
         const label = document.createElement("label");
@@ -4196,7 +4659,14 @@ function renderChecklists(checklists, disabled) {
         cb.name = "checklists[]";
         cb.value = c.checklist_id;
         cb.autocomplete = "off";
-        if (disabled) cb.disabled = true;
+        const isMasterlist = parseInt(c.checklist_id, 10) === 3;
+        // While the form is locked (no type yet), Masterlist looks like every other disabled box.
+        // After unlock, lockMasterlistChecklistOn() keeps it always-on with the native accent check.
+        if (disabled) {
+            cb.disabled = true;
+        } else if (isMasterlist) {
+            cb.disabled = false;
+        }
 
         const span = document.createElement("span");
         span.textContent = c.checklist_name;
@@ -4217,6 +4687,13 @@ function renderChecklists(checklists, disabled) {
         });
 
         cb.addEventListener("change", function () {
+            if (parseInt(this.value, 10) === 3) {
+                this.checked = true;
+                this.dataset.lastChecked = "true";
+                toggleSection(3, true);
+                syncMasterlistChecklistHidden();
+                return;
+            }
             if (!userTouched) {
                 this.checked = (this.dataset.lastChecked === "true");
                 return;
@@ -4232,6 +4709,41 @@ function renderChecklists(checklists, disabled) {
     if (!isRevisedMode()) {
         clearRetrievalSection();
     }
+
+    if (!disabled) {
+        lockMasterlistChecklistOn();
+    }
+}
+
+/** Masterlist (id 3) is always required — keep checked + submit via hidden when disabled. */
+function syncMasterlistChecklistHidden() {
+    const container = document.getElementById("dynamicCheckboxes");
+    if (!container) return;
+    container.querySelectorAll('input[type="hidden"][data-masterlist-checklist]').forEach(el => el.remove());
+    const cb = container.querySelector('input[type="checkbox"][value="3"]');
+    if (!cb || !cb.checked) return;
+    // Enabled checkboxes already post; hidden is for the disabled locked case.
+    if (!cb.disabled) return;
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.name = 'checklists[]';
+    hidden.value = '3';
+    hidden.dataset.masterlistChecklist = 'true';
+    container.appendChild(hidden);
+}
+
+function lockMasterlistChecklistOn() {
+    const container = document.getElementById("dynamicCheckboxes");
+    if (!container) return;
+    const cb = container.querySelector('input[type="checkbox"][value="3"]');
+    if (!cb) return;
+    cb.checked = true;
+    // Keep enabled so the check matches Distribution (native accent-color).
+    cb.disabled = false;
+    cb.dataset.lastChecked = "true";
+    cb.closest("label")?.classList.add("reg-check-locked");
+    toggleSection(3, true);
+    syncMasterlistChecklistHidden();
 }
 
 function lockChecklist() {
@@ -4240,8 +4752,10 @@ function lockChecklist() {
         cb.disabled = true;
         cb.checked = false;
         cb.dataset.lastChecked = "false";
+        cb.closest("label")?.classList.remove("reg-check-locked");
         toggleSection(parseInt(cb.value), false);
     });
+    container.querySelectorAll('input[type="hidden"][data-masterlist-checklist]').forEach(el => el.remove());
     hideFormActions();
     disableApproval();
 
@@ -4258,18 +4772,121 @@ function unlockChecklist() {
     const container = document.getElementById("dynamicCheckboxes");
     if (!container) return;
 
+    // Re-render so leaf External/Forms/Logbooks show the right checklist set for New vs Revised.
+    if (window.__lastVersionChecklists && window.__lastVersionChecklists.length) {
+        renderChecklists(window.__lastVersionChecklists, false);
+    }
+
+    const suggested = suggestedChecklistIdsForCurrentDocType();
+
     container.querySelectorAll("input[type='checkbox']").forEach(cb => {
+        const id = parseInt(cb.value, 10);
+        const isMasterlist = id === 3;
         cb.disabled = false;
-        cb.checked = true;
-        cb.dataset.lastChecked = "true";
-        toggleSection(parseInt(cb.value), true);
+        // External / Forms / Logbooks:
+        //   New → Masterlist + Distribution (DRF optional)
+        //   Revised → DCN + Masterlist + Retrieval + Distribution
+        // Other types: check all (existing behavior).
+        cb.checked = suggested ? suggested.has(id) : true;
+        if (isMasterlist) cb.checked = true;
+        cb.dataset.lastChecked = cb.checked ? "true" : "false";
+        toggleSection(id, cb.checked);
     });
+    lockMasterlistChecklistOn();
     showFormActions();
     enableApproval();
     setTimeout(initFileInputs, 100);
 
     const saveBtn = document.getElementById("btnSaveDocument");
     if (saveBtn) saveBtn.style.display = ""; 
+}
+
+/** Default checklist set for leaf parent types External / Forms / Logbooks. */
+function suggestedChecklistIdsForCurrentDocType() {
+    if (!isLeafExternalFormsLogbookDocType()) return null;
+    if (isRevisedMode()) {
+        // DCN + Masterlist + Retrieval + Distribution (DRF stays visible but unchecked)
+        return new Set([2, 3, 4, 5]);
+    }
+    return new Set([3, 5]); // Masterlist + Distribution
+}
+
+function hasMasterlistScannedCopy() {
+    const file = document.getElementById('uploadScannedCopy');
+    if (file && file.files && file.files.length > 0) return true;
+    if (document.querySelector('#section-3 .reg-current-file')) return true;
+    return false;
+}
+
+function masterlistFilledFields() {
+    const docNo = (document.getElementById('masterlistDocNo')?.value || '').trim();
+    const title = (
+        document.getElementById('masterlistDocTitle')?.value
+        || document.getElementById('drfTitle')?.value
+        || document.getElementById('syllabiDocTitle')?.value
+        || ''
+    ).trim();
+    const effectivity = (document.getElementById('masterlistEffectivityDate')?.value || '').trim();
+    const pages = (document.getElementById('masterlistNoOfPages')?.value || '').trim();
+    const keywords = (document.getElementById('keywords')?.value || '').trim();
+    const deadline = (document.getElementById('deadlineOfSubmission')?.value || '').trim();
+    const receiptDate = (document.getElementById('masterlistReceiptDate')?.value || '').trim();
+    const hasOriginator = !!(window.__sourceWidgets?.masterlistOriginator?.selected?.length);
+    const hasSource = !!(window.__sourceWidgets?.masterlist?.selected?.length);
+
+    return {
+        docNo: !!docNo,
+        title: !!title,
+        effectivity: !!effectivity,
+        pages: !!(pages && pages !== '0'),
+        keywords: !!keywords,
+        deadline: !!deadline,
+        receiptDate: !!receiptDate,
+        originator: hasOriginator,
+        sourceUnit: hasSource,
+        scannedCopy: hasMasterlistScannedCopy(),
+    };
+}
+
+function masterlistHasData() {
+    const f = masterlistFilledFields();
+    return Object.values(f).some(Boolean);
+}
+
+/** Drafts need more than Document No alone — at least one other masterlist input. */
+function masterlistHasDraftSubstance() {
+    const f = masterlistFilledFields();
+    const filledCount = Object.values(f).filter(Boolean).length;
+    if (filledCount < 2) return false;
+    // Document No by itself is not enough even if somehow counted twice.
+    if (f.docNo && filledCount === 1) return false;
+    return true;
+}
+
+/** Masterlist is always on — require some substance. Scanned copy is optional on save. */
+function validateMasterlistRequired(errors, { requireScan = false, forDraft = false } = {}) {
+    if (forDraft) {
+        if (!masterlistHasDraftSubstance()) {
+            errors.push({
+                field: 'masterlistDocTitle',
+                message: 'To save a draft, fill Document No plus at least one other masterlist field (e.g. Title, Effectivity Date, Pages, Keywords, Originator, or Source Unit).',
+            });
+            return;
+        }
+    } else if (!masterlistHasData()) {
+        errors.push({
+            field: 'masterlistDocNo',
+            message: 'Masterlist Registration needs data (Document No, Title, Effectivity Date, or a scanned master copy).',
+        });
+        return;
+    }
+    if (requireScan && !window.__isSyllabiMode && !hasMasterlistScannedCopy()) {
+        errors.push({
+            field: 'uploadScannedCopy',
+            message: 'Upload the scanned master copy in Masterlist Registration before saving.',
+            type: 'file',
+        });
+    }
 }
 
 // ══════════════════════════════════════════════
@@ -4392,8 +5009,7 @@ window.generateDistributionTemplate = function () {
     // Always use Masterlist Registration fields for the printed form header/footer.
     const docTitle = (document.getElementById('masterlistDocTitle')?.value || '').trim()
         || (document.getElementById('syllabiDocTitle')?.value || '').trim();
-    const effectivityDate = (document.getElementById('masterlistEffectivityDate')?.value || '').trim()
-        || (document.getElementById('syllabiEffectivityDate')?.value || '').trim();
+    const effectivityDate = (document.getElementById('masterlistEffectivityDate')?.value || '').trim();
     const revisionNo = (document.getElementById('masterlistRevisionNo')?.value || '').trim()
         || (document.querySelector('input[name="masterlistRevisionNo"]')?.value || '').trim();
 
@@ -4665,7 +5281,7 @@ function validateForm() {
     }
 
     if (isRevisedMode()) {
-        const fieldId = window.__isSyllabiMode ? 'syllabiDocNo' : 'masterlistDocNo';
+        const fieldId = 'masterlistDocNo';
         const docNo = document.getElementById(fieldId)?.value.trim()
             || document.getElementById('masterlistDocNo')?.value.trim();
         const hintEl = document.getElementById('docNoHint');
@@ -4695,6 +5311,10 @@ function validateForm() {
 
     // ── DCN revision rows must reference an actual registered document ──
     validateRevisionRowsLinked(errors);
+
+    // Masterlist always on — require substance. Scanned copy is optional and
+    // surfaced in the review modal (confirm-anyway) instead of blocking save.
+    validateMasterlistRequired(errors, { requireScan: false });
 
     // Content fields are otherwise optional — missing values are
     // surfaced in the review modal instead, with a confirm-anyway step.
@@ -4811,10 +5431,7 @@ function collectMissingFields() {
         checkText("Syllabi", "syllabiProgram", "Program");
         checkText("Syllabi", "syllabiSemester", "Semester");
         checkText("Syllabi", "syllabiSchoolYear", "School Year");
-        checkText("Syllabi", "syllabiDocNo", "Document No.");
         checkText("Syllabi", "syllabiDocTitle", "Document Title");
-        checkText("Syllabi", "syllabiEffectivityDate", "Effectivity Date");
-        checkText("Syllabi", "syllabiDeadline", "Deadline");
 
         const syllabiRows = document.querySelectorAll("#syllabiTableBody tr[data-is-first='true']");
         if (syllabiRows.length === 0) {
@@ -4936,6 +5553,9 @@ function collectMissingFields() {
         }
         if (!window.__sourceWidgets.masterlist || window.__sourceWidgets.masterlist.selected.length === 0) {
             missing.push("Masterlist: Source Unit");
+        }
+        if (!window.__isSyllabiMode && !hasMasterlistScannedCopy()) {
+            missing.push("Masterlist: Scanned Copy");
         }
     }
 
@@ -5120,7 +5740,7 @@ function addReviewOfficeList(container, title, offices) {
 
 window.confirmSave = function () {
     if (docNoDuplicate) {
-        const fieldId = window.__isSyllabiMode ? 'syllabiDocNo' : 'masterlistDocNo';
+        const fieldId = 'masterlistDocNo';
         scrollToField(fieldId);
         document.getElementById(fieldId)?.focus();
         return;
@@ -5220,8 +5840,10 @@ function renderMissingFieldsWarning(container, missing) {
 
     if (confirmBtn) {
         confirmBtn.disabled = true;
+        confirmBtn.setAttribute('aria-disabled', 'true');
         confirmBtn.style.opacity = '0.5';
         confirmBtn.style.cursor = 'not-allowed';
+        confirmBtn.style.pointerEvents = 'none';
     }
 }
 
@@ -5233,13 +5855,16 @@ window.handleConfirmSaveAnywayToggle = function (checkbox) {
     if (!confirmBtn) return;
 
     confirmBtn.disabled = !checkbox.checked;
+    confirmBtn.setAttribute('aria-disabled', checkbox.checked ? 'false' : 'true');
 
     if (checkbox.checked) {
         confirmBtn.style.opacity = '';
         confirmBtn.style.cursor = '';
+        confirmBtn.style.pointerEvents = '';
     } else {
         confirmBtn.style.opacity = '0.5';
         confirmBtn.style.cursor = 'not-allowed';
+        confirmBtn.style.pointerEvents = 'none';
     }
 };
 
@@ -5252,10 +5877,7 @@ function buildSyllabiInfoReview(reviewContent) {
         { label: "Program", value: getSelectText("syllabiProgram") },
         { label: "Semester", value: getSelectText("syllabiSemester") },
         { label: "School Year", value: getSelectText("syllabiSchoolYear") },
-        { label: "Document No.", value: getInputVal("syllabiDocNo") },
         { label: "Document Title", value: getInputVal("syllabiDocTitle") },
-        { label: "Effectivity Date", value: formatInputDate("syllabiEffectivityDate") },
-        { label: "Deadline", value: formatInputDate("syllabiDeadline") },
     ]);
 }
 
@@ -5399,6 +6021,7 @@ function buildDistributionReview(reviewContent) {
 }
 
 window.closeConfirmModal = function () {
+    if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
     const root = document.getElementById("dcsRegisterRoot");
     if (root && window.Alpine) {
         Alpine.$data(root).reviewOpen = false;
@@ -5413,7 +6036,195 @@ document.addEventListener("keydown", function (e) {
 });
 
 window.submitForm = function () {
+    const ack = document.getElementById('confirmSaveAnyway');
+    if (ack && !ack.checked) {
+        alert('Please confirm that you reviewed the missing information before saving.');
+        return;
+    }
+    const draftFlag = document.getElementById('saveAsDraft');
+    if (draftFlag) draftFlag.value = '0';
+    window.__regFormSubmitting = true;
+    try {
+        const pending = JSON.parse(sessionStorage.getItem('dcs_office_intake_pending') || 'null');
+        if (pending?.type && pending?.id) {
+            const typeEl = document.getElementById('officeIntakeType');
+            const idEl = document.getElementById('officeIntakeId');
+            if (typeEl) typeEl.value = pending.type;
+            if (idEl) idEl.value = String(pending.id);
+        }
+        sessionStorage.removeItem('dcs_office_intake_pending');
+    } catch (_) { /* ignore */ }
+    showSavingDocumentOverlay();
     document.getElementById("masterForm").submit();
+};
+
+function showSavingDocumentOverlay() {
+    const modal = document.getElementById('confirmModal');
+    const banner = document.getElementById('regReviewSavingBanner');
+    const confirmBtn = document.getElementById('btnConfirmSaveModal');
+    const isUpdate = !!document.getElementById('btnUpdateDocument');
+    const label = isUpdate ? 'Updating document…' : 'Saving document…';
+
+    if (modal?.classList.contains('is-open')) {
+        modal.classList.add('is-saving');
+        if (banner) {
+            const text = banner.querySelector('span');
+            if (text) text.textContent = label + ' Please wait.';
+            banner.hidden = false;
+        }
+        modal.querySelectorAll('.reg-modal-close, .reg-modal-footer .reg-btn-cancel').forEach((el) => {
+            el.disabled = true;
+            el.setAttribute('aria-disabled', 'true');
+        });
+        if (confirmBtn) {
+            confirmBtn.disabled = true;
+            confirmBtn.setAttribute('aria-disabled', 'true');
+            confirmBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> '
+                + (isUpdate ? 'Updating…' : 'Saving…');
+        }
+        return;
+    }
+
+    let overlay = document.getElementById('regSavingOverlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'regSavingOverlay';
+        overlay.className = 'reg-saving-overlay';
+        overlay.setAttribute('role', 'status');
+        overlay.setAttribute('aria-live', 'polite');
+        overlay.innerHTML = `
+            <div class="reg-saving-card">
+                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                <div>
+                    <strong></strong>
+                    <p>Please wait while your document is being written.</p>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+    }
+    const title = overlay.querySelector('strong');
+    if (title) title.textContent = label;
+    overlay.classList.add('is-visible');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.setAttribute('aria-disabled', 'true');
+    }
+}
+
+function prepareDraftSubmitDefaults() {
+    const approvalChecked = document.querySelector('input[name="approval_status"]:checked');
+    if (!approvalChecked) {
+        const na = document.querySelector('input[name="approval_status"][value="not_applicable"]');
+        if (na) na.checked = true;
+    }
+}
+
+function registrationHasUserProgress() {
+    const form = document.getElementById('masterForm');
+    if (!form) return false;
+
+    // Real form content (masterlist / widgets) counts — shell selectors do not.
+    if (typeof masterlistHasData === 'function' && masterlistHasData()) return true;
+
+    if (window.__sourceWidgets) {
+        for (const widget of Object.values(window.__sourceWidgets)) {
+            if (Array.isArray(widget?.selected) && widget.selected.length > 0) {
+                return true;
+            }
+        }
+    }
+
+    // Version / Document Type / Sub-Type / Approval alone are navigation setup, not "unsaved work".
+    const ignoreIds = new Set([
+        'versionType',
+        'docType',
+        'subType',
+        'registrationMode',
+        'revisedFromDocNo',
+        'saveAsDraft',
+        'officeIntakeType',
+        'officeIntakeId',
+        'draftLeaveTo',
+        'confirmSaveAnyway',
+    ]);
+    const ignoreNames = new Set([
+        'version_id',
+        'doc_type_id',
+        'sub_type_id',
+        'registration_mode',
+        'revised_from_doc_no',
+        'save_as_draft',
+        'office_intake_type',
+        'office_intake_id',
+        'draft_leave_to',
+        'approval_status',
+        '_token',
+        'checklists[]',
+    ]);
+
+    const fields = form.querySelectorAll(
+        'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea, select'
+    );
+    for (const el of fields) {
+        if (el.disabled || el.readOnly) continue;
+        if (ignoreIds.has(el.id) || ignoreNames.has(el.name)) continue;
+        if (el.type === 'file') {
+            if (el.files && el.files.length) return true;
+            continue;
+        }
+        const val = (el.value || '').trim();
+        if (!val || val === '0') continue;
+        return true;
+    }
+    return false;
+}
+
+window.__regDraftCanSave = function () {
+    const version = document.getElementById('versionType')?.value;
+    const docType = document.getElementById('docType')?.value;
+    if (!version || !docType) return false;
+    const draftErrors = [];
+    validateMasterlistRequired(draftErrors, { requireScan: false, forDraft: true });
+    return draftErrors.length === 0;
+};
+
+window.__regDraftHasProgress = function () {
+    return registrationHasUserProgress();
+};
+
+window.__regDraftShouldAutosaveOnLeave = function () {
+    return true; // create page
+};
+
+window.__regDraftPrepareSubmit = function () {
+    prepareDraftSubmitDefaults();
+};
+
+window.__regDraftShowErrors = function (message) {
+    const draftErrors = [];
+    validateMasterlistRequired(draftErrors, { requireScan: false, forDraft: true });
+    if (draftErrors.length > 0) {
+        showValidationErrors(draftErrors);
+        if (window.__regDraftHighlightErrors) return;
+        if (typeof window.showDraftNoticeModal === 'function') {
+            window.showDraftNoticeModal(draftErrors[0].message);
+            return;
+        }
+        if (window.dcsShowToast) {
+            window.dcsShowToast(draftErrors[0].message, 'error');
+            return;
+        }
+    }
+    if (window.__regDraftHighlightErrors) return;
+    if (typeof window.showDraftNoticeModal === 'function') {
+        window.showDraftNoticeModal(message || 'Unable to save draft.');
+        return;
+    }
+    if (window.dcsShowToast) {
+        window.dcsShowToast(message || 'Unable to save draft.', 'error');
+        return;
+    }
 };
 
 // ══════════════════════════════════════════════
@@ -5541,7 +6352,7 @@ function revisionRowCellsHTML() {
         <td><input type="text" name="documentTitle[]" placeholder="Search or enter document title" autocomplete="off"></td>
         <td><input type="date" name="effectiveDate[]" readonly class="reg-revrow-locked" tabindex="-1"></td>
         <td><input type="number" name="revisionNo[]" placeholder="—" readonly class="reg-revrow-locked" tabindex="-1"></td>
-        <td class="reg-rev-scan-cell" style="text-align:center;color:#94a3b8;">—</td>
+        <td class="reg-rev-scan-cell" style="text-align:center;color:#475569;">—</td>
         <td class="reg-rev-purpose-cell">
             <input type="hidden" name="revisionPurpose[]" value="">
             <span class="reg-rev-purpose-text">—</span>
@@ -5588,20 +6399,10 @@ function updateSyllabiTitle() {
     syncSyllabiToMasterlistFields();
 }
 
-/** Keep masterlist header fields in sync when in syllabi / TOS-Rubrics mode. */
+/** Keep masterlist title in sync when in syllabi / TOS-Rubrics mode.
+ *  Doc No / Effectivity / Deadline live only on Masterlist now. */
 function syncSyllabiToMasterlistFields() {
     if (!window.__isSyllabiMode) return;
-
-    const pairs = [
-        ['syllabiDocNo', 'masterlistDocNo'],
-        ['syllabiEffectivityDate', 'masterlistEffectivityDate'],
-        ['syllabiDeadline', 'deadlineOfSubmission'],
-    ];
-    pairs.forEach(([srcId, destId]) => {
-        const src = document.getElementById(srcId);
-        const dest = document.getElementById(destId);
-        if (src && dest) dest.value = src.value;
-    });
 
     const titleInput = document.getElementById('syllabiDocTitle');
     const mlTitle = document.getElementById('masterlistDocTitle');
@@ -5609,22 +6410,6 @@ function syncSyllabiToMasterlistFields() {
 }
 
 function wireSyllabiMasterlistSync() {
-    const syllabiNo = document.getElementById('syllabiDocNo');
-    const masterNo = document.getElementById('masterlistDocNo');
-    if (syllabiNo && masterNo) {
-        syllabiNo.addEventListener('input', () => {
-            if (!window.__isSyllabiMode) return;
-            masterNo.value = syllabiNo.value;
-            masterNo.dispatchEvent(new Event('input', { bubbles: true }));
-        });
-    }
-
-    ['syllabiEffectivityDate', 'syllabiDeadline'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.addEventListener('input', syncSyllabiToMasterlistFields);
-        if (el) el.addEventListener('change', syncSyllabiToMasterlistFields);
-    });
-
     const titleInput = document.getElementById('syllabiDocTitle');
     if (titleInput) {
         titleInput.addEventListener('input', () => {
@@ -6850,6 +7635,7 @@ window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
             const searchInput = dropdown.parentElement?.querySelector("input[type='text']");
             if (searchInput) searchInput.value = "";
         }
+        refreshOfficeSeeMore(bodyId);
         return;
     }
 
@@ -6890,6 +7676,7 @@ window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
         if (searchInput) searchInput.value = "";
     }
     if (bodyId === 'distBody') syncDistClusterChipState();
+    refreshOfficeSeeMore(bodyId);
 };
 
 window.removeOffice = function (btn, totalId, bodyId) {
@@ -6912,6 +7699,7 @@ window.removeOffice = function (btn, totalId, bodyId) {
             tbody.innerHTML = emptyOfficeRowHTML(bodyId);
         }
         if (bodyId === 'distBody') syncDistClusterChipState();
+        refreshOfficeSeeMore(bodyId);
     }, 200);
 };
 
@@ -6937,5 +7725,65 @@ window.updateTotal = function (totalId, bodyId) {
     }
     totalEl.textContent = sum;
 };
+
+// ══════════════════════════════════════════════
+// OFFICE TABLE SEE MORE (Distribution / Retrieval)
+// ══════════════════════════════════════════════
+const OFFICE_SEE_MORE_MIN = 2;
+
+function officeSeeMoreBtnForBody(bodyId) {
+    if (bodyId === 'distBody') return document.getElementById('distSeeMore');
+    if (bodyId === 'retrievalBody') return document.getElementById('retrievalSeeMore');
+    return null;
+}
+
+function officeWrapForBody(bodyId) {
+    if (bodyId === 'distBody') return document.getElementById('distOfficeWrap');
+    if (bodyId === 'retrievalBody') return document.getElementById('retrievalOfficeWrap');
+    return null;
+}
+
+window.refreshOfficeSeeMore = function (bodyId) {
+    const bodies = bodyId ? [bodyId] : ['distBody', 'retrievalBody'];
+    bodies.forEach((id) => {
+        const tbody = document.getElementById(id);
+        const wrap = officeWrapForBody(id);
+        const btn = officeSeeMoreBtnForBody(id);
+        if (!tbody || !wrap || !btn) return;
+        const count = tbody.querySelectorAll('tr.reg-office-added').length;
+        if (count > OFFICE_SEE_MORE_MIN) {
+            btn.classList.add('is-visible');
+            const expanded = wrap.classList.contains('is-expanded');
+            if (!expanded) wrap.classList.add('is-collapsed');
+            btn.innerHTML = expanded
+                ? '<i class="fa-solid fa-chevron-up"></i> See less'
+                : ('<i class="fa-solid fa-chevron-down"></i> See more (' + (count - OFFICE_SEE_MORE_MIN) + ' more)');
+        } else {
+            btn.classList.remove('is-visible');
+            wrap.classList.remove('is-collapsed', 'is-expanded');
+            btn.innerHTML = 'See more';
+        }
+    });
+};
+
+window.toggleOfficeSeeMore = function (btn) {
+    const wrapId = btn.getAttribute('data-office-wrap');
+    const wrap = document.getElementById(wrapId);
+    if (!wrap) return;
+    const bodyId = wrap.getAttribute('data-office-body');
+    if (wrap.classList.contains('is-expanded')) {
+        wrap.classList.remove('is-expanded');
+        wrap.classList.add('is-collapsed');
+    } else {
+        wrap.classList.add('is-expanded');
+        wrap.classList.remove('is-collapsed');
+    }
+    refreshOfficeSeeMore(bodyId);
+};
+
+document.addEventListener('DOMContentLoaded', function () {
+    refreshOfficeSeeMore();
+});
 </script>
 @include('pages.dcs.register.partials.dist-office-groups-script')
+<script src="{{ asset('js/dcs/register-draft-guard.js') }}"></script>

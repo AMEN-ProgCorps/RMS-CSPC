@@ -7,16 +7,17 @@
     <style>
         /*
          * CSPC-F-DCC-06 Document Request Form — forced print geometry
-         * Long bond 8.5 × 13in | form on upper half
+         * Long bond / Mexico Legal ~8.5 × 13.39in | header top margin fixed at 0.23in
          * Logo: left 0.46in, top 0.23in, size 0.57×0.59, gap to line 0.03in
          * Header/footer rules: 3px
          *
-         * @page MUST be top-level (not nested in @media) or Chrome ignores
-         * zero margins and still prints date/URL/page headers & footers.
+         * Print dialog MUST use Margins → None. "Default" adds a browser top gap
+         * that CSS cannot remove and makes the header look shifted down.
          */
         @page {
-            size: 8.5in 13in;
-            margin: 0;
+            /* Prefer Mexico Legal (Brother / PH long bond) so the sheet fills the page */
+            size: 8.5in 13.39in;
+            margin: 0 !important;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -36,6 +37,8 @@
         }
         .print-toolbar {
             display: flex;
+            flex-wrap: wrap;
+            align-items: center;
             background: #f8fafc;
             border-bottom: 1px solid #e2e8f0;
             padding: 10px 24px;
@@ -45,6 +48,17 @@
             top: 0;
             z-index: 100;
         }
+        .print-toolbar-tip {
+            flex: 1 1 100%;
+            text-align: center;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: #334155;
+            line-height: 1.35;
+            margin: 0;
+        }
+        .print-toolbar-tip strong { color: #0d2a7a; }
         .print-toolbar button {
             padding: 8px 20px;
             border: 1.5px solid #e2e8f0;
@@ -57,12 +71,12 @@
         .print-toolbar .btn-print { background: #0d2a7a; color: #fff; border-color: #0d2a7a; }
         .print-toolbar .btn-close { background: #fff; color: #64748b; }
 
-        /* Full long-bond sheet (8.5 × 13); form uses upper half only */
+        /* Full long-bond sheet (Mexico Legal 8.5 × 13.39); form uses upper area */
         .sheet {
             width: 8.5in !important;
-            height: 13in !important;
-            min-height: 13in !important;
-            max-height: 13in !important;
+            height: 13.39in !important;
+            min-height: 13.39in !important;
+            max-height: 13.39in !important;
             margin: 16px auto;
             padding: 0 !important;
             background: #fff !important;
@@ -76,7 +90,7 @@
         }
 
         /* ═══════════ HEADER ═══════════
-         * logo top 0.23 + height 0.59 + gap 0.03 → line at 0.85in
+         * Fixed top margin 0.23in + logo 0.59 + gap 0.03 → line at 0.85in
          */
         .hdr-band {
             position: relative !important;
@@ -256,7 +270,8 @@
             background: transparent !important;
         }
         .fline.w-req { width: 1.54in !important; flex: 0 0 1.54in !important; }
-        .fline.w-date { width: 1.79in !important; flex: 0 0 1.79in !important; }
+        /* Keep Date: label in its original spot; only the underline grows to the right edge */
+        .fline.w-date { flex: 1 1 auto !important; width: auto !important; min-width: 1.79in !important; }
         .fline.w-fill { flex: 1 1 auto !important; width: auto !important; min-width: 0 !important; }
         .fline.w-fill .fline-val { white-space: normal !important; }
 
@@ -272,6 +287,7 @@
             background: transparent !important;
             font-size: 11pt !important;
             line-height: 1 !important;
+            width: 100% !important;
         }
         .lbl {
             flex: 0 0 auto !important;
@@ -285,6 +301,7 @@
             background: transparent !important;
             color: #000 !important;
         }
+        /* Fixed gap — same Date: label position as the official form */
         .meta-gap {
             flex: 0 0 2.87in !important;
             width: 2.87in !important;
@@ -485,27 +502,153 @@
             color: #000 !important;
         }
 
+        .attach-title {
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 12pt !important;
+            font-weight: 700 !important;
+            text-transform: uppercase !important;
+            text-align: center !important;
+            line-height: 1 !important;
+            margin: 0 0 11pt !important;
+            padding: 0 !important;
+            color: #000 !important;
+        }
+        .attach-table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            table-layout: fixed !important;
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 11pt !important;
+            line-height: 1 !important;
+        }
+        .attach-table th,
+        .attach-table td {
+            border: 1px solid #000 !important;
+            padding: 0 4px !important;
+            vertical-align: middle !important;
+            text-align: left !important;
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 11pt !important;
+            line-height: 1 !important;
+            height: 13pt !important;
+            max-height: 13pt !important;
+            overflow: hidden !important;
+            white-space: nowrap !important;
+            text-overflow: ellipsis !important;
+        }
+        .attach-table th {
+            font-weight: 700 !important;
+            text-align: center !important;
+            height: 14pt !important;
+            max-height: 14pt !important;
+        }
+        .attach-table col.c-no { width: 0.55in !important; }
+        .attach-table col.c-name { width: auto !important; }
+
+        /*
+         * Attach pages: pack office rows until long-bond body is full,
+         * then spill to the next page (footer stays pinned to bottom).
+         */
+        .sheet-attach .body {
+            display: flex !important;
+            flex-direction: column !important;
+            box-sizing: border-box !important;
+            height: calc(13.39in - 0.85in) !important;
+            min-height: calc(13.39in - 0.85in) !important;
+            max-height: calc(13.39in - 0.85in) !important;
+            padding: 0.08in 0.5in 0.12in !important;
+        }
+        .sheet-attach .attach-doc-title {
+            margin: 0 0 4pt !important;
+            height: 11pt !important;
+            min-height: 11pt !important;
+            max-height: 11pt !important;
+        }
+        .sheet-attach .attach-dist-label {
+            margin: 2pt 0 2pt !important;
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 11pt !important;
+            font-weight: 700 !important;
+            line-height: 1.15 !important;
+            color: #000 !important;
+        }
+        .sheet-attach .attach-dist-note {
+            margin: 0 0 6pt !important;
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 9pt !important;
+            font-weight: 400 !important;
+            line-height: 1.2 !important;
+            color: #000 !important;
+        }
+        .sheet-attach .attach-table {
+            flex: 0 0 auto !important;
+            margin: 0 !important;
+        }
+        .sheet-attach .footer-rule {
+            margin-top: auto !important;
+            margin-bottom: 0 !important;
+        }
+        .sheet-attach .footer {
+            margin: 0 !important;
+            padding: 2pt 0 0 !important;
+        }
+
+        .sheet-attach {
+            page-break-before: always !important;
+            break-before: page !important;
+        }
+
         @media print {
             html, body {
                 width: 8.5in !important;
-                height: 13in !important;
+                min-height: 0 !important;
+                height: auto !important;
                 margin: 0 !important;
                 padding: 0 !important;
                 background: #fff !important;
+                display: block !important;
+                position: static !important;
             }
             .print-toolbar { display: none !important; }
             .sheet {
                 box-shadow: none !important;
                 margin: 0 !important;
+                padding: 0 !important;
                 width: 8.5in !important;
-                height: 13in !important;
-                min-height: 13in !important;
-                max-height: 13in !important;
+                height: 13.39in !important;
+                min-height: 13.39in !important;
+                max-height: 13.39in !important;
                 overflow: hidden !important;
-                page-break-after: avoid !important;
-                break-after: avoid !important;
+                position: relative !important;
+                top: 0 !important;
+                left: 0 !important;
                 page-break-inside: avoid !important;
                 break-inside: avoid !important;
+            }
+            .sheet-main {
+                page-break-after: auto !important;
+                break-after: auto !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
+            }
+            .sheet-attach {
+                page-break-before: always !important;
+                break-before: page !important;
+                page-break-after: auto !important;
+                break-after: auto !important;
+            }
+            .hdr-band {
+                margin: 0 !important;
+                padding: 0 !important;
+                height: 0.85in !important;
+                min-height: 0.85in !important;
+            }
+            .hdr-logo-cell,
+            .hdr-text-cell {
+                top: 0.23in !important;
+            }
+            .hdr-rule {
+                top: 0.85in !important;
             }
             .fline-rule,
             .desc-line .fline-rule,
@@ -549,20 +692,74 @@
             $packed[3] = trim($packed[3] . ' ' . $chunk);
         }
     }
-    $distribute = OfficeIntakeHelper::decodeDistributeTo($drf->distribute_to ?? null);
-    $distribute = array_pad(array_slice($distribute, 0, 24), 24, '');
+    $allDistribute = OfficeIntakeHelper::decodeDistributeTo($drf->distribute_to ?? null);
+    $allDistribute = array_values(array_filter(array_map(
+        fn ($code) => trim((string) $code),
+        $allDistribute
+    ), fn ($code) => $code !== ''));
+
+    $distributeOffices = OfficeIntakeHelper::drfDistributeOffices($drf);
+    $attachOfficeRows = collect($distributeOffices)->map(function (array $office) {
+        $name = trim((string) ($office['name'] ?? ''));
+        $code = trim((string) ($office['code'] ?? ''));
+
+        return $name !== '' ? $name : $code;
+    })->filter(fn ($label) => $label !== '')->values()->all();
+
+    $distributeOverflow = count($allDistribute) > 24;
+    /*
+     * Long bond attach body ≈ 11.5in after header/title/dist-label/footer.
+     * Arial 11pt / line-height 1.0 @ ~13pt rows → ~58 offices before next page
+     * (slightly fewer than before to leave room for the distribution heading).
+     */
+    $attachPerPage = 58;
+    $attachPages = $distributeOverflow
+        ? array_chunk($attachOfficeRows, $attachPerPage)
+        : [];
+    $printPageTotal = $distributeOverflow ? (1 + max(1, count($attachPages))) : 1;
+
+    if ($distributeOverflow) {
+        $distribute = array_fill(0, 24, '');
+        $distribute[0] = 'Please see attached';
+        $distribute[1] = 'distribution list';
+    } else {
+        $distribute = array_pad(array_slice($allDistribute, 0, 24), 24, '');
+    }
+
     $preparedName = trim((string) ($drf->prepared_by_name ?? ''));
+    $preparedDesig = trim((string) ($drf->prepared_by_designation ?? ''));
+    $reviewedName = trim((string) ($drf->reviewed_by_name ?? ''));
+    $reviewedDesig = trim((string) ($drf->reviewed_by_designation ?? ''));
+    $approvedName = trim((string) ($drf->approved_by_name ?? ''));
+    $approvedDesig = trim((string) ($drf->approved_by_designation ?? ''));
+
     $docTitle = trim((string) ($drf->doc_title ?? ''));
     $drfDate = $drf->drf_date
         ? \Carbon\Carbon::parse($drf->drf_date)->format('F d, Y')
         : '';
 @endphp
+@php
+    $isReviewer = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake();
+    $viewerMode = ! empty($viewerMode);
+@endphp
 <div class="print-toolbar">
-    <button type="button" class="btn-print" onclick="document.title=''; window.print();">Print</button>
-    <button type="button" class="btn-close" onclick="window.close()">Close</button>
+    @if($viewerMode)
+        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIO review</span>
+    @else
+        <p class="print-toolbar-tip">
+            Important: in the print dialog set <strong>Margins → None</strong>
+            (your screenshot still showed Default — that alone adds the top gap).
+            Keep paper <strong>Mexico Legal</strong>, and leave Headers and footers off.
+        </p>
+        @if($isReviewer)
+            <a href="{{ route('dcs.requests.index', absolute: false) }}" class="btn-close" style="text-decoration:none;display:inline-flex;align-items:center;">Back to Request</a>
+        @endif
+        <button type="button" class="btn-print" onclick="ofiPrintClean()">Print</button>
+        <button type="button" class="btn-close" onclick="window.close()">Close</button>
+    @endif
 </div>
 
-<div class="sheet">
+<div class="sheet sheet-main">
     <header class="hdr-band">
         <div class="hdr-logo-cell">
             @if(!empty($logoSrc))
@@ -659,15 +856,15 @@
                 </tr>
                 <tr>
                     <td class="row-label">Name</td>
-                    <td class="col-c">{{ $preparedName }}</td>
-                    <td class="name-bold">NANCY S. PENETRANTE, MBA</td>
-                    <td class="name-bold">JOCELYN O. JINTALAN, DBA</td>
+                    <td class="name-bold">{{ $preparedName }}</td>
+                    <td class="name-bold">{{ $reviewedName }}</td>
+                    <td class="name-bold">{{ $approvedName }}</td>
                 </tr>
                 <tr>
                     <td class="row-label">Designation</td>
-                    <td class="col-c"></td>
-                    <td class="desig">ISO Vice Chairperson</td>
-                    <td class="desig">ISO Chairperson</td>
+                    <td class="col-c">{{ $preparedDesig }}</td>
+                    <td class="desig">{{ $reviewedDesig }}</td>
+                    <td class="desig">{{ $approvedDesig }}</td>
                 </tr>
                 <tr>
                     <td class="row-label">Date</td>
@@ -682,9 +879,94 @@
         <div class="footer">
             <span>Effectivity Date: January 2018</span>
             <span>Rev. 0</span>
-            <span>Page: 1 of 1</span>
+            <span>Page: 1 of {{ $printPageTotal }}</span>
         </div>
     </div>
 </div>
+
+@if($distributeOverflow)
+@foreach($attachPages as $pageIndex => $pageOffices)
+@php
+    $attachPageNo = $pageIndex + 2;
+    $rowOffset = $pageIndex * $attachPerPage;
+@endphp
+<div class="sheet sheet-attach">
+    <header class="hdr-band">
+        <div class="hdr-logo-cell">
+            @if(!empty($logoSrc))
+                <img src="{{ $logoSrc }}" alt="" class="hdr-logo">
+            @endif
+        </div>
+        <div class="hdr-text-cell">
+            <div class="hdr-republic">Republic of the Philippines</div>
+            <div class="hdr-name">Camarines Sur Polytechnic Colleges</div>
+            <div class="hdr-location">Nabua, Camarines Sur</div>
+        </div>
+        <div class="hdr-rule">
+            <div class="hdr-rule-line"></div>
+            <span class="hdr-rule-code">CSPC-F-DCC-06</span>
+        </div>
+    </header>
+
+    <div class="body">
+        <div class="row attach-doc-title">
+            <span class="lbl">Document Title :</span>
+            <div class="fline w-fill"><div class="fline-val">{{ $docTitle }}</div><div class="fline-rule"></div></div>
+        </div>
+        <div class="attach-dist-label">Distribute document to (department/position):</div>
+        <p class="attach-dist-note">
+            Continuation list — all offices below are for <strong>distribution</strong> of this document
+            ({{ count($attachOfficeRows) }} office{{ count($attachOfficeRows) === 1 ? '' : 's' }} total).
+        </p>
+        <table class="attach-table">
+            <colgroup>
+                <col class="c-no">
+                <col class="c-name">
+            </colgroup>
+            <thead>
+                <tr>
+                    <th>No.</th>
+                    <th>Name of Offices (Distribution)</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($pageOffices as $index => $officeLabel)
+                    <tr>
+                        <td style="text-align: center;">{{ $rowOffset + $index + 1 }}</td>
+                        <td>{{ $officeLabel }}</td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+
+        <div class="footer-rule"></div>
+        <div class="footer">
+            <span>Effectivity Date: January 2018</span>
+            <span>Rev. 0</span>
+            <span>Page: {{ $attachPageNo }} of {{ $printPageTotal }}</span>
+        </div>
+    </div>
+</div>
+@endforeach
+@endif
+<script>
+function ofiPrintClean() {
+    var prevTitle = document.title;
+    var prevPath = window.location.pathname + window.location.search + window.location.hash;
+    var restored = false;
+    function restore() {
+        if (restored) return;
+        restored = true;
+        document.title = prevTitle;
+        try { history.replaceState(null, '', prevPath); } catch (e) {}
+        window.removeEventListener('afterprint', restore);
+    }
+    document.title = '\u00A0';
+    try { history.replaceState(null, '', '/'); } catch (e) {}
+    window.addEventListener('afterprint', restore);
+    window.print();
+    setTimeout(restore, 1500);
+}
+</script>
 </body>
 </html>

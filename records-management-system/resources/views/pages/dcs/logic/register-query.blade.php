@@ -401,18 +401,13 @@ class RegisterQueryHelper
 
     /**
      * Per-module clearance. Requires full DCS (RFIO / View All / SADM) plus the module flag.
-     * Super Admin bypasses module flags.
+     * Super Admin bypasses module flags — except Recycle Bin (HEAD Admin of DCS),
+     * which requires an explicit dcs_can_recycle_bin grant and is not Super Admin identity.
      */
     public static function canAccessDcsModule(string $module): bool
     {
         $perms = auth()->user()?->permissions;
         if (!$perms) {
-            return false;
-        }
-        if (!empty($perms->is_sadm)) {
-            return true;
-        }
-        if (! self::isFullDcsUser()) {
             return false;
         }
 
@@ -422,7 +417,23 @@ class RegisterQueryHelper
             return false;
         }
 
-        return !empty($perms->{$column});
+        // HEAD Admin of DCS = Recycle Bin clearance only (not Super Admin / not system-wide admin).
+        if ($module === 'recycle_bin') {
+            if (empty($perms->dcs_can_recycle_bin)) {
+                return false;
+            }
+
+            return self::isFullDcsUser() || ! empty($perms->is_sadm);
+        }
+
+        if (! empty($perms->is_sadm)) {
+            return true;
+        }
+        if (! self::isFullDcsUser()) {
+            return false;
+        }
+
+        return ! empty($perms->{$column});
     }
 
     /**
@@ -448,6 +459,64 @@ class RegisterQueryHelper
         return false;
     }
 
+    /**
+     * Apply the same visibility rules as the header notification dropdown
+     * (limited-DCS allowlist + hide registered office-intake notices).
+     *
+     * @param  \Illuminate\Support\Collection<int, object>  $rows
+     * @return \Illuminate\Support\Collection<int, object>
+     */
+    public static function filterBellNotifications($rows)
+    {
+        $rows = collect($rows);
+
+        if (self::isLimitedDcsUser()) {
+            $rows = $rows
+                ->filter(fn ($row) => self::isAllowedNotificationForLimitedDcs($row->redirect_url ?? null))
+                ->values();
+        }
+
+        return $rows
+            ->filter(function ($row) {
+                $intake = OfficeIntakeHelper::parseIntakeNotificationUrl($row->redirect_url ?? null);
+                if (! $intake) {
+                    return true;
+                }
+
+                return ! OfficeIntakeHelper::isIntakeRegistered($intake['type'], $intake['id']);
+            })
+            ->values();
+    }
+
+    /**
+     * When browsing DCS, the bell only lists Document Control System notices
+     * (same behavior as the Livewire notification component).
+     *
+     * @param  array<int, string>  $allowedSubsystems
+     * @return array<int, string>
+     */
+    public static function scopeBellSubsystemsForRequest(array $allowedSubsystems, ?string $pathHint = null): array
+    {
+        if (! in_array('Document Control System', $allowedSubsystems, true)) {
+            return $allowedSubsystems;
+        }
+
+        $path = ltrim((string) ($pathHint ?? ''), '/');
+        if ($path === '') {
+            $path = ltrim((string) request()->path(), '/');
+        }
+        if ($path === 'chat/unread-count' || $path === '') {
+            $referer = (string) request()->headers->get('referer', '');
+            $path = ltrim((string) (parse_url($referer, PHP_URL_PATH) ?? ''), '/');
+        }
+
+        if ($path === 'dcs' || str_starts_with($path, 'dcs/') || str_starts_with($path, 'dcs')) {
+            return ['Document Control System'];
+        }
+
+        return $allowedSubsystems;
+    }
+
     public static function assertFullDcsUser(?string $module = null): void
     {
         if ($module !== null) {
@@ -461,6 +530,24 @@ class RegisterQueryHelper
         }
 
         abort_unless(self::isFullDcsUser(), 403, 'Full Document Control System access is required.');
+    }
+
+    /**
+     * HEAD Admin of DCS — Recycle Bin clearance (dcs_can_recycle_bin).
+     * Not Super Admin: Super Admin is system-wide (users, etc.) and does not own this role by default.
+     */
+    public static function isDocumentControlHead(): bool
+    {
+        return self::canAccessDcsModule('recycle_bin');
+    }
+
+    /**
+     * Permanent delete from Recycle Bin — HEAD Admin of DCS only (Recycle Bin clearance).
+     * Regular DCS admins soft-delete with a reason; they cannot destroy forever.
+     */
+    public static function canPermanentlyDeleteDcsDocuments(): bool
+    {
+        return self::isDocumentControlHead();
     }
 
     /** Full DCS operators with review-intake clearance may open any office intake form by ID. */
@@ -700,6 +787,8 @@ class RegisterQueryHelper
 
     /**
      * Office intake DRF/DCN are pre-registration forms only — never part of RFIO inventory.
+     * Once RFIO has registered them (rfio_registered_at set), they must NOT hide the
+     * controlled dcs_document_requests row from Update / Database.
      */
     public static function isOfficeIntakeRequestId(int $requestId): bool
     {
@@ -708,19 +797,25 @@ class RegisterQueryHelper
         }
 
         if (Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
-            if (DB::table('dcs_document_request_form')
+            $drfQ = DB::table('dcs_document_request_form')
                 ->where('request_id', $requestId)
-                ->where('is_office_intake', true)
-                ->exists()) {
+                ->where('is_office_intake', true);
+            if (Schema::hasColumn('dcs_document_request_form', 'rfio_registered_at')) {
+                $drfQ->whereNull('rfio_registered_at');
+            }
+            if ($drfQ->exists()) {
                 return true;
             }
         }
 
         if (Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
-            if (DB::table('dcs_document_change_notice')
+            $dcnQ = DB::table('dcs_document_change_notice')
                 ->where('request_id', $requestId)
-                ->where('is_office_intake', true)
-                ->exists()) {
+                ->where('is_office_intake', true);
+            if (Schema::hasColumn('dcs_document_change_notice', 'rfio_registered_at')) {
+                $dcnQ->whereNull('rfio_registered_at');
+            }
+            if ($dcnQ->exists()) {
                 return true;
             }
         }
@@ -743,6 +838,9 @@ class RegisterQueryHelper
                         ->from('dcs_document_request_form as oi_drf')
                         ->whereColumn('oi_drf.request_id', $drAlias . '.id')
                         ->where('oi_drf.is_office_intake', true);
+                    if (Schema::hasColumn('dcs_document_request_form', 'rfio_registered_at')) {
+                        $sub->whereNull('oi_drf.rfio_registered_at');
+                    }
                 });
             }
             if (Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
@@ -751,6 +849,9 @@ class RegisterQueryHelper
                         ->from('dcs_document_change_notice as oi_dcn')
                         ->whereColumn('oi_dcn.request_id', $drAlias . '.id')
                         ->where('oi_dcn.is_office_intake', true);
+                    if (Schema::hasColumn('dcs_document_change_notice', 'rfio_registered_at')) {
+                        $sub->whereNull('oi_dcn.rfio_registered_at');
+                    }
                 });
             }
         });
@@ -780,11 +881,42 @@ class RegisterQueryHelper
         });
     }
 
-    /** Registered DCS inventory: office scope plus no office-intake placeholders. */
+    /** Registered DCS inventory: office scope plus no office-intake placeholders; exclude drafts. */
     public static function applyRegisteredDocumentScope($query, string $drAlias = 'dr'): void
     {
         self::applyOfficeScope($query, $drAlias);
         self::applyExcludeOfficeIntakeRequests($query, $drAlias);
+        self::applyExcludeDrafts($query, $drAlias);
+    }
+
+    public static function supportsDrafts(): bool
+    {
+        return Schema::hasColumn('dcs_document_requests', 'is_draft');
+    }
+
+    public static function applyExcludeDrafts($query, string $drAlias = 'dr'): void
+    {
+        if (! self::supportsDrafts()) {
+            return;
+        }
+        $query->where(function ($q) use ($drAlias) {
+            $q->whereNull($drAlias . '.is_draft')
+                ->orWhere($drAlias . '.is_draft', false);
+        });
+    }
+
+    /** Draft request IDs visible to the current user (for Update list resume). */
+    public static function draftRequestIds(): array
+    {
+        if (! self::supportsDrafts()) {
+            return [];
+        }
+        $q = DB::table('dcs_document_requests as dr')->where('dr.is_draft', true);
+        self::applyNotDeleted($q, 'dr');
+        self::applyOfficeScope($q, 'dr');
+        self::applyExcludeOfficeIntakeRequests($q, 'dr');
+
+        return self::intIds($q->pluck('dr.id'));
     }
 
     public static function isOfficeIntakeScanPath(string $path): bool
@@ -1700,6 +1832,9 @@ class RegisterQueryHelper
         if (self::supportsRevisionStatus()) {
             $select[] = 'ml.revision_status';
         }
+        if (self::supportsDrafts()) {
+            $select[] = 'dr.is_draft';
+        }
         $query->select($select);
 
         if ($docTypeId !== '' && $docTypeId !== 'all') {
@@ -1729,8 +1864,11 @@ class RegisterQueryHelper
         $mapRow = function ($doc): array {
             $docNo = trim((string) ($doc->doc_no ?? ''));
             $title = $doc->ml_title ?: ($doc->drf_title ?: 'N/A');
+            $isDraft = self::supportsDrafts() && !empty($doc->is_draft);
             $status = strtolower(trim((string) ($doc->revision_status ?? '')));
-            if ($status === '') {
+            if ($isDraft) {
+                $status = 'draft';
+            } elseif ($status === '') {
                 $status = 'latest';
             }
 
@@ -1743,9 +1881,10 @@ class RegisterQueryHelper
                 'rev_no' => (int) ($doc->revise_no ?? 0),
                 'doc_type' => $doc->doc_type_name ?? 'N/A',
                 'revision_status' => $status,
-                'is_latest' => $status !== 'obsolete',
+                'is_draft' => $isDraft,
+                'is_latest' => $status !== 'obsolete' && $status !== 'draft',
                 'edit_url' => route('dcs.register.edit', $doc->id),
-                'history_url' => $docNo !== '' ? route('dcs.register.history', $docNo) : null,
+                'history_url' => (!$isDraft && $docNo !== '') ? route('dcs.register.history', $docNo) : null,
                 'can_delete' => $status !== 'obsolete',
             ];
         };
@@ -1765,8 +1904,9 @@ class RegisterQueryHelper
             $sorted = $family->sortByDesc('rev_no')->sortByDesc('request_id')->values();
 
             // Heal: tip must be the highest revise_no (e.g. Rev 10 beats Rev 7).
+            // Never rewrite draft rows into latest/obsolete.
             $tipRow = $sorted->first();
-            if ($tipRow && ($tipRow['doc_no'] ?? 'N/A') !== 'N/A') {
+            if ($tipRow && empty($tipRow['is_draft']) && ($tipRow['doc_no'] ?? 'N/A') !== 'N/A') {
                 $latestRows = $family->filter(fn ($r) => !empty($r['is_latest']));
                 $tipIsLatest = !empty($tipRow['is_latest']);
                 $needsHeal = !$tipIsLatest
@@ -1775,6 +1915,9 @@ class RegisterQueryHelper
 
                 if ($needsHeal) {
                     $family = $family->map(function ($r) use ($tipRow) {
+                        if (!empty($r['is_draft'])) {
+                            return $r;
+                        }
                         $isTip = (int) $r['request_id'] === (int) $tipRow['request_id'];
                         $r['revision_status'] = $isTip ? 'latest' : 'obsolete';
                         $r['is_latest'] = $isTip;
@@ -1786,7 +1929,7 @@ class RegisterQueryHelper
                 }
             }
 
-            $parent = $sorted->first(fn ($r) => !empty($r['is_latest'])) ?? $sorted->first();
+            $parent = $sorted->first(fn ($r) => !empty($r['is_draft']) || !empty($r['is_latest'])) ?? $sorted->first();
             $children = $family
                 ->filter(fn ($r) => $r['request_id'] !== $parent['request_id'])
                 ->sortByDesc('rev_no')
@@ -1836,6 +1979,96 @@ class RegisterQueryHelper
         ];
     }
 
+    /** Draft registrations only — for Document Registration → Drafts. */
+    public static function draftList(string $search, string $docTypeId, int $page, int $perPage = 15): array
+    {
+        $empty = [
+            'rows' => [],
+            'total' => 0,
+            'current_page' => 1,
+            'last_page' => 1,
+            'per_page' => $perPage,
+        ];
+
+        $draftIds = self::draftRequestIds();
+        if ($draftIds === []) {
+            return $empty;
+        }
+
+        $query = DB::table('dcs_document_requests as dr')
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
+            ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+            ->leftJoin('dcs_document_request_form as drf', 'drf.request_id', '=', 'dr.id')
+            ->leftJoin('dcs_document_change_notice as dcn', 'dcn.request_id', '=', 'dr.id')
+            ->whereIn('dr.id', $draftIds);
+        self::applyNotDeleted($query, 'dr');
+        $select = [
+            'dr.id',
+            'dr.doc_type_id',
+            'dr.sub_type_id',
+            'dr.updated_at',
+            'dt.doc_type_name',
+            'ml.doc_no',
+            'ml.doc_title as ml_title',
+            'ml.revise_no',
+            'drf.doc_title as drf_title',
+        ];
+        if (self::supportsDrafts()) {
+            $select[] = 'dr.is_draft';
+        }
+        $query->select($select);
+
+        if ($docTypeId !== '' && $docTypeId !== 'all') {
+            $query->where('dr.doc_type_id', (int) $docTypeId);
+        }
+
+        $search = trim($search);
+        if ($search !== '') {
+            $like = '%' . $search . '%';
+            $query->where(function ($q) use ($like) {
+                $q->whereRaw('dr.id::text ilike ?', [$like])
+                    ->orWhere('ml.doc_no', 'ilike', $like)
+                    ->orWhere('ml.doc_title', 'ilike', $like)
+                    ->orWhere('drf.drf_no', 'ilike', $like)
+                    ->orWhere('drf.doc_title', 'ilike', $like)
+                    ->orWhere('dcn.dcn_no', 'ilike', $like);
+            });
+        }
+
+        $documents = $query->orderByDesc('dr.updated_at')->orderByDesc('dr.id')->get();
+        $rows = $documents->map(function ($doc) {
+            $docNo = trim((string) ($doc->doc_no ?? ''));
+            $title = $doc->ml_title ?: ($doc->drf_title ?: 'Untitled draft');
+
+            return [
+                'request_id' => (int) $doc->id,
+                'doc_type_id' => (int) ($doc->doc_type_id ?? 0),
+                'doc_no' => $docNo !== '' ? $docNo : '—',
+                'title' => $title,
+                'rev_no' => (int) ($doc->revise_no ?? 0),
+                'doc_type' => $doc->doc_type_name ?? 'N/A',
+                'revision_status' => 'draft',
+                'is_draft' => true,
+                'edit_url' => route('dcs.register.edit', $doc->id),
+                'updated_at' => $doc->updated_at ?? null,
+                'can_delete' => true,
+            ];
+        })->values();
+
+        $total = $rows->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min(max(1, $page), $lastPage);
+        $pageRows = $rows->slice(($page - 1) * $perPage, $perPage)->values()->all();
+
+        return [
+            'rows' => $pageRows,
+            'total' => $total,
+            'current_page' => $page,
+            'last_page' => $lastPage,
+            'per_page' => $perPage,
+        ];
+    }
+
     public static function recycleBinList(string $search, int $page, int $perPage = 15): array
     {
         if (!Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
@@ -1871,6 +2104,9 @@ class RegisterQueryHelper
         ];
         if (Schema::hasColumn('dcs_document_requests', 'deleted_by')) {
             $select[] = 'dr.deleted_by';
+        }
+        if (Schema::hasColumn('dcs_document_requests', 'deleted_reason')) {
+            $select[] = 'dr.deleted_reason';
         }
 
         $query->select($select);
@@ -1921,6 +2157,7 @@ class RegisterQueryHelper
                     ? $deletedAt->format('M d, Y h:i A')
                     : '—',
                 'deleted_by' => $deletedBy,
+                'deleted_reason' => trim((string) ($doc->deleted_reason ?? '')) ?: null,
                 'expires_at' => $expiresAt ? $expiresAt->format('M d, Y') : '—',
                 'days_left' => $daysLeft,
             ];
@@ -5252,6 +5489,25 @@ class RegisterQueryHelper
         $revisions = $dcn
             ? DB::table('dcs_doc_revision')->where('dcn_id', $dcn->id)->get()
             : collect();
+        // DCN revision rows often lack scanned_copy (create only allowed prior
+        // revision paths). Fall back to the matching prior masterlist scan so
+        // Update DOCUMENT REVISIONS matches Database obsolete/latest PDFs.
+        $revisions = $revisions->map(function ($rev) use ($docRequest) {
+            if (! empty($rev->scanned_copy)) {
+                return $rev;
+            }
+            $fallback = RegisterPersistHelper::masterlistScanPathForRevision(
+                (string) ($rev->document_no ?? ''),
+                $rev->revision_no ?? null,
+                (int) ($docRequest->doc_type_id ?? 0) ?: null,
+                ! empty($docRequest->sub_type_id) ? (int) $docRequest->sub_type_id : null
+            );
+            if ($fallback) {
+                $rev->scanned_copy = $fallback;
+            }
+
+            return $rev;
+        });
 
         $retrieval = DB::table('dcs_document_retrieval')->where('request_id', $id)->first();
         $retrievalOfficeColumns = ['r.office_id', 'r.copies', 'o.office_name'];

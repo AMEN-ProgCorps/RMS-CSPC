@@ -332,6 +332,8 @@ Route::middleware(['auth'])
                     }
                 }
 
+                $allowedSubsystems = \App\Helpers\RegisterQueryHelper::scopeBellSubsystemsForRequest($allowedSubsystems);
+
                 $systemUnreadQuery = \Illuminate\Support\Facades\DB::table($notifTbl)
                     ->join($notifContentTbl, "{$notifTbl}.contents", '=', "{$notifContentTbl}.id")
                     ->join($subsystemsTbl, "{$notifContentTbl}.system", '=', "{$subsystemsTbl}.subsystem_id")
@@ -350,16 +352,10 @@ Route::middleware(['auth'])
                               ->orWhere("{$notifDivTbl}.status", 'unread');
                     });
 
-                // Match the bell list: limited DCS users must not count full-module deep links.
-                if (\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()) {
-                    $systemUnread = $systemUnreadQuery
-                        ->select("{$notifContentTbl}.redirect_url")
-                        ->get()
-                        ->filter(fn ($row) => \App\Helpers\RegisterQueryHelper::isAllowedNotificationForLimitedDcs($row->redirect_url ?? null))
-                        ->count();
-                } else {
-                    $systemUnread = (int) $systemUnreadQuery->count();
-                }
+                // Same visibility rules as the notification dropdown (limited DCS + registered intake).
+                $systemUnread = \App\Helpers\RegisterQueryHelper::filterBellNotifications(
+                    $systemUnreadQuery->select("{$notifContentTbl}.redirect_url")->get()
+                )->count();
             }
         } catch (\Throwable $e) {
             $systemUnread = 0;
@@ -576,8 +572,12 @@ Route::middleware(['auth'])
             Volt::route('/dashboard', 'pages.dcs.index')->name('dashboard');
 
             Route::get('/view-document', function (\Illuminate\Http\Request $request) {
+                // Relative signed URLs validate with absolute:false; absolute APP_URL
+                // links use whileIgnoring(['v']). Accept either so local + deployed View both work.
+                $signatureOk = $request->hasValidSignatureWhileIgnoring(['v'])
+                    || $request->hasValidSignature(absolute: false);
                 abort_unless(
-                    $request->hasValidSignatureWhileIgnoring(['v']),
+                    $signatureOk,
                     403,
                     'This document link is invalid or has expired.'
                 );
@@ -634,9 +634,18 @@ Route::middleware(['auth'])
             })->name('api.signed-scan-url');
 
             // Office intake (RFIO full users + limited non-RFIO offices)
+            Volt::route('/office/documents', 'pages.dcs.office.documents')->name('office.documents');
+
+            // Legacy Request URLs → under Document Registration
+            Route::redirect('/requests', '/dcs/register/requests', 301);
+            Route::get('/requests/{type}/{id}', function (string $type, $id) {
+                return redirect()->route('dcs.requests.show', ['type' => $type, 'id' => $id], 301);
+            })->whereIn('type', ['drf', 'dcn']);
+
             Volt::route('/office/drf', 'pages.dcs.office.drf-index')->name('office.drf.index');
             Volt::route('/office/drf/create', 'pages.dcs.office.drf-create')->name('office.drf.create');
             Route::post('/office/drf', fn (Request $request) => OfficeIntakeHelper::storeDrf($request))->name('office.drf.store');
+            Volt::route('/office/drf/{id}/edit', 'pages.dcs.office.drf-edit')->name('office.drf.edit');
             Volt::route('/office/drf/{id}', 'pages.dcs.office.drf-show')->name('office.drf.show');
             Route::get('/office/drf/{id}/print', function (int $id) {
                 OfficeIntakeHelper::assertCanAccessIntake();
@@ -647,15 +656,18 @@ Route::middleware(['auth'])
                 $logoPath = public_path('images/logo.png');
                 $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
                 $sourceOffices = OfficeIntakeHelper::drfSourceOffices($id);
+                $viewerMode = request()->boolean('view');
 
-                return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices'));
+                return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices', 'viewerMode'));
             })->name('office.drf.print');
-            Route::match(['put', 'patch', 'post'], '/office/drf/{id}', fn () => OfficeIntakeHelper::rejectMutation())
-                ->name('office.drf.update');
+            Route::match(['put', 'patch', 'post'], '/office/drf/{id}', function (Request $request, int $id) {
+                return OfficeIntakeHelper::updateDrf($request, $id);
+            })->name('office.drf.update');
 
             Volt::route('/office/dcn', 'pages.dcs.office.dcn-index')->name('office.dcn.index');
             Volt::route('/office/dcn/create', 'pages.dcs.office.dcn-create')->name('office.dcn.create');
             Route::post('/office/dcn', fn (Request $request) => OfficeIntakeHelper::storeDcn($request))->name('office.dcn.store');
+            Volt::route('/office/dcn/{id}/edit', 'pages.dcs.office.dcn-edit')->name('office.dcn.edit');
             Volt::route('/office/dcn/{id}', 'pages.dcs.office.dcn-show')->name('office.dcn.show');
             Route::get('/office/dcn/{id}/print', function (int $id) {
                 OfficeIntakeHelper::assertCanAccessIntake();
@@ -667,11 +679,13 @@ Route::middleware(['auth'])
                 $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
                 $revisions = OfficeIntakeHelper::dcnRevisions($id);
                 $sourceOffices = OfficeIntakeHelper::dcnSourceOffices($id);
+                $viewerMode = request()->boolean('view');
 
-                return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices'));
+                return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode'));
             })->name('office.dcn.print');
-            Route::match(['put', 'patch', 'post'], '/office/dcn/{id}', fn () => OfficeIntakeHelper::rejectMutation())
-                ->name('office.dcn.update');
+            Route::match(['put', 'patch', 'post'], '/office/dcn/{id}', function (Request $request, int $id) {
+                return OfficeIntakeHelper::updateDcn($request, $id);
+            })->name('office.dcn.update');
 
             // Document lookup for office DCN (and full Register) — available to all DCS users
             Route::get('/api/documents/search', fn (Request $request) => RegisterQueryHelper::searchDocuments($request));
@@ -686,6 +700,24 @@ Route::middleware(['auth'])
 
                 return response()->json($payload);
             })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.show');
+
+            Route::post('/api/office-intake/{type}/{id}/received', function (string $type, int $id) {
+                return response()->json(OfficeIntakeHelper::markReceived($type, $id));
+            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.received');
+
+            Route::delete('/api/office-intake/{type}/{id}/received', function (string $type, int $id) {
+                return response()->json(OfficeIntakeHelper::clearReceived($type, $id));
+            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.received.clear');
+
+            Route::post('/api/office-intake/{type}/{id}/begin-register', function (string $type, int $id) {
+                return response()->json(OfficeIntakeHelper::beginRegister($type, $id));
+            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.begin-register');
+
+            Route::post('/api/office-intake/{type}/{id}/unlock-edit', function (string $type, int $id, Request $request) {
+                $reason = (string) $request->input('reason', '');
+
+                return response()->json(OfficeIntakeHelper::unlockForEdit($type, $id, $reason));
+            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.unlock-edit');
 
             Route::middleware(['dcs.full'])->group(function () {
                 Route::get('/api/documents/{id}/checklist/{type}', function (int $id, string $type) {
@@ -728,11 +760,19 @@ Route::middleware(['auth'])
                     Route::get('/register/revised', fn () => redirect()->route('dcs.register.create', ['type' => 'revised']))
                         ->name('register.revised');
                     Volt::route('/register/update', 'pages.dcs.register.update')->name('register.update');
+                    Volt::route('/register/drafts', 'pages.dcs.register.drafts')->name('register.drafts');
                     Volt::route('/register/history/{docNo}', 'pages.dcs.register.history')->name('register.history');
                     Volt::route('/register/{id}/edit', 'pages.dcs.register.edit')->name('register.edit');
                     Route::put('/register/{id}', fn (Request $request, $id) => RegisterUpdateHelper::update($request, (int) $id))
                         ->name('register.updateDoc');
                 });
+
+                // Request queue lives under /register/requests (Document Registration nav)
+                // but is not gated by dcs.module:register — RFIO review clearance is enough.
+                Volt::route('/register/requests', 'pages.dcs.register.requests.index')->name('requests.index');
+                Volt::route('/register/requests/{type}/{id}', 'pages.dcs.register.requests.show')
+                    ->whereIn('type', ['drf', 'dcn'])
+                    ->name('requests.show');
 
                 Route::middleware(['dcs.module:review'])->group(function () {
                     Route::post('/api/drr/ocr-pages', fn (Request $request) => response()->json(\App\Services\DrrOcrService::ocrPages($request)))
@@ -753,11 +793,8 @@ Route::middleware(['auth'])
                     Route::get('/reports/export', fn (Request $request) => app(ReportHelper::class)->export($request))->name('reports.export');
                     Route::match(['get', 'post'], '/reports/distribution-template', fn (Request $request) => ReportTemplateHelper::render($request))
                         ->name('reports.distributionTemplate');
-                    Route::get('/api/report-templates', fn () => response()->json(ReportTemplateHelper::list()));
-                    Route::post('/api/report-templates', fn (Request $request) => ReportTemplateHelper::store($request));
                     Route::get('/api/report-templates/{id}/preview', fn (int $id) => ReportTemplateHelper::preview($id))
                         ->name('report-templates.preview');
-                    Route::delete('/api/report-templates/{id}', fn (int $id) => ReportTemplateHelper::destroy($id));
                 });
 
                 Route::middleware(['dcs.module:stamping'])->group(function () {

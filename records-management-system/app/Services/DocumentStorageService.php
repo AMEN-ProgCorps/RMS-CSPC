@@ -520,13 +520,14 @@ class DocumentStorageService
     }
 
     /**
-     * Store a DCS scanned PDF under {OFFICE}/DCS/{category}/ on Google Drive (+ local cache).
+     * Store a DCS scanned PDF under dcs/{OFFICE}/{category}/ on Google Drive (+ local cache).
      */
     public static function storeDcsScan(
         $file,
         ?User $user = null,
         ?string $originalFilename = null,
-        string $category = 'masterlist'
+        string $category = 'masterlist',
+        bool $useProvidedBasename = false
     ): string {
         $user = $user ?: auth()->user();
         $officeFolderName = strtoupper(Str::slug(self::resolveOfficeCode($user), '_'));
@@ -548,12 +549,26 @@ class DocumentStorageService
             $extension = pathinfo($originalName, PATHINFO_EXTENSION) ?: 'pdf';
         }
 
-        $safeBaseName = Str::slug(pathinfo($originalName, PATHINFO_FILENAME), '_');
-        if ($safeBaseName === '') {
-            $safeBaseName = 'scan';
+        if ($useProvidedBasename && $originalFilename) {
+            $safeBaseName = self::sanitizeDcsScanBasename(pathinfo($originalFilename, PATHINFO_FILENAME));
+            if ($safeBaseName === '') {
+                $safeBaseName = 'scan';
+            }
+            $storedFileName = "{$safeBaseName}.{$extension}";
+            $relativePath = "dcs/{$officeFolderName}/{$category}/{$storedFileName}";
+            // Avoid overwrite if the exact convention name already exists.
+            if (Storage::disk('local')->exists(self::localUploadsPath($relativePath))) {
+                $storedFileName = "{$safeBaseName}_" . strtoupper(Str::random(4)) . ".{$extension}";
+                $relativePath = "dcs/{$officeFolderName}/{$category}/{$storedFileName}";
+            }
+        } else {
+            $safeBaseName = Str::slug(pathinfo($originalName, PATHINFO_FILENAME), '_');
+            if ($safeBaseName === '') {
+                $safeBaseName = 'scan';
+            }
+            $storedFileName = 'DCS-' . strtoupper(Str::random(8)) . "_{$safeBaseName}.{$extension}";
+            $relativePath = "dcs/{$officeFolderName}/{$category}/{$storedFileName}";
         }
-        $storedFileName = 'DCS-' . strtoupper(Str::random(8)) . "_{$safeBaseName}.{$extension}";
-        $relativePath = "dcs/{$officeFolderName}/{$category}/{$storedFileName}";
 
         self::ensureDriveFolderStructure($officeFolderName, 'DCS', $fileSize);
         self::ensureDcsCategoryFolder($officeFolderName, $category);
@@ -568,6 +583,129 @@ class DocumentStorageService
         }
 
         return $relativePath;
+    }
+
+    /**
+     * Keep Y-m-d, form tokens (incl. D&R), underscores; strip path separators / unsafe chars.
+     */
+    public static function sanitizeDcsScanBasename(string $basename): string
+    {
+        $basename = str_replace(['/', '\\', "\0"], '', $basename);
+        $basename = preg_replace('/\s+/u', '_', trim($basename)) ?? '';
+        $basename = preg_replace('/[^\p{L}\p{N}_.&-]+/u', '', $basename) ?? '';
+        $basename = trim($basename, '._');
+
+        return $basename !== '' ? $basename : 'scan';
+    }
+
+    /**
+     * Rename an existing DCS scan file to a new convention basename (same folder + extension).
+     * Returns the new relative path, or the original path if rename is skipped/fails.
+     */
+    public static function renameDcsScanToBasename(?string $relativePath, string $conventionBasename): ?string
+    {
+        if (! is_string($relativePath) || trim($relativePath) === '') {
+            return $relativePath;
+        }
+
+        $relativePath = ltrim(str_replace(['\\'], '/', $relativePath), '/');
+        if ($relativePath === '' || str_contains($relativePath, '..')) {
+            return $relativePath;
+        }
+
+        $ext = pathinfo($relativePath, PATHINFO_EXTENSION) ?: 'pdf';
+        $safeBase = self::sanitizeDcsScanBasename($conventionBasename);
+        if ($safeBase === '') {
+            $safeBase = 'scan';
+        }
+
+        $dir = trim(str_replace('\\', '/', dirname($relativePath)), '.');
+        $newName = "{$safeBase}.{$ext}";
+        $newRelative = ($dir === '' || $dir === '.') ? $newName : "{$dir}/{$newName}";
+
+        if ($newRelative === $relativePath) {
+            return $relativePath;
+        }
+
+        $localOld = self::localUploadsPath($relativePath);
+        $localNew = self::localUploadsPath($newRelative);
+
+        if (Storage::disk('local')->exists($localNew) || self::googleExistsSafe($newRelative)) {
+            $newName = "{$safeBase}_" . strtoupper(Str::random(4)) . ".{$ext}";
+            $newRelative = ($dir === '' || $dir === '.') ? $newName : "{$dir}/{$newName}";
+            $localNew = self::localUploadsPath($newRelative);
+        }
+
+        $moved = false;
+        try {
+            if (Storage::disk('local')->exists($localOld)) {
+                Storage::disk('local')->move($localOld, $localNew);
+                $moved = true;
+            }
+        } catch (\Throwable $e) {
+            logger()->error("Local DCS rename failed {$relativePath} → {$newRelative}: " . $e->getMessage());
+        }
+
+        try {
+            if (self::googleExistsSafe($relativePath)) {
+                $content = Storage::disk('google')->get($relativePath);
+                Storage::disk('google')->put($newRelative, $content);
+                Storage::disk('google')->delete($relativePath);
+                $moved = true;
+            }
+        } catch (\Throwable $e) {
+            logger()->error("Google Drive DCS rename failed {$relativePath} → {$newRelative}: " . $e->getMessage());
+        }
+
+        if (! $moved) {
+            return $relativePath;
+        }
+
+        $hasSavepoint = false;
+        try {
+            if (DB::transactionLevel() > 0) {
+                DB::statement('SAVEPOINT dcs_scan_rename_meta');
+                $hasSavepoint = true;
+            }
+
+            $payload = [
+                'document_path' => $newRelative,
+                'document_name' => basename($newRelative),
+            ];
+            // sys_document_data uses date_modified (not Laravel updated_at)
+            if (\Illuminate\Support\Facades\Schema::hasColumn('sys_document_data', 'date_modified')) {
+                $payload['date_modified'] = now();
+            }
+
+            DB::table('sys_document_data')
+                ->where('document_path', $relativePath)
+                ->update($payload);
+
+            if ($hasSavepoint) {
+                DB::statement('RELEASE SAVEPOINT dcs_scan_rename_meta');
+            }
+        } catch (\Throwable $e) {
+            // Do not let a metadata miss abort the outer registration transaction (pgsql 25P02).
+            logger()->warning("sys_document_data rename skipped {$relativePath}: " . $e->getMessage());
+            if ($hasSavepoint) {
+                try {
+                    DB::statement('ROLLBACK TO SAVEPOINT dcs_scan_rename_meta');
+                } catch (\Throwable) {
+                    // ignore
+                }
+            }
+        }
+
+        return $newRelative;
+    }
+
+    protected static function googleExistsSafe(string $relativePath): bool
+    {
+        try {
+            return Storage::disk('google')->exists($relativePath);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**

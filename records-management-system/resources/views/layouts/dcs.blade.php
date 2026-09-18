@@ -90,13 +90,14 @@
             @vite(['resources/css/dcs/office-intake.css'])
         @endif
     @elseif(request()->routeIs('dcs.office.*'))
-        @vite(['resources/css/dcs/register.css'])
-        <link rel="stylesheet" href="{{ asset('css/dcs/office-intake.css') }}">
+        @vite(['resources/css/dcs/register.css', 'resources/css/dcs/office-intake.css'])
+    @elseif(request()->routeIs('dcs.requests.*'))
+        @vite(['resources/css/dcs/update.css', 'resources/css/dcs/office-intake.css'])
     @elseif(request()->routeIs('dcs.settings.index'))
         @vite(['resources/css/dcs/settings.css'])
     @elseif(request()->routeIs('dcs.register.create') || request()->routeIs('dcs.register.revised'))
         @vite(['resources/css/dcs/register.css', 'resources/js/dcs/register-pdf-compare.js'])
-    @elseif(request()->routeIs('dcs.register.update'))
+    @elseif(request()->routeIs('dcs.register.update') || request()->routeIs('dcs.register.drafts'))
         @vite(['resources/css/dcs/update.css'])
     @elseif(request()->routeIs('dcs.register.edit'))
         @vite(['resources/css/dcs/edit.css', 'resources/css/dcs/register.css'])

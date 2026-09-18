@@ -64,7 +64,12 @@
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_onfile_time'] ?: '—' }}</td>
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_actual_date'] ?: '—' }}</td>
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_actual_time'] ?: '—' }}</td>
-<td class="col-group-distribution db-offices-cell" x-show="visible.distribution && open.distribution" title="{{ $r['dist_offices'] }}">{{ $r['dist_offices'] ?: '—' }}</td>
+<td class="col-group-distribution db-offices-cell" x-show="visible.distribution && open.distribution">
+    @include('pages.dcs.database._offices-clamp', [
+        'officesText' => $r['dist_offices'] ?? '',
+        'clampKey' => 'd' . ($r['request_id'] ?? 0),
+    ])
+</td>
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">@include('pages.dcs.database._scan', ['url' => $r['dist_scan'] ?? null])</td>
 
 <td class="col-group-summary-body col-group-summary-retrieval" x-show="visible.retrieval && !open.retrieval">
@@ -72,5 +77,10 @@
 </td>
 <td class="col-group-retrieval" x-show="visible.retrieval && open.retrieval">{{ $r['ret_onfile'] ?: '—' }}</td>
 <td class="col-group-retrieval" x-show="visible.retrieval && open.retrieval">{{ $r['ret_actual'] ?: '—' }}</td>
-<td class="col-group-retrieval db-offices-cell" x-show="visible.retrieval && open.retrieval" title="{{ $r['ret_offices'] }}">{{ $r['ret_offices'] ?: '—' }}</td>
+<td class="col-group-retrieval db-offices-cell" x-show="visible.retrieval && open.retrieval">
+    @include('pages.dcs.database._offices-clamp', [
+        'officesText' => $r['ret_offices'] ?? '',
+        'clampKey' => 'r' . ($r['request_id'] ?? 0),
+    ])
+</td>
 <td class="col-group-retrieval" x-show="visible.retrieval && open.retrieval">@include('pages.dcs.database._scan', ['url' => $r['ret_scan'] ?? null])</td>

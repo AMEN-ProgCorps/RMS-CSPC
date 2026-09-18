@@ -1598,7 +1598,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     <div class="setting-item" style="flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e2e8f0;">
                         <div class="setting-details">
                             <span class="setting-title">DCS Recycle Bin Permanent-Delete Code</span>
-                            <span class="setting-desc">Secret code required to permanently delete documents in DCS Recycle Bin. Leave blank to disable permanent delete. Overrides <code>DCS_RECYCLE_DELETE_CODE</code> in env when set here.</span>
+                            <span class="setting-desc">
+                                Secret code for Recycle Bin → Delete forever.
+                                When set here it <strong>overrides</strong> <code>DCS_RECYCLE_DELETE_CODE</code> in .env (they can differ — Recycle Bin always uses this Settings value first).
+                                Clear this field and save to fall back to .env.
+                                @php
+                                    $storedDeleteCode = \DB::table('sys_system_settings')->where('key', 'dcs_recycle_delete_code')->value('value');
+                                    $storedLen = is_string($storedDeleteCode) ? strlen(trim($storedDeleteCode)) : 0;
+                                @endphp
+                                @if($storedLen > 0)
+                                    <br><span style="color:#0f766e;font-weight:600;">Currently set in Settings ({{ $storedLen }} characters).</span>
+                                @else
+                                    <br><span style="color:#64748b;">Not set in Settings — using .env if configured.</span>
+                                @endif
+                            </span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 4px;">
                             <input

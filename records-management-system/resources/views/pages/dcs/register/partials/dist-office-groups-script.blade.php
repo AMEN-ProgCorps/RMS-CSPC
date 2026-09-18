@@ -221,6 +221,7 @@
         }
         if (typeof updateTotal === 'function') updateTotal(totalId, 'distBody');
         if (typeof syncDistClusterChipState === 'function') syncDistClusterChipState();
+        if (typeof refreshOfficeSeeMore === 'function') refreshOfficeSeeMore('distBody');
         ensureDistTableHeader();
         syncDistSelectAllState();
     };

@@ -147,14 +147,53 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                                 <div class="ofi-show-value">{{ $departmentDateLabel ?: '—' }}</div>
                             </div>
                         </div>
+                        @php
+                            $reviewerRows = \App\Helpers\OfficeIntakeHelper::loadDcnReviewers((int) $dcn->id, $dcn);
+                        @endphp
+                        @foreach($reviewerRows as $i => $rev)
+                        <div class="reg-field">
+                            <label>Reviewed by / Date{{ count($reviewerRows) > 1 ? ' ('.($i + 1).')' : '' }}</label>
+                            <div class="ofi-show-value ofi-show-reviewed">{{ $rev['label'] !== '' ? $rev['label'] : '—' }}</div>
+                        </div>
+                        @endforeach
+                        @if($reviewerRows === [])
                         <div class="reg-field">
                             <label>Reviewed by / Date</label>
                             <div class="ofi-show-value ofi-show-reviewed">{{ $dcn->reviewed_by_date ?: '—' }}</div>
                         </div>
-                        @if(trim((string) ($dcn->reviewed_by_date_2 ?? '')) !== '')
-                        <div class="reg-field">
-                            <label>Reviewed by / Date (2nd)</label>
-                            <div class="ofi-show-value ofi-show-reviewed">{{ $dcn->reviewed_by_date_2 }}</div>
+                        @endif
+                        @php
+                            $approvalRows = \App\Helpers\OfficeIntakeHelper::loadDcnApprovals((int) $dcn->id);
+                        @endphp
+                        @if($approvalRows !== [])
+                        <div class="ofi-approvals ofi-approvals-readonly">
+                            <label class="ofi-dcn-section-label">Approvals</label>
+                            <div class="ofi-approvals-table-wrap">
+                                <table class="ofi-approvals-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Position</th>
+                                            <th>Name</th>
+                                            <th>Date</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($approvalRows as $appr)
+                                            <tr>
+                                                <td>{{ $appr['position'] !== '' ? $appr['position'] : '—' }}</td>
+                                                <td>{{ $appr['name'] !== '' ? $appr['name'] : '—' }}</td>
+                                                <td>
+                                                    @if(!empty($appr['date']))
+                                                        {{ \Carbon\Carbon::parse($appr['date'])->format('M d, Y') }}
+                                                    @else
+                                                        —
+                                                    @endif
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                         @endif
                     </div>

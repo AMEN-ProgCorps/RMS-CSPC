@@ -1167,6 +1167,29 @@ td.sticky-col-4 {
     color: #1d4ed8;
 }
 
+.db-filter-btn {
+    position: relative;
+}
+
+.db-filter-dot {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: #2563eb;
+    box-shadow: 0 0 0 2px #fff;
+}
+
+mark.db-office-hit {
+    background: #fde047;
+    color: #713f12;
+    font-weight: 700;
+    padding: 0 3px;
+    border-radius: 3px;
+}
+
 [data-theme="dark"] .db-columns-panel {
     background: #131c2e;
     border-color: #1e293b;

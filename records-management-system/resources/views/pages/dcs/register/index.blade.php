@@ -69,8 +69,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <span>Document Change Notice</span>
             </div>
             <div class="reg-card-body">
-                <div class="reg-field reg-revision-table">
+                <div class="reg-field reg-revision-table" id="revisionTableField">
                     <label>Documents for Revision</label>
+                    <div class="reg-revision-loading" id="revisionTableLoading" aria-live="polite" aria-busy="false">
+                        <div class="dcs-loading-spinner" aria-hidden="true"></div>
+                        <p class="reg-revision-loading-text">Loading document…</p>
+                        <p class="reg-revision-loading-sub">Fetching revision history</p>
+                    </div>
                     <div class="reg-table-wrap">
                         <table class="reg-table">
                             <thead>
@@ -2863,6 +2868,10 @@ window.pickRevisionDocument = async function (key, idx) {
 
     closeRevSearchDropdown(key);
 
+    // Immediate feedback so the pick doesn't look empty while history loads.
+    populateRevisionRowFromDoc(row, doc);
+    setRevisionTableLoading(true);
+
     let revisions = [];
     try {
         if (doc.request_id) {
@@ -2873,6 +2882,8 @@ window.pickRevisionDocument = async function (key, idx) {
         }
     } catch (e) {
         console.error('Failed to load document revisions:', e);
+    } finally {
+        // Keep loading through fill + masterlist bridge below.
     }
 
     if (!Array.isArray(revisions) || revisions.length === 0) {
@@ -2881,12 +2892,24 @@ window.pickRevisionDocument = async function (key, idx) {
 
     const pickedNo = String(doc.doc_no || '').trim().toLowerCase();
 
-    await fillRevisionTableWithDocumentHistory(row, revisions, { docNo: pickedNo });
+    try {
+        await fillRevisionTableWithDocumentHistory(row, revisions, { docNo: pickedNo });
 
-    if (isRevisedMode() && doc.doc_no) {
-        await bridgeDcnPickToMasterlist(doc.doc_no);
+        if (isRevisedMode() && doc.doc_no) {
+            await bridgeDcnPickToMasterlist(doc.doc_no);
+        }
+    } finally {
+        setRevisionTableLoading(false);
     }
 };
+
+function setRevisionTableLoading(on) {
+    const field = document.getElementById('revisionTableField')
+        || document.querySelector('#section-2 .reg-revision-table');
+    const overlay = document.getElementById('revisionTableLoading');
+    if (field) field.classList.toggle('is-loading', !!on);
+    if (overlay) overlay.setAttribute('aria-busy', on ? 'true' : 'false');
+}
 
 async function bridgeDcnPickToMasterlist(docNo, options = {}) {
     const hintEl = document.getElementById('docNoHint');

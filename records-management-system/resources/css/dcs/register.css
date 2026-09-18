@@ -1502,6 +1502,55 @@ body {
 #section-2 .reg-revision-table {
     padding-top: 0;
     gap: 10px;
+    position: relative;
+}
+
+.reg-revision-loading {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 24px;
+    text-align: center;
+    background: rgba(248, 250, 252, 0.92);
+    backdrop-filter: blur(2px);
+    border-radius: var(--reg-radius-sm);
+}
+
+.reg-revision-table.is-loading .reg-revision-loading {
+    display: flex;
+}
+
+.reg-revision-table.is-loading .reg-table-wrap,
+.reg-revision-table.is-loading .reg-add-row,
+.reg-revision-table.is-loading #btnAddRevisionRow {
+    pointer-events: none;
+    opacity: 0.55;
+}
+
+.reg-revision-loading .dcs-loading-spinner {
+    width: 28px;
+    height: 28px;
+    border-width: 2.5px;
+}
+
+.reg-revision-loading-text {
+    margin: 0;
+    font-family: var(--reg-font, inherit);
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: var(--reg-text, #1e293b);
+}
+
+.reg-revision-loading-sub {
+    margin: 0;
+    font-size: 0.78rem;
+    font-weight: 400;
+    color: var(--reg-text-subtle, #94a3b8);
 }
 
 .reg-table-wrap {

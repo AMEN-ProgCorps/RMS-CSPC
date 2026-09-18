@@ -5899,7 +5899,11 @@ class RegisterQueryHelper
             ? DB::table('dcs_doc_revision')->whereIn('dcn_id', $dcnIds)->orderBy('id')->get()->groupBy('dcn_id')
             : collect();
 
-        $dists = DB::table('dcs_document_distribution')->whereIn('request_id', $ids)->get()->keyBy('request_id');
+        $dists = DB::table('dcs_document_distribution')
+            ->whereIn('request_id', $ids)
+            ->orderBy('id')
+            ->get()
+            ->keyBy('request_id'); // last row per request = latest distribution
         $distIds = $dists->pluck('id')->all();
         $distOffices = $distIds
             ? DB::table('dcs_distribution_offices as dof')

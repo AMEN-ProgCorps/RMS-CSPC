@@ -523,10 +523,18 @@ class OfficeIntakeHelper
             'originatorName' => 'required|string|max:255',
             'departmentOfficeId' => 'required|integer',
             'departmentDate' => 'required|date',
-            'reviewedByName' => 'required|string|max:255',
-            'reviewedByOn' => 'required|date',
-            'reviewedByName2' => 'nullable|string|max:255|required_with:reviewedByOn2',
-            'reviewedByOn2' => 'nullable|date|required_with:reviewedByName2',
+            'reviewedByName' => 'required|array|min:1|max:9',
+            'reviewedByName.0' => 'required|string|max:255',
+            'reviewedByName.*' => 'nullable|string|max:255',
+            'reviewedByOn' => 'required|array|min:1|max:9',
+            'reviewedByOn.0' => 'required|date',
+            'reviewedByOn.*' => 'nullable|date',
+            'approvalPosition' => 'nullable|array|max:9',
+            'approvalPosition.*' => 'nullable|string|max:255',
+            'approvalName' => 'nullable|array|max:9',
+            'approvalName.*' => 'nullable|string|max:255',
+            'approvalDate' => 'nullable|array|max:9',
+            'approvalDate.*' => 'nullable|date',
             'confirmDataCorrect' => 'accepted',
         ]);
 
@@ -536,13 +544,15 @@ class OfficeIntakeHelper
             isset($data['departmentOfficeId']) ? (int) $data['departmentOfficeId'] : null,
             $data['departmentDate'] ?? null
         );
-        $reviewed = self::reviewedByPayload($data);
+        $reviewers = self::reviewersPayloadFromRequest($data);
+        $approvals = self::approvalsPayloadFromRequest($data);
+        $reviewed = self::legacyReviewedByFromRows($reviewers);
 
         $userId = (int) auth()->id();
         $now = now();
 
         try {
-            $id = DB::transaction(function () use ($data, $docNo, $docTitle, $departmentDateLabel, $reviewed, $userId, $now) {
+            $id = DB::transaction(function () use ($data, $docNo, $docTitle, $departmentDateLabel, $reviewed, $reviewers, $approvals, $userId, $now) {
                 $row = [
                     'request_id' => null,
                     'dcn_no' => null,
@@ -580,6 +590,9 @@ class OfficeIntakeHelper
                 }
 
                 $dcnId = DB::table('dcs_document_change_notice')->insertGetId($row);
+
+                self::syncDcnReviewers($dcnId, $reviewers);
+                self::syncDcnApprovals($dcnId, $approvals);
 
                 $currentOfficeId = RegisterQueryHelper::currentOfficeId();
                 if ($currentOfficeId) {
@@ -749,10 +762,18 @@ class OfficeIntakeHelper
             'originatorName' => 'required|string|max:255',
             'departmentOfficeId' => 'required|integer',
             'departmentDate' => 'required|date',
-            'reviewedByName' => 'required|string|max:255',
-            'reviewedByOn' => 'required|date',
-            'reviewedByName2' => 'nullable|string|max:255|required_with:reviewedByOn2',
-            'reviewedByOn2' => 'nullable|date|required_with:reviewedByName2',
+            'reviewedByName' => 'required|array|min:1|max:9',
+            'reviewedByName.0' => 'required|string|max:255',
+            'reviewedByName.*' => 'nullable|string|max:255',
+            'reviewedByOn' => 'required|array|min:1|max:9',
+            'reviewedByOn.0' => 'required|date',
+            'reviewedByOn.*' => 'nullable|date',
+            'approvalPosition' => 'nullable|array|max:9',
+            'approvalPosition.*' => 'nullable|string|max:255',
+            'approvalName' => 'nullable|array|max:9',
+            'approvalName.*' => 'nullable|string|max:255',
+            'approvalDate' => 'nullable|array|max:9',
+            'approvalDate.*' => 'nullable|date',
             'confirmDataCorrect' => 'accepted',
         ]);
 
@@ -762,10 +783,12 @@ class OfficeIntakeHelper
             isset($data['departmentOfficeId']) ? (int) $data['departmentOfficeId'] : null,
             $data['departmentDate'] ?? null
         );
-        $reviewed = self::reviewedByPayload($data);
+        $reviewers = self::reviewersPayloadFromRequest($data);
+        $approvals = self::approvalsPayloadFromRequest($data);
+        $reviewed = self::legacyReviewedByFromRows($reviewers);
         $now = now();
 
-        DB::transaction(function () use ($data, $id, $docNo, $docTitle, $departmentDateLabel, $reviewed, $now) {
+        DB::transaction(function () use ($data, $id, $docNo, $docTitle, $departmentDateLabel, $reviewed, $reviewers, $approvals, $now) {
             $row = [
                 'updated_at' => $now,
             ];
@@ -807,6 +830,9 @@ class OfficeIntakeHelper
                 ->where('is_office_intake', true)
                 ->update($row);
             abort_if($affected < 1, 404, 'Document Change Notice not found.');
+
+            self::syncDcnReviewers($id, $reviewers);
+            self::syncDcnApprovals($id, $approvals);
 
             $firstRev = DB::table('dcs_doc_revision')->where('dcn_id', $id)->orderBy('id')->first();
             if ($firstRev) {
@@ -905,13 +931,73 @@ class OfficeIntakeHelper
         return null;
     }
 
-    /** @return array{reviewed_by_name:?string,reviewed_by_on:?string,reviewed_by_date:?string,reviewed_by_name_2:?string,reviewed_by_on_2:?string,reviewed_by_date_2:?string} */
-    private static function reviewedByPayload(array $data): array
+    /**
+     * @param  array<string, mixed>  $data
+     * @return list<array{name: string, date: string|null}>
+     */
+    public static function reviewersPayloadFromRequest(array $data): array
     {
-        $name1 = trim((string) ($data['reviewedByName'] ?? ''));
-        $on1 = trim((string) ($data['reviewedByOn'] ?? ''));
-        $name2 = trim((string) ($data['reviewedByName2'] ?? ''));
-        $on2 = trim((string) ($data['reviewedByOn2'] ?? ''));
+        $names = $data['reviewedByName'] ?? [];
+        $dates = $data['reviewedByOn'] ?? [];
+        if (! is_array($names)) {
+            $names = [];
+        }
+        if (! is_array($dates)) {
+            $dates = [];
+        }
+
+        // Legacy single-field form names (reviewedByName / reviewedByName2).
+        if ($names === [] && isset($data['reviewedByName']) && ! is_array($data['reviewedByName'] ?? null)) {
+            $names = [
+                (string) ($data['reviewedByName'] ?? ''),
+                (string) ($data['reviewedByName2'] ?? ''),
+            ];
+            $dates = [
+                (string) ($data['reviewedByOn'] ?? ''),
+                (string) ($data['reviewedByOn2'] ?? ''),
+            ];
+        }
+
+        $count = max(count($names), count($dates));
+        $rows = [];
+        for ($i = 0; $i < $count; $i++) {
+            $name = trim((string) ($names[$i] ?? ''));
+            $date = trim((string) ($dates[$i] ?? ''));
+            if ($name === '' && $date === '') {
+                continue;
+            }
+            $dateOut = null;
+            if ($date !== '') {
+                try {
+                    $dateOut = \Carbon\Carbon::parse($date)->format('Y-m-d');
+                } catch (\Throwable) {
+                    $dateOut = null;
+                }
+            }
+            $rows[] = [
+                'name' => $name,
+                'date' => $dateOut,
+            ];
+            if (count($rows) >= 9) {
+                break;
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Keep first two reviewers mirrored on legacy DCN columns for older print/list code.
+     *
+     * @param  list<array{name: string, date: string|null}>  $rows
+     * @return array{reviewed_by_name:?string,reviewed_by_on:?string,reviewed_by_date:?string,reviewed_by_name_2:?string,reviewed_by_on_2:?string,reviewed_by_date_2:?string}
+     */
+    public static function legacyReviewedByFromRows(array $rows): array
+    {
+        $r1 = $rows[0] ?? ['name' => '', 'date' => null];
+        $r2 = $rows[1] ?? null;
+        $name1 = trim((string) ($r1['name'] ?? ''));
+        $on1 = trim((string) ($r1['date'] ?? ''));
 
         $payload = [
             'reviewed_by_name' => $name1 !== '' ? $name1 : null,
@@ -922,13 +1008,284 @@ class OfficeIntakeHelper
             'reviewed_by_date_2' => null,
         ];
 
-        if ($name2 !== '' || $on2 !== '') {
-            $payload['reviewed_by_name_2'] = $name2 !== '' ? $name2 : null;
-            $payload['reviewed_by_on_2'] = $on2 !== '' ? $on2 : null;
-            $payload['reviewed_by_date_2'] = self::formatReviewedByLabel($name2, $on2);
+        if (is_array($r2)) {
+            $name2 = trim((string) ($r2['name'] ?? ''));
+            $on2 = trim((string) ($r2['date'] ?? ''));
+            if ($name2 !== '' || $on2 !== '') {
+                $payload['reviewed_by_name_2'] = $name2 !== '' ? $name2 : null;
+                $payload['reviewed_by_on_2'] = $on2 !== '' ? $on2 : null;
+                $payload['reviewed_by_date_2'] = self::formatReviewedByLabel($name2, $on2);
+            }
         }
 
         return $payload;
+    }
+
+    /**
+     * @return list<array{name: string, date: string|null, label: string}>
+     */
+    public static function loadDcnReviewers(int $dcnId, ?object $dcn = null): array
+    {
+        if (Schema::hasTable('dcs_dcn_reviewers')) {
+            $rows = DB::table('dcs_dcn_reviewers')
+                ->where('dcn_id', $dcnId)
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->get();
+            if ($rows->isNotEmpty()) {
+                return $rows->map(function ($row) {
+                    $name = trim((string) ($row->name ?? ''));
+                    $date = ! empty($row->reviewed_on)
+                        ? \Carbon\Carbon::parse($row->reviewed_on)->format('Y-m-d')
+                        : null;
+
+                    return [
+                        'name' => $name,
+                        'date' => $date,
+                        'label' => self::formatReviewedByLabel($name, (string) ($date ?? '')) ?? '',
+                    ];
+                })->all();
+            }
+        }
+
+        // Legacy fallback from DCN columns.
+        if ($dcn === null) {
+            $dcn = DB::table('dcs_document_change_notice')->where('id', $dcnId)->first();
+        }
+        if (! $dcn) {
+            return [];
+        }
+
+        $out = [];
+        $name1 = trim((string) ($dcn->reviewed_by_name ?? ''));
+        $on1 = ! empty($dcn->reviewed_by_on)
+            ? \Carbon\Carbon::parse($dcn->reviewed_by_on)->format('Y-m-d')
+            : null;
+        if ($name1 === '' && trim((string) ($dcn->reviewed_by_date ?? '')) !== '') {
+            $name1 = trim((string) $dcn->reviewed_by_date);
+        }
+        if ($name1 !== '' || $on1) {
+            $out[] = [
+                'name' => $name1,
+                'date' => $on1,
+                'label' => self::formatReviewedByLabel($name1, (string) ($on1 ?? ''))
+                    ?? trim((string) ($dcn->reviewed_by_date ?? '')),
+            ];
+        }
+
+        $name2 = trim((string) ($dcn->reviewed_by_name_2 ?? ''));
+        $on2 = ! empty($dcn->reviewed_by_on_2)
+            ? \Carbon\Carbon::parse($dcn->reviewed_by_on_2)->format('Y-m-d')
+            : null;
+        if ($name2 === '' && trim((string) ($dcn->reviewed_by_date_2 ?? '')) !== '') {
+            $name2 = trim((string) $dcn->reviewed_by_date_2);
+        }
+        if ($name2 !== '' || $on2) {
+            $out[] = [
+                'name' => $name2,
+                'date' => $on2,
+                'label' => self::formatReviewedByLabel($name2, (string) ($on2 ?? ''))
+                    ?? trim((string) ($dcn->reviewed_by_date_2 ?? '')),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<array{name: string, date: string|null}>  $rows
+     */
+    public static function syncDcnReviewers(int $dcnId, array $rows): void
+    {
+        if (! Schema::hasTable('dcs_dcn_reviewers')) {
+            return;
+        }
+
+        DB::table('dcs_dcn_reviewers')->where('dcn_id', $dcnId)->delete();
+        $now = now();
+        $inserts = [];
+        foreach (array_values($rows) as $i => $row) {
+            $name = trim((string) ($row['name'] ?? ''));
+            $date = $row['date'] ?? null;
+            if ($name === '' && empty($date)) {
+                continue;
+            }
+            $inserts[] = [
+                'dcn_id' => $dcnId,
+                'sort_order' => $i,
+                'name' => $name !== '' ? $name : '—',
+                'reviewed_on' => $date ?: null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+        if ($inserts !== []) {
+            DB::table('dcs_dcn_reviewers')->insert($inserts);
+        }
+    }
+
+    /**
+     * Office DCN Approvals: Position / Name / Date rows in dcs_dcn_approvals.
+     *
+     * @return list<array{position: string, name: string, date: string|null}>
+     */
+    public static function loadDcnApprovals(int $dcnId, mixed $legacyJson = null): array
+    {
+        if (Schema::hasTable('dcs_dcn_approvals')) {
+            $rows = DB::table('dcs_dcn_approvals')
+                ->where('dcn_id', $dcnId)
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->get();
+            if ($rows->isNotEmpty()) {
+                return $rows->map(function ($row) {
+                    return [
+                        'position' => trim((string) ($row->position ?? '')),
+                        'name' => trim((string) ($row->name ?? '')),
+                        'date' => ! empty($row->approved_on)
+                            ? \Carbon\Carbon::parse($row->approved_on)->format('Y-m-d')
+                            : null,
+                    ];
+                })->all();
+            }
+        }
+
+        return self::decodeDcnApprovals($legacyJson);
+    }
+
+    /**
+     * @param  list<array{position: string, name: string, date: string|null}>  $rows
+     */
+    public static function syncDcnApprovals(int $dcnId, array $rows): void
+    {
+        if (! Schema::hasTable('dcs_dcn_approvals')) {
+            return;
+        }
+
+        DB::table('dcs_dcn_approvals')->where('dcn_id', $dcnId)->delete();
+        $now = now();
+        $inserts = [];
+        foreach (array_values($rows) as $i => $row) {
+            $position = trim((string) ($row['position'] ?? ''));
+            $name = trim((string) ($row['name'] ?? ''));
+            $date = $row['date'] ?? null;
+            if ($position === '' && $name === '' && empty($date)) {
+                continue;
+            }
+            $inserts[] = [
+                'dcn_id' => $dcnId,
+                'sort_order' => $i,
+                'position' => $position !== '' ? $position : null,
+                'name' => $name !== '' ? $name : null,
+                'approved_on' => $date ?: null,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+            if (count($inserts) >= 9) {
+                break;
+            }
+        }
+        if ($inserts !== []) {
+            DB::table('dcs_dcn_approvals')->insert($inserts);
+        }
+    }
+
+    /**
+     * @return list<array{position: string, name: string, date: string|null}>
+     */
+    public static function decodeDcnApprovals(mixed $raw): array
+    {
+        if (is_string($raw)) {
+            $raw = trim($raw);
+            if ($raw === '') {
+                return [];
+            }
+            $decoded = json_decode($raw, true);
+            $raw = is_array($decoded) ? $decoded : [];
+        }
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($raw as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $position = trim((string) ($row['position'] ?? ''));
+            $name = trim((string) ($row['name'] ?? ''));
+            $date = trim((string) ($row['date'] ?? ''));
+            if ($position === '' && $name === '' && $date === '') {
+                continue;
+            }
+            $dateOut = null;
+            if ($date !== '') {
+                try {
+                    $dateOut = \Carbon\Carbon::parse($date)->format('Y-m-d');
+                } catch (\Throwable) {
+                    $dateOut = null;
+                }
+            }
+            $rows[] = [
+                'position' => $position,
+                'name' => $name,
+                'date' => $dateOut,
+            ];
+            if (count($rows) >= 9) {
+                break;
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return list<array{position: string, name: string, date: string|null}>
+     */
+    public static function approvalsPayloadFromRequest(array $data): array
+    {
+        $positions = $data['approvalPosition'] ?? [];
+        $names = $data['approvalName'] ?? [];
+        $dates = $data['approvalDate'] ?? [];
+        if (! is_array($positions)) {
+            $positions = [];
+        }
+        if (! is_array($names)) {
+            $names = [];
+        }
+        if (! is_array($dates)) {
+            $dates = [];
+        }
+
+        $count = max(count($positions), count($names), count($dates));
+        $rows = [];
+        for ($i = 0; $i < $count; $i++) {
+            $position = trim((string) ($positions[$i] ?? ''));
+            $name = trim((string) ($names[$i] ?? ''));
+            $date = trim((string) ($dates[$i] ?? ''));
+            if ($position === '' && $name === '' && $date === '') {
+                continue;
+            }
+            $dateOut = null;
+            if ($date !== '') {
+                try {
+                    $dateOut = \Carbon\Carbon::parse($date)->format('Y-m-d');
+                } catch (\Throwable) {
+                    $dateOut = null;
+                }
+            }
+            $rows[] = [
+                'position' => $position,
+                'name' => $name,
+                'date' => $dateOut,
+            ];
+            if (count($rows) >= 9) {
+                break;
+            }
+        }
+
+        return $rows;
     }
 
     /** Prefer office code on print when a stored department label matches an office name/code. */

@@ -64,10 +64,11 @@
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_onfile_time'] ?: '—' }}</td>
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_actual_date'] ?: '—' }}</td>
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_actual_time'] ?: '—' }}</td>
-<td class="col-group-distribution db-offices-cell" x-show="visible.distribution && open.distribution">
+<td class="col-group-distribution db-offices-cell" x-show="visible.distribution && open.distribution" wire:key="dist-offices-{{ $r['request_id'] ?? 0 }}">
     @include('pages.dcs.database._offices-clamp', [
         'officesText' => $r['dist_offices'] ?? '',
         'clampKey' => 'd' . ($r['request_id'] ?? 0),
+        'highlightOffice' => $receivedByOfficeName ?? '',
     ])
 </td>
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">@include('pages.dcs.database._scan', ['url' => $r['dist_scan'] ?? null])</td>

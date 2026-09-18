@@ -160,6 +160,7 @@ class BackupService
             'notification_div' => 121,
             'sys_admin_logs' => 122,
             'admin_logs' => 122,
+            'sys_backup_logs' => 123,
         ];
     }
 

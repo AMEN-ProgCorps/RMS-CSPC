@@ -508,8 +508,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         // 1. Local cache directories
         try {
-            \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/{$officeName}/DTS");
-            \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/{$officeName}/RDP");
+            \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/dts/{$officeName}");
+            \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/rdp/{$officeName}");
             foreach (\App\Services\DocumentStorageService::DCS_CATEGORIES as $dcsCategory) {
                 $folder = \App\Services\DocumentStorageService::dcsCategoryFolderName($dcsCategory);
                 \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/{$officeName}/DCS/{$folder}");
@@ -517,12 +517,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         } catch (\Throwable $e) {}
 
         // 2. Google Drive directories
-        $this->preloadLogs[] = "- Attempting to verify / create [{$officeName}], [{$officeName}/DTS], [{$officeName}/RDP], and structured [{$officeName}/DCS/*] on Google Drive...";
+        $this->preloadLogs[] = "- Attempting to verify / create [dts/{$officeName}], [rdp/{$officeName}], and structured [dcs/{$officeName}/*] on Google Drive...";
         try {
-            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory($officeName);
-            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/DTS");
-            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/RDP");
-            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/DCS");
+            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("dts/{$officeName}");
+            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("rdp/{$officeName}");
+            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("dcs/{$officeName}");
             foreach (\App\Services\DocumentStorageService::DCS_CATEGORIES as $dcsCategory) {
                 $folder = \App\Services\DocumentStorageService::dcsCategoryFolderName($dcsCategory);
                 \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/DCS/{$folder}");

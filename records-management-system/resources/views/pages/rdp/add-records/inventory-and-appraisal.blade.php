@@ -1225,7 +1225,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     <button wire:click="closeSeriesModal" class="ia-modal-close">&times;</button>
                 </div>
                 <div class="ia-modal-body">
-                    <div style="margin-bottom: 16px; position: relative;" wire:click.outside="$set('showParentDropdown', false)">
+                    <div style="margin-bottom: 16px; position: relative; z-index: 40;" wire:click.outside="$set('showParentDropdown', false)">
                         <label class="ia-modal-label">Parent Record Series Title *:</label>
                         <input type="text" class="ia-input" wire:model.live.debounce.150ms="parentSeriesTitle" wire:focus="$set('showParentDropdown', true)" placeholder="Search or type parent title..." style="width: 100%;">
                         @if($showParentDropdown && count($parentSuggestions) > 0)
@@ -1250,12 +1250,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     </div>
 
                     @foreach($subsections as $idx => $sub)
-                        <div style="margin-bottom: 12px; display: flex; gap: 8px; position: relative;" wire:click.outside="$set('activeSubDropdownIndex', null)">
+                        <div style="margin-bottom: 12px; display: flex; gap: 8px; position: relative; z-index: {{ max(30 - $idx, 10) }};" wire:click.outside="$set('activeSubDropdownIndex', null)">
                             <input type="text" class="ia-input" wire:model.live="subsections.{{ $idx }}" wire:focus="$set('activeSubDropdownIndex', {{ $idx }})" placeholder="Subsection #{{ $idx + 1 }} title...">
                             <button type="button" wire:click="removeSubsection({{ $idx }})" class="ia-btn ia-btn-danger" style="padding: 0 12px;">&times;</button>
 
                             @if($activeSubDropdownIndex === $idx && count($this->getSubSuggestions($idx)) > 0)
-                                <div class="ia-autocomplete-dropdown" style="top: 100%; left: 0; right: 40px; z-index: 10;">
+                                <div class="ia-autocomplete-dropdown" style="top: 100%; left: 0; right: 40px; z-index: 1050;">
                                     @foreach($this->getSubSuggestions($idx) as $subSugg)
                                         <div wire:click="selectSubSuggestion({{ $idx }}, '{{ addslashes($subSugg->series_title) }}')" class="ia-autocomplete-item" style="display: flex; align-items: center; gap: 8px;">
                                             @if(!empty($subSugg->shorted_type))

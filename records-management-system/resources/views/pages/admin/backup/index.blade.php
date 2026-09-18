@@ -374,6 +374,55 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             // Sort by last modified descending (newest first)
             usort($foundBackups, fn($a, $b) => $b['last_modified'] <=> $a['last_modified']);
 
+            // Sync / backfill discovered storage backups to sys_backup_logs
+            if (\Illuminate\Support\Facades\Schema::hasTable('sys_backup_logs') && !empty($foundBackups)) {
+                try {
+                    $existingLogs = \DB::table('sys_backup_logs')->get()->keyBy('filename');
+                    $now = now();
+                    $missingLogs = [];
+
+                    foreach ($foundBackups as $fname => $b) {
+                        if (!$existingLogs->has($fname)) {
+                            $isDrive = str_contains($b['source'] ?? '', 'Google Drive');
+                            $isLocal = str_contains($b['source'] ?? '', 'Local');
+                            $missingLogs[] = [
+                                'name' => $b['custom_label'] ?? null,
+                                'snap_type' => ($b['type'] === 'Selective') ? 'selective' : 'full',
+                                'filename' => $b['filename'],
+                                'file_size' => $b['size_formatted'] ?? null,
+                                'tables_count' => null,
+                                'total_records' => null,
+                                'categories_included' => null,
+                                'is_saved_on_cloud' => $isDrive,
+                                'cloud_service_name' => $isDrive ? 'Google Drive' : null,
+                                'is_saved_on_local' => $isLocal,
+                                'status' => 'completed',
+                                'created_by' => auth()->id(),
+                                'created_at' => date('Y-m-d H:i:s', $b['last_modified'] ?? time()),
+                                'updated_at' => $now,
+                            ];
+                        } else {
+                            $logEntry = $existingLogs->get($fname);
+                            if (!empty($logEntry->name) && empty($foundBackups[$fname]['custom_label'])) {
+                                $foundBackups[$fname]['custom_label'] = $logEntry->name;
+                            }
+                            if (!empty($logEntry->tables_count)) {
+                                $foundBackups[$fname]['tables_count'] = $logEntry->tables_count;
+                            }
+                            if (!empty($logEntry->total_records)) {
+                                $foundBackups[$fname]['total_records'] = $logEntry->total_records;
+                            }
+                        }
+                    }
+
+                    if (!empty($missingLogs)) {
+                        \DB::table('sys_backup_logs')->insert($missingLogs);
+                    }
+                } catch (\Throwable $e) {
+                    logger()->warning("Failed syncing sys_backup_logs: " . $e->getMessage());
+                }
+            }
+
             $this->backupsList = array_values($foundBackups);
             $this->backupStatus = 'success';
             $count = count($this->backupsList);
@@ -530,6 +579,32 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 'when_changes' => now(),
             ]);
 
+            // Track & save backup record to sys_backup_logs
+            if (\Illuminate\Support\Facades\Schema::hasTable('sys_backup_logs')) {
+                try {
+                    \DB::table('sys_backup_logs')->updateOrInsert(
+                        ['filename' => $filename],
+                        [
+                            'name' => !empty($cleanLabel) ? $cleanLabel : null,
+                            'snap_type' => $this->backupMode,
+                            'file_size' => $this->formatBytes(strlen($jsonContent)),
+                            'tables_count' => count($tablesToBackup),
+                            'total_records' => $totalRecords,
+                            'categories_included' => json_encode($categoriesIncluded),
+                            'is_saved_on_cloud' => $driveSaved,
+                            'cloud_service_name' => $driveSaved ? 'Google Drive' : null,
+                            'is_saved_on_local' => true,
+                            'status' => 'completed',
+                            'created_by' => auth()->id(),
+                            'updated_at' => now(),
+                            'created_at' => now(),
+                        ]
+                    );
+                } catch (\Throwable $e) {
+                    logger()->warning("Failed saving sys_backup_logs: " . $e->getMessage());
+                }
+            }
+
             $this->showCreateBackupModal = false;
             $this->customBackupLabel = '';
             $this->successMessage = "🎉 {$typeLabel} [{$filename}] created successfully! (" . count($tablesToBackup) . " tables, {$totalRecords} total records backupped).";
@@ -616,6 +691,32 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 'what_system' => 3,
                 'when_changes' => now(),
             ]);
+
+            // Track & save imported backup to sys_backup_logs
+            if (\Illuminate\Support\Facades\Schema::hasTable('sys_backup_logs')) {
+                try {
+                    \DB::table('sys_backup_logs')->updateOrInsert(
+                        ['filename' => $cleanName],
+                        [
+                            'name' => $decoded['custom_label'] ?? $cleanName,
+                            'snap_type' => $decoded['backup_mode'] ?? 'imported',
+                            'file_size' => $this->formatBytes(strlen($rawJson)),
+                            'tables_count' => isset($decoded['tables']) ? count($decoded['tables']) : null,
+                            'total_records' => $decoded['total_records'] ?? null,
+                            'categories_included' => isset($decoded['categories_included']) ? json_encode($decoded['categories_included']) : null,
+                            'is_saved_on_cloud' => $driveSaved,
+                            'cloud_service_name' => $driveSaved ? 'Google Drive' : null,
+                            'is_saved_on_local' => true,
+                            'status' => 'completed',
+                            'created_by' => auth()->id(),
+                            'updated_at' => now(),
+                            'created_at' => now(),
+                        ]
+                    );
+                } catch (\Throwable $e) {
+                    logger()->warning("Failed saving imported sys_backup_logs: " . $e->getMessage());
+                }
+            }
 
             $this->uploadedBackupFile = null;
             $this->successMessage = "🎉 Backup file [{$cleanName}] imported & registered successfully!";
@@ -727,6 +828,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                 \Illuminate\Support\Facades\Storage::disk('google')->delete($googlePath);
             }
 
+            if (\Illuminate\Support\Facades\Schema::hasTable('sys_backup_logs')) {
+                try {
+                    \DB::table('sys_backup_logs')->where('filename', $filename)->delete();
+                } catch (\Throwable $e) {
+                    logger()->warning("Failed deleting from sys_backup_logs: " . $e->getMessage());
+                }
+            }
+
             \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
                 'changes' => "Deleted backup file [{$filename}] from Google Drive & Local storage",
                 'admin_id' => auth()->id(),
@@ -765,7 +874,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
             }
         }
 
-        return array_values(array_filter($tables, fn($t) => !in_array($t, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs'])));
+        return array_values(array_filter($tables, fn($t) => !in_array($t, ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'failed_jobs', 'sys_backup_logs'])));
     }
 
     protected function formatBytes($bytes, $precision = 2): string
@@ -1184,6 +1293,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Backup & Recovery Manage
                                     <div style="font-weight: 700; color: #0f172a; font-family: monospace; font-size: 13px;">
                                         <i class="fa-solid fa-file-code" style="color: #64748b; margin-right: 6px;"></i>
                                         {{ $backup['filename'] }}
+                                    </div>
+                                @endif
+
+                                @if(!empty($backup['total_records']) || !empty($backup['tables_count']))
+                                    <div style="font-size: 11px; color: #64748b; margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+                                        @if(!empty($backup['tables_count']))
+                                            <span><i class="fa-solid fa-table" style="margin-right: 3px; color: #94a3b8;"></i>{{ $backup['tables_count'] }} tables</span>
+                                        @endif
+                                        @if(!empty($backup['total_records']))
+                                            <span><i class="fa-solid fa-database" style="margin-right: 3px; color: #94a3b8;"></i>{{ number_format($backup['total_records']) }} records</span>
+                                        @endif
                                     </div>
                                 @endif
                             </td>

@@ -585,7 +585,8 @@ textarea.ia-input {
     padding: 0;
     box-shadow: var(--ia-shadow-xl);
     animation: ia-fadeInScale 0.25s ease-out;
-    overflow: hidden;
+    overflow: visible;
+    position: relative;
 }
 .ia-modal-header {
     display: flex;
@@ -594,6 +595,8 @@ textarea.ia-input {
     padding: 20px 24px;
     background: linear-gradient(135deg, var(--ia-blue-50) 0%, var(--ia-white) 100%);
     border-bottom: 1px solid var(--ia-slate-100);
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
 }
 .ia-modal-header h3 {
     font-size: 17px;
@@ -622,6 +625,7 @@ textarea.ia-input {
 }
 .ia-modal-body {
     padding: 24px;
+    min-height: 160px;
 }
 .ia-modal-footer {
     display: flex;
@@ -630,6 +634,10 @@ textarea.ia-input {
     padding: 16px 24px;
     background: var(--ia-slate-50);
     border-top: 1px solid var(--ia-slate-100);
+    border-bottom-left-radius: 16px;
+    border-bottom-right-radius: 16px;
+    position: relative;
+    z-index: 1;
 }
 
 /* ---------- Modal Input Labels ---------- */
@@ -649,11 +657,11 @@ textarea.ia-input {
     top: 100%;
     margin-top: 4px;
     background: var(--ia-white);
-    border: 1px solid var(--ia-slate-200);
+    border: 1.5px solid var(--ia-blue-500);
     border-radius: var(--ia-radius);
-    box-shadow: var(--ia-shadow-md);
-    z-index: 100;
-    max-height: 160px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    z-index: 1050;
+    max-height: 200px;
     overflow-y: auto;
 }
 .ia-autocomplete-item {
@@ -846,6 +854,8 @@ textarea.ia-input {
 [data-theme="dark"] .ia-modal-header {
     background: #0f172a !important;
     border-bottom-color: #1e293b !important;
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
 }
 
 [data-theme="dark"] .ia-modal-title {
@@ -865,6 +875,8 @@ textarea.ia-input {
 [data-theme="dark"] .ia-modal-footer {
     background: #0f172a !important;
     border-top-color: #1e293b !important;
+    border-bottom-left-radius: 16px;
+    border-bottom-right-radius: 16px;
 }
 
 [data-theme="dark"] .ia-modal-label {

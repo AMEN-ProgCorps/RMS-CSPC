@@ -30,22 +30,6 @@ class DocumentStorageService
     ];
 
     /**
-     * Storage folder names under {OFFICE}/DCS/ (e.g. RFIO/DCS/DRF).
-     * Keys are normalized category codes; values are the on-disk / Drive folder names.
-     */
-    public const DCS_CATEGORY_FOLDERS = [
-        'masterlist' => 'MASTERLIST',
-        'drf' => 'DRF',
-        'dcn' => 'DCN',
-        'distribution' => 'D&R',
-        'retrieval' => 'RETRIEVAL',
-        'revisions' => 'REVISIONS',
-        'syllabi' => 'SYLLABI',
-        'report_templates' => 'report_templates',
-        'generated_reports' => 'generated_reports',
-    ];
-
-    /**
      * @var list<array{
      *     table: string,
      *     column: string,
@@ -536,8 +520,7 @@ class DocumentStorageService
     }
 
     /**
-     * Store a DCS scanned PDF under {OFFICE}/DCS/{FOLDER}/ on Google Drive (+ local cache).
-     * Example: RFIO/DCS/DRF/..., RFIO/DCS/D&R/...
+     * Store a DCS scanned PDF under dcs/{OFFICE}/{category}/ on Google Drive (+ local cache).
      */
     public static function storeDcsScan(
         $file,
@@ -553,7 +536,6 @@ class DocumentStorageService
         }
 
         $category = self::normalizeDcsCategory($category);
-        $categoryFolder = self::dcsCategoryFolderName($category);
 
         if ($file instanceof UploadedFile) {
             $originalName = $originalFilename ?: $file->getClientOriginalName();
@@ -573,11 +555,11 @@ class DocumentStorageService
                 $safeBaseName = 'scan';
             }
             $storedFileName = "{$safeBaseName}.{$extension}";
-            $relativePath = "{$officeFolderName}/DCS/{$categoryFolder}/{$storedFileName}";
+            $relativePath = "dcs/{$officeFolderName}/{$category}/{$storedFileName}";
             // Avoid overwrite if the exact convention name already exists.
             if (Storage::disk('local')->exists(self::localUploadsPath($relativePath))) {
                 $storedFileName = "{$safeBaseName}_" . strtoupper(Str::random(4)) . ".{$extension}";
-                $relativePath = "{$officeFolderName}/DCS/{$categoryFolder}/{$storedFileName}";
+                $relativePath = "dcs/{$officeFolderName}/{$category}/{$storedFileName}";
             }
         } else {
             $safeBaseName = Str::slug(pathinfo($originalName, PATHINFO_FILENAME), '_');
@@ -585,7 +567,7 @@ class DocumentStorageService
                 $safeBaseName = 'scan';
             }
             $storedFileName = 'DCS-' . strtoupper(Str::random(8)) . "_{$safeBaseName}.{$extension}";
-            $relativePath = "{$officeFolderName}/DCS/{$categoryFolder}/{$storedFileName}";
+            $relativePath = "dcs/{$officeFolderName}/{$category}/{$storedFileName}";
         }
 
         self::ensureDriveFolderStructure($officeFolderName, 'DCS', $fileSize);
@@ -648,7 +630,7 @@ class DocumentStorageService
         $localOld = self::localUploadsPath($relativePath);
         $localNew = self::localUploadsPath($newRelative);
 
-        if (Storage::disk('local')->exists($localNew) || (self::googleExistsSafe($newRelative))) {
+        if (Storage::disk('local')->exists($localNew) || self::googleExistsSafe($newRelative)) {
             $newName = "{$safeBase}_" . strtoupper(Str::random(4)) . ".{$ext}";
             $newRelative = ($dir === '' || $dir === '.') ? $newName : "{$dir}/{$newName}";
             $localNew = self::localUploadsPath($newRelative);
@@ -727,7 +709,7 @@ class DocumentStorageService
     }
 
     /**
-     * Write a file to {OFFICE}/DCS/... on local cache + Google Drive (no document_data row).
+     * Write a file to dcs/{OFFICE}/... on local cache + Google Drive (no document_data row).
      */
     public static function storeDcsFileAtPath(
         string $relativePath,
@@ -798,12 +780,11 @@ class DocumentStorageService
         }
 
         $category = self::normalizeDcsCategory($category);
-        $categoryFolder = self::dcsCategoryFolderName($category);
         $originalName = basename($legacyPath);
         $extension = pathinfo($originalName, PATHINFO_EXTENSION) ?: 'pdf';
         $safeBaseName = Str::slug(pathinfo($originalName, PATHINFO_FILENAME), '_') ?: 'scan';
         $storedFileName = 'DCS-' . strtoupper(Str::random(8)) . "_{$safeBaseName}.{$extension}";
-        $relativePath = "{$officeFolderName}/DCS/{$categoryFolder}/{$storedFileName}";
+        $relativePath = "dcs/{$officeFolderName}/{$category}/{$storedFileName}";
 
         self::ensureDriveFolderStructure($officeFolderName, 'DCS', $fileSize);
         self::ensureDcsCategoryFolder($officeFolderName, $category);
@@ -1136,8 +1117,7 @@ class DocumentStorageService
         $safeBase = Str::slug($title, '_') ?: 'report';
         $extension = $format === 'csv' ? 'csv' : 'pdf';
         $storedFileName = "{$token}_{$safeBase}.{$extension}";
-        $reportsFolder = self::dcsCategoryFolderName('generated_reports');
-        $relativePath = "{$officeFolderName}/DCS/{$reportsFolder}/{$storedFileName}";
+        $relativePath = "dcs/{$officeFolderName}/generated_reports/{$storedFileName}";
         $mimeType = $format === 'csv' ? 'text/csv' : 'application/pdf';
 
         self::ensureDriveFolderStructure($officeFolderName, 'DCS', strlen($fileContent));
@@ -1332,39 +1312,16 @@ class DocumentStorageService
         return $total;
     }
 
-    /**
-     * On-disk / Drive folder name for a normalized DCS category
-     * (e.g. distribution → D&R, masterlist → MASTERLIST).
-     */
-    public static function dcsCategoryFolderName(string $category): string
-    {
-        $category = self::normalizeDcsCategory($category);
-
-        return self::DCS_CATEGORY_FOLDERS[$category] ?? $category;
-    }
-
     public static function normalizeDcsCategory(string $category): string
     {
-        $category = trim(str_replace('\\', '/', $category));
+        $category = strtolower(trim(str_replace('\\', '/', $category)));
         if (str_contains($category, '/')) {
             $parts = array_values(array_filter(explode('/', $category), fn ($p) => $p !== '' && $p !== 'scans'));
             $category = $parts !== [] ? end($parts) : 'masterlist';
         }
-
-        $lower = strtolower(trim($category));
-
-        // Folder names / tokens that must be recognized before Str::slug (D&R → "dr").
-        if ($lower === 'd&r' || preg_match('/^d\s*&\s*r$/', $lower) === 1) {
-            return 'distribution';
-        }
-        if (in_array($lower, ['mastelist', 'masterlist'], true)) {
-            return 'masterlist';
-        }
-
-        $category = Str::slug($lower, '_');
+        $category = Str::slug($category, '_');
         $aliases = [
             'masterlist' => 'masterlist',
-            'mastelist' => 'masterlist',
             'drf' => 'drf',
             'syllabi_drf' => 'syllabi',
             'syllabi-drf' => 'syllabi',
@@ -1372,7 +1329,6 @@ class DocumentStorageService
             'dcn' => 'dcn',
             'distribution' => 'distribution',
             'dist' => 'distribution',
-            'd_r' => 'distribution',
             'retrieval' => 'retrieval',
             'ret' => 'retrieval',
             'revisions' => 'revisions',
@@ -1391,7 +1347,7 @@ class DocumentStorageService
             return self::normalizeDcsCategory(substr($category, 6));
         }
 
-        if (str_contains($category, 'masterlist') || str_contains($category, 'mastelist')) {
+        if (str_contains($category, 'masterlist')) {
             return 'masterlist';
         }
         if (str_contains($category, 'syllabi')) {
@@ -1457,8 +1413,8 @@ class DocumentStorageService
 
     protected static function ensureDcsCategoryFolder(string $officeName, string $category): void
     {
-        $folderName = self::dcsCategoryFolderName($category);
-        $folderPath = "{$officeName}/DCS/{$folderName}";
+        $category = self::normalizeDcsCategory($category);
+        $folderPath = "dcs/{$officeName}/{$category}";
 
         try {
             Storage::disk('local')->makeDirectory(self::localUploadsPath($folderPath));
@@ -1595,18 +1551,6 @@ class DocumentStorageService
         $normalized = self::normalizeDcsScanPath($path);
         if ($normalized === null) {
             return null;
-        }
-
-        // Prefer the browser's current host so local Docker/WSL (localhost vs
-        // 127.0.0.1) matches the session cookie. Fall back to APP_URL in CLI.
-        if (! app()->runningInConsole()) {
-            $req = request();
-            if ($req) {
-                $root = $req->getSchemeAndHttpHost();
-                if (is_string($root) && $root !== '') {
-                    \Illuminate\Support\Facades\URL::forceRootUrl($root);
-                }
-            }
         }
 
         return \Illuminate\Support\Facades\URL::temporarySignedRoute(

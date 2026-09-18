@@ -511,8 +511,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/dts/{$officeName}");
             \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/rdp/{$officeName}");
             foreach (\App\Services\DocumentStorageService::DCS_CATEGORIES as $dcsCategory) {
-                $folder = \App\Services\DocumentStorageService::dcsCategoryFolderName($dcsCategory);
-                \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/{$officeName}/DCS/{$folder}");
+                \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/dcs/{$officeName}/{$dcsCategory}");
             }
         } catch (\Throwable $e) {}
 
@@ -523,8 +522,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("rdp/{$officeName}");
             \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("dcs/{$officeName}");
             foreach (\App\Services\DocumentStorageService::DCS_CATEGORIES as $dcsCategory) {
-                $folder = \App\Services\DocumentStorageService::dcsCategoryFolderName($dcsCategory);
-                \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("{$officeName}/DCS/{$folder}");
+                \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("dcs/{$officeName}/{$dcsCategory}");
             }
         } catch (\Throwable $e) {
             logger()->warning("Preload notice for {$officeName}: " . $e->getMessage());

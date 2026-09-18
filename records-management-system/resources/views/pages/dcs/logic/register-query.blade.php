@@ -574,7 +574,7 @@ class RegisterQueryHelper
         }
 
         $userOffice = self::currentOfficeCode();
-        $reportOffice = strtoupper(trim((string) ($report->office_code ?: explode('/', $path)[0] ?? '')));
+        $reportOffice = strtoupper(trim((string) ($report->office_code ?: \App\Services\DocumentStorageService::resolveOfficeFromPath($path))));
         if ($userOffice && $reportOffice && $userOffice === $reportOffice) {
             return true;
         }

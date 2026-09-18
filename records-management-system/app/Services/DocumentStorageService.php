@@ -109,7 +109,8 @@ class DocumentStorageService
         $documentId = $customDocumentId ?: 'DOC-' . strtoupper(Str::random(10));
         $safeBaseName = Str::slug(pathinfo($originalName, PATHINFO_FILENAME), '_');
         $storedFileName = "{$documentId}_{$safeBaseName}.{$extension}";
-        $relativePath = "{$officeFolderName}/{$subsystem}/{$storedFileName}";
+        $subsystemFolder = strtolower($subsystem);
+        $relativePath = "{$subsystemFolder}/{$officeFolderName}/{$storedFileName}";
 
         // 3. Optimize Folder Creation using folder_data Database Caching
         self::ensureDriveFolderStructure($officeFolderName, $subsystem, $fileSize);
@@ -222,6 +223,7 @@ class DocumentStorageService
     protected static function ensureDriveFolderStructure(string $officeName, string $subsystem, int $fileSize): void
     {
         $subsystem = strtoupper($subsystem);
+        $subsystemFolder = strtolower($subsystem);
         $isDts = ($subsystem === 'DTS');
         $isRdp = ($subsystem === 'RDP');
         $isDcs = ($subsystem === 'DCS');
@@ -230,12 +232,12 @@ class DocumentStorageService
             $folderRecord = DB::table('sys_folder_data')->where('office_name', $officeName)->first();
 
             if (!$folderRecord) {
-                // First time uploading for this office: Create Office & Subsystem folders on Drive
+                // First time uploading for this office: Create Subsystem & Office folders on Drive
                 try {
-                    Storage::disk('google')->makeDirectory($officeName);
-                    Storage::disk('google')->makeDirectory("{$officeName}/{$subsystem}");
+                    Storage::disk('google')->makeDirectory($subsystemFolder);
+                    Storage::disk('google')->makeDirectory("{$subsystemFolder}/{$officeName}");
                 } catch (\Throwable $e) {
-                    logger()->warning("Drive directory creation notice ({$officeName}/{$subsystem}): " . $e->getMessage());
+                    logger()->warning("Drive directory creation notice ({$subsystemFolder}/{$officeName}): " . $e->getMessage());
                 }
 
                 DB::table('sys_folder_data')->insert([
@@ -262,11 +264,12 @@ class DocumentStorageService
                 $needsDcsSubsystem = $isDcs && !($folderRecord->is_dcs_available ?? false);
 
                 if ($needsDtsSubsystem || $needsRdpSubsystem || $needsDcsSubsystem) {
-                    // Create subsystem folder on Drive
+                    // Create subsystem/office folder on Drive
                     try {
-                        Storage::disk('google')->makeDirectory("{$officeName}/{$subsystem}");
+                        Storage::disk('google')->makeDirectory($subsystemFolder);
+                        Storage::disk('google')->makeDirectory("{$subsystemFolder}/{$officeName}");
                     } catch (\Throwable $e) {
-                        logger()->warning("Drive subsystem directory creation notice ({$officeName}/{$subsystem}): " . $e->getMessage());
+                        logger()->warning("Drive subsystem directory creation notice ({$subsystemFolder}/{$officeName}): " . $e->getMessage());
                     }
                 }
 
@@ -321,6 +324,147 @@ class DocumentStorageService
     }
 
     /**
+     * Resolve the office code from a relative storage path (supports both new subsystem-first and legacy office-first paths).
+     */
+    public static function resolveOfficeFromPath(?string $path): string
+    {
+        if (! is_string($path) || trim($path) === '') {
+            return 'GENERAL';
+        }
+
+        $clean = ltrim(str_replace(['\\'], '/', $path), '/');
+        $segments = array_values(array_filter(explode('/', $clean), fn ($s) => $s !== ''));
+        if (empty($segments)) {
+            return 'GENERAL';
+        }
+
+        $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'chatify', 'backup', 'admin'];
+
+        // Subsystem-first layout: dts/{OFFICE}/... or dcs/{OFFICE}/category/...
+        if (in_array(strtolower($segments[0]), $knownSubsystems, true)) {
+            return isset($segments[1]) ? strtoupper($segments[1]) : 'GENERAL';
+        }
+
+        // Office-first layout (legacy): {OFFICE}/DTS/... or {OFFICE}/DCS/...
+        if (isset($segments[1]) && in_array(strtolower($segments[1]), $knownSubsystems, true)) {
+            return strtoupper($segments[0]);
+        }
+
+        return strtoupper($segments[0]);
+    }
+
+    /**
+     * Resolve the subsystem code (DTS, RDP, DCS, etc.) from a relative storage path.
+     */
+    public static function resolveSubsystemFromPath(?string $path): string
+    {
+        if (! is_string($path) || trim($path) === '') {
+            return 'DTS';
+        }
+
+        $clean = ltrim(str_replace(['\\'], '/', $path), '/');
+        $segments = array_values(array_filter(explode('/', $clean), fn ($s) => $s !== ''));
+        $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'chatify', 'backup', 'admin'];
+
+        // Subsystem-first: segments[0] is subsystem
+        if (isset($segments[0]) && in_array(strtolower($segments[0]), $knownSubsystems, true)) {
+            return strtoupper($segments[0]);
+        }
+
+        // Office-first: segments[1] is subsystem
+        if (isset($segments[1]) && in_array(strtolower($segments[1]), $knownSubsystems, true)) {
+            return strtoupper($segments[1]);
+        }
+
+        if (str_contains(strtolower($clean), 'dts')) {
+            return 'DTS';
+        }
+        if (str_contains(strtolower($clean), 'rdp')) {
+            return 'RDP';
+        }
+        if (str_contains(strtolower($clean), 'dcs')) {
+            return 'DCS';
+        }
+
+        return 'DTS';
+    }
+
+    /**
+     * Convert any relative path (legacy or new) to the canonical subsystem-first path.
+     */
+    public static function toSubsystemFirstPath(?string $path): ?string
+    {
+        if (! is_string($path) || trim($path) === '') {
+            return null;
+        }
+
+        $clean = ltrim(str_replace(['\\'], '/', $path), '/');
+        if (self::isLegacyPublicScanPath($clean)) {
+            return $clean;
+        }
+
+        $segments = array_values(array_filter(explode('/', $clean), fn ($s) => $s !== ''));
+        if (count($segments) < 2) {
+            return $clean;
+        }
+
+        $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'chatify', 'backup', 'admin'];
+
+        // Already subsystem-first: dts/{OFFICE}/...
+        if (in_array(strtolower($segments[0]), $knownSubsystems, true)) {
+            $segments[0] = strtolower($segments[0]);
+            $segments[1] = strtoupper($segments[1]);
+            return implode('/', $segments);
+        }
+
+        // Legacy: {OFFICE}/{SUBSYSTEM}/...
+        if (in_array(strtolower($segments[1]), $knownSubsystems, true)) {
+            $office = strtoupper($segments[0]);
+            $subsystem = strtolower($segments[1]);
+            $rest = array_slice($segments, 2);
+            return implode('/', array_merge([$subsystem, $office], $rest));
+        }
+
+        return $clean;
+    }
+
+    /**
+     * Invert path between new (subsystem/office/...) and legacy (office/subsystem/...) for fallback lookups.
+     */
+    public static function invertPathArchitecture(?string $path): ?string
+    {
+        if (! is_string($path) || trim($path) === '') {
+            return null;
+        }
+
+        $clean = ltrim(str_replace(['\\'], '/', $path), '/');
+        $segments = array_values(array_filter(explode('/', $clean), fn ($s) => $s !== ''));
+        if (count($segments) < 2) {
+            return null;
+        }
+
+        $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'chatify', 'backup', 'admin'];
+
+        // Subsystem-first -> Legacy (subsystem/office/... -> office/subsystem/...)
+        if (in_array(strtolower($segments[0]), $knownSubsystems, true)) {
+            $subsystem = strtoupper($segments[0]);
+            $office = strtoupper($segments[1]);
+            $rest = array_slice($segments, 2);
+            return implode('/', array_merge([$office, $subsystem], $rest));
+        }
+
+        // Legacy -> Subsystem-first (office/subsystem/... -> subsystem/office/...)
+        if (in_array(strtolower($segments[1]), $knownSubsystems, true)) {
+            $office = strtoupper($segments[0]);
+            $subsystem = strtolower($segments[1]);
+            $rest = array_slice($segments, 2);
+            return implode('/', array_merge([$subsystem, $office], $rest));
+        }
+
+        return null;
+    }
+
+    /**
      * Retrieve file contents (checks local cache first, falls back to Google Drive and caches locally).
      * DCS paths are refused unless $allowDcsPaths is true — DTS/RDP must not read DCS files this way.
      */
@@ -342,6 +486,22 @@ class DocumentStorageService
                 // Cache locally for fast future reads
                 Storage::disk('local')->put($localPath, $content);
                 return $content;
+            }
+        }
+
+        // Fallback: check inverted architecture path (legacy <-> new)
+        $inverted = self::invertPathArchitecture($relativePath);
+        if ($inverted && $inverted !== $relativePath) {
+            $invertedLocal = self::localUploadsPath($inverted);
+            if (Storage::disk('local')->exists($invertedLocal)) {
+                return Storage::disk('local')->get($invertedLocal);
+            }
+            if (Storage::disk('google')->exists($inverted)) {
+                $content = Storage::disk('google')->get($inverted);
+                if ($content) {
+                    Storage::disk('local')->put($localPath, $content);
+                    return $content;
+                }
             }
         }
 
@@ -393,7 +553,7 @@ class DocumentStorageService
             $safeBaseName = 'scan';
         }
         $storedFileName = 'DCS-' . strtoupper(Str::random(8)) . "_{$safeBaseName}.{$extension}";
-        $relativePath = "{$officeFolderName}/DCS/{$category}/{$storedFileName}";
+        $relativePath = "dcs/{$officeFolderName}/{$category}/{$storedFileName}";
 
         self::ensureDriveFolderStructure($officeFolderName, 'DCS', $fileSize);
         self::ensureDcsCategoryFolder($officeFolderName, $category);
@@ -411,7 +571,7 @@ class DocumentStorageService
     }
 
     /**
-     * Write a file to {OFFICE}/DCS/... on local cache + Google Drive (no document_data row).
+     * Write a file to dcs/{OFFICE}/... on local cache + Google Drive (no document_data row).
      */
     public static function storeDcsFileAtPath(
         string $relativePath,
@@ -430,7 +590,7 @@ class DocumentStorageService
         $originalName = $originalFilename ?: basename($relativePath);
         $mimeType = $mimeType ?: self::dcsFileMimeType($relativePath);
 
-        $officeFolderName = strtoupper(explode('/', $relativePath)[0] ?: 'GENERAL');
+        $officeFolderName = strtoupper(self::resolveOfficeFromPath($relativePath));
         $category = self::resolveDcsCategoryFromPath($relativePath);
 
         self::ensureDriveFolderStructure($officeFolderName, 'DCS', $fileSize);
@@ -486,7 +646,7 @@ class DocumentStorageService
         $extension = pathinfo($originalName, PATHINFO_EXTENSION) ?: 'pdf';
         $safeBaseName = Str::slug(pathinfo($originalName, PATHINFO_FILENAME), '_') ?: 'scan';
         $storedFileName = 'DCS-' . strtoupper(Str::random(8)) . "_{$safeBaseName}.{$extension}";
-        $relativePath = "{$officeFolderName}/DCS/{$category}/{$storedFileName}";
+        $relativePath = "dcs/{$officeFolderName}/{$category}/{$storedFileName}";
 
         self::ensureDriveFolderStructure($officeFolderName, 'DCS', $fileSize);
         self::ensureDcsCategoryFolder($officeFolderName, $category);
@@ -562,7 +722,7 @@ class DocumentStorageService
                 continue;
             }
 
-            $pathOfficeCode = strtoupper(explode('/', $path)[0] ?? '');
+            $pathOfficeCode = self::resolveOfficeFromPath($path);
             $requestId = isset($row->request_id) && $row->request_id !== null
                 ? (int) $row->request_id
                 : null;
@@ -738,7 +898,7 @@ class DocumentStorageService
                 'ad.last_name',
             ])
             ->map(function ($row) use ($officeNames) {
-                $officeCode = strtoupper((string) ($row->office_code ?: explode('/', (string) $row->file_path)[0] ?? ''));
+                $officeCode = strtoupper((string) ($row->office_code ?: self::resolveOfficeFromPath((string) $row->file_path)));
 
                 return (object) [
                     'id'            => (int) $row->id,
@@ -819,7 +979,7 @@ class DocumentStorageService
         $safeBase = Str::slug($title, '_') ?: 'report';
         $extension = $format === 'csv' ? 'csv' : 'pdf';
         $storedFileName = "{$token}_{$safeBase}.{$extension}";
-        $relativePath = "{$officeFolderName}/DCS/generated_reports/{$storedFileName}";
+        $relativePath = "dcs/{$officeFolderName}/generated_reports/{$storedFileName}";
         $mimeType = $format === 'csv' ? 'text/csv' : 'application/pdf';
 
         self::ensureDriveFolderStructure($officeFolderName, 'DCS', strlen($fileContent));
@@ -1083,6 +1243,12 @@ class DocumentStorageService
             return self::normalizeDcsCategory($segment);
         }
 
+        // Subsystem-first layout: dcs/{office}/{category}/...
+        if (preg_match('#^dcs/[^/]+/([^/]+)/#i', $path, $matches)) {
+            return self::normalizeDcsCategory($matches[1]);
+        }
+
+        // Legacy layout: {office}/DCS/{category}/...
         if (preg_match('#/DCS/([^/]+)/#i', '/' . $path, $matches)) {
             return self::normalizeDcsCategory($matches[1]);
         }
@@ -1110,7 +1276,7 @@ class DocumentStorageService
     protected static function ensureDcsCategoryFolder(string $officeName, string $category): void
     {
         $category = self::normalizeDcsCategory($category);
-        $folderPath = "{$officeName}/DCS/{$category}";
+        $folderPath = "dcs/{$officeName}/{$category}";
 
         try {
             Storage::disk('local')->makeDirectory(self::localUploadsPath($folderPath));
@@ -1268,7 +1434,7 @@ class DocumentStorageService
             return true;
         }
 
-        return (bool) preg_match('#(^|/)DCS/#', $path);
+        return (bool) preg_match('#(^|/)dcs/#i', $path);
     }
 
     public static function duplicateDcsScan(string $sourcePath, ?User $user = null): ?string

@@ -1,0 +1,28 @@
+# ── Apache Security Directives for Uploads Directory ───────────────────────
+# 1. Disable PHP script execution completely
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php8.c>
+    php_flag engine off
+</IfModule>
+
+# 2. Strip script handlers so no files are interpreted as code
+RemoveHandler .php .phtml .php3 .php4 .php5 .php7 .php8 .html .htm .xhtml .pl .py .cgi .asp .aspx .sh .bash
+RemoveType .php .phtml .php3 .php4 .php5 .php7 .php8 .html .htm .xhtml .pl .py .cgi .asp .aspx .sh .bash
+
+# 3. Prevent rendering of web scripts / HTML by forcing safe download delivery
+<FilesMatch "\.(?i:html|htm|shtml|phtml|php|php[0-9]|svg|xml|js|json|phar|cgi|pl|py|sh)$">
+    ForceType application/octet-stream
+    Header set Content-Disposition attachment
+    Header set X-Content-Type-Options nosniff
+</FilesMatch>
+
+# 4. Strict sandbox & CSP headers
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set Content-Security-Policy "default-src 'none'; sandbox"
+</IfModule>

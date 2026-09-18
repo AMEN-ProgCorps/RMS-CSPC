@@ -139,7 +139,7 @@
         .hdr-rule-line {
             flex: 1 1 auto;
             min-width: 0;
-            height: 2px;
+            height: 1.5pt;
             background: #0071BC;
             border: none;
         }
@@ -351,7 +351,30 @@
             padding-left: 0.08in;
             padding-right: 0.12in;
         }
-        .fline.sig { width: 3.16in; flex: 0 0 3.16in; }
+        /* Fixed label column so Originator / Department / Reviewed underlines share one start */
+        .r4-band .lbl-11 {
+            flex: 0 0 1.52in;
+            width: 1.52in;
+            max-width: 1.52in;
+            margin-right: 0;
+            overflow: hidden;
+        }
+        .fline.sig {
+            width: 3.15in;
+            flex: 0 0 3.15in;
+            max-width: 3.15in;
+        }
+        .fline.sig.is-reviewed .val {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11pt;
+            font-weight: 700;
+            text-transform: uppercase;
+            line-height: 1;
+        }
+        /* Invisible spacer so 2nd reviewer lines up under the 1st value */
+        .r4-lbl-spacer {
+            visibility: hidden;
+        }
 
         /* Row 5 header: 0.18in — 4 cols = 1.85+2.25+1.00+1.29 = 6.39 */
         .r5-head { height: 0.18in; padding: 0; border-bottom: 1px solid #000; }
@@ -420,7 +443,7 @@
         .footer-rule {
             margin: 0 0.72in 0 0.69in;
             border: none;
-            border-top: 2px solid #0071BC;
+            border-top: 1.5pt solid #0071BC;
             height: 0;
         }
         .footer {
@@ -484,6 +507,21 @@
         trim((string) ($dcn->department_date ?? ''))
     );
     $reviewedByDate = trim((string) ($dcn->reviewed_by_date ?? ''));
+    $reviewedByDate2 = trim((string) ($dcn->reviewed_by_date_2 ?? ''));
+    if ($reviewedByDate === '') {
+        $n = trim((string) ($dcn->reviewed_by_name ?? ''));
+        $d = ! empty($dcn->reviewed_by_on)
+            ? \Carbon\Carbon::parse($dcn->reviewed_by_on)->format('M d, Y')
+            : '';
+        $reviewedByDate = ($n !== '' && $d !== '') ? ($n . ' / ' . $d) : ($n !== '' ? $n : $d);
+    }
+    if ($reviewedByDate2 === '') {
+        $n2 = trim((string) ($dcn->reviewed_by_name_2 ?? ''));
+        $d2 = ! empty($dcn->reviewed_by_on_2)
+            ? \Carbon\Carbon::parse($dcn->reviewed_by_on_2)->format('M d, Y')
+            : '';
+        $reviewedByDate2 = ($n2 !== '' && $d2 !== '') ? ($n2 . ' / ' . $d2) : ($n2 !== '' ? $n2 : $d2);
+    }
     $dcnNo = trim((string) ($dcn->dcn_no ?? ''));
 
     $fromLines = array_pad([''], 6, '');
@@ -649,12 +687,20 @@
                     </div>
                     <div class="r4-band">
                         <span class="lbl-11">Reviewed by/ Date:</span>
-                        <div class="fline sig">
+                        <div class="fline sig is-reviewed">
                             <div class="val">{{ $reviewedByDate }}</div>
                             <div class="rule"></div>
                         </div>
                     </div>
-                    <div class="r4-band"></div>
+                    <div class="r4-band">
+                        @if($reviewedByDate2 !== '')
+                            <span class="lbl-11 r4-lbl-spacer" aria-hidden="true">Reviewed by/ Date:</span>
+                            <div class="fline sig is-reviewed">
+                                <div class="val">{{ $reviewedByDate2 }}</div>
+                                <div class="rule"></div>
+                            </div>
+                        @endif
+                    </div>
                 </div>
             </td>
         </tr>

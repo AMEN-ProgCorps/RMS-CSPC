@@ -1615,6 +1615,8 @@ async function applyOfficeIntakePrefill(prefill) {
         return;
     }
 
+    window.__officeIntakePrefill = prefill;
+
     // Document type (Internal / External) when intake specified a kind.
     const docTypeEl = document.getElementById('docType');
     if (docTypeEl && prefill.docTypeId) {
@@ -1645,6 +1647,41 @@ async function applyOfficeIntakePrefill(prefill) {
     }
 
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40)));
+
+    applyOfficeIntakeChecklistAndFields(prefill);
+
+    if (typeof showFormActions === 'function') {
+        showFormActions();
+    } else {
+        const actions = document.getElementById('formActions');
+        if (actions) {
+            actions.style.display = '';
+        }
+    }
+
+    const intakeTypeEl = document.getElementById('officeIntakeType');
+    const intakeIdEl = document.getElementById('officeIntakeId');
+    if (intakeTypeEl && prefill.intake) {
+        intakeTypeEl.value = prefill.intake;
+    }
+    if (intakeIdEl && prefill.intakeId) {
+        intakeIdEl.value = String(prefill.intakeId);
+    }
+    try {
+        if (prefill.intake && prefill.intakeId) {
+            sessionStorage.setItem(
+                'dcs_office_intake_pending',
+                JSON.stringify({ type: prefill.intake, id: Number(prefill.intakeId) })
+            );
+        }
+    } catch (_) { /* ignore */ }
+}
+
+/** Apply checklist visibility + DCN/DRF/masterlist fields from office intake (safe to re-run after type/subtype change). */
+function applyOfficeIntakeChecklistAndFields(prefill) {
+    if (!prefill || typeof prefill !== 'object') {
+        return;
+    }
 
     const checklistIds = Array.isArray(prefill.checklistIds)
         ? prefill.checklistIds.map((id) => parseInt(id, 10)).filter((id) => !Number.isNaN(id))
@@ -1735,41 +1772,30 @@ async function applyOfficeIntakePrefill(prefill) {
             }
         }
         if (officeId && typeof window.addOffice === 'function') {
-            window.addOffice(
-                officeId,
-                officeName || String(officeId),
-                'distBody',
-                'totalDistCopies',
-                'distResults'
-            );
+            const distBody = document.getElementById('distBody');
+            const already =
+                distBody &&
+                [...distBody.querySelectorAll('input[name="distOfficeId[]"]')].some(
+                    (inp) => String(inp.value) === String(officeId)
+                );
+            if (!already) {
+                window.addOffice(
+                    officeId,
+                    officeName || String(officeId),
+                    'distBody',
+                    'totalDistCopies',
+                    'distResults'
+                );
+            }
         }
     });
+}
 
-    if (typeof showFormActions === 'function') {
-        showFormActions();
-    } else {
-        const actions = document.getElementById('formActions');
-        if (actions) {
-            actions.style.display = '';
-        }
+function restoreOfficeIntakePrefillIfNeeded() {
+    if (!window.__officeIntakePrefill || typeof applyOfficeIntakeChecklistAndFields !== 'function') {
+        return;
     }
-
-    const intakeTypeEl = document.getElementById('officeIntakeType');
-    const intakeIdEl = document.getElementById('officeIntakeId');
-    if (intakeTypeEl && prefill.intake) {
-        intakeTypeEl.value = prefill.intake;
-    }
-    if (intakeIdEl && prefill.intakeId) {
-        intakeIdEl.value = String(prefill.intakeId);
-    }
-    try {
-        if (prefill.intake && prefill.intakeId) {
-            sessionStorage.setItem(
-                'dcs_office_intake_pending',
-                JSON.stringify({ type: prefill.intake, id: Number(prefill.intakeId) })
-            );
-        }
-    } catch (_) { /* ignore */ }
+    applyOfficeIntakeChecklistAndFields(window.__officeIntakePrefill);
 }
 
 // ══════════════════════════════════════════════
@@ -4428,7 +4454,10 @@ function handleDocTypeChange() {
 
     if (syllabiSection) syllabiSection.style.display = "none";
 
-    resetRegisterSectionInputs();
+    // Office intake already filled DCN/DRF/masterlist — don't wipe on type pick.
+    if (!window.__officeIntakePrefill) {
+        resetRegisterSectionInputs();
+    }
 
     if (!docTypeId) {
         lockChecklist();
@@ -4441,11 +4470,17 @@ function handleDocTypeChange() {
         children.forEach(c => subTypeSelect.add(new Option(c.doc_type_name, c.doc_type_id)));
         subTypeSelect.disabled = false;
         subTypeSelect.removeAttribute("disabled");
-        lockChecklist();
+        if (window.__officeIntakePrefill) {
+            // Keep intake DCN/DRF sections visible while Sub-Type is chosen.
+            restoreOfficeIntakePrefillIfNeeded();
+        } else {
+            lockChecklist();
+        }
         maybeAutofillDocNo();
     } else {
         unlockChecklist();
         maybeAutofillDocNo();
+        restoreOfficeIntakePrefillIfNeeded();
     }
 }
 
@@ -4515,11 +4550,14 @@ function validateChecklistState() {
 
     // Changing sub-type must clear section inputs so data from the previous
     // sub-type (e.g. Curriculum → Manuals/Policy) does not carry over.
-    if (subTypeChanged && window.__lastSubTypeId != null && String(window.__lastSubTypeId) !== '') {
-        resetRegisterSectionInputs();
-        if (syllabiSection) syllabiSection.style.display = "none";
-    } else if (subTypeChanged) {
-        resetSyllabiSection();
+    // Office intake prefill must survive the first type/subtype choice.
+    if (!window.__officeIntakePrefill) {
+        if (subTypeChanged && window.__lastSubTypeId != null && String(window.__lastSubTypeId) !== '') {
+            resetRegisterSectionInputs();
+            if (syllabiSection) syllabiSection.style.display = "none";
+        } else if (subTypeChanged) {
+            resetSyllabiSection();
+        }
     }
 
     window.__lastSubTypeId = subTypeId;
@@ -4529,6 +4567,7 @@ function validateChecklistState() {
 
     unlockChecklist();
     maybeAutofillDocNo();
+    restoreOfficeIntakePrefillIfNeeded();
 
     if (!isSyllabiLike) {
         resetMasterlistNoOfPagesField();

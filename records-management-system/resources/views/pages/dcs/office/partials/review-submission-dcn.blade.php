@@ -80,9 +80,15 @@
                 <dd>{{ $departmentParts['date_label'] ?: '—' }}</dd>
             </div>
             <div class="ofi-review-field">
-                <dt>Reviewed by/ Date</dt>
-                <dd>{{ $dcn->reviewed_by_date ?: '—' }}</dd>
+                <dt>Reviewed by / Date</dt>
+                <dd class="ofi-show-reviewed">{{ $dcn->reviewed_by_date ?: '—' }}</dd>
             </div>
+            @if(trim((string) ($dcn->reviewed_by_date_2 ?? '')) !== '')
+            <div class="ofi-review-field">
+                <dt>Reviewed by / Date (2nd)</dt>
+                <dd class="ofi-show-reviewed">{{ $dcn->reviewed_by_date_2 }}</dd>
+            </div>
+            @endif
         </dl>
     </section>
 </div>

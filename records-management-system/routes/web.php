@@ -332,6 +332,8 @@ Route::middleware(['auth'])
                     }
                 }
 
+                $allowedSubsystems = \App\Helpers\RegisterQueryHelper::scopeBellSubsystemsForRequest($allowedSubsystems);
+
                 $systemUnreadQuery = \Illuminate\Support\Facades\DB::table($notifTbl)
                     ->join($notifContentTbl, "{$notifTbl}.contents", '=', "{$notifContentTbl}.id")
                     ->join($subsystemsTbl, "{$notifContentTbl}.system", '=', "{$subsystemsTbl}.subsystem_id")
@@ -350,16 +352,10 @@ Route::middleware(['auth'])
                               ->orWhere("{$notifDivTbl}.status", 'unread');
                     });
 
-                // Match the bell list: limited DCS users must not count full-module deep links.
-                if (\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()) {
-                    $systemUnread = $systemUnreadQuery
-                        ->select("{$notifContentTbl}.redirect_url")
-                        ->get()
-                        ->filter(fn ($row) => \App\Helpers\RegisterQueryHelper::isAllowedNotificationForLimitedDcs($row->redirect_url ?? null))
-                        ->count();
-                } else {
-                    $systemUnread = (int) $systemUnreadQuery->count();
-                }
+                // Same visibility rules as the notification dropdown (limited DCS + registered intake).
+                $systemUnread = \App\Helpers\RegisterQueryHelper::filterBellNotifications(
+                    $systemUnreadQuery->select("{$notifContentTbl}.redirect_url")->get()
+                )->count();
             }
         } catch (\Throwable $e) {
             $systemUnread = 0;
@@ -640,11 +636,11 @@ Route::middleware(['auth'])
             // Office intake (RFIO full users + limited non-RFIO offices)
             Volt::route('/office/documents', 'pages.dcs.office.documents')->name('office.documents');
 
-            // RFIO Request module — pending office DRF/DCN
-            Volt::route('/requests', 'pages.dcs.requests.index')->name('requests.index');
-            Volt::route('/requests/{type}/{id}', 'pages.dcs.requests.show')
-                ->whereIn('type', ['drf', 'dcn'])
-                ->name('requests.show');
+            // Legacy Request URLs → under Document Registration
+            Route::redirect('/requests', '/dcs/register/requests', 301);
+            Route::get('/requests/{type}/{id}', function (string $type, $id) {
+                return redirect()->route('dcs.requests.show', ['type' => $type, 'id' => $id], 301);
+            })->whereIn('type', ['drf', 'dcn']);
 
             Volt::route('/office/drf', 'pages.dcs.office.drf-index')->name('office.drf.index');
             Volt::route('/office/drf/create', 'pages.dcs.office.drf-create')->name('office.drf.create');
@@ -771,6 +767,13 @@ Route::middleware(['auth'])
                         ->name('register.updateDoc');
                 });
 
+                // Request queue lives under /register/requests (Document Registration nav)
+                // but is not gated by dcs.module:register — RFIO review clearance is enough.
+                Volt::route('/register/requests', 'pages.dcs.register.requests.index')->name('requests.index');
+                Volt::route('/register/requests/{type}/{id}', 'pages.dcs.register.requests.show')
+                    ->whereIn('type', ['drf', 'dcn'])
+                    ->name('requests.show');
+
                 Route::middleware(['dcs.module:review'])->group(function () {
                     Route::post('/api/drr/ocr-pages', fn (Request $request) => response()->json(\App\Services\DrrOcrService::ocrPages($request)))
                         ->name('drr.ocrPages');
@@ -790,11 +793,8 @@ Route::middleware(['auth'])
                     Route::get('/reports/export', fn (Request $request) => app(ReportHelper::class)->export($request))->name('reports.export');
                     Route::match(['get', 'post'], '/reports/distribution-template', fn (Request $request) => ReportTemplateHelper::render($request))
                         ->name('reports.distributionTemplate');
-                    Route::get('/api/report-templates', fn () => response()->json(ReportTemplateHelper::list()));
-                    Route::post('/api/report-templates', fn (Request $request) => ReportTemplateHelper::store($request));
                     Route::get('/api/report-templates/{id}/preview', fn (int $id) => ReportTemplateHelper::preview($id))
                         ->name('report-templates.preview');
-                    Route::delete('/api/report-templates/{id}', fn (int $id) => ReportTemplateHelper::destroy($id));
                 });
 
                 Route::middleware(['dcs.module:stamping'])->group(function () {

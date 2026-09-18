@@ -52,6 +52,8 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
             'documentsTotal' => $docs['total'],
             'settingsTotal' => $settings['total'],
             'deleteCodeConfigured' => $this->configuredDeleteCode() !== '',
+            'deleteCodeSource' => $this->deleteCodeSourceLabel(),
+            'deleteCodeLength' => strlen($this->configuredDeleteCode()),
             'isSettingsTab' => $this->tab === 'settings',
             'canPermanentlyDelete' => RegisterQueryHelper::canPermanentlyDeleteDcsDocuments(),
         ];
@@ -154,7 +156,7 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
         $this->deleteError = '';
     }
 
-    public function permanentDelete(): void
+    public function permanentDelete(?string $confirmCode = null): void
     {
         RegisterQueryHelper::assertFullDcsUser('recycle_bin');
         abort_unless(
@@ -167,6 +169,12 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
         }
 
         $this->deleteError = '';
+
+        // Teleported modal inputs often miss deferred wire:model sync — accept an
+        // explicit code from the client so the typed value is not dropped.
+        if (is_string($confirmCode)) {
+            $this->deleteConfirmCode = $confirmCode;
+        }
 
         $rateCheck = \App\Services\RateLimiterService::check('dcs_action');
         if (! $rateCheck['allowed']) {
@@ -186,9 +194,18 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
             return;
         }
 
-        $provided = trim($this->deleteConfirmCode);
-        if ($provided === '' || ! hash_equals($expectedCode, $provided)) {
-            $this->deleteError = 'Incorrect secret code. Permanent delete was blocked.';
+        $provided = trim((string) $this->deleteConfirmCode);
+        if ($provided === '') {
+            $this->deleteError = 'Enter the secret code to permanently delete.';
+            RegisterPersistHelper::logAdminChange(
+                'Blocked permanent delete of #' . $this->deleteId . ' — empty delete code'
+            );
+
+            return;
+        }
+
+        if (! hash_equals($expectedCode, $provided)) {
+            $this->deleteError = 'Incorrect secret code. Permanent delete was blocked. Use the code from Admin → System Settings (that value overrides .env when set).';
             RegisterPersistHelper::logAdminChange(
                 'Blocked permanent delete of #' . $this->deleteId . ' — invalid delete code'
             );
@@ -262,7 +279,31 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
         } catch (\Throwable) {
         }
 
+        // Prefer config() so config:cache still works; env() is fallback for local.
+        $fromConfig = config('dcs.recycle_delete_code');
+        if (is_string($fromConfig) && trim($fromConfig) !== '') {
+            return trim($fromConfig);
+        }
+
         return trim((string) env('DCS_RECYCLE_DELETE_CODE', ''));
+    }
+
+    private function deleteCodeSourceLabel(): string
+    {
+        try {
+            $table = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings')
+                ? 'sys_system_settings'
+                : 'system_settings';
+            if (\Illuminate\Support\Facades\Schema::hasTable($table)) {
+                $fromDb = DB::table($table)->where('key', 'dcs_recycle_delete_code')->value('value');
+                if (is_string($fromDb) && trim($fromDb) !== '') {
+                    return 'Admin → System Settings';
+                }
+            }
+        } catch (\Throwable) {
+        }
+
+        return 'DCS_RECYCLE_DELETE_CODE (.env)';
     }
 }; ?>
 
@@ -484,7 +525,7 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
 
     @if($deleteId)
     @teleport('body')
-    <div class="rb-modal-overlay">
+    <div class="rb-modal-overlay" x-data>
         <div class="rb-modal rb-modal-wide">
             <div class="rb-modal-icon is-danger"><i class="fa-solid fa-triangle-exclamation"></i></div>
             <h3>Permanently Delete?</h3>
@@ -499,12 +540,18 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
             <div class="rb-confirm-fields">
                 <label class="rb-confirm-label" for="rbDeleteCode">Secret code</label>
                 <input id="rbDeleteCode" type="password" class="rb-confirm-input"
-                    wire:model="deleteConfirmCode" autocomplete="off"
+                    x-ref="deleteCode"
+                    wire:model.live="deleteConfirmCode"
+                    autocomplete="off"
                     placeholder="Enter permanent-delete secret code"
-                    wire:keydown.enter="permanentDelete">
+                    @keydown.enter.prevent="$wire.permanentDelete($refs.deleteCode.value)">
                 <p class="rb-confirm-hint">
                     @if($deleteCodeConfigured)
-                        Enter the DCS permanent-delete code from Admin → System Settings.
+                        Enter the code currently active from <strong>{{ $deleteCodeSource }}</strong>
+                        ({{ $deleteCodeLength }} characters).
+                        @if($deleteCodeSource === 'Admin → System Settings')
+                            That setting overrides <code>DCS_RECYCLE_DELETE_CODE</code> in .env — they must match, or use the Settings value.
+                        @endif
                     @else
                         Permanent delete is disabled until the code is set in Admin → System Settings
                         (or <code>DCS_RECYCLE_DELETE_CODE</code> on the server).
@@ -519,7 +566,8 @@ new #[Layout('layouts.dcs')] #[Title('Recycle Bin — CSPC DCS')] class extends 
             <div class="rb-modal-actions">
                 <button type="button" class="rb-modal-btn rb-modal-cancel" wire:click="closeDelete">Cancel</button>
                 <button type="button" class="rb-modal-btn rb-modal-danger"
-                    wire:click="permanentDelete" wire:loading.attr="disabled"
+                    @click="$wire.permanentDelete($refs.deleteCode.value)"
+                    wire:loading.attr="disabled"
                     @disabled(! $deleteCodeConfigured)>
                     <span wire:loading.remove wire:target="permanentDelete"><i class="fa-solid fa-trash"></i> Delete forever</span>
                     <span wire:loading wire:target="permanentDelete">Deleting…</span>

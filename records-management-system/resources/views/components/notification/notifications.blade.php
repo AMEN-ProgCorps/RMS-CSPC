@@ -82,9 +82,7 @@ new class extends Component {
             }
         }
 
-        if (request()->is('dcs', 'dcs/*') && in_array('Document Control System', $allowedSubsystems, true)) {
-            $allowedSubsystems = ['Document Control System'];
-        }
+        $allowedSubsystems = \App\Helpers\RegisterQueryHelper::scopeBellSubsystemsForRequest($allowedSubsystems);
 
         // Fetch notifications list, combining with read/unread statuses in notification_div table
         $this->notifications = DB::table($notifTbl)
@@ -111,25 +109,7 @@ new class extends Component {
             )
             ->get();
 
-        // Limited DCS users only use office DRF/DCN intake — hide full-module deep links
-        // (register/stamping/etc.) that they cannot open.
-        if (\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()) {
-            $this->notifications = $this->notifications
-                ->filter(fn ($row) => \App\Helpers\RegisterQueryHelper::isAllowedNotificationForLimitedDcs($row->redirect_url ?? null))
-                ->values();
-        }
-
-        // Hide office-intake submit notices once RFIO has already registered them.
-        $this->notifications = $this->notifications
-            ->filter(function ($row) {
-                $intake = \App\Helpers\OfficeIntakeHelper::parseIntakeNotificationUrl($row->redirect_url ?? null);
-                if (! $intake) {
-                    return true;
-                }
-
-                return ! \App\Helpers\OfficeIntakeHelper::isIntakeRegistered($intake['type'], $intake['id']);
-            })
-            ->values();
+        $this->notifications = \App\Helpers\RegisterQueryHelper::filterBellNotifications($this->notifications);
 
         $this->unreadCount = $this->notifications->where('status', 'unread')->count();
     }
@@ -174,11 +154,7 @@ new class extends Component {
 
                 if (\App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake()) {
                     $this->redirect(
-                        route(
-                            'dcs.requests.show',
-                            ['type' => $intake['type'], 'id' => $intake['id']],
-                            absolute: false
-                        ),
+                        \App\Helpers\OfficeIntakeHelper::rfioOpenIntakeUrl($intake['type'], $intake['id']),
                         navigate: false
                     );
 
@@ -336,7 +312,12 @@ new class extends Component {
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
             <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
         </svg>
-        <span id="header-notif-badge" class="notif-badge" style="{{ $unreadCount > 0 ? '' : 'display: none;' }}"></span>
+        <span
+            id="header-notif-badge"
+            class="notif-badge"
+            data-system-unread="{{ (int) $unreadCount }}"
+            @if($unreadCount < 1) style="display: none;" @endif
+        ></span>
     </button>
 
     <!-- Dropdown Menu -->

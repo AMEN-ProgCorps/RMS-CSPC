@@ -113,10 +113,20 @@
     color: #94a3b8 !important;
 }
 
-[data-theme="dark"] .sub-dropdown li a:hover,
-[data-theme="dark"] .sub-dropdown li a.active-sub {
-    background-color: rgba(37, 99, 235, 0.25) !important;
-    color: #60a5fa !important;
+[data-theme="dark"] .sub-dropdown li a:hover {
+    background-color: #1e293b !important;
+    color: #fbbf24 !important;
+}
+
+[data-theme="dark"] .sub-dropdown li a.active-sub,
+[data-theme="dark"] .sub-dropdown li a.active-sub:hover {
+    background-color: rgba(217, 119, 6, 0.18) !important;
+    color: #fbbf24 !important;
+}
+
+[data-theme="dark"] .sub-dropdown li a.active-sub .sub-dot,
+[data-theme="dark"] .sub-dropdown li a:hover .sub-dot {
+    background: #fbbf24 !important;
 }
 
 /* Top tabs */

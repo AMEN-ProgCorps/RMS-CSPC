@@ -7,16 +7,17 @@
     <style>
         /*
          * CSPC-F-DCC-06 Document Request Form — forced print geometry
-         * Long bond 8.5 × 13in | form on upper half
+         * Long bond / Mexico Legal ~8.5 × 13.39in | header top margin fixed at 0.23in
          * Logo: left 0.46in, top 0.23in, size 0.57×0.59, gap to line 0.03in
          * Header/footer rules: 3px
          *
-         * @page MUST be top-level (not nested in @media) or Chrome ignores
-         * zero margins and still prints date/URL/page headers & footers.
+         * Print dialog MUST use Margins → None. "Default" adds a browser top gap
+         * that CSS cannot remove and makes the header look shifted down.
          */
         @page {
-            size: 8.5in 13in;
-            margin: 0;
+            /* Prefer Mexico Legal (Brother / PH long bond) so the sheet fills the page */
+            size: 8.5in 13.39in;
+            margin: 0 !important;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -36,6 +37,8 @@
         }
         .print-toolbar {
             display: flex;
+            flex-wrap: wrap;
+            align-items: center;
             background: #f8fafc;
             border-bottom: 1px solid #e2e8f0;
             padding: 10px 24px;
@@ -45,6 +48,17 @@
             top: 0;
             z-index: 100;
         }
+        .print-toolbar-tip {
+            flex: 1 1 100%;
+            text-align: center;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: #334155;
+            line-height: 1.35;
+            margin: 0;
+        }
+        .print-toolbar-tip strong { color: #0d2a7a; }
         .print-toolbar button {
             padding: 8px 20px;
             border: 1.5px solid #e2e8f0;
@@ -57,12 +71,12 @@
         .print-toolbar .btn-print { background: #0d2a7a; color: #fff; border-color: #0d2a7a; }
         .print-toolbar .btn-close { background: #fff; color: #64748b; }
 
-        /* Full long-bond sheet (8.5 × 13); form uses upper half only */
+        /* Full long-bond sheet (Mexico Legal 8.5 × 13.39); form uses upper area */
         .sheet {
             width: 8.5in !important;
-            height: 13in !important;
-            min-height: 13in !important;
-            max-height: 13in !important;
+            height: 13.39in !important;
+            min-height: 13.39in !important;
+            max-height: 13.39in !important;
             margin: 16px auto;
             padding: 0 !important;
             background: #fff !important;
@@ -76,7 +90,7 @@
         }
 
         /* ═══════════ HEADER ═══════════
-         * logo top 0.23 + height 0.59 + gap 0.03 → line at 0.85in
+         * Fixed top margin 0.23in + logo 0.59 + gap 0.03 → line at 0.85in
          */
         .hdr-band {
             position: relative !important;
@@ -539,9 +553,9 @@
             display: flex !important;
             flex-direction: column !important;
             box-sizing: border-box !important;
-            height: calc(13in - 0.85in) !important;
-            min-height: calc(13in - 0.85in) !important;
-            max-height: calc(13in - 0.85in) !important;
+            height: calc(13.39in - 0.85in) !important;
+            min-height: calc(13.39in - 0.85in) !important;
+            max-height: calc(13.39in - 0.85in) !important;
             padding: 0.08in 0.5in 0.12in !important;
         }
         .sheet-attach .attach-doc-title {
@@ -549,6 +563,22 @@
             height: 11pt !important;
             min-height: 11pt !important;
             max-height: 11pt !important;
+        }
+        .sheet-attach .attach-dist-label {
+            margin: 2pt 0 2pt !important;
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 11pt !important;
+            font-weight: 700 !important;
+            line-height: 1.15 !important;
+            color: #000 !important;
+        }
+        .sheet-attach .attach-dist-note {
+            margin: 0 0 6pt !important;
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 9pt !important;
+            font-weight: 400 !important;
+            line-height: 1.2 !important;
+            color: #000 !important;
         }
         .sheet-attach .attach-table {
             flex: 0 0 auto !important;
@@ -571,20 +601,29 @@
         @media print {
             html, body {
                 width: 8.5in !important;
-                height: 13in !important;
+                min-height: 0 !important;
+                height: auto !important;
                 margin: 0 !important;
                 padding: 0 !important;
                 background: #fff !important;
+                display: block !important;
+                position: static !important;
             }
             .print-toolbar { display: none !important; }
             .sheet {
                 box-shadow: none !important;
                 margin: 0 !important;
+                padding: 0 !important;
                 width: 8.5in !important;
-                height: 13in !important;
-                min-height: 13in !important;
-                max-height: 13in !important;
+                height: 13.39in !important;
+                min-height: 13.39in !important;
+                max-height: 13.39in !important;
                 overflow: hidden !important;
+                position: relative !important;
+                top: 0 !important;
+                left: 0 !important;
+                page-break-inside: avoid !important;
+                break-inside: avoid !important;
             }
             .sheet-main {
                 page-break-after: auto !important;
@@ -597,6 +636,19 @@
                 break-before: page !important;
                 page-break-after: auto !important;
                 break-after: auto !important;
+            }
+            .hdr-band {
+                margin: 0 !important;
+                padding: 0 !important;
+                height: 0.85in !important;
+                min-height: 0.85in !important;
+            }
+            .hdr-logo-cell,
+            .hdr-text-cell {
+                top: 0.23in !important;
+            }
+            .hdr-rule {
+                top: 0.85in !important;
             }
             .fline-rule,
             .desc-line .fline-rule,
@@ -656,10 +708,11 @@
 
     $distributeOverflow = count($allDistribute) > 24;
     /*
-     * Long bond attach body ≈ 11.5in after header/title/footer.
-     * Arial 11pt / line-height 1.0 @ ~13pt rows → ~62 offices before next page.
+     * Long bond attach body ≈ 11.5in after header/title/dist-label/footer.
+     * Arial 11pt / line-height 1.0 @ ~13pt rows → ~58 offices before next page
+     * (slightly fewer than before to leave room for the distribution heading).
      */
-    $attachPerPage = 62;
+    $attachPerPage = 58;
     $attachPages = $distributeOverflow
         ? array_chunk($attachOfficeRows, $attachPerPage)
         : [];
@@ -668,7 +721,7 @@
     if ($distributeOverflow) {
         $distribute = array_fill(0, 24, '');
         $distribute[0] = 'Please see attached';
-        $distribute[1] = 'list of offices';
+        $distribute[1] = 'distribution list';
     } else {
         $distribute = array_pad(array_slice($allDistribute, 0, 24), 24, '');
     }
@@ -693,10 +746,15 @@
     @if($viewerMode)
         <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIO review</span>
     @else
+        <p class="print-toolbar-tip">
+            Important: in the print dialog set <strong>Margins → None</strong>
+            (your screenshot still showed Default — that alone adds the top gap).
+            Keep paper <strong>Mexico Legal</strong>, and leave Headers and footers off.
+        </p>
         @if($isReviewer)
             <a href="{{ route('dcs.requests.index', absolute: false) }}" class="btn-close" style="text-decoration:none;display:inline-flex;align-items:center;">Back to Request</a>
         @endif
-        <button type="button" class="btn-print" onclick="document.title=''; window.print();">Print</button>
+        <button type="button" class="btn-print" onclick="ofiPrintClean()">Print</button>
         <button type="button" class="btn-close" onclick="window.close()">Close</button>
     @endif
 </div>
@@ -855,6 +913,11 @@
             <span class="lbl">Document Title :</span>
             <div class="fline w-fill"><div class="fline-val">{{ $docTitle }}</div><div class="fline-rule"></div></div>
         </div>
+        <div class="attach-dist-label">Distribute document to (department/position):</div>
+        <p class="attach-dist-note">
+            Continuation list — all offices below are for <strong>distribution</strong> of this document
+            ({{ count($attachOfficeRows) }} office{{ count($attachOfficeRows) === 1 ? '' : 's' }} total).
+        </p>
         <table class="attach-table">
             <colgroup>
                 <col class="c-no">
@@ -863,7 +926,7 @@
             <thead>
                 <tr>
                     <th>No.</th>
-                    <th>Name of Offices</th>
+                    <th>Name of Offices (Distribution)</th>
                 </tr>
             </thead>
             <tbody>
@@ -886,5 +949,24 @@
 </div>
 @endforeach
 @endif
+<script>
+function ofiPrintClean() {
+    var prevTitle = document.title;
+    var prevPath = window.location.pathname + window.location.search + window.location.hash;
+    var restored = false;
+    function restore() {
+        if (restored) return;
+        restored = true;
+        document.title = prevTitle;
+        try { history.replaceState(null, '', prevPath); } catch (e) {}
+        window.removeEventListener('afterprint', restore);
+    }
+    document.title = '\u00A0';
+    try { history.replaceState(null, '', '/'); } catch (e) {}
+    window.addEventListener('afterprint', restore);
+    window.print();
+    setTimeout(restore, 1500);
+}
+</script>
 </body>
 </html>

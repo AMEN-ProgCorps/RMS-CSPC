@@ -418,28 +418,30 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-divider {
 }
 
 .sub-dropdown li a:hover {
-    color: #043899;
-    background: rgba(4, 56, 153, 0.05);
+    color: #D97706;
+    background: #EEF2FF;
+    font-weight: 700;
 }
 
 .sub-dropdown li a:hover .sub-dot {
-    background: #043899;
+    background: #D97706;
     transform: scale(1.3);
 }
 
+/* Match DTS/RDP flyout-item.force-active (amber active) */
 .sub-dropdown li a.active-sub {
-    color: #043899;
+    color: #D97706;
     font-weight: 700;
-    background: var(--accent-subtle);
+    background: #EEF2FF;
 }
 
 .sub-dropdown li a.active-sub .sub-dot {
-    background: #043899;
+    background: #D97706;
 }
 
-.sub-dropdown li a:hover,
 .sub-dropdown li a.active-sub:hover {
-    color: #043899;
+    color: #D97706;
+    background: #EEF2FF;
 }
 
 /* ─── Tooltip ─── */
@@ -748,25 +750,30 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a {
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover {
-    background: var(--surface-hover);
-    color: var(--text);
+    background: #EEF2FF;
+    color: #D97706;
+    font-weight: 700;
     padding-left: 18px;
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub {
-    color: #043899;
+    color: #D97706;
     font-weight: 700;
-    background: var(--surface-active);
+    background: #EEF2FF;
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub .sub-dot {
-    background: #043899;
-    box-shadow: 0 0 0 3px rgba(4, 56, 153, 0.15);
+    background: #D97706;
+    box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.18);
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover,
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub:hover {
-    color: #043899;
+    color: #D97706;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover .sub-dot {
+    background: #D97706;
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float .sub-dot {

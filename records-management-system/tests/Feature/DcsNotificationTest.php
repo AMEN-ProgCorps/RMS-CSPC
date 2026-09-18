@@ -72,6 +72,21 @@ class DcsNotificationTest extends TestCase
         ]);
     }
 
+    public function test_notify_document_distributed_message_and_redirect(): void
+    {
+        DcsNotificationService::notifyDocumentDistributed(
+            $this->officeCode,
+            'CSPC-F-COL',
+            'Continuation of the Curriculum',
+            1
+        );
+
+        $this->assertDatabaseHas('notif_content', [
+            'content' => 'Document "Continuation of the Curriculum" (CSPC-F-COL, Rev 1) has been registered / controlled and distributed to your office.',
+            'redirect_url' => '/dcs/office/documents',
+        ]);
+    }
+
     public function test_notify_office_drf_submitted(): void
     {
         DcsNotificationService::notifyOfficeDrfSubmitted(

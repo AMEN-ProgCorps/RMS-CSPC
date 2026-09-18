@@ -80,6 +80,35 @@ class DcsNotificationService
         static::createNotification($officeCode, $message, $url);
     }
 
+    /**
+     * Notify an office that appears on Document Distribution — not the submitter.
+     * Limited DCS users only see /dcs/office/* notification links.
+     */
+    public static function notifyDocumentDistributed(
+        string $officeCode,
+        string $docNo,
+        ?string $docTitle = null,
+        ?int $revNo = null
+    ): void {
+        $docNo = trim($docNo);
+        $title = trim((string) $docTitle);
+        $revSuffix = $revNo !== null && $revNo > 0 ? ", Rev {$revNo}" : '';
+
+        if ($title !== '' && $docNo !== '') {
+            $message = "Document \"{$title}\" ({$docNo}{$revSuffix}) has been registered / controlled and distributed to your office.";
+        } elseif ($title !== '') {
+            $revLabel = $revNo !== null && $revNo > 0 ? " (Rev {$revNo})" : '';
+            $message = "Document \"{$title}\"{$revLabel} has been registered / controlled and distributed to your office.";
+        } elseif ($docNo !== '') {
+            $revLabel = $revNo !== null && $revNo > 0 ? " (Rev {$revNo})" : '';
+            $message = "Document {$docNo}{$revLabel} has been registered / controlled and distributed to your office.";
+        } else {
+            $message = 'A controlled document has been distributed to your office.';
+        }
+
+        static::createNotification($officeCode, $message, '/dcs/office/documents');
+    }
+
     public static function notifyOfficeDrfSubmitted(
         string $targetOfficeCode,
         string $submitterName,
@@ -91,7 +120,7 @@ class DcsNotificationService
         $number = trim($drfNo) !== '' ? ' ' . trim($drfNo) : '';
         $label = trim($title) !== '' ? ": {$title}" : '';
         $message = "New Document Request Form{$number}{$label} was submitted by {$name} and is ready for RFIO processing.";
-        $url = '/dcs/requests/drf/' . $drfId;
+        $url = '/dcs/register/requests/drf/' . $drfId;
 
         static::createNotification($targetOfficeCode, $message, $url);
     }
@@ -107,7 +136,7 @@ class DcsNotificationService
         $number = trim($dcnNo) !== '' ? ' ' . trim($dcnNo) : '';
         $docLabel = trim($docNo) !== '' ? " for document {$docNo}" : '';
         $message = "New Document Change Notice{$number}{$docLabel} was submitted by {$name} and is ready for RFIO processing.";
-        $url = '/dcs/requests/dcn/' . $dcnId;
+        $url = '/dcs/register/requests/dcn/' . $dcnId;
 
         static::createNotification($targetOfficeCode, $message, $url);
     }
@@ -125,7 +154,7 @@ class DcsNotificationService
         $formLabel = $type === 'dcn' ? 'Document Change Notice' : 'Document Request Form';
         $label = trim($title) !== '' ? ": {$title}" : '';
         $message = "Updated {$formLabel}{$label} was resubmitted by {$name} after RFIO correction and is ready for review.";
-        $url = '/dcs/requests/' . ($type === 'dcn' ? 'dcn' : 'drf') . '/' . $intakeId;
+        $url = '/dcs/register/requests/' . ($type === 'dcn' ? 'dcn' : 'drf') . '/' . $intakeId;
 
         static::createNotification($targetOfficeCode, $message, $url);
     }
@@ -166,7 +195,7 @@ class DcsNotificationService
                 }
 
                 // Fallback: exact office/request path match (avoid /drf/1 matching /drf/12)
-                if (preg_match('#/dcs/(?:office|requests)/' . preg_quote($type, '#') . '/' . $id . '(?:/|$|\?)#', $url)) {
+                if (preg_match('#/dcs/(?:office|requests|register/requests)/' . preg_quote($type, '#') . '/' . $id . '(?:/|$|\?)#', $url)) {
                     $contentIds[] = (int) $row->id;
                     continue;
                 }
@@ -177,6 +206,7 @@ class DcsNotificationService
                     && (
                         str_contains($url, '/dcs/office/' . $type . '/' . $id)
                         || str_contains($url, '/dcs/requests/' . $type . '/' . $id)
+                        || str_contains($url, '/dcs/register/requests/' . $type . '/' . $id)
                         || (str_contains($url, 'intake=' . $type) && (str_contains($url, 'id=' . $id) || str_contains($url, 'intake_id=' . $id)))
                     )
                 ) {

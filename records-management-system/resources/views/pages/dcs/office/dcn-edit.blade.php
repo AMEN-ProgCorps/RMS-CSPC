@@ -177,9 +177,65 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
                                     <input type="date" id="departmentDate" name="departmentDate" value="{{ $departmentDate }}" required>
                                 </div>
                             </div>
-                            <div class="reg-field">
-                                <label for="reviewedByDate">Reviewed by/ Date <span class="ofi-req">*</span></label>
-                                <input type="text" id="reviewedByDate" name="reviewedByDate" value="{{ old('reviewedByDate', $dcn->reviewed_by_date) }}" required maxlength="255" placeholder="Enter reviewer name and/or date">
+                            <div class="ofi-reviewers" id="ofiReviewers">
+                                @php
+                                    $revName = old('reviewedByName', $dcn->reviewed_by_name ?? '');
+                                    $revOn = old('reviewedByOn', !empty($dcn->reviewed_by_on) ? \Carbon\Carbon::parse($dcn->reviewed_by_on)->format('Y-m-d') : '');
+                                    $revName2 = old('reviewedByName2', $dcn->reviewed_by_name_2 ?? '');
+                                    $revOn2 = old('reviewedByOn2', !empty($dcn->reviewed_by_on_2) ? \Carbon\Carbon::parse($dcn->reviewed_by_on_2)->format('Y-m-d') : '');
+                                    // Legacy fallback: combined reviewed_by_date string
+                                    if ($revName === '' && trim((string) ($dcn->reviewed_by_date ?? '')) !== '') {
+                                        $revName = trim((string) $dcn->reviewed_by_date);
+                                    }
+                                    if ($revName2 === '' && trim((string) ($dcn->reviewed_by_date_2 ?? '')) !== '') {
+                                        $revName2 = trim((string) $dcn->reviewed_by_date_2);
+                                    }
+                                    $hasReviewer2 = trim((string) $revName2) !== '' || trim((string) $revOn2) !== '';
+                                @endphp
+                                <div class="ofi-reviewer-card" data-reviewer="1">
+                                    <div class="ofi-reviewer-card-head">
+                                        <span class="ofi-reviewer-badge">Reviewer 1</span>
+                                    </div>
+                                    <div class="reg-grid-2-1">
+                                        <div class="reg-field">
+                                            <label for="reviewedByName">Name <span class="ofi-req">*</span></label>
+                                            <input type="text" id="reviewedByName" name="reviewedByName"
+                                                value="{{ $revName }}"
+                                                required maxlength="255" placeholder="Reviewer name" autocomplete="name">
+                                        </div>
+                                        <div class="reg-field">
+                                            <label for="reviewedByOn">Date <span class="ofi-req">*</span></label>
+                                            <input type="date" id="reviewedByOn" name="reviewedByOn"
+                                                value="{{ $revOn }}" required>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="ofi-reviewer-card ofi-reviewer-2" id="ofiReviewer2" @if(!$hasReviewer2) hidden @endif>
+                                    <div class="ofi-reviewer-card-head">
+                                        <span class="ofi-reviewer-badge">Reviewer 2</span>
+                                        <button type="button" class="ofi-btn-sm ofi-btn-ghost" id="ofiRemoveReviewer" title="Remove second reviewer">
+                                            <i class="fa-solid fa-xmark"></i> Remove
+                                        </button>
+                                    </div>
+                                    <div class="reg-grid-2-1">
+                                        <div class="reg-field">
+                                            <label for="reviewedByName2">Name</label>
+                                            <input type="text" id="reviewedByName2" name="reviewedByName2"
+                                                value="{{ $revName2 }}"
+                                                maxlength="255" placeholder="Second reviewer name" autocomplete="name">
+                                        </div>
+                                        <div class="reg-field">
+                                            <label for="reviewedByOn2">Date</label>
+                                            <input type="date" id="reviewedByOn2" name="reviewedByOn2"
+                                                value="{{ $revOn2 }}">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button type="button" class="ofi-add-reviewer" id="ofiAddReviewer" @if($hasReviewer2) hidden @endif>
+                                    <i class="fa-solid fa-plus"></i> Add another reviewer
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -216,6 +272,44 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
 
     confirmBox.addEventListener('change', syncConfirm);
     syncConfirm();
+
+    const reviewer2 = document.getElementById('ofiReviewer2');
+    const addReviewerBtn = document.getElementById('ofiAddReviewer');
+    const removeReviewerBtn = document.getElementById('ofiRemoveReviewer');
+    const name2 = document.getElementById('reviewedByName2');
+    const on2 = document.getElementById('reviewedByOn2');
+
+    function showSecondReviewer() {
+        if (!reviewer2 || !addReviewerBtn) return;
+        reviewer2.hidden = false;
+        addReviewerBtn.hidden = true;
+        if (name2) {
+            name2.required = true;
+            name2.focus();
+        }
+        if (on2) on2.required = true;
+    }
+
+    function hideSecondReviewer() {
+        if (!reviewer2 || !addReviewerBtn) return;
+        reviewer2.hidden = true;
+        addReviewerBtn.hidden = false;
+        if (name2) {
+            name2.required = false;
+            name2.value = '';
+        }
+        if (on2) {
+            on2.required = false;
+            on2.value = '';
+        }
+    }
+
+    if (addReviewerBtn) addReviewerBtn.addEventListener('click', showSecondReviewer);
+    if (removeReviewerBtn) removeReviewerBtn.addEventListener('click', hideSecondReviewer);
+    if (reviewer2 && !reviewer2.hidden) {
+        if (name2) name2.required = true;
+        if (on2) on2.required = true;
+    }
 
     form.addEventListener('submit', function (e) {
         if (!confirmBox.checked) {

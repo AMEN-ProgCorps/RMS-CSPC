@@ -2,6 +2,7 @@
 
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
+use Illuminate\Http\RedirectResponse;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -9,20 +10,22 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Component {
     public int $id;
 
-    public function mount($id): void
+    public function mount($id): ?RedirectResponse
     {
         OfficeIntakeHelper::assertCanAccessIntake();
         $this->id = (int) $id;
 
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
-            $this->redirect(route('dcs.requests.show', ['type' => 'drf', 'id' => $this->id], absolute: false), navigate: false);
-
-            return;
+            return new RedirectResponse(
+                route('dcs.requests.show', ['type' => 'drf', 'id' => $this->id], absolute: false)
+            );
         }
 
         $drf = OfficeIntakeHelper::findOfficeDrf($this->id);
         abort_unless($drf, 404);
         OfficeIntakeHelper::assertOwnsDrf($drf);
+
+        return null;
     }
 
     public function with(): array
@@ -156,6 +159,9 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
                             total offices: <strong>{{ count($distributeOffices) }}</strong>
                         </span>
                     </label>
+                    <p class="ofi-field-hint" style="margin:0 0 8px;font-size:0.82rem;color:#64748b;line-height:1.4;">
+                        All offices below are for <strong>distribution</strong> of this document.
+                    </p>
                     @if(!empty($distributeOffices))
                         <div class="ofi-show-chips">
                             @foreach($distributeOffices as $office)

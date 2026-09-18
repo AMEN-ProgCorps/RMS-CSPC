@@ -269,6 +269,79 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     padding: 6px 8px;
     font-size: 12px;
 }
+
+.ofi-reviewers {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 4px;
+}
+.ofi-reviewer-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #f8fafc;
+    padding: 12px 14px;
+}
+.ofi-reviewer-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.ofi-reviewer-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #1d4ed8;
+    background: #dbeafe;
+    border-radius: 999px;
+    padding: 4px 10px;
+}
+.ofi-btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: #64748b;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+}
+.ofi-btn-ghost:hover {
+    border-color: #fecaca;
+    color: #dc2626;
+    background: #fef2f2;
+}
+.ofi-add-reviewer {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1.5px dashed #93c5fd;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 650;
+    padding: 8px 12px;
+}
+.ofi-add-reviewer:hover {
+    background: #dbeafe;
+    border-color: #3b82f6;
+}
+.ofi-show-reviewed {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 11pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+}
+
 .ofi-rev-purpose-text {
     font-size: 12px;
     color: #334155;

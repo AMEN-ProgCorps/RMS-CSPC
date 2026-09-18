@@ -459,6 +459,64 @@ class RegisterQueryHelper
         return false;
     }
 
+    /**
+     * Apply the same visibility rules as the header notification dropdown
+     * (limited-DCS allowlist + hide registered office-intake notices).
+     *
+     * @param  \Illuminate\Support\Collection<int, object>  $rows
+     * @return \Illuminate\Support\Collection<int, object>
+     */
+    public static function filterBellNotifications($rows)
+    {
+        $rows = collect($rows);
+
+        if (self::isLimitedDcsUser()) {
+            $rows = $rows
+                ->filter(fn ($row) => self::isAllowedNotificationForLimitedDcs($row->redirect_url ?? null))
+                ->values();
+        }
+
+        return $rows
+            ->filter(function ($row) {
+                $intake = OfficeIntakeHelper::parseIntakeNotificationUrl($row->redirect_url ?? null);
+                if (! $intake) {
+                    return true;
+                }
+
+                return ! OfficeIntakeHelper::isIntakeRegistered($intake['type'], $intake['id']);
+            })
+            ->values();
+    }
+
+    /**
+     * When browsing DCS, the bell only lists Document Control System notices
+     * (same behavior as the Livewire notification component).
+     *
+     * @param  array<int, string>  $allowedSubsystems
+     * @return array<int, string>
+     */
+    public static function scopeBellSubsystemsForRequest(array $allowedSubsystems, ?string $pathHint = null): array
+    {
+        if (! in_array('Document Control System', $allowedSubsystems, true)) {
+            return $allowedSubsystems;
+        }
+
+        $path = ltrim((string) ($pathHint ?? ''), '/');
+        if ($path === '') {
+            $path = ltrim((string) request()->path(), '/');
+        }
+        if ($path === 'chat/unread-count' || $path === '') {
+            $referer = (string) request()->headers->get('referer', '');
+            $path = ltrim((string) (parse_url($referer, PHP_URL_PATH) ?? ''), '/');
+        }
+
+        if ($path === 'dcs' || str_starts_with($path, 'dcs/') || str_starts_with($path, 'dcs')) {
+            return ['Document Control System'];
+        }
+
+        return $allowedSubsystems;
+    }
+
     public static function assertFullDcsUser(?string $module = null): void
     {
         if ($module !== null) {

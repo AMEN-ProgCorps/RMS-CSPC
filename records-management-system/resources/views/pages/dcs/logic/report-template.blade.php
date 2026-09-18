@@ -3,18 +3,13 @@
 namespace App\Helpers;
 
 use App\Services\DocumentStorageService;
-use App\Services\PdfPageRenderer;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 
+/** Letterhead templates for Generate Report (select + preview only). */
 class ReportTemplateHelper
 {
-    private const DCS_TEMPLATE_OFFICE = 'GENERAL';
-
     public static function list(): array
     {
         return DB::table('dcs_report_templates')
@@ -26,90 +21,6 @@ class ReportTemplateHelper
                 'preview_url' => self::previewUrlForId((int) $row->id, $row->preview_path),
             ])
             ->all();
-    }
-
-    public static function store(Request $request): JsonResponse
-    {
-        $rateCheck = \App\Services\RateLimiterService::check('dcs_action');
-        if (!$rateCheck['allowed']) {
-            return response()->json(['message' => $rateCheck['message']], 429);
-        }
-
-        $request->validate([
-            'template' => 'required|file|mimes:pdf|max:10240',
-            'name' => 'nullable|string|max:120',
-        ]);
-
-        $file = $request->file('template');
-        $pdfContent = file_get_contents($file->getRealPath());
-        $token = 'DCS-TPL-' . strtoupper(Str::random(8));
-        $safeBase = Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME), '_') ?: 'template';
-        $templatesFolder = DocumentStorageService::dcsCategoryFolderName('report_templates');
-        $pdfPath = self::DCS_TEMPLATE_OFFICE . "/DCS/{$templatesFolder}/{$token}_{$safeBase}.pdf";
-        $previewPath = null;
-
-        try {
-            $tempPdf = Storage::disk('local')->path('temp/report-templates/' . uniqid('tpl_', true) . '.pdf');
-            @mkdir(dirname($tempPdf), 0775, true);
-            file_put_contents($tempPdf, $pdfContent);
-
-            $imageName = self::DCS_TEMPLATE_OFFICE . "/DCS/{$templatesFolder}/previews/" . $token . '.jpg';
-            $imageFull = Storage::disk('local')->path('temp/report-templates/' . uniqid('preview_', true) . '.jpg');
-            @mkdir(dirname($imageFull), 0775, true);
-            PdfPageRenderer::savePage($tempPdf, $imageFull, 1);
-            $previewContent = file_get_contents($imageFull);
-            $previewPath = DocumentStorageService::storeDcsFileAtPath(
-                $imageName,
-                $previewContent,
-                auth()->user(),
-                basename($imageName),
-                'image/jpeg'
-            );
-
-            DocumentStorageService::storeDcsFileAtPath(
-                $pdfPath,
-                $pdfContent,
-                auth()->user(),
-                $file->getClientOriginalName(),
-                'application/pdf'
-            );
-        } catch (\Throwable $e) {
-            Log::warning('Report template preview failed: ' . $e->getMessage());
-            if ($previewPath) {
-                DocumentStorageService::deleteDcsScan($previewPath);
-            }
-            if (isset($pdfPath)) {
-                DocumentStorageService::deleteDcsScan($pdfPath);
-            }
-
-            return response()->json([
-                'message' => 'Could not render page 1 of the PDF. Use a valid, unencrypted PDF. Details are in the application log.',
-            ], 422);
-        } finally {
-            if (! empty($tempPdf) && is_file($tempPdf)) {
-                @unlink($tempPdf);
-            }
-            if (! empty($imageFull) && is_file($imageFull)) {
-                @unlink($imageFull);
-            }
-        }
-
-        $name = trim((string) $request->input('name')) ?: pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
-
-        $id = DB::table('dcs_report_templates')->insertGetId([
-            'name' => $name,
-            'pdf_path' => $pdfPath,
-            'preview_path' => $previewPath,
-            'created_by' => auth()->id(),
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        return response()->json([
-            'id' => $id,
-            'name' => $name,
-            'preview_url' => self::previewUrlForId($id, $previewPath),
-        ], 201);
     }
 
     public static function letterheadDataUrl(int $templateId): ?string
@@ -131,30 +42,6 @@ class ReportTemplateHelper
         $mime = DocumentStorageService::dcsFileMimeType($tpl->preview_path);
 
         return 'data:' . $mime . ';base64,' . base64_encode($content);
-    }
-
-    public static function destroy(int $id): JsonResponse
-    {
-        $rateCheck = \App\Services\RateLimiterService::check('dcs_action');
-        if (!$rateCheck['allowed']) {
-            return response()->json(['message' => $rateCheck['message']], 429);
-        }
-
-        $tpl = DB::table('dcs_report_templates')->where('id', $id)->first();
-        if (! $tpl) {
-            abort(404);
-        }
-
-        if (! empty($tpl->pdf_path)) {
-            self::deleteTemplateFile($tpl->pdf_path);
-        }
-        if (! empty($tpl->preview_path)) {
-            self::deleteTemplateFile($tpl->preview_path);
-        }
-
-        DB::table('dcs_report_templates')->where('id', $id)->delete();
-
-        return response()->json(['ok' => true]);
     }
 
     public static function render(Request $request)
@@ -340,20 +227,6 @@ class ReportTemplateHelper
         return route('dcs.report-templates.preview', ['id' => $id]);
     }
 
-    private static function previewUrl(?string $path): ?string
-    {
-        // Legacy helper retained for callers that only have a path; prefer previewUrlForId.
-        if (! $path || ! DocumentStorageService::dcsScanExists($path)) {
-            return null;
-        }
-
-        if (DocumentStorageService::isLegacyPublicScanPath($path)) {
-            return Storage::disk('public')->url($path);
-        }
-
-        return DocumentStorageService::dcsScanUrl($path);
-    }
-
     private static function readTemplateFile(string $path): ?string
     {
         if (DocumentStorageService::isLegacyPublicScanPath($path)) {
@@ -363,16 +236,5 @@ class ReportTemplateHelper
         }
 
         return DocumentStorageService::getDcsScanContent($path);
-    }
-
-    private static function deleteTemplateFile(string $path): void
-    {
-        if (DocumentStorageService::isLegacyPublicScanPath($path)) {
-            Storage::disk('public')->delete($path);
-
-            return;
-        }
-
-        DocumentStorageService::deleteDcsScan($path);
     }
 }

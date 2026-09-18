@@ -1359,41 +1359,78 @@ class RegisterPersistHelper
             );
 
             $docNo = trim((string) ($savedMl->doc_no ?? ''));
-            if (! $saveAsDraft) {
-                if ($docNo !== '') {
-                    $registrarName = RegisterQueryHelper::currentUserDisplayName();
-                    $revNo = isset($savedMl->revise_no) ? (int) $savedMl->revise_no : null;
-                    $notifyOfficeIds = array_merge(
-                        (array) $request->input('distOffice', []),
-                        (array) $request->input('masterlistOfficeIds', [])
-                    );
-                    $actorOffice = RegisterQueryHelper::currentOfficeCode();
-                    foreach (DcsNotificationService::officeCodesFromIds($notifyOfficeIds) as $officeCode) {
-                        if ($actorOffice !== null && strcasecmp($officeCode, $actorOffice) === 0) {
-                            continue;
-                        }
-                        DcsNotificationService::notifyDocumentRegistered(
-                            $officeCode,
-                            $registrarName,
-                            $docNo,
-                            $requestId,
-                            $revNo
-                        );
-                    }
-                }
-            }
+            $docTitle = trim((string) ($savedMl->doc_title ?? ''));
+            $pending = OfficeIntakeHelper::pendingRegisterIntake($request);
 
             // Close office-intake handoff on draft or final save so Request queue stays clear.
-            $pending = OfficeIntakeHelper::pendingRegisterIntake($request);
+            // Submitter gets "Your DCN/DRF registered" — distribution offices are notified separately.
+            $submitterOfficeCodes = [];
             if ($pending && in_array($pending['type'], ['drf', 'dcn'], true) && $pending['id'] > 0) {
+                $intakeRecord = $pending['type'] === 'dcn'
+                    ? OfficeIntakeHelper::findOfficeDcn($pending['id'])
+                    : OfficeIntakeHelper::findOfficeDrf($pending['id']);
+                if ($intakeRecord) {
+                    $submitterOfficeCodes = OfficeIntakeHelper::intakeSubmitterOfficeCodes($intakeRecord);
+                }
+
                 OfficeIntakeHelper::markIntakeRegistered(
                     $pending['type'],
                     $pending['id'],
                     (int) $requestId,
                     $docNo,
-                    trim((string) ($savedMl->doc_title ?? '')),
+                    $docTitle !== '' ? $docTitle : null,
                     ! $saveAsDraft
                 );
+            }
+
+            if (! $saveAsDraft && $docNo !== '') {
+                $registrarName = RegisterQueryHelper::currentUserDisplayName();
+                $revNo = isset($savedMl->revise_no) ? (int) $savedMl->revise_no : null;
+                $actorOffice = RegisterQueryHelper::currentOfficeCode();
+                $skipCodes = collect($submitterOfficeCodes)
+                    ->map(fn ($c) => strtoupper(trim((string) $c)))
+                    ->filter()
+                    ->unique()
+                    ->all();
+                if ($actorOffice) {
+                    $skipCodes[] = strtoupper(trim((string) $actorOffice));
+                    $skipCodes = array_values(array_unique($skipCodes));
+                }
+
+                $distIds = array_values(array_unique(array_filter(array_map(
+                    'intval',
+                    (array) $request->input('distOffice', [])
+                ))));
+                $masterlistIds = array_values(array_unique(array_filter(array_map(
+                    'intval',
+                    (array) $request->input('masterlistOfficeIds', [])
+                ))));
+                $masterlistOnlyIds = array_values(array_diff($masterlistIds, $distIds));
+
+                foreach (DcsNotificationService::officeCodesFromIds($distIds) as $officeCode) {
+                    if (in_array(strtoupper($officeCode), $skipCodes, true)) {
+                        continue;
+                    }
+                    DcsNotificationService::notifyDocumentDistributed(
+                        $officeCode,
+                        $docNo,
+                        $docTitle !== '' ? $docTitle : null,
+                        $revNo
+                    );
+                }
+
+                foreach (DcsNotificationService::officeCodesFromIds($masterlistOnlyIds) as $officeCode) {
+                    if (in_array(strtoupper($officeCode), $skipCodes, true)) {
+                        continue;
+                    }
+                    DcsNotificationService::notifyDocumentRegistered(
+                        $officeCode,
+                        $registrarName,
+                        $docNo,
+                        $requestId,
+                        $revNo
+                    );
+                }
             }
 
             $successMessage = $saveAsDraft

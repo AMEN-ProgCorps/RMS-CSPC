@@ -2,6 +2,7 @@
 
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
+use Illuminate\Http\RedirectResponse;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -11,7 +12,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
     #[Url]
     public string $type = 'all';
 
-    public function mount(): void
+    public function mount(): ?RedirectResponse
     {
         OfficeIntakeHelper::assertCanAccessIntake();
 
@@ -20,13 +21,16 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                 'info',
                 'Office document lists are available to each office. RFIO can browse the full inventory in Database and Reports.'
             );
-            $this->redirect(route('dcs', absolute: false), navigate: true);
+
+            return new RedirectResponse(route('dcs', absolute: false));
         }
 
         $keys = array_keys(OfficeIntakeHelper::documentGroupDefs());
         if ($this->type !== 'all' && ! in_array($this->type, $keys, true)) {
             $this->type = 'all';
         }
+
+        return null;
     }
 
     public function selectType(string $type): void

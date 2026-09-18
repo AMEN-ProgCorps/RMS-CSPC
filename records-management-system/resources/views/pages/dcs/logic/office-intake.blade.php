@@ -226,12 +226,65 @@ class OfficeIntakeHelper
         }
 
         // Already moved into Document Registration — leave the Request queue.
+        // Callers should use registerContinueUrl() / rfioOpenIntakeUrl() to resume.
         $record = strtolower($type) === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
         if ($record && ! empty($record->rfio_claimed_at)) {
             return null;
         }
 
         return $payload;
+    }
+
+    /** Register URL for office intake Proceed / resume after claim. */
+    public static function registerContinueUrl(string $type, int $id): string
+    {
+        $type = strtolower($type);
+        $registerType = $type === 'dcn' ? 'revised' : 'new';
+
+        return route('dcs.register.create', [
+            'type' => $registerType,
+            'intake' => $type,
+            'intake_id' => $id,
+        ], absolute: false);
+    }
+
+    /** True when RFIO started registration (Proceed) but has not finished registering. */
+    public static function isIntakeClaimedPending(string $type, int $id): bool
+    {
+        $type = strtolower($type);
+        if (! in_array($type, ['drf', 'dcn'], true) || $id < 1) {
+            return false;
+        }
+        if (self::isIntakeRegistered($type, $id)) {
+            return false;
+        }
+        $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
+        if (! $record) {
+            return false;
+        }
+
+        return ! empty($record->rfio_claimed_at);
+    }
+
+    /**
+     * Where RFIO should land when opening an intake from a notification / deep link.
+     * Claimed-but-not-registered → continue Register (Proceed already ran).
+     * Otherwise → Request review page.
+     */
+    public static function rfioOpenIntakeUrl(string $type, int $id): string
+    {
+        $type = strtolower($type);
+        abort_unless(in_array($type, ['drf', 'dcn'], true), 404);
+
+        if (self::isIntakeRegistered($type, $id)) {
+            return route('dcs.requests.index', absolute: false);
+        }
+
+        if (self::isIntakeClaimedPending($type, $id)) {
+            return self::registerContinueUrl($type, $id);
+        }
+
+        return route('dcs.requests.show', ['type' => $type, 'id' => $id], absolute: false);
     }
 
     /** @return array{is_registered: bool, doc_no: string, doc_title: string} */
@@ -470,7 +523,10 @@ class OfficeIntakeHelper
             'originatorName' => 'required|string|max:255',
             'departmentOfficeId' => 'required|integer',
             'departmentDate' => 'required|date',
-            'reviewedByDate' => 'required|string|max:255',
+            'reviewedByName' => 'required|string|max:255',
+            'reviewedByOn' => 'required|date',
+            'reviewedByName2' => 'nullable|string|max:255|required_with:reviewedByOn2',
+            'reviewedByOn2' => 'nullable|date|required_with:reviewedByName2',
             'confirmDataCorrect' => 'accepted',
         ]);
 
@@ -480,12 +536,13 @@ class OfficeIntakeHelper
             isset($data['departmentOfficeId']) ? (int) $data['departmentOfficeId'] : null,
             $data['departmentDate'] ?? null
         );
+        $reviewed = self::reviewedByPayload($data);
 
         $userId = (int) auth()->id();
         $now = now();
 
         try {
-            $id = DB::transaction(function () use ($data, $docNo, $docTitle, $departmentDateLabel, $userId, $now) {
+            $id = DB::transaction(function () use ($data, $docNo, $docTitle, $departmentDateLabel, $reviewed, $userId, $now) {
                 $row = [
                     'request_id' => null,
                     'dcn_no' => null,
@@ -508,7 +565,18 @@ class OfficeIntakeHelper
                     $row['change_to'] = trim((string) ($data['changeTo'] ?? '')) ?: null;
                     $row['originator_name'] = trim((string) ($data['originatorName'] ?? '')) ?: null;
                     $row['department_date'] = $departmentDateLabel;
-                    $row['reviewed_by_date'] = trim((string) ($data['reviewedByDate'] ?? '')) ?: null;
+                    $row['reviewed_by_date'] = $reviewed['reviewed_by_date'];
+                    if (Schema::hasColumn('dcs_document_change_notice', 'reviewed_by_name')) {
+                        $row['reviewed_by_name'] = $reviewed['reviewed_by_name'];
+                        $row['reviewed_by_on'] = $reviewed['reviewed_by_on'];
+                    }
+                    if (Schema::hasColumn('dcs_document_change_notice', 'reviewed_by_date_2')) {
+                        $row['reviewed_by_date_2'] = $reviewed['reviewed_by_date_2'];
+                    }
+                    if (Schema::hasColumn('dcs_document_change_notice', 'reviewed_by_name_2')) {
+                        $row['reviewed_by_name_2'] = $reviewed['reviewed_by_name_2'];
+                        $row['reviewed_by_on_2'] = $reviewed['reviewed_by_on_2'];
+                    }
                 }
 
                 $dcnId = DB::table('dcs_document_change_notice')->insertGetId($row);
@@ -681,7 +749,10 @@ class OfficeIntakeHelper
             'originatorName' => 'required|string|max:255',
             'departmentOfficeId' => 'required|integer',
             'departmentDate' => 'required|date',
-            'reviewedByDate' => 'required|string|max:255',
+            'reviewedByName' => 'required|string|max:255',
+            'reviewedByOn' => 'required|date',
+            'reviewedByName2' => 'nullable|string|max:255|required_with:reviewedByOn2',
+            'reviewedByOn2' => 'nullable|date|required_with:reviewedByName2',
             'confirmDataCorrect' => 'accepted',
         ]);
 
@@ -691,9 +762,10 @@ class OfficeIntakeHelper
             isset($data['departmentOfficeId']) ? (int) $data['departmentOfficeId'] : null,
             $data['departmentDate'] ?? null
         );
+        $reviewed = self::reviewedByPayload($data);
         $now = now();
 
-        DB::transaction(function () use ($data, $id, $docNo, $docTitle, $departmentDateLabel, $now) {
+        DB::transaction(function () use ($data, $id, $docNo, $docTitle, $departmentDateLabel, $reviewed, $now) {
             $row = [
                 'updated_at' => $now,
             ];
@@ -707,7 +779,18 @@ class OfficeIntakeHelper
                 $row['change_to'] = trim((string) ($data['changeTo'] ?? '')) ?: null;
                 $row['originator_name'] = trim((string) ($data['originatorName'] ?? '')) ?: null;
                 $row['department_date'] = $departmentDateLabel;
-                $row['reviewed_by_date'] = trim((string) ($data['reviewedByDate'] ?? '')) ?: null;
+                $row['reviewed_by_date'] = $reviewed['reviewed_by_date'];
+                if (Schema::hasColumn('dcs_document_change_notice', 'reviewed_by_name')) {
+                    $row['reviewed_by_name'] = $reviewed['reviewed_by_name'];
+                    $row['reviewed_by_on'] = $reviewed['reviewed_by_on'];
+                }
+                if (Schema::hasColumn('dcs_document_change_notice', 'reviewed_by_date_2')) {
+                    $row['reviewed_by_date_2'] = $reviewed['reviewed_by_date_2'];
+                }
+                if (Schema::hasColumn('dcs_document_change_notice', 'reviewed_by_name_2')) {
+                    $row['reviewed_by_name_2'] = $reviewed['reviewed_by_name_2'];
+                    $row['reviewed_by_on_2'] = $reviewed['reviewed_by_on_2'];
+                }
             }
             if (Schema::hasColumn('dcs_document_change_notice', 'edit_unlocked_at')) {
                 $row['edit_unlocked_at'] = null;
@@ -793,6 +876,59 @@ class OfficeIntakeHelper
         }
 
         return null;
+    }
+
+    /** Format Reviewed by display: "NAME / Mmm DD, YYYY". */
+    private static function formatReviewedByLabel(?string $name, ?string $date): ?string
+    {
+        $name = trim((string) $name);
+        $dateLabel = '';
+        $date = trim((string) $date);
+        if ($date !== '') {
+            try {
+                $dateLabel = \Carbon\Carbon::parse($date)->format('M d, Y');
+            } catch (\Throwable) {
+                $dateLabel = '';
+            }
+        }
+
+        if ($name !== '' && $dateLabel !== '') {
+            return $name . ' / ' . $dateLabel;
+        }
+        if ($name !== '') {
+            return $name;
+        }
+        if ($dateLabel !== '') {
+            return $dateLabel;
+        }
+
+        return null;
+    }
+
+    /** @return array{reviewed_by_name:?string,reviewed_by_on:?string,reviewed_by_date:?string,reviewed_by_name_2:?string,reviewed_by_on_2:?string,reviewed_by_date_2:?string} */
+    private static function reviewedByPayload(array $data): array
+    {
+        $name1 = trim((string) ($data['reviewedByName'] ?? ''));
+        $on1 = trim((string) ($data['reviewedByOn'] ?? ''));
+        $name2 = trim((string) ($data['reviewedByName2'] ?? ''));
+        $on2 = trim((string) ($data['reviewedByOn2'] ?? ''));
+
+        $payload = [
+            'reviewed_by_name' => $name1 !== '' ? $name1 : null,
+            'reviewed_by_on' => $on1 !== '' ? $on1 : null,
+            'reviewed_by_date' => self::formatReviewedByLabel($name1, $on1),
+            'reviewed_by_name_2' => null,
+            'reviewed_by_on_2' => null,
+            'reviewed_by_date_2' => null,
+        ];
+
+        if ($name2 !== '' || $on2 !== '') {
+            $payload['reviewed_by_name_2'] = $name2 !== '' ? $name2 : null;
+            $payload['reviewed_by_on_2'] = $on2 !== '' ? $on2 : null;
+            $payload['reviewed_by_date_2'] = self::formatReviewedByLabel($name2, $on2);
+        }
+
+        return $payload;
     }
 
     /** Prefer office code on print when a stored department label matches an office name/code. */
@@ -893,7 +1029,7 @@ class OfficeIntakeHelper
             parse_str($query, $params);
         }
 
-        if (preg_match('#/dcs/(?:requests|office)/(drf|dcn)/(\d+)(/edit)?(?:/|$|\?)#', (string) $path, $matches)) {
+        if (preg_match('#/dcs/(?:requests|register/requests|office)/(drf|dcn)/(\d+)(/edit)?(?:/|$|\?)#', (string) $path, $matches)) {
             // Success notices use ?registered=1 — not an open RFIO review item.
             if (! empty($params['registered'])) {
                 return null;
@@ -1113,17 +1249,11 @@ class OfficeIntakeHelper
             ],
         ]);
 
-        $registerType = $type === 'dcn' ? 'revised' : 'new';
-
         return [
             'ok' => true,
             'type' => $type,
             'id' => $id,
-            'registerUrl' => route('dcs.register.create', [
-                'type' => $registerType,
-                'intake' => $type,
-                'intake_id' => $id,
-            ]),
+            'registerUrl' => self::registerContinueUrl($type, $id),
         ];
     }
 
@@ -1150,7 +1280,8 @@ class OfficeIntakeHelper
 
     /**
      * After RFIO registers a document from office intake: link the intake row,
-     * remove RFIO submit notifications, and notify the submitting office.
+     * remove RFIO submit notifications, and notify only the submitting office
+     * ("Your DCN/DRF…"). Distribution offices are notified separately.
      */
     public static function markIntakeRegistered(
         string $type,
@@ -1204,6 +1335,13 @@ class OfficeIntakeHelper
             return;
         }
 
+        // Only the submitting office owns the intake form — distribution offices
+        // get a separate "distributed to your office" notice from register-persist.
+        $submitterCodes = self::intakeSubmitterOfficeCodes($record);
+        if ($submitterCodes === []) {
+            return;
+        }
+
         $title = trim((string) ($docTitle
             ?? ($type === 'dcn' ? ($record->document_title ?? '') : ($record->doc_title ?? ''))
         ));
@@ -1214,9 +1352,56 @@ class OfficeIntakeHelper
         $message = "Your {$formLabel}{$titlePart} has been registered / controlled{$docPart} by RFIO.";
         $url = '/dcs/office/' . $type . '/' . $intakeId . '?registered=1';
 
-        foreach (self::intakeOfficeCodes($type, $intakeId, $record) as $officeCode) {
+        foreach ($submitterCodes as $officeCode) {
             DcsNotificationService::createNotification($officeCode, $message, $url);
         }
+    }
+
+    /**
+     * Office code(s) for the account that created the office intake form.
+     *
+     * @return list<string>
+     */
+    public static function intakeSubmitterOfficeCodes(object $record): array
+    {
+        $createdBy = (int) ($record->created_by ?? 0);
+        if ($createdBy < 1) {
+            return [];
+        }
+
+        $accDetailsTbl = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $submitter = DB::table($accDetailsTbl . ' as ad')
+            ->join($officeTbl . ' as o', 'o.id', '=', 'ad.office_id')
+            ->where('ad.account_id', $createdBy)
+            ->select('o.id', 'o.office_code')
+            ->first();
+        if (! $submitter) {
+            return [];
+        }
+
+        $codes = [];
+        $code = strtoupper(trim((string) ($submitter->office_code ?? '')));
+        if ($code !== '') {
+            $codes[] = $code;
+        }
+
+        $oid = (int) ($submitter->id ?? 0);
+        if ($oid > 0) {
+            foreach (DcsNotificationService::officeCodesFromIds([$oid]) as $fromId) {
+                $codes[] = $fromId;
+            }
+        }
+
+        $rfio = strtoupper(trim((string) RegisterQueryHelper::rfioNotificationOfficeCode()));
+
+        return collect($codes)
+            ->map(fn ($c) => strtoupper(trim((string) $c)))
+            ->filter()
+            ->unique()
+            ->reject(fn ($c) => $rfio !== '' && strcasecmp($c, $rfio) === 0)
+            ->values()
+            ->all();
     }
 
     /**
@@ -1830,16 +2015,6 @@ class OfficeIntakeHelper
         $justification = trim((string) ($dcn->brief_purpose ?? ''));
         $changeFrom = trim((string) ($dcn->change_from ?? ''));
         $changeTo = trim((string) ($dcn->change_to ?? ''));
-        if ($changeFrom !== '' || $changeTo !== '') {
-            $extra = trim(
-                ($changeFrom !== '' ? "Change from:\n{$changeFrom}" : '')
-                . (($changeFrom !== '' && $changeTo !== '') ? "\n\n" : '')
-                . ($changeTo !== '' ? "Change to:\n{$changeTo}" : '')
-            );
-            $justification = $justification !== ''
-                ? $justification . "\n\n" . $extra
-                : $extra;
-        }
 
         $noticeDate = ! empty($dcn->dcn_date)
             ? \Carbon\Carbon::parse($dcn->dcn_date)->format('Y-m-d')
@@ -1852,6 +2027,8 @@ class OfficeIntakeHelper
             'checklistIds' => [2, 3, 4, 5],
             'documentNo' => $docNo,
             'documentTitle' => $docTitle,
+            // Justification = office intake "Justification of Change" only (brief_purpose).
+            // Do not seed from Detailed Description (change_from / change_to).
             'dcnJustification' => $justification,
             'noticeDate' => $noticeDate,
             'originatorName' => trim((string) ($dcn->originator_name ?? '')),
@@ -2107,11 +2284,11 @@ class OfficeIntakeHelper
         }
 
         $select = [
-            'ml.id',
-            'ml.doc_no',
-            'ml.revise_no',
-            'ml.doc_title',
-            'ml.effectivity_date',
+                'ml.id',
+                'ml.doc_no',
+                'ml.revise_no',
+                'ml.doc_title',
+                'ml.effectivity_date',
         ];
         if (Schema::hasColumn('dcs_masterlist_registration', 'no_pages')) {
             $select[] = 'ml.no_pages';

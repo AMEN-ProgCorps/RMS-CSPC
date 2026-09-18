@@ -70,11 +70,14 @@
 
     <section class="ofi-review-section">
         <h4 class="ofi-review-section-title">
-            Distribution
+            Distribute document to (department/position)
             <span class="ofi-total-offices" style="margin-left:8px;font-weight:600;text-transform:none;letter-spacing:0;">
                 total offices: <strong>{{ count($distributeOffices ?? []) }}</strong>
             </span>
         </h4>
+        <p class="ofi-review-hint" style="margin:0 0 10px;font-size:0.82rem;color:#64748b;line-height:1.4;">
+            All offices listed here are recipients for <strong>distribution</strong> of this document.
+        </p>
         @if(!empty($distributeOffices))
             <div class="ofi-review-chips">
                 @foreach($distributeOffices as $office)

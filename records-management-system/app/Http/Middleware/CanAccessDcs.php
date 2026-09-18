@@ -3,7 +3,9 @@
 namespace App\Http\Middleware;
 
 use Closure;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Livewire\Features\SupportRedirects\Redirector as LivewireRedirector;
 use Symfony\Component\HttpFoundation\Response;
 
 class CanAccessDcs
@@ -40,7 +42,7 @@ class CanAccessDcs
 
         \App\Helpers\RegisterPersistHelper::logDcsAccess($request);
 
-        return $next($request);
+        return $this->toResponse($next($request));
     }
 
     private function deny(Request $request, string $reason, string $message): Response
@@ -59,7 +61,20 @@ class CanAccessDcs
             abort($reason === 'unauthenticated' ? 401 : 403, $message);
         }
 
-        return redirect()->route('portal');
+        return new RedirectResponse(route('portal', absolute: false));
+    }
+
+    private function toResponse(mixed $response): Response
+    {
+        if ($response instanceof Response) {
+            return $response;
+        }
+
+        if ($response instanceof LivewireRedirector) {
+            return new RedirectResponse(route('dcs', absolute: false));
+        }
+
+        abort(500, 'Unexpected middleware response type.');
     }
 
     private function expectsJsonResponse(Request $request): bool

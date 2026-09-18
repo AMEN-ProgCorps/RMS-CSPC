@@ -9,6 +9,28 @@
         return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
     }
 
+    /** Same-origin http(s) only — blocks javascript:/data:/vbscript: open redirects. */
+    function safeSameOriginUrl(raw) {
+        const value = String(raw || '').trim();
+        if (!value) return null;
+        let parsed;
+        try {
+            parsed = new URL(value, window.location.origin);
+        } catch (_) {
+            return null;
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+        if (parsed.origin !== window.location.origin) return null;
+        return parsed.href;
+    }
+
+    function navigateSameOrigin(raw) {
+        const safe = safeSameOriginUrl(raw);
+        if (!safe) return false;
+        window.location.href = safe;
+        return true;
+    }
+
     function footerEls() {
         if (!root) {
             return {};
@@ -364,7 +386,7 @@
             );
         } catch (_) { /* ignore */ }
 
-        window.location.href = url;
+        navigateSameOrigin(url);
     }
 
     async function openModal(type, id) {

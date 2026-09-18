@@ -171,7 +171,17 @@
         formSubmitting = true;
         window.__regFormSubmitting = true;
         closeOverlay('regLeaveDraftModal');
-        if (url) window.location.href = url;
+        if (!url) return;
+        let safe;
+        try {
+            const parsed = new URL(String(url), window.location.origin);
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+            if (parsed.origin !== window.location.origin) return;
+            safe = parsed.href;
+        } catch (_) {
+            return;
+        }
+        window.location.href = safe;
     };
 
     window.saveDraftAndLeave = function () {
@@ -193,7 +203,16 @@
         if (anchor.dataset.skipDraftGuard === '1') return false;
 
         const href = anchor.getAttribute('href');
-        if (!href || href === '#' || href.startsWith('javascript:') || href.startsWith('mailto:') || href.startsWith('tel:')) {
+        const hrefNorm = href ? href.trim().toLowerCase() : '';
+        if (
+            !href ||
+            hrefNorm === '#' ||
+            hrefNorm.startsWith('javascript:') ||
+            hrefNorm.startsWith('data:') ||
+            hrefNorm.startsWith('vbscript:') ||
+            hrefNorm.startsWith('mailto:') ||
+            hrefNorm.startsWith('tel:')
+        ) {
             return false;
         }
 
@@ -203,6 +222,7 @@
         } catch (_) {
             return false;
         }
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
         if (url.origin !== window.location.origin) return false;
         if (url.pathname === window.location.pathname && url.search === window.location.search) return false;
         return true;

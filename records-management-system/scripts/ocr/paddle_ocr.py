@@ -372,7 +372,6 @@ def infer_layout_structure(lines: list[dict], words: list[dict]) -> dict:
         role_key = m.group(1).lower()
         label_box = _line_box(ln)
         # Collect nearby lines below/right for name + role (same column band).
-        cx = label_box["x"] + label_box["w"] * 0.15
         name_line = None
         role_line = None
         for j in range(i + 1, min(i + 6, len(body_lines))):

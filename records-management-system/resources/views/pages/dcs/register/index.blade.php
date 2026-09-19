@@ -14,7 +14,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     }
 }; ?>
 
-<main class="reg-container" id="dcsRegisterRoot" wire:ignore x-data="dcsRegisterPage()">
+<main class="reg-container" id="dcsRegisterRoot" wire:ignore
+    x-data="{
+        syllabiStep: 1,
+        reviewOpen: false,
+        setSyllabiStep(step) { this.syllabiStep = Number(step) === 2 ? 2 : 1; window.syllabiCurrentStep = this.syllabiStep; },
+        closeReview() {
+            if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
+            this.reviewOpen = false;
+            const el = document.getElementById('dcsRegisterRoot');
+            if (el) el.style.overflow = '';
+        },
+        addSyllabiRow() { if (typeof window.addSyllabiRow === 'function') window.addSyllabiRow(); },
+    }">
 
     <div class="reg-header">
         <div class="reg-header-text">
@@ -69,8 +81,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <span>Document Change Notice</span>
             </div>
             <div class="reg-card-body">
-                <div class="reg-field reg-revision-table">
+                <div class="reg-field reg-revision-table" id="revisionTableField">
                     <label>Documents for Revision</label>
+                    <div class="reg-revision-loading" id="revisionTableLoading" aria-live="polite" aria-busy="false">
+                        <div class="dcs-loading-spinner" aria-hidden="true"></div>
+                        <p class="reg-revision-loading-text">Loading document…</p>
+                        <p class="reg-revision-loading-sub">Fetching revision history</p>
+                    </div>
                     <div class="reg-table-wrap">
                         <table class="reg-table">
                             <thead>
@@ -827,25 +844,29 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 <script>
 window.__registerCatalog = @json($catalog);
 
-document.addEventListener('alpine:init', () => {
-    Alpine.data('dcsRegisterPage', () => ({
-        syllabiStep: 1,
-        reviewOpen: false,
-        setSyllabiStep(step) {
-            this.syllabiStep = step;
-            window.syllabiCurrentStep = step;
-        },
-        closeReview() {
-            if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
-            this.reviewOpen = false;
-            const el = document.getElementById('dcsRegisterRoot');
-            if (el) el.style.overflow = '';
-        },
-        addSyllabiRow() {
-            if (typeof window.addSyllabiRow === 'function') window.addSyllabiRow();
-        },
-    }));
-});
+/** Safe Alpine root state — Livewire can race ahead of Alpine init on ?type=new. */
+function getRegisterAlpineData(rootId) {
+    const root = document.getElementById(rootId || 'dcsRegisterRoot');
+    if (!root || !window.Alpine || typeof Alpine.$data !== 'function') return null;
+    try {
+        const data = Alpine.$data(root);
+        return data != null && typeof data === 'object' ? data : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function setRegisterAlpineProp(key, value, rootId) {
+    const data = getRegisterAlpineData(rootId);
+    if (!data) return false;
+    try {
+        data[key] = value;
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
 let allOffices = [];
 let allDocTypes = [];
 let allOriginators = [];
@@ -2863,6 +2884,10 @@ window.pickRevisionDocument = async function (key, idx) {
 
     closeRevSearchDropdown(key);
 
+    // Immediate feedback so the pick doesn't look empty while history loads.
+    populateRevisionRowFromDoc(row, doc);
+    setRevisionTableLoading(true);
+
     let revisions = [];
     try {
         if (doc.request_id) {
@@ -2873,6 +2898,8 @@ window.pickRevisionDocument = async function (key, idx) {
         }
     } catch (e) {
         console.error('Failed to load document revisions:', e);
+    } finally {
+        // Keep loading through fill + masterlist bridge below.
     }
 
     if (!Array.isArray(revisions) || revisions.length === 0) {
@@ -2881,12 +2908,24 @@ window.pickRevisionDocument = async function (key, idx) {
 
     const pickedNo = String(doc.doc_no || '').trim().toLowerCase();
 
-    await fillRevisionTableWithDocumentHistory(row, revisions, { docNo: pickedNo });
+    try {
+        await fillRevisionTableWithDocumentHistory(row, revisions, { docNo: pickedNo });
 
-    if (isRevisedMode() && doc.doc_no) {
-        await bridgeDcnPickToMasterlist(doc.doc_no);
+        if (isRevisedMode() && doc.doc_no) {
+            await bridgeDcnPickToMasterlist(doc.doc_no);
+        }
+    } finally {
+        setRevisionTableLoading(false);
     }
 };
+
+function setRevisionTableLoading(on) {
+    const field = document.getElementById('revisionTableField')
+        || document.querySelector('#section-2 .reg-revision-table');
+    const overlay = document.getElementById('revisionTableLoading');
+    if (field) field.classList.toggle('is-loading', !!on);
+    if (overlay) overlay.setAttribute('aria-busy', on ? 'true' : 'false');
+}
 
 async function bridgeDcnPickToMasterlist(docNo, options = {}) {
     const hintEl = document.getElementById('docNoHint');
@@ -3829,10 +3868,12 @@ function triggerScanExtraction(input, file) {
                 }
             }
 
+            if (data.diagnostics) {
+                console.warn('[DRF OCR diagnostics]', data.diagnostics);
+            }
             showOcrSoftHint(
                 container,
-                data.message
-                    || 'Could not auto-fill DRF fields from this scan. Upload kept — fill them in manually.'
+                formatDrfOcrHint(data)
             );
         })
         .catch(err => {
@@ -4107,6 +4148,22 @@ function showOcrSoftHint(container, message) {
     hint.className = 'reg-ocr-hint';
     hint.innerHTML = '<i class="fa-solid fa-circle-info"></i> ' + escapeHtml(message);
     parent.appendChild(hint);
+}
+
+/** Prefer server message; append missing-tool hints from diagnostics (no SSH needed). */
+function formatDrfOcrHint(data) {
+    let msg = data?.message
+        || 'Could not auto-fill DRF fields from this scan. Upload kept — fill them in manually.';
+    const stack = data?.diagnostics?.stack;
+    if (!stack || typeof stack !== 'object') return msg;
+    const missing = [];
+    if (!stack.ghostscript) missing.push('Ghostscript');
+    if (!stack.pdftoppm) missing.push('pdftoppm');
+    if (!stack.imagick_ext) missing.push('Imagick');
+    if (missing.length) {
+        msg += ' Missing on server: ' + missing.join(', ') + '.';
+    }
+    return msg;
 }
 
 function resetUploadArea(container, icon, label, originalText) {
@@ -5780,8 +5837,9 @@ window.confirmSave = function () {
 
     const root = document.getElementById("dcsRegisterRoot");
     if (root) root.style.overflow = "hidden";
-    if (root && window.Alpine) {
-        Alpine.$data(root).reviewOpen = true;
+    if (!setRegisterAlpineProp('reviewOpen', true)) {
+        // Alpine still booting — retry briefly so the confirm modal can open.
+        [0, 30, 100].forEach((ms) => setTimeout(() => setRegisterAlpineProp('reviewOpen', true), ms));
     }
 };
 
@@ -6023,16 +6081,14 @@ function buildDistributionReview(reviewContent) {
 window.closeConfirmModal = function () {
     if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
     const root = document.getElementById("dcsRegisterRoot");
-    if (root && window.Alpine) {
-        Alpine.$data(root).reviewOpen = false;
-    }
+    setRegisterAlpineProp('reviewOpen', false);
     if (root) root.style.overflow = "";
 };
 
 document.addEventListener("keydown", function (e) {
     if (e.key !== "Escape") return;
-    const root = document.getElementById("dcsRegisterRoot");
-    if (root && window.Alpine && Alpine.$data(root).reviewOpen) closeConfirmModal();
+    const data = getRegisterAlpineData();
+    if (data?.reviewOpen) closeConfirmModal();
 });
 
 window.submitForm = function () {
@@ -6620,11 +6676,16 @@ function getSelectTextWithCode(id) {
 // SYLLABI WIZARD — STEP NAVIGATION
 // ══════════════════════════════════════════════
 function setSyllabiStep(step) {
+    step = Number(step) === 2 ? 2 : 1;
     syllabiCurrentStep = step;
-    const root = document.getElementById("dcsRegisterRoot");
-    if (root && window.Alpine) {
-        Alpine.$data(root).syllabiStep = step;
-    }
+    window.syllabiCurrentStep = step;
+    if (setRegisterAlpineProp('syllabiStep', step)) return;
+    // Quick-action ?type=new calls this before Alpine finishes binding the root.
+    const retry = () => setRegisterAlpineProp('syllabiStep', step);
+    document.addEventListener('alpine:initialized', retry, { once: true });
+    queueMicrotask(retry);
+    setTimeout(retry, 0);
+    setTimeout(retry, 50);
 }
 
 window.syllabiStepNext = function () {

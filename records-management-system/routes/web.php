@@ -354,7 +354,10 @@ Route::middleware(['auth'])
 
                 // Same visibility rules as the notification dropdown (limited DCS + registered intake).
                 $systemUnread = \App\Helpers\RegisterQueryHelper::filterBellNotifications(
-                    $systemUnreadQuery->select("{$notifContentTbl}.redirect_url")->get()
+                    $systemUnreadQuery->select(
+                        "{$notifContentTbl}.redirect_url",
+                        "{$notifContentTbl}.content"
+                    )->get()
                 )->count();
             }
         } catch (\Throwable $e) {

@@ -451,7 +451,12 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                             @if($canCompare)
                                 @php $scanStatus = $pair['scan_status'] ?? 'none'; @endphp
                                 <div class="drr-scan is-{{ $scanStatus }}">
-                                    <div class="drr-scan-label">{{ $olderLabel }}{{ $pair['left_scan']['name'] ? ' · ' . $pair['left_scan']['name'] : '' }}</div>
+                                    <div class="drr-scan-label">
+                                        <span class="drr-scan-role">{{ $olderLabel }}</span>
+                                        @if(!empty($pair['left_scan']['name']))
+                                            <span class="drr-scan-file" title="{{ $pair['left_scan']['name'] }}">{{ $pair['left_scan']['name'] }}</span>
+                                        @endif
+                                    </div>
                                     @if($pair['left_scan']['url'] && $pair['left_scan']['is_pdf'])
                                         <div class="drr-pdf-stage" data-review-side="left" wire:ignore></div>
                                         <p class="drr-pdf-note" data-review-note="left"></p>
@@ -464,7 +469,12 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                                 </div>
 
                                 <div class="drr-scan is-{{ $scanStatus }}">
-                                    <div class="drr-scan-label">{{ $newerLabel }}{{ $pair['right_scan']['name'] ? ' · ' . $pair['right_scan']['name'] : '' }}</div>
+                                    <div class="drr-scan-label">
+                                        <span class="drr-scan-role">{{ $newerLabel }}</span>
+                                        @if(!empty($pair['right_scan']['name']))
+                                            <span class="drr-scan-file" title="{{ $pair['right_scan']['name'] }}">{{ $pair['right_scan']['name'] }}</span>
+                                        @endif
+                                    </div>
                                     @if($pair['right_scan']['url'] && $pair['right_scan']['is_pdf'])
                                         <div class="drr-pdf-stage" data-review-side="right" wire:ignore></div>
                                         <p class="drr-pdf-note" data-review-note="right"></p>
@@ -482,7 +492,12 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                                     $viewLabel = !empty($pair['right_scan']['url']) ? $newerLabel : $olderLabel;
                                 @endphp
                                 <div class="drr-scan is-same">
-                                    <div class="drr-scan-label">{{ $viewLabel }}{{ ($viewScan['name'] ?? null) ? ' · ' . $viewScan['name'] : '' }}</div>
+                                    <div class="drr-scan-label">
+                                        <span class="drr-scan-role">{{ $viewLabel }}</span>
+                                        @if(!empty($viewScan['name']))
+                                            <span class="drr-scan-file" title="{{ $viewScan['name'] }}">{{ $viewScan['name'] }}</span>
+                                        @endif
+                                    </div>
                                     @if(!empty($viewScan['url']) && !empty($viewScan['is_pdf']))
                                         <div class="drr-pdf-stage" data-review-side="right" wire:ignore></div>
                                         <p class="drr-pdf-note" data-review-note="right"></p>
@@ -526,12 +541,16 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
             </div>
             <div class="drr-scans" id="drr-adhoc-pdf-compare">
                 <div class="drr-scan is-changed">
-                    <div class="drr-scan-label" id="drrAdhocLeftLabel">Older / original</div>
+                    <div class="drr-scan-label" id="drrAdhocLeftLabel">
+                        <span class="drr-scan-role">Older / original</span>
+                    </div>
                     <div class="drr-pdf-stage" data-review-side="left"></div>
                     <p class="drr-pdf-note" data-review-note="left"></p>
                 </div>
                 <div class="drr-scan is-changed">
-                    <div class="drr-scan-label" id="drrAdhocRightLabel">Newer / revised</div>
+                    <div class="drr-scan-label" id="drrAdhocRightLabel">
+                        <span class="drr-scan-role">Newer / revised</span>
+                    </div>
                     <div class="drr-pdf-stage" data-review-side="right"></div>
                     <p class="drr-pdf-note" data-review-note="right"></p>
                 </div>

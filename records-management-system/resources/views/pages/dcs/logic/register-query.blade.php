@@ -268,7 +268,8 @@ class RegisterQueryHelper
     }
 
     /**
-     * Inventory scope bypass: super admin, RFIO office, or dcs_view_all_documents.
+     * Inventory / campus-wide DCS scope: super admin, or Access DCS + View All.
+     * RFIO/RFOIU office alone does not grant this — default roles stay office-intake only.
      */
     public static function canViewAllDocuments(): bool
     {
@@ -283,7 +284,7 @@ class RegisterQueryHelper
             return false;
         }
 
-        return self::isRfioOffice() || !empty($perms->dcs_view_all_documents);
+        return !empty($perms->dcs_view_all_documents);
     }
 
     public static function currentOfficeCode(): ?string
@@ -360,11 +361,12 @@ class RegisterQueryHelper
     /**
      * Full DCS operator (not intake-only):
      * - super admin, or
-     * - can_access_dcs + RFIO office, or
      * - can_access_dcs + dcs_view_all_documents
      *
-     * Module flags alone do not grant full DCS. A non-RFIO office without View All
-     * stays office-intake only (even on an RFIO-named role such as RFOIU STAFFS).
+     * RFIO/RFOIU office membership alone does not grant full DCS. A default role with
+     * only Access DCS stays office DRF/DCN intake — even when the account is assigned
+     * to Records & Freedom of Information Unit. Grant View All (plus module clearances)
+     * on Document Controller / HEAD roles that should see register, search, database, etc.
      */
     public static function isFullDcsUser(): bool
     {
@@ -379,7 +381,7 @@ class RegisterQueryHelper
             return false;
         }
 
-        return self::isRfioOffice() || !empty($perms->dcs_view_all_documents);
+        return !empty($perms->dcs_view_all_documents);
     }
 
     /** Non-full DCS user with DCS access: DRF/DCN intake only. */
@@ -400,7 +402,7 @@ class RegisterQueryHelper
     }
 
     /**
-     * Per-module clearance. Requires full DCS (RFIO / View All / SADM) plus the module flag.
+     * Per-module clearance. Requires full DCS (View All / SADM) plus the module flag.
      * Super Admin bypasses module flags — except Recycle Bin (HEAD Admin of DCS),
      * which requires an explicit dcs_can_recycle_bin grant and is not Super Admin identity.
      */
@@ -437,17 +439,14 @@ class RegisterQueryHelper
     }
 
     /**
-     * Intake-only DCS users may see office DRF/DCN links (and plain /dcs).
-     * Full-module deep links (register, stamping, etc.) are excluded from their bell.
+     * Intake-only DCS users may see their own office DRF/DCN links (and plain /dcs).
+     * RFIO processing notices (/dcs/register/requests/…, /dcs/requests/…) stay
+     * Document Controller only — even when both roles share the RFOIU office.
      */
     public static function isAllowedNotificationForLimitedDcs(?string $redirectUrl): bool
     {
         $url = trim((string) $redirectUrl);
         if ($url === '' || $url === '/dcs' || $url === '/dcs/') {
-            return true;
-        }
-
-        if (OfficeIntakeHelper::parseIntakeNotificationUrl($url)) {
             return true;
         }
 
@@ -457,6 +456,39 @@ class RegisterQueryHelper
         }
 
         return false;
+    }
+
+    /**
+     * "Your DRF/DCN was registered" success notice for the submitting office only.
+     * Document Controllers in the same RFOIU office must not see these.
+     */
+    public static function isOfficeIntakeSubmitterSuccessNotice(?string $redirectUrl, ?string $content = null): bool
+    {
+        $url = trim((string) $redirectUrl);
+        if ($url !== '') {
+            $path = ltrim((string) (parse_url($url, PHP_URL_PATH) ?? $url), '/');
+            $query = parse_url($url, PHP_URL_QUERY);
+            $params = [];
+            if (is_string($query) && $query !== '') {
+                parse_str($query, $params);
+            }
+
+            if (
+                preg_match('#^dcs/office/(drf|dcn)/\d+#', $path)
+                && ! empty($params['registered'])
+            ) {
+                return true;
+            }
+        }
+
+        $content = trim((string) $content);
+        if ($content === '') {
+            return false;
+        }
+
+        return (str_starts_with($content, 'Your Document Request Form')
+                || str_starts_with($content, 'Your Document Change Notice'))
+            && str_contains($content, 'registered');
     }
 
     /**
@@ -473,6 +505,15 @@ class RegisterQueryHelper
         if (self::isLimitedDcsUser()) {
             $rows = $rows
                 ->filter(fn ($row) => self::isAllowedNotificationForLimitedDcs($row->redirect_url ?? null))
+                ->values();
+        } elseif (self::isFullDcsUser() || self::canBrowseAllOfficeIntake()) {
+            // Same RFOIU office receives both RFIO-queue and submitter-success notices.
+            // Full Document Controllers only keep the queue notices.
+            $rows = $rows
+                ->filter(fn ($row) => ! self::isOfficeIntakeSubmitterSuccessNotice(
+                    $row->redirect_url ?? null,
+                    $row->content ?? null
+                ))
                 ->values();
         }
 
@@ -1442,16 +1483,18 @@ class RegisterQueryHelper
                     continue;
                 }
 
-                $picked = count($candidates) === 1
-                    ? $candidates[0]
-                    : self::pickGapFillDocNo(
-                        $candidates,
-                        array_values($seen),
-                        $requestIds,
-                        $docTypeId,
-                        $subTypeId,
-                        $includeTrashed
-                    );
+                // Never absorb a lone same-type Rev N doc just because it is the only
+                // visible candidate (e.g. New "CSC-23" Rev 0 under unrelated "CSPC-F-COL"
+                // Rev 1 when the real prior is a draft / out of scope). Require an actual
+                // revised_from or DCN/predecessor lineage link.
+                $picked = self::pickGapFillDocNo(
+                    $candidates,
+                    array_values($seen),
+                    $requestIds,
+                    $docTypeId,
+                    $subTypeId,
+                    $includeTrashed
+                );
 
                 if ($picked === null) {
                     continue;
@@ -1528,7 +1571,9 @@ class RegisterQueryHelper
             return $predecessors[0];
         }
 
-        return count($candidates) === 1 ? $candidates[0] : null;
+        // No revised_from / predecessor evidence — do not invent a family link.
+        // (A lone same-type Rev N doc is often an unrelated New registration.)
+        return null;
     }
 
     /**
@@ -5899,7 +5944,11 @@ class RegisterQueryHelper
             ? DB::table('dcs_doc_revision')->whereIn('dcn_id', $dcnIds)->orderBy('id')->get()->groupBy('dcn_id')
             : collect();
 
-        $dists = DB::table('dcs_document_distribution')->whereIn('request_id', $ids)->get()->keyBy('request_id');
+        $dists = DB::table('dcs_document_distribution')
+            ->whereIn('request_id', $ids)
+            ->orderBy('id')
+            ->get()
+            ->keyBy('request_id'); // last row per request = latest distribution
         $distIds = $dists->pluck('id')->all();
         $distOffices = $distIds
             ? DB::table('dcs_distribution_offices as dof')

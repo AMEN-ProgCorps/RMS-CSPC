@@ -2,23 +2,18 @@
 
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
-use Illuminate\Http\RedirectResponse;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Component {
-    public function mount(): ?RedirectResponse
+    public function mount(): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
 
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
-            return new RedirectResponse(
-                route('dcs.requests.index', ['filter' => 'drf'], absolute: false)
-            );
+            $this->redirect(route('dcs.requests.index', ['filter' => 'drf'], absolute: false));
         }
-
-        return null;
     }
 
     public function with(): array

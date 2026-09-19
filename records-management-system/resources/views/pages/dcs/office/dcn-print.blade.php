@@ -412,7 +412,7 @@
             font-weight: 400;
         }
 
-        /* Row 5 body: 0.18 × 9 = 1.62in */
+        /* Row 5 body: 0.18 × 9 = 1.62in — one centered line per approval */
         .r5-body { height: 1.62in; padding: 0; }
         .approvals-body {
             width: 100%;
@@ -423,15 +423,29 @@
         .approvals-body td {
             border: none;
             border-right: 1px solid #000;
-            height: 1.62in;
-            vertical-align: top;
-            padding: 0;
+            border-bottom: 1px solid #000;
+            height: 0.18in;
+            max-height: 0.18in;
+            vertical-align: middle;
+            text-align: center;
+            padding: 0 2px;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 10pt;
+            font-weight: 400;
+            line-height: 1.1;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
         }
         .approvals-body td:last-child { border-right: none; }
+        .approvals-body tr:last-child td { border-bottom: none; }
         .approvals-body col.c1 { width: 1.85in; }
         .approvals-body col.c2 { width: 2.25in; }
         .approvals-body col.c3 { width: 1.00in; }
         .approvals-body col.c4 { width: 1.29in; }
+        .approvals-body tr.appr-blank td {
+            height: 0.18in;
+        }
 
         /* Footer: line left 0.69 / right 0.72; bottom margin 0.46 */
         .footer-wrap {
@@ -506,21 +520,14 @@
     $departmentDate = \App\Helpers\OfficeIntakeHelper::departmentDateForPrint(
         trim((string) ($dcn->department_date ?? ''))
     );
-    $reviewedByDate = trim((string) ($dcn->reviewed_by_date ?? ''));
-    $reviewedByDate2 = trim((string) ($dcn->reviewed_by_date_2 ?? ''));
+    $printReviewers = \App\Helpers\OfficeIntakeHelper::loadDcnReviewers((int) $dcn->id, $dcn);
+    $reviewedByDate = trim((string) ($printReviewers[0]['label'] ?? ''));
+    $reviewedByDate2 = trim((string) ($printReviewers[1]['label'] ?? ''));
     if ($reviewedByDate === '') {
-        $n = trim((string) ($dcn->reviewed_by_name ?? ''));
-        $d = ! empty($dcn->reviewed_by_on)
-            ? \Carbon\Carbon::parse($dcn->reviewed_by_on)->format('M d, Y')
-            : '';
-        $reviewedByDate = ($n !== '' && $d !== '') ? ($n . ' / ' . $d) : ($n !== '' ? $n : $d);
+        $reviewedByDate = trim((string) ($dcn->reviewed_by_date ?? ''));
     }
     if ($reviewedByDate2 === '') {
-        $n2 = trim((string) ($dcn->reviewed_by_name_2 ?? ''));
-        $d2 = ! empty($dcn->reviewed_by_on_2)
-            ? \Carbon\Carbon::parse($dcn->reviewed_by_on_2)->format('M d, Y')
-            : '';
-        $reviewedByDate2 = ($n2 !== '' && $d2 !== '') ? ($n2 . ' / ' . $d2) : ($n2 !== '' ? $n2 : $d2);
+        $reviewedByDate2 = trim((string) ($dcn->reviewed_by_date_2 ?? ''));
     }
     $dcnNo = trim((string) ($dcn->dcn_no ?? ''));
 
@@ -722,19 +729,42 @@
             </td>
         </tr>
 
-        {{-- Row 5 body: 11 × 0.18 --}}
+        {{-- Row 5 body: up to 9 × 0.18in, text centered --}}
         <tr>
             <td class="r5-body">
+                @php
+                    $approvalRows = \App\Helpers\OfficeIntakeHelper::loadDcnApprovals((int) $dcn->id);
+                    $approvalSlots = 9;
+                    while (count($approvalRows) < $approvalSlots) {
+                        $approvalRows[] = ['position' => '', 'name' => '', 'date' => null];
+                    }
+                    $approvalRows = array_slice($approvalRows, 0, $approvalSlots);
+                @endphp
                 <table class="approvals-body">
                     <colgroup>
                         <col class="c1"><col class="c2"><col class="c3"><col class="c4">
                     </colgroup>
-                    <tr>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                    </tr>
+                    @foreach($approvalRows as $appr)
+                        @php
+                            $pos = trim((string) ($appr['position'] ?? ''));
+                            $nm = trim((string) ($appr['name'] ?? ''));
+                            $dt = '';
+                            if (! empty($appr['date'])) {
+                                try {
+                                    $dt = \Carbon\Carbon::parse($appr['date'])->format('M d, Y');
+                                } catch (\Throwable) {
+                                    $dt = (string) $appr['date'];
+                                }
+                            }
+                            $isBlank = $pos === '' && $nm === '' && $dt === '';
+                        @endphp
+                        <tr @class(['appr-blank' => $isBlank])>
+                            <td>{{ $pos }}</td>
+                            <td>{{ $nm }}</td>
+                            <td></td>
+                            <td>{{ $dt }}</td>
+                        </tr>
+                    @endforeach
                 </table>
             </td>
         </tr>

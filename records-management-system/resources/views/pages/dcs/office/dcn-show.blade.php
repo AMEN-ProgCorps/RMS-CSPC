@@ -2,7 +2,6 @@
 
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
-use Illuminate\Http\RedirectResponse;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -10,22 +9,20 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Component {
     public int $id;
 
-    public function mount($id): ?RedirectResponse
+    public function mount($id): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
         $this->id = (int) $id;
 
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
-            return new RedirectResponse(
-                route('dcs.requests.show', ['type' => 'dcn', 'id' => $this->id], absolute: false)
-            );
+            $this->redirect(route('dcs.requests.show', ['type' => 'dcn', 'id' => $this->id], absolute: false));
+
+            return;
         }
 
         $dcn = OfficeIntakeHelper::findOfficeDcn($this->id);
         abort_unless($dcn, 404);
         OfficeIntakeHelper::assertOwnsDcn($dcn);
-
-        return null;
     }
 
     public function with(): array
@@ -147,14 +144,53 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                                 <div class="ofi-show-value">{{ $departmentDateLabel ?: '—' }}</div>
                             </div>
                         </div>
+                        @php
+                            $reviewerRows = \App\Helpers\OfficeIntakeHelper::loadDcnReviewers((int) $dcn->id, $dcn);
+                        @endphp
+                        @foreach($reviewerRows as $i => $rev)
+                        <div class="reg-field">
+                            <label>Reviewed by / Date{{ count($reviewerRows) > 1 ? ' ('.($i + 1).')' : '' }}</label>
+                            <div class="ofi-show-value ofi-show-reviewed">{{ $rev['label'] !== '' ? $rev['label'] : '—' }}</div>
+                        </div>
+                        @endforeach
+                        @if($reviewerRows === [])
                         <div class="reg-field">
                             <label>Reviewed by / Date</label>
                             <div class="ofi-show-value ofi-show-reviewed">{{ $dcn->reviewed_by_date ?: '—' }}</div>
                         </div>
-                        @if(trim((string) ($dcn->reviewed_by_date_2 ?? '')) !== '')
-                        <div class="reg-field">
-                            <label>Reviewed by / Date (2nd)</label>
-                            <div class="ofi-show-value ofi-show-reviewed">{{ $dcn->reviewed_by_date_2 }}</div>
+                        @endif
+                        @php
+                            $approvalRows = \App\Helpers\OfficeIntakeHelper::loadDcnApprovals((int) $dcn->id);
+                        @endphp
+                        @if($approvalRows !== [])
+                        <div class="ofi-approvals ofi-approvals-readonly">
+                            <label class="ofi-dcn-section-label">Approvals</label>
+                            <div class="ofi-approvals-table-wrap">
+                                <table class="ofi-approvals-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Position</th>
+                                            <th>Name</th>
+                                            <th>Date</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($approvalRows as $appr)
+                                            <tr>
+                                                <td>{{ $appr['position'] !== '' ? $appr['position'] : '—' }}</td>
+                                                <td>{{ $appr['name'] !== '' ? $appr['name'] : '—' }}</td>
+                                                <td>
+                                                    @if(!empty($appr['date']))
+                                                        {{ \Carbon\Carbon::parse($appr['date'])->format('M d, Y') }}
+                                                    @else
+                                                        —
+                                                    @endif
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                         @endif
                     </div>

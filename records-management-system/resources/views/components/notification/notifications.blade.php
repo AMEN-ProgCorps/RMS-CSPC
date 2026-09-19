@@ -175,9 +175,25 @@ new class extends Component {
             }
 
             // Limited intake users must never be sent to register/stamping/etc.
+            // Registered-success links (/dcs/office/...?registered=1) open the form show page.
             if (\App\Helpers\RegisterQueryHelper::isLimitedDcsUser()) {
                 $this->showDropdown = false;
                 $this->dispatch('close-notifications');
+
+                $path = ltrim((string) (parse_url((string) $notification->redirect_url, PHP_URL_PATH) ?? ''), '/');
+                if (preg_match('#^dcs/office/(drf|dcn)/(\d+)$#', $path, $matches)) {
+                    $this->redirect(
+                        route(
+                            $matches[1] === 'dcn' ? 'dcs.office.dcn.show' : 'dcs.office.drf.show',
+                            (int) $matches[2],
+                            absolute: false
+                        ),
+                        navigate: false
+                    );
+
+                    return;
+                }
+
                 $this->redirect(route('dcs.office.drf.index', absolute: false), navigate: true);
 
                 return;
@@ -305,9 +321,26 @@ new class extends Component {
 };
 ?>
 
-<div class="notif-wrapper" x-data="{ open: @entangle('showDropdown') }" @click.outside="open = false" @close-notifications.window="open = false">
+<div
+    class="notif-wrapper"
+    wire:poll.8s="loadNotifications"
+    x-data="{ open: @entangle('showDropdown') }"
+    @click.outside="open = false"
+    @close-notifications.window="open = false"
+>
     <!-- Bell Button -->
-    <button class="notif-bell-btn" @click="open = !open; if (open) { window.closeActionsDropdown ? window.closeActionsDropdown() : (typeof closeActionsDropdown !== 'undefined' ? closeActionsDropdown() : null); }" type="button" aria-label="Toggle notifications menu">
+    <button
+        class="notif-bell-btn"
+        @click="
+            open = !open;
+            if (open) {
+                $wire.loadNotifications();
+                window.closeActionsDropdown ? window.closeActionsDropdown() : (typeof closeActionsDropdown !== 'undefined' ? closeActionsDropdown() : null);
+            }
+        "
+        type="button"
+        aria-label="Toggle notifications menu"
+    >
         <svg class="notif-bell-svg" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
             <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>

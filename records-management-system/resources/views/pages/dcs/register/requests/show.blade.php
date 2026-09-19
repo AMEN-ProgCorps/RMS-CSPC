@@ -104,7 +104,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
             >
                 <div class="ofi-request-actions-head">
                     <h2>RFIO actions</h2>
-                    <p>Confirm receipt before registration. Return for correction if the office needs to fix the form.</p>
+                    <p>Confirm you have the signed hard copy before registration. Return for correction if the office needs to fix the form.</p>
                 </div>
 
                 <div class="ofi-request-step">
@@ -112,7 +112,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                     <div class="ofi-request-step-body">
                         <label class="ofi-receive-check">
                             <input type="checkbox" id="ofiRequestReceived" @checked($isReceived)>
-                            <span>I already received the document and reviewed that the inputted data are correct.</span>
+                            <span>I have received the signed printed form and verified that the data matches this submission.</span>
                         </label>
                         <p class="ofi-receive-meta" id="ofiRequestReceiveMeta" @if(! $isReceived) hidden @endif>
                             @if($isReceived)
@@ -157,7 +157,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                             <i class="fa-solid fa-arrow-right"></i>
                         </button>
                         @unless($canProceed)
-                            <p class="ofi-request-step-hint">Receive the document first to unlock this action.</p>
+                            <p class="ofi-request-step-hint">Confirm receipt of the signed form first to unlock registration.</p>
                         @endunless
                     </div>
                 </div>

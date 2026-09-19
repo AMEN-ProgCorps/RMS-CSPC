@@ -1042,7 +1042,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                             <span class="permission-toggle-desc">Clearance to utilize DCS functionality.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canAccessDcs">
+                                            <input type="checkbox" wire:model.live="canAccessDcs">
                                             <span class="slider"></span>
                                         </label>
                                     </div>
@@ -1348,7 +1348,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                     <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">View All DCS Documents</span>
-                                            <span class="permission-toggle-desc">Grants full DCS for non-RFIO offices (campus-wide). RFIO office users already get full DCS without this flag. Keep this OFF on RFOIU/RFIO staff roles so staff assigned to other offices stay on office DRF/DCN intake only. Requires Access DCS.</span>
+                                            <span class="permission-toggle-desc">Required for full DCS (dashboard search, register, database, etc.) for any office — including RFIO/RFOIU. Keep this OFF on default / intake-only roles so those users only get office DRF/DCN intake. Requires Access DCS.</span>
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="dcsViewAllDocuments" {{ !$canAccessDcs ? 'disabled' : '' }}>
@@ -1358,7 +1358,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                     <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">Register</span>
-                                            <span class="permission-toggle-desc">Create and edit document registrations. Only applies when the user is RFIO office, has View All, or is Super Admin.</span>
+                                            <span class="permission-toggle-desc">Create and edit document registrations. Requires View All DCS Documents (or Super Admin) plus this module flag.</span>
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="dcsCanRegister" {{ !$canAccessDcs ? 'disabled' : '' }}>

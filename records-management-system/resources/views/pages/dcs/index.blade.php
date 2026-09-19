@@ -113,7 +113,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="ofi-dash-hero-copy">
                 <p class="ofi-dash-kicker">{{ $officeName }}</p>
                 <h1>Welcome{{ $userDisplayName !== '' ? ', ' . explode(' ', $userDisplayName)[0] : '' }}</h1>
-                <p>Create and print DRF/DCN forms for RFIO, and browse documents that list your office as Source Unit.</p>
+                <p>Create and print DRF/DCN forms for RFIO, and browse controlled documents for your office.</p>
             </div>
             <div class="ofi-dash-hero-meta" aria-live="polite">
                 <div class="ofi-dash-date">
@@ -163,7 +163,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <div class="ofi-dash-stat-body">
                     <span class="ofi-dash-stat-label">Office Documents</span>
                     <strong class="ofi-dash-stat-value">{{ (int) $officeDocTotal }}</strong>
-                    <span class="ofi-dash-stat-hint">Listed with your office as Source Unit</span>
+                    <span class="ofi-dash-stat-hint">Distributed to you, or Source Unit for Forms/Logbooks</span>
                 </div>
             </a>
         </section>

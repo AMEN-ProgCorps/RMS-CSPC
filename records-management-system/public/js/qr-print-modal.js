@@ -394,8 +394,11 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+window._isQrViewModalOpen = false;
+
 window.openQrViewModal = function(qrCode) {
     window.currentQrCodeValue = qrCode || '';
+    window._isQrViewModalOpen = true;
     var modal = document.getElementById('dts-qr-view-modal');
     var img = document.getElementById('dts-qr-image');
     var loading = document.getElementById('dts-qr-loading');
@@ -404,22 +407,46 @@ window.openQrViewModal = function(qrCode) {
     if (!modal || !img || !loading || !text) return;
 
     text.innerText = qrCode;
-    img.style.display = 'none';
-    loading.style.display = 'block';
     modal.style.display = 'flex';
 
     // Base64 encode the QR Code string
     var qrData = btoa(qrCode);
     var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(qrData);
 
-    img.src = qrUrl;
+    // If this image was already loaded for this QR code, show immediately
+    if (img.getAttribute('data-loaded-qr') === qrCode && img.naturalWidth > 0) {
+        loading.style.display = 'none';
+        img.style.display = 'block';
+        return;
+    }
+
+    img.style.display = 'none';
+    loading.innerText = 'Generating...';
+    loading.style.cursor = 'default';
+    loading.onclick = null;
+    loading.style.display = 'block';
+
     img.onload = function() {
+        img.setAttribute('data-loaded-qr', qrCode);
         loading.style.display = 'none';
         img.style.display = 'block';
     };
+
+    img.onerror = function() {
+        loading.innerText = 'Failed to load QR image. Click to retry.';
+        loading.style.cursor = 'pointer';
+        loading.onclick = function() {
+            loading.innerText = 'Generating...';
+            loading.style.cursor = 'default';
+            img.src = qrUrl + '&_r=' + Date.now();
+        };
+    };
+
+    img.src = qrUrl;
 };
 
 window.closeQrViewModal = function() {
+    window._isQrViewModalOpen = false;
     var modal = document.getElementById('dts-qr-view-modal');
     if (modal) {
         modal.style.display = 'none';
@@ -453,4 +480,27 @@ window.printQrCodeFromModal = function() {
 function openQrViewModal(qrCode) { return window.openQrViewModal(qrCode); }
 function closeQrViewModal() { return window.closeQrViewModal(); }
 function printQrCodeFromModal() { return window.printQrCodeFromModal(); }
+
+// Keep modal open across Livewire morph/refresh cycles
+if (typeof document !== 'undefined') {
+    var maintainModalState = function() {
+        if (window._isQrViewModalOpen && window.currentQrCodeValue) {
+            var modal = document.getElementById('dts-qr-view-modal');
+            if (modal && modal.style.display !== 'flex') {
+                modal.style.display = 'flex';
+            }
+        }
+    };
+
+    document.addEventListener('livewire:initialized', function() {
+        if (typeof Livewire !== 'undefined' && Livewire.hook) {
+            Livewire.hook('morph.updated', function() {
+                maintainModalState();
+            });
+            Livewire.hook('commit', function() {
+                maintainModalState();
+            });
+        }
+    });
+}
 

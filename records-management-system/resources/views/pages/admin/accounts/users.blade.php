@@ -804,14 +804,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
 
         @if($viewMode === 'table')
             <!-- Table Layout View -->
-            <div style="overflow-x: auto; max-height: calc(100vh - 280px); overflow-y: auto;">
-                <table style="width: 100%; border-collapse: collapse; font-family: 'Inter', sans-serif; font-size: 12.5px;">
+            <div class="users-table-container">
+                <table class="users-data-table">
                     <thead>
-                        <tr class="users-table-head-row" style="text-align: left; position: sticky; top: 0; z-index: 10; font-weight: 600; font-size: 11.5px;">
-                            <th style="padding: 8px 10px;">User Name</th>
-                            <th style="padding: 8px 10px;">Email (Google Account)</th>
-                            <th style="padding: 8px 10px;">Assigned Role</th>
-                            <th style="padding: 8px 10px; text-align: center;">Status</th>
+                        <tr class="users-table-head-row">
+                            <th style="min-width: 180px;">User Name</th>
+                            <th style="min-width: 220px;">Email (Google Account)</th>
+                            <th style="min-width: 150px;">Assigned Role</th>
+                            <th style="width: 110px; text-align: center;">Status</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -824,26 +824,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                             @endphp
                             <tr class="user-tbl-row {{ $selectedUserId === $user->id ? 'selected-row' : '' }}" 
                                 wire:key="user-tbl-{{ $user->id }}" 
-                                wire:click="selectUser({{ $user->id }})"
-                                style="cursor: pointer; transition: background 0.12s ease;">
-                                <td class="user-name-cell" style="padding: 8px 10px; font-weight: 600;">{{ $displayName }}</td>
-                                <td class="user-email-cell" style="padding: 8px 10px;">{{ $userDet?->email ?: '—' }}</td>
-                                <td class="user-role-cell" style="padding: 8px 10px;">
-                                    <span style="padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600;">
+                                wire:click="selectUser({{ $user->id }})">
+                                <td class="user-name-cell">{{ $displayName }}</td>
+                                <td class="user-email-cell">{{ $userDet?->email ?: '—' }}</td>
+                                <td class="user-role-cell">
+                                    <span>
                                         {{ $roleKey?->key_name ?: 'User' }}
                                     </span>
                                 </td>
-                                <td style="padding: 8px 10px; text-align: center;">
+                                <td style="text-align: center;">
                                     @if($user->account_active)
-                                        <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">Active</span>
+                                        <span class="user-status-badge active">Active</span>
                                     @else
-                                        <span style="padding: 2px 8px; border-radius: 4px; font-size: 10.5px; font-weight: 600; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3);">Blocked</span>
+                                        <span class="user-status-badge blocked">Blocked</span>
                                     @endif
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="4" style="text-align: center; color: #94a3b8; padding: 20px;">No users found matching your search.</td>
+                                <td colspan="4" class="users-table-empty">No users found matching your search.</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -1148,22 +1147,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 </div>
 
                 @if($reqViewMode === 'table')
-                    <div class="users-table-container" style="margin-top: 12px; overflow-x: auto;">
-                        <table class="users-data-table" style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                    <div class="users-table-container">
+                        <table class="users-data-table">
                             <thead>
-                                <tr class="req-table-head-row" style="text-align: left;">
-                                    <th style="padding: 10px 12px;">Requestor Name</th>
-                                    <th style="padding: 10px 12px;">Position / Title</th>
-                                    <th style="padding: 10px 12px;">Office / Agency</th>
-                                    <th style="padding: 10px 12px;">Category</th>
-                                    <th style="padding: 10px 12px;">Status</th>
-                                    <th style="padding: 10px 12px; text-align: right;">Action</th>
+                                <tr class="req-table-head-row">
+                                    <th style="min-width: 180px;">Requestor Name</th>
+                                    <th style="min-width: 160px;">Position / Title</th>
+                                    <th style="min-width: 180px;">Office / Agency</th>
+                                    <th style="min-width: 120px;">Category</th>
+                                    <th style="width: 100px;">Status</th>
+                                    <th style="width: 120px; text-align: right;">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @forelse($requestors as $req)
-                                    <tr class="req-tbl-row {{ $selectedRequestorId === $req->id ? 'selected-row' : '' }}" wire:click="selectRequestorItem({{ $req->id }})" wire:key="req-tbl-{{ $req->id }}" style="cursor: pointer;">
-                                        <td class="user-name-cell" style="padding: 10px 12px; font-weight: 600;">
+                                    <tr class="req-tbl-row {{ $selectedRequestorId === $req->id ? 'selected-row' : '' }}" wire:click="selectRequestorItem({{ $req->id }})" wire:key="req-tbl-{{ $req->id }}">
+                                        <td class="user-name-cell">
                                             <div style="display: flex; align-items: center; gap: 8px;">
                                                 <div style="width: 28px; height: 28px; border-radius: 50%; background: #0284c7; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;">
                                                     <i class="fa-solid fa-user-pen"></i>
@@ -1171,23 +1170,23 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                                 <span>{{ $req->requestor_name }}</span>
                                             </div>
                                         </td>
-                                        <td class="req-pos-cell" style="padding: 10px 12px;">
+                                        <td class="req-pos-cell">
                                             {{ $req->requestor_position ?: '—' }}
                                         </td>
-                                        <td class="req-office-cell" style="padding: 10px 12px; font-weight: 500;">
+                                        <td class="req-office-cell" style="font-weight: 500;">
                                             {{ $req->office_display_name }} <span class="req-office-code" style="font-size: 11px;">({{ $req->office }})</span>
                                         </td>
-                                        <td style="padding: 10px 12px;">
+                                        <td>
                                             <span class="req-cat-badge req-cat-{{ strtolower($req->office_category) }}">
                                                 {{ $req->office_category }}
                                             </span>
                                         </td>
-                                        <td style="padding: 10px 12px;">
+                                        <td>
                                             <span class="badge {{ $req->is_active ? 'badge-active' : 'badge-inactive' }}">
                                                 {{ $req->is_active ? 'Active' : 'Inactive' }}
                                             </span>
                                         </td>
-                                        <td style="padding: 10px 12px; text-align: right;">
+                                        <td style="text-align: right;">
                                             <button type="button" class="btn-table-action" wire:click.stop="selectRequestorItem({{ $req->id }})">
                                                 <i class="fa-solid fa-pen-to-square"></i> Configure
                                             </button>
@@ -1195,7 +1194,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="6" style="padding: 24px; text-align: center; color: #94a3b8;">
+                                        <td colspan="6" class="users-table-empty">
                                             No requestor contacts found.
                                         </td>
                                     </tr>

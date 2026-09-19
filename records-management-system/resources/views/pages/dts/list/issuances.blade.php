@@ -2640,7 +2640,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
     @endif
 
     <!-- View QR Code Modal -->
-    <div id="dts-qr-view-modal" class="modal-backdrop" style="display: none; z-index: 1000000; align-items: center; justify-content: center;" onclick="closeQrViewModal()">
+    <div id="dts-qr-view-modal" class="modal-backdrop" wire:ignore wire:key="dts-qr-view-modal-issuances" style="display: none; z-index: 1000000; align-items: center; justify-content: center;" onclick="closeQrViewModal()">
         <div class="modal-content" style="max-width: 320px; padding: 24px; text-align: center; position: relative; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 14px;" onclick="event.stopPropagation()">
             <button type="button" class="modal-close-btn" style="position: absolute; top: 12px; right: 16px; font-size: 20px; border: none; background: transparent; cursor: pointer; color: #94a3b8;" onclick="closeQrViewModal()">&times;</button>
             <h3 style="margin: 0; font-family: Roboto, sans-serif; font-size: 16px; font-weight: 700; color: #043899; text-transform: uppercase;">QR Code Scan</h3>

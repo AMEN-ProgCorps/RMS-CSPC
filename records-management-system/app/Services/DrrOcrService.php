@@ -28,12 +28,13 @@ class DrrOcrService
         }
 
         $lockKey = 'dcs_ocr:user:' . (auth()->id() ?: ('ip:' . (request()->ip() ?: 'guest')));
-        $lock = \Illuminate\Support\Facades\Cache::lock($lockKey, 120);
-        if (! $lock->get()) {
+        $lock = \Illuminate\Support\Facades\Cache::lock($lockKey, 180);
+        // Wait for the previous OCR of this user to finish instead of failing pages.
+        if (! $lock->block(150)) {
             return [
                 'ok' => false,
                 'reason' => 'ocr_busy',
-                'message' => 'Another OCR request is still running for your account. Please wait and try again.',
+                'message' => 'OCR is still busy. Please wait a moment and try again.',
                 'pages' => [],
             ];
         }
@@ -174,32 +175,42 @@ class DrrOcrService
 
     private static function ocrOnePage(string $pdfPath, int $page): array
     {
-        $imagePath = Storage::disk('local')->path('temp/drr-ocr/' . uniqid('page_', true) . '.jpg');
-
-        try {
-            // Preserve fine print before PaddleOCR reads the revision page.
-            PdfPageRenderer::savePage($pdfPath, $imagePath, $page, 260);
-
-            return self::ocrImageFile($imagePath, $page);
-        } catch (\Throwable $e) {
-            Log::warning("DRR OCR page {$page} failed: " . $e->getMessage());
-
-            return [
-                'page' => $page,
-                'text' => '',
-                'words' => [],
-                'lines' => [],
-                'used_ocr' => true,
-                'ok' => false,
-                'error' => $e->getMessage(),
-                'engine' => 'paddleocr',
-                'geometry' => 'none',
-            ];
-        } finally {
-            if (is_file($imagePath)) {
-                @unlink($imagePath);
+        $errors = [];
+        foreach ([260, 200, 150] as $dpi) {
+            $imagePath = Storage::disk('local')->path('temp/drr-ocr/' . uniqid('page_', true) . '.jpg');
+            try {
+                PdfPageRenderer::savePage($pdfPath, $imagePath, $page, $dpi);
+                $row = self::ocrImageFile($imagePath, $page);
+                if (! empty($row['ok']) || trim((string) ($row['text'] ?? '')) !== '' || ! empty($row['words'])) {
+                    return $row;
+                }
+                $errors[] = "dpi {$dpi}: empty OCR";
+            } catch (\Throwable $e) {
+                $errors[] = "dpi {$dpi}: " . $e->getMessage();
+                Log::warning("DRR OCR page {$page} failed at {$dpi} DPI: " . $e->getMessage());
+            } finally {
+                if (is_file($imagePath)) {
+                    @unlink($imagePath);
+                }
             }
         }
+
+        return [
+            'page' => $page,
+            'text' => '',
+            'words' => [],
+            'lines' => [],
+            'blocks' => [],
+            'tables' => [],
+            'signatures' => [],
+            'footers' => [],
+            'figures' => [],
+            'used_ocr' => true,
+            'ok' => false,
+            'error' => implode(' | ', $errors) ?: 'OCR failed',
+            'engine' => 'paddleocr',
+            'geometry' => 'none',
+        ];
     }
 
     /**
@@ -235,11 +246,16 @@ class DrrOcrService
             'text' => $text,
             'words' => $words,
             'lines' => $lines,
+            'blocks' => is_array($result['blocks'] ?? null) ? $result['blocks'] : [],
+            'tables' => is_array($result['tables'] ?? null) ? $result['tables'] : [],
+            'signatures' => is_array($result['signatures'] ?? null) ? $result['signatures'] : [],
+            'footers' => is_array($result['footers'] ?? null) ? $result['footers'] : [],
+            'figures' => is_array($result['figures'] ?? null) ? $result['figures'] : [],
             'image_w' => (int) ($result['image_w'] ?? $imgW) ?: $imgW,
             'image_h' => (int) ($result['image_h'] ?? $imgH) ?: $imgH,
             'used_ocr' => true,
             'ok' => $text !== '',
-            'engine' => 'paddleocr',
+            'engine' => (string) ($result['engine'] ?? 'paddleocr'),
             'geometry' => self::wordsHaveRealGeometry($words) ? 'ocr' : 'none',
         ];
     }

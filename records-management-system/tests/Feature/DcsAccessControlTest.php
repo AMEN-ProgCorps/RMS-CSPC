@@ -100,7 +100,7 @@ class DcsAccessControlTest extends TestCase
 
             $this->insertRole($this->limitedRoleId, 'DCS Limited Test', ['can_access_dcs' => true]);
             $this->insertRole($this->rfioRoleId, 'DCS RFIO Test', array_merge(
-                ['can_access_dcs' => true],
+                ['can_access_dcs' => true, 'dcs_view_all_documents' => true],
                 $this->moduleFlags(true)
             ));
             $this->insertRole($this->operatorRoleId, 'DCS Office Operator Test', array_merge(
@@ -415,7 +415,7 @@ class DcsAccessControlTest extends TestCase
             ->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
             ->get('/dcs/office/dcn');
 
-        $response->assertRedirect(route('dcs'));
+        $response->assertRedirect(route('dcs.requests.index', ['filter' => 'dcn']));
     }
 
     public function test_rfio_user_can_view_other_office_dcn_from_notification_link(): void
@@ -437,7 +437,7 @@ class DcsAccessControlTest extends TestCase
             ->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
             ->get('/dcs/office/dcn/' . $dcnId);
 
-        $response->assertRedirect('/dcs?intake=dcn&id=' . $dcnId);
+        $response->assertRedirect(route('dcs.requests.show', ['type' => 'dcn', 'id' => $dcnId]));
 
         $api = $this->actingAs(User::find($this->rfioUserId))
             ->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
@@ -477,10 +477,12 @@ class DcsAccessControlTest extends TestCase
         $this->assertTrue($limitedRows->contains(fn ($row) => $row->dcn_no === 'TEST-DCN-LIMITED-' . $this->limitedRoleId));
         $this->assertFalse($limitedRows->contains(fn ($row) => $row->dcn_no === 'TEST-DCN-RFIO-OWN-' . $this->limitedRoleId));
 
+        // Full DCS + review_intake can browse all office intakes (Request queue), not only own.
         $this->actingAs(User::find($this->rfioUserId));
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake());
         $rfioRows = \App\Helpers\OfficeIntakeHelper::listMyDcn();
         $this->assertTrue($rfioRows->contains(fn ($row) => $row->dcn_no === 'TEST-DCN-RFIO-OWN-' . $this->limitedRoleId));
-        $this->assertFalse($rfioRows->contains(fn ($row) => $row->dcn_no === 'TEST-DCN-LIMITED-' . $this->limitedRoleId));
+        $this->assertTrue($rfioRows->contains(fn ($row) => $row->dcn_no === 'TEST-DCN-LIMITED-' . $this->limitedRoleId));
     }
 
     public function test_office_scoped_operator_without_view_all_is_intake_only(): void
@@ -496,6 +498,48 @@ class DcsAccessControlTest extends TestCase
         $response = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
             ->get('/dcs/register');
         $response->assertRedirect(route('portal'));
+
+        $intake = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            ->get('/dcs/office/drf');
+        $intake->assertOk();
+    }
+
+    public function test_rfio_office_with_access_dcs_only_stays_intake_only(): void
+    {
+        $details = $this->conditionTable();
+        if (! Schema::hasColumn($details, 'dcs_view_all_documents')) {
+            $this->markTestSkipped('dcs_view_all_documents column is not migrated.');
+        }
+
+        // Mimic a default role: Access DCS on, View All and modules off — even in RFIO office.
+        DB::table($details)->where('key_id', $this->limitedRoleId)->update(array_merge(
+            ['can_access_dcs' => true, 'dcs_view_all_documents' => false],
+            $this->moduleFlags(false)
+        ));
+
+        $accountDetails = $this->detailsTable();
+        DB::table($accountDetails)->where('account_id', $this->limitedUserId)->update([
+            'office_id' => DB::table($this->officeTable())->where('office_code', 'RFIO')->value('id'),
+        ]);
+
+        $user = User::find($this->limitedUserId);
+        $user->unsetRelation('permissions');
+        $user->unsetRelation('details');
+        $this->actingAs($user);
+
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isRfioOffice());
+        $this->assertFalse(\App\Helpers\RegisterQueryHelper::isFullDcsUser());
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser());
+        $this->assertFalse(\App\Helpers\RegisterQueryHelper::canViewAllDocuments());
+
+        $dashboard = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            ->get('/dcs');
+        $dashboard->assertOk();
+        $dashboard->assertDontSee('Search Documents', false);
+
+        $search = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            ->getJson('/dcs/api/documents/search?q=test');
+        $search->assertForbidden();
 
         $intake = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
             ->get('/dcs/office/drf');
@@ -527,10 +571,22 @@ class DcsAccessControlTest extends TestCase
             'created_at' => now(),
         ]);
 
+        $rfioQueueContentId = DB::table($notifContent)->insertGetId([
+            'system' => $subsystemId,
+            'content' => 'New Document Request Form: Test was submitted and is ready for RFIO processing.',
+            'redirect_url' => '/dcs/register/requests/drf/1',
+            'created_at' => now(),
+        ]);
+        $rfioQueueNotifId = DB::table($notifTbl)->insertGetId([
+            'office' => $officeCode,
+            'contents' => $rfioQueueContentId,
+            'created_at' => now(),
+        ]);
+
         $intakeContentId = DB::table($notifContent)->insertGetId([
             'system' => $subsystemId,
-            'content' => 'Office DRF submitted for review.',
-            'redirect_url' => '/dcs/office/drf/1',
+            'content' => 'Your Document Request Form "Test" was registered as CSPC-EX-2026-1.',
+            'redirect_url' => '/dcs/office/drf/1?registered=1',
             'created_at' => now(),
         ]);
         $intakeNotifId = DB::table($notifTbl)->insertGetId([
@@ -546,7 +602,23 @@ class DcsAccessControlTest extends TestCase
 
         $ids = collect($component->get('notifications'))->pluck('id')->all();
         $this->assertNotContains($registerNotifId, $ids);
+        $this->assertNotContains($rfioQueueNotifId, $ids);
         $this->assertContains($intakeNotifId, $ids);
+
+        // Document Controllers must not see submitter-success notices (same office or otherwise).
+        $this->actingAs(User::find($this->rfioUserId));
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isFullDcsUser());
+
+        $success = (object) [
+            'redirect_url' => '/dcs/office/drf/1?registered=1',
+            'content' => 'Your Document Request Form "Test" was registered as CSPC-EX-2026-1.',
+        ];
+        $filtered = \App\Helpers\RegisterQueryHelper::filterBellNotifications(collect([$success]));
+        $this->assertCount(0, $filtered);
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isOfficeIntakeSubmitterSuccessNotice(
+            $success->redirect_url,
+            $success->content
+        ));
     }
 
     public function test_sadm_non_rfio_can_access_full_dcs(): void

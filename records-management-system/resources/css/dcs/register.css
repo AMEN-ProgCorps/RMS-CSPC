@@ -2910,18 +2910,18 @@ select.reg-field-locked:disabled {
 }
 
 .drr-compare-status-host {
-    margin: 0 0 10px;
+    margin: 0 0 12px;
 }
 
 .drr-compare-status,
 .reg-compare-status {
     margin: 0 0 8px;
-    padding: 8px 12px;
+    padding: 10px 14px;
     font-size: 0.82rem;
     color: #0369a1;
     background: #e0f2fe;
     border: 1px solid #bae6fd;
-    border-radius: 8px;
+    border-radius: 10px;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -2973,7 +2973,7 @@ select.reg-field-locked:disabled {
 .drr-compare-progress {
     flex: 1;
     min-width: 0;
-    height: 8px;
+    height: 10px;
     border-radius: 999px;
     background: rgba(15, 23, 42, 0.12);
     overflow: hidden;
@@ -2984,16 +2984,11 @@ select.reg-field-locked:disabled {
     width: 0;
     border-radius: inherit;
     background: linear-gradient(90deg, #0284c7, #003699);
-    transition: width 0.25s ease;
+    transition: width 0.35s ease;
 }
 
 .drr-compare-progress.is-complete .drr-compare-progress-fill {
     background: #16a34a;
-}
-
-.drr-compare-progress.is-indeterminate .drr-compare-progress-fill {
-    width: 35% !important;
-    animation: drr-progress-slide 1.1s ease-in-out infinite;
 }
 
 .drr-compare-progress-pct {
@@ -3002,13 +2997,8 @@ select.reg-field-locked:disabled {
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     color: inherit;
-    min-width: 2.5em;
+    min-width: 2.75em;
     text-align: right;
-}
-
-@keyframes drr-progress-slide {
-    0% { transform: translateX(-120%); }
-    100% { transform: translateX(320%); }
 }
 
 .drr-compare-spinner {
@@ -3033,7 +3023,7 @@ select.reg-field-locked:disabled {
 }
 
 .drr-compare-placeholder .drr-compare-progress-wrap {
-    width: min(220px, 80%);
+    width: min(280px, 85%);
     margin-top: 4px;
 }
 

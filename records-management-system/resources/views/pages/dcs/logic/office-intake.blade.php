@@ -489,15 +489,15 @@ class OfficeIntakeHelper
             ['drf_id' => $id, 'title' => $data['drfTitle']]
         );
 
-        if (! RegisterQueryHelper::isRfioOffice()) {
-            DcsNotificationService::notifyOfficeDrfSubmitted(
-                RegisterQueryHelper::rfioNotificationOfficeCode(),
-                RegisterQueryHelper::currentUserDisplayName(),
-                '',
-                $data['drfTitle'],
-                $id
-            );
-        }
+        // Always notify Document Controllers / RFIO review queue.
+        // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIO/RFOIU.
+        DcsNotificationService::notifyOfficeDrfSubmitted(
+            RegisterQueryHelper::rfioNotificationOfficeCode(),
+            RegisterQueryHelper::currentUserDisplayName(),
+            '',
+            $data['drfTitle'],
+            $id
+        );
 
         return redirect()
             ->route('dcs.office.drf.show', $id)
@@ -630,15 +630,15 @@ class OfficeIntakeHelper
             ['dcn_id' => $id, 'doc_no' => $docNo, 'title' => $docTitle]
         );
 
-        if (! RegisterQueryHelper::isRfioOffice()) {
-            DcsNotificationService::notifyOfficeDcnSubmitted(
-                RegisterQueryHelper::rfioNotificationOfficeCode(),
-                RegisterQueryHelper::currentUserDisplayName(),
-                '',
-                $docNo,
-                $id
-            );
-        }
+        // Always notify Document Controllers / RFIO review queue.
+        // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIO/RFOIU.
+        DcsNotificationService::notifyOfficeDcnSubmitted(
+            RegisterQueryHelper::rfioNotificationOfficeCode(),
+            RegisterQueryHelper::currentUserDisplayName(),
+            '',
+            $docNo,
+            $id
+        );
 
         return redirect()
             ->route('dcs.office.dcn.show', $id)
@@ -727,15 +727,15 @@ class OfficeIntakeHelper
 
         DcsNotificationService::dismissOfficeIntakeNotifications('drf', $id);
 
-        if (! RegisterQueryHelper::isRfioOffice()) {
-            DcsNotificationService::notifyOfficeIntakeResubmitted(
-                RegisterQueryHelper::rfioNotificationOfficeCode(),
-                RegisterQueryHelper::currentUserDisplayName(),
-                'drf',
-                $id,
-                (string) ($data['drfTitle'] ?? '')
-            );
-        }
+        // Always notify Document Controllers / RFIO review queue.
+        // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIO/RFOIU.
+        DcsNotificationService::notifyOfficeIntakeResubmitted(
+            RegisterQueryHelper::rfioNotificationOfficeCode(),
+            RegisterQueryHelper::currentUserDisplayName(),
+            'drf',
+            $id,
+            (string) ($data['drfTitle'] ?? '')
+        );
 
         return redirect()
             ->route('dcs.office.drf.show', $id)
@@ -849,15 +849,15 @@ class OfficeIntakeHelper
 
         DcsNotificationService::dismissOfficeIntakeNotifications('dcn', $id);
 
-        if (! RegisterQueryHelper::isRfioOffice()) {
-            DcsNotificationService::notifyOfficeIntakeResubmitted(
-                RegisterQueryHelper::rfioNotificationOfficeCode(),
-                RegisterQueryHelper::currentUserDisplayName(),
-                'dcn',
-                $id,
-                $docTitle !== '' ? $docTitle : $docNo
-            );
-        }
+        // Always notify Document Controllers / RFIO review queue.
+        // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIO/RFOIU.
+        DcsNotificationService::notifyOfficeIntakeResubmitted(
+            RegisterQueryHelper::rfioNotificationOfficeCode(),
+            RegisterQueryHelper::currentUserDisplayName(),
+            'dcn',
+            $id,
+            $docTitle !== '' ? $docTitle : $docNo
+        );
 
         return redirect()
             ->route('dcs.office.dcn.show', $id)
@@ -1706,7 +1706,7 @@ class OfficeIntakeHelper
         $formLabel = $type === 'dcn' ? 'Document Change Notice' : 'Document Request Form';
         $titlePart = $title !== '' ? " \"{$title}\"" : '';
         $docPart = $docNo !== '' ? " as {$docNo}" : '';
-        $message = "Your {$formLabel}{$titlePart} has been registered / controlled{$docPart} by RFIO.";
+        $message = "Your {$formLabel}{$titlePart} was registered{$docPart}.";
         $url = '/dcs/office/' . $type . '/' . $intakeId . '?registered=1';
 
         foreach ($submitterCodes as $officeCode) {
@@ -1750,13 +1750,12 @@ class OfficeIntakeHelper
             }
         }
 
-        $rfio = strtoupper(trim((string) RegisterQueryHelper::rfioNotificationOfficeCode()));
-
+        // Include RFIO/RFOIU when the submitter belongs there (limited intake staff).
+        // Other offices are unaffected — this list is only the creator's office.
         return collect($codes)
             ->map(fn ($c) => strtoupper(trim((string) $c)))
             ->filter()
             ->unique()
-            ->reject(fn ($c) => $rfio !== '' && strcasecmp($c, $rfio) === 0)
             ->values()
             ->all();
     }
@@ -2228,7 +2227,7 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Undo "I already received the document" so RFIO can return it for correction instead.
+     * Undo "I have received the signed printed form…" so RFIO can return it for correction instead.
      *
      * @return array<string, mixed>
      */
@@ -2456,6 +2455,29 @@ class OfficeIntakeHelper
         ];
     }
 
+    /**
+     * How an office sees documents in each parent type:
+     * - Internal / Internal Forms / External → Document Distribution recipients
+     * - Forms / Logbooks → Masterlist Source Unit
+     */
+    public static function documentGroupScope(string $groupKey): string
+    {
+        return in_array($groupKey, ['forms', 'logbooks'], true) ? 'source' : 'distribution';
+    }
+
+    /** @return list<string> */
+    public static function documentGroupKeysForScope(string $scope): array
+    {
+        $keys = [];
+        foreach (array_keys(self::documentGroupDefs()) as $key) {
+            if (self::documentGroupScope($key) === $scope) {
+                $keys[] = $key;
+            }
+        }
+
+        return $keys;
+    }
+
     public static function documentGroupLabel(string $groupKey): string
     {
         return self::documentGroupDefs()[$groupKey] ?? 'Documents';
@@ -2480,40 +2502,40 @@ class OfficeIntakeHelper
             ->all();
     }
 
-    /**
-     * Base masterlist query for the current office's registered documents.
-     * An office sees a document only when it is listed under that document's
-     * Document Distribution (office_id). Own office-intake submissions are
-     * excluded — Documents is for distributed copies received by the office.
-     * Latest revisions only.
-     */
-    protected static function officeMasterlistQuery(?int $officeId = null)
+    /** Restrict masterlist rows to offices listed on Document Distribution. */
+    protected static function applyOfficeDistributionScope($query, int $officeId)
     {
-        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
-        $query = DB::table('dcs_masterlist_registration as ml');
-
-        $hasDist = Schema::hasTable('dcs_document_distribution')
-            && Schema::hasTable('dcs_distribution_offices');
-
-        if (! $officeId || ! $hasDist) {
-            $query->whereRaw('1 = 0');
-
-            return $query;
-        }
-
-        // Strict: only this office_id on Document Distribution — no name fallback.
-        $query->whereExists(function ($q) use ($officeId) {
+        return $query->whereExists(function ($q) use ($officeId) {
             $q->select(DB::raw(1))
                 ->from('dcs_document_distribution as dist')
                 ->join('dcs_distribution_offices as doff', 'doff.distribution_id', '=', 'dist.id')
                 ->whereColumn('dist.request_id', 'ml.request_id')
-                ->where('doff.office_id', (int) $officeId)
+                ->where('doff.office_id', $officeId)
                 ->whereNotNull('doff.office_id');
         });
+    }
 
+    /** Restrict masterlist rows to offices listed as Source Unit. */
+    protected static function applyOfficeSourceScope($query, int $officeId)
+    {
+        return $query->whereExists(function ($q) use ($officeId) {
+            $q->select(DB::raw(1))
+                ->from('dcs_masterlist_source_offices as so')
+                ->whereColumn('so.masterlist_id', 'ml.id')
+                ->where('so.office_id', $officeId)
+                ->whereNotNull('so.office_id');
+        });
+    }
+
+    /**
+     * Hide documents this office itself submitted via office intake (DRF/DCN).
+     * Used for distribution-scoped groups only — Forms/Logbooks use Source Unit
+     * and may intentionally include the submitting office.
+     */
+    protected static function applyExcludeOwnOfficeIntake($query, int $officeId)
+    {
         $detailsTable = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
 
-        // Hide documents this office itself submitted via office intake (DRF/DCN).
         if (Schema::hasColumn('dcs_document_request_form', 'registered_request_id')) {
             $query->whereNotExists(function ($q) use ($officeId, $detailsTable) {
                 $q->select(DB::raw(1))
@@ -2521,7 +2543,7 @@ class OfficeIntakeHelper
                     ->join($detailsTable . ' as oi_ad', 'oi_ad.account_id', '=', 'oi_drf.created_by')
                     ->whereColumn('oi_drf.registered_request_id', 'ml.request_id')
                     ->where('oi_drf.is_office_intake', true)
-                    ->where('oi_ad.office_id', (int) $officeId)
+                    ->where('oi_ad.office_id', $officeId)
                     ->whereNotNull('oi_drf.registered_request_id');
             });
         }
@@ -2533,11 +2555,16 @@ class OfficeIntakeHelper
                     ->join($detailsTable . ' as oi_ad', 'oi_ad.account_id', '=', 'oi_dcn.created_by')
                     ->whereColumn('oi_dcn.registered_request_id', 'ml.request_id')
                     ->where('oi_dcn.is_office_intake', true)
-                    ->where('oi_ad.office_id', (int) $officeId)
+                    ->where('oi_ad.office_id', $officeId)
                     ->whereNotNull('oi_dcn.registered_request_id');
             });
         }
 
+        return $query;
+    }
+
+    protected static function applyOfficeInventoryCommonFilters($query)
+    {
         $query->whereExists(function ($q) {
             $q->select(DB::raw(1))
                 ->from('dcs_document_requests as dr')
@@ -2547,12 +2574,91 @@ class OfficeIntakeHelper
             RegisterQueryHelper::applyExcludeDrafts($q, 'dr');
         });
 
-        // Offices see the current controlled copy only (not obsolete priors).
         if (RegisterQueryHelper::supportsRevisionStatus()) {
             $query->where('ml.revision_status', 'latest');
         }
 
         return $query;
+    }
+
+    /**
+     * Base masterlist query for the current office's registered documents.
+     *
+     * @param  'distribution'|'source'|null  $scope  null = combined (All / total)
+     */
+    protected static function officeMasterlistQuery(?int $officeId = null, ?string $scope = 'distribution')
+    {
+        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
+        $query = DB::table('dcs_masterlist_registration as ml');
+
+        $hasDist = Schema::hasTable('dcs_document_distribution')
+            && Schema::hasTable('dcs_distribution_offices');
+        $hasSource = Schema::hasTable('dcs_masterlist_source_offices');
+
+        if (! $officeId) {
+            $query->whereRaw('1 = 0');
+
+            return $query;
+        }
+
+        $officeId = (int) $officeId;
+
+        if ($scope === 'distribution') {
+            if (! $hasDist) {
+                $query->whereRaw('1 = 0');
+
+                return $query;
+            }
+            self::applyOfficeDistributionScope($query, $officeId);
+            self::applyExcludeOwnOfficeIntake($query, $officeId);
+        } elseif ($scope === 'source') {
+            if (! $hasSource) {
+                $query->whereRaw('1 = 0');
+
+                return $query;
+            }
+            self::applyOfficeSourceScope($query, $officeId);
+        } else {
+            // Combined All view: distribution groups OR source-unit groups.
+            $query->where(function ($outer) use ($officeId, $hasDist, $hasSource) {
+                $hasAny = false;
+
+                if ($hasDist) {
+                    $hasAny = true;
+                    $outer->where(function ($q) use ($officeId) {
+                        self::applyOfficeDistributionScope($q, $officeId);
+                        self::applyExcludeOwnOfficeIntake($q, $officeId);
+                        $q->where(function ($types) {
+                            foreach (self::documentGroupKeysForScope('distribution') as $key) {
+                                $types->orWhere(function ($t) use ($key) {
+                                    self::applyMasterlistGroupFilter($t, $key);
+                                });
+                            }
+                        });
+                    });
+                }
+
+                if ($hasSource) {
+                    $method = $hasAny ? 'orWhere' : 'where';
+                    $outer->{$method}(function ($q) use ($officeId) {
+                        self::applyOfficeSourceScope($q, $officeId);
+                        $q->where(function ($types) {
+                            foreach (self::documentGroupKeysForScope('source') as $key) {
+                                $types->orWhere(function ($t) use ($key) {
+                                    self::applyMasterlistGroupFilter($t, $key);
+                                });
+                            }
+                        });
+                    });
+                }
+
+                if (! $hasAny && ! $hasSource) {
+                    $outer->whereRaw('1 = 0');
+                }
+            });
+        }
+
+        return self::applyOfficeInventoryCommonFilters($query);
     }
 
     /**
@@ -2595,7 +2701,7 @@ class OfficeIntakeHelper
     /** @return int */
     public static function officeDocumentTotal(?int $officeId = null): int
     {
-        return (int) self::officeMasterlistQuery($officeId)->count();
+        return (int) self::officeMasterlistQuery($officeId, null)->count();
     }
 
     /**
@@ -2608,7 +2714,11 @@ class OfficeIntakeHelper
     {
         $groups = [];
         foreach (self::documentGroupDefs() as $key => $label) {
-            $count = (int) self::applyMasterlistGroupFilter(self::officeMasterlistQuery($officeId), $key)->count();
+            $scope = self::documentGroupScope($key);
+            $count = (int) self::applyMasterlistGroupFilter(
+                self::officeMasterlistQuery($officeId, $scope),
+                $key
+            )->count();
             if ($onlyWithDocuments && $count < 1) {
                 continue;
             }
@@ -2632,12 +2742,16 @@ class OfficeIntakeHelper
             return [];
         }
 
-        $query = self::officeMasterlistQuery($officeId);
-        if ($groupKey !== '' && $groupKey !== 'all') {
+        if ($groupKey === '' || $groupKey === 'all') {
+            $query = self::officeMasterlistQuery($officeId, null);
+        } else {
             if (! isset(self::documentGroupDefs()[$groupKey])) {
                 return [];
             }
-            $query = self::applyMasterlistGroupFilter($query, $groupKey);
+            $query = self::applyMasterlistGroupFilter(
+                self::officeMasterlistQuery($officeId, self::documentGroupScope($groupKey)),
+                $groupKey
+            );
         }
 
         $select = [

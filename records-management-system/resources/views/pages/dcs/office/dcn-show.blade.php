@@ -2,7 +2,6 @@
 
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
-use Illuminate\Http\RedirectResponse;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -10,22 +9,20 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Component {
     public int $id;
 
-    public function mount($id): ?RedirectResponse
+    public function mount($id): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
         $this->id = (int) $id;
 
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
-            return new RedirectResponse(
-                route('dcs.requests.show', ['type' => 'dcn', 'id' => $this->id], absolute: false)
-            );
+            $this->redirect(route('dcs.requests.show', ['type' => 'dcn', 'id' => $this->id], absolute: false));
+
+            return;
         }
 
         $dcn = OfficeIntakeHelper::findOfficeDcn($this->id);
         abort_unless($dcn, 404);
         OfficeIntakeHelper::assertOwnsDcn($dcn);
-
-        return null;
     }
 
     public function with(): array

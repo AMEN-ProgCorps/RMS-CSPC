@@ -81,7 +81,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                         </label>
                         <div class="reg-cluster-chips" data-ofi-cluster-widget="distribute" aria-label="Select offices by cluster"></div>
                         <p class="ofi-hint">
-                            Search by office name or code — office <strong>code</strong> prints on the form.
+                            Search by office name or code — selected offices show their <strong>full name</strong> here.
                             If more than 24 offices are selected, the print form shows “Please see attached list of offices” and lists them on following pages.
                             Click the <i class="fa-solid fa-chevron-down ofi-hint-icon"></i> arrow to view or remove selected offices.
                         </p>
@@ -187,7 +187,7 @@ window.__ofiSourceConfigs = [
         officeFieldName: 'distributeToOffice[]',
         oldIds: window.__ofiOldDistribute,
         seedDefaultOffice: false,
-        labelFormat: 'code',
+        labelFormat: 'name',
     },
 ];
 </script>

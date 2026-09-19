@@ -2170,6 +2170,21 @@
     border-color: #1e293b !important;
 }
 
+[data-theme="dark"] .drr-scan-label {
+    background: #0f172a !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .drr-scan-role {
+    color: #93c5fd !important;
+    background: #172554 !important;
+    border-color: #1e3a8a !important;
+}
+
+[data-theme="dark"] .drr-scan-file {
+    color: #cbd5e1 !important;
+}
+
 [data-theme="dark"] .drr-adhoc-modal-head {
     background: #0f172a !important;
     border-color: #1e293b !important;

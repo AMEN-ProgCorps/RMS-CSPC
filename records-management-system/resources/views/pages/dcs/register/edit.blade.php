@@ -354,6 +354,10 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                 <i class="fa-solid fa-cloud-arrow-up"></i>
                                 <span>{{ $dcn && $dcn->scanned_dcn ? 'Replace file' : 'Choose scanned PDF' }}</span>
                             </label>
+                            <p class="reg-scan-name-preview" data-scan-preview="dcn">
+                                <strong>{{ $dcn && $dcn->scanned_dcn ? 'Replacement will be saved as' : 'Will be saved as' }}</strong>
+                                <code data-scan-preview-name>—</code>
+                            </p>
                         </div>
                         <div class="reg-field">
                             <label>Source Unit</label>
@@ -430,6 +434,10 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                             <i class="fa-solid fa-cloud-arrow-up"></i>
                             <span>{{ $drf && $drf->scanned_drf ? 'Replace file' : 'Choose scanned PDF' }}</span>
                         </label>
+                        <p class="reg-scan-name-preview" data-scan-preview="drf">
+                            <strong>{{ $drf && $drf->scanned_drf ? 'Replacement will be saved as' : 'Will be saved as' }}</strong>
+                            <code data-scan-preview-name>—</code>
+                        </p>
                     </div>
                 </div>
             </section>
@@ -626,6 +634,10 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                             <i class="fa-solid fa-cloud-arrow-up"></i>
                             <span>{{ $masterlist && $masterlist->scanned_masterlist ? 'Replace file' : 'Choose scanned PDF' }}</span>
                         </label>
+                        <p class="reg-scan-name-preview" data-scan-preview="masterlist">
+                            <strong>{{ $masterlist && $masterlist->scanned_masterlist ? 'Replacement / rename will be saved as' : 'Will be saved as' }}</strong>
+                            <code data-scan-preview-name>—</code>
+                        </p>
                     </div>
                 </div>
             </section>
@@ -673,6 +685,10 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                 <i class="fa-solid fa-cloud-arrow-up"></i>
                                 <span>{{ $retrieval && $retrieval->scanned_retrieval ? 'Replace file' : 'Choose scanned PDF' }}</span>
                             </label>
+                            <p class="reg-scan-name-preview" data-scan-preview="retrieval">
+                                <strong>{{ $retrieval && $retrieval->scanned_retrieval ? 'Replacement will be saved as' : 'Will be saved as' }}</strong>
+                                <code data-scan-preview-name>—</code>
+                            </p>
                         </div>
                     </div>
                     <div class="reg-split-right">
@@ -819,6 +835,10 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                 <i class="fa-solid fa-cloud-arrow-up"></i>
                                 <span>{{ $distribution && $distribution->scanned_distribution ? 'Replace file' : 'Choose scanned PDF' }}</span>
                             </label>
+                            <p class="reg-scan-name-preview" data-scan-preview="distribution">
+                                <strong>{{ $distribution && $distribution->scanned_distribution ? 'Replacement will be saved as' : 'Will be saved as' }}</strong>
+                                <code data-scan-preview-name>—</code>
+                            </p>
                         </div>
                     </div>
                     <div class="reg-split-right">
@@ -1028,6 +1048,7 @@ function setRegisterAlpineProp(key, value, rootId) {
 
 let allOffices = [];
 let allDocTypes = [];
+window.allDocTypes = allDocTypes;
 let allOriginators = [];
 let allFaculties = [];
 let syllabiGroupCounter = 0;
@@ -1596,8 +1617,10 @@ document.addEventListener("DOMContentLoaded", async function () {
 
         allOffices = Array.isArray(offices) ? offices : [];
         allDocTypes = Array.isArray(docTypes) ? docTypes : [];
+        window.allDocTypes = allDocTypes;
         allOriginators = Array.isArray(originators) ? originators : [];
         allFaculties = [];
+        window.DCSScanNamePreview?.update();
 
         const versionSelect = document.getElementById("versionType");
         while (versionSelect.options.length > 1) versionSelect.remove(1);
@@ -2416,6 +2439,7 @@ function applyRevisedDocumentContext(data, options = {}) {
         hint.style.color = '#16a34a';
         hint.dataset.valid = 'true';
     }
+    window.DCSScanNamePreview?.update();
 }
 
 /**
@@ -3739,6 +3763,7 @@ function autofillDrfFields(fields) {
             console.error('Source Unit autofill failed:', err);
         }
     }
+    window.DCSScanNamePreview?.update();
     return filled;
 }
 
@@ -6802,5 +6827,6 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 @include('pages.dcs.register.partials.dist-office-groups-script')
+@include('pages.dcs.register.partials.scan-name-preview')
 <script src="{{ asset('js/dcs/register-draft-guard.js') }}"></script>
 @endif

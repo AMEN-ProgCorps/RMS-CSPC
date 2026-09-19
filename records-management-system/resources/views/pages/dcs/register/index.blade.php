@@ -159,6 +159,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <i class="fa-solid fa-cloud-arrow-up"></i>
                             <span>Choose scanned PDF</span>
                         </label>
+                        <p class="reg-scan-name-preview" data-scan-preview="dcn">
+                            <strong>Will be saved as</strong>
+                            <code data-scan-preview-name>—</code>
+                        </p>
                     </div>
                     <div class="reg-field">
                         <label>Source Unit</label>
@@ -326,6 +330,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <i class="fa-solid fa-cloud-arrow-up"></i>
                         <span>Choose scanned PDF</span>
                     </label>
+                    <p class="reg-scan-name-preview" data-scan-preview="drf">
+                        <strong>Will be saved as</strong>
+                        <code data-scan-preview-name>—</code>
+                    </p>
                 </div>
             </div>
         </section>
@@ -518,6 +526,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <i class="fa-solid fa-cloud-arrow-up"></i>
                         <span>Choose scanned PDF</span>
                     </label>
+                    <p class="reg-scan-name-preview" data-scan-preview="masterlist">
+                        <strong>Will be saved as</strong>
+                        <code data-scan-preview-name>—</code>
+                    </p>
                     <div class="reg-upload-actions" id="compareRevisionWrap" style="display:none;margin-top:10px;">
                         <button type="button" id="btnCompareRevision" class="reg-btn reg-btn-save">
                             <i class="fa-solid fa-code-compare"></i> Compare Revisions (DRR)
@@ -563,6 +575,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <i class="fa-solid fa-cloud-arrow-up"></i>
                             <span>Choose scanned PDF</span>
                         </label>
+                        <p class="reg-scan-name-preview" data-scan-preview="retrieval">
+                            <strong>Will be saved as</strong>
+                            <code data-scan-preview-name>—</code>
+                        </p>
                     </div>
                 </div>
                 <div class="reg-split-right">
@@ -656,6 +672,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <i class="fa-solid fa-cloud-arrow-up"></i>
                             <span>Choose scanned PDF</span>
                         </label>
+                        <p class="reg-scan-name-preview" data-scan-preview="distribution">
+                            <strong>Will be saved as</strong>
+                            <code data-scan-preview-name>—</code>
+                        </p>
                     </div>
                 </div>
                 <div class="reg-split-right">
@@ -869,6 +889,7 @@ function setRegisterAlpineProp(key, value, rootId) {
 
 let allOffices = [];
 let allDocTypes = [];
+window.allDocTypes = allDocTypes;
 let allOriginators = [];
 let syllabiGroupCounter = 0;
 let syllabiCurrentStep = 1;
@@ -1323,10 +1344,12 @@ document.addEventListener("DOMContentLoaded", async function () {
 
         allOffices = Array.isArray(offices) ? offices : [];
         allDocTypes = Array.isArray(docTypes) ? docTypes : [];
+        window.allDocTypes = allDocTypes;
         allOriginators = Array.isArray(originators) ? originators : [];
         allFaculties = [];
         renderDistClusterChips();
         bindDistBodyDrag();
+        window.DCSScanNamePreview?.update();
 
         const versionSelect = document.getElementById("versionType");
         versionTypes.forEach(v => versionSelect.add(new Option(v.version_name, v.version_id)));
@@ -2137,6 +2160,7 @@ function applyRevisedDocumentContext(data, options = {}) {
     }
 
     document.getElementById('uploadScannedCopy')?.dispatchEvent(new Event('change'));
+    window.DCSScanNamePreview?.update();
 }
 
 /**
@@ -3921,6 +3945,7 @@ function autofillDrfFields(fields) {
             console.error('Source Unit autofill failed:', err);
         }
     }
+    window.DCSScanNamePreview?.update();
     return filled;
 }
 
@@ -4539,6 +4564,7 @@ function handleDocTypeChange() {
         maybeAutofillDocNo();
         restoreOfficeIntakePrefillIfNeeded();
     }
+    window.DCSScanNamePreview?.update();
 }
 
 function bindTableFileInput(fileInput) {
@@ -7847,4 +7873,5 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 @include('pages.dcs.register.partials.dist-office-groups-script')
+@include('pages.dcs.register.partials.scan-name-preview')
 <script src="{{ asset('js/dcs/register-draft-guard.js') }}"></script>

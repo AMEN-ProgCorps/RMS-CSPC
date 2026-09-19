@@ -155,6 +155,47 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
         return array_values($offices);
     }
 
+    private function validateTransactionFlow(string $originOfficeCode, ?string $clusterHead = null): ?string
+    {
+        $count = count($this->flow_offices);
+
+        if ($count <= 2) {
+            $officeText = $count === 1 ? '1 office' : "{$count} offices";
+            return "Incomplete transaction flow being only has {$officeText}, on which is insufficient to be a transaction.";
+        }
+
+        $starter = reset($this->flow_offices);
+        $final = end($this->flow_offices);
+
+        if ($starter !== 'ORIGIN' && $starter !== $originOfficeCode) {
+            return 'Incomplete transaction flow - The starter office must be the ORIGIN office.';
+        }
+
+        if ($final !== 'ORIGIN' && $final !== $originOfficeCode) {
+            return 'Incomplete transaction flow - The final office must also be the ORIGIN office.';
+        }
+
+        $intermediate = array_slice($this->flow_offices, 1, -1);
+        $hasIntermediate = collect($intermediate)->contains(function ($office) use ($originOfficeCode, $clusterHead) {
+            if (empty($office)) {
+                return false;
+            }
+            if ($office === 'ORIGIN' || $office === $originOfficeCode) {
+                return false;
+            }
+            if ($office === '[H]' && (empty($clusterHead) || $clusterHead === $originOfficeCode)) {
+                return false;
+            }
+            return true;
+        });
+
+        if (!$hasIntermediate) {
+            return 'Incomplete transaction flow - There must be an office or offices in between both ORIGIN offices.';
+        }
+
+        return null;
+    }
+
     // Flow Diagram modal states
     public bool $showFlowModal = false;
     public array $flow_offices = [];
@@ -750,8 +791,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             'cf_selected_offices' => 'nullable|array',
         ]);
 
-        if (count($this->flow_offices) === 0) {
-            $this->addError('transaction_flow', 'The transaction flow must contain at least one office.');
+        $originOfficeCode = $this->unit_college;
+        $originOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $originOfficeCode)->first();
+        $clusterHead = null;
+        if ($originOffice && $originOffice->cluster) {
+            $cluster = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster')->where('cluster_code', $originOffice->cluster)->first();
+            if ($cluster) {
+                $clusterHead = $cluster->cluster_head;
+            }
+        }
+
+        $flowError = $this->validateTransactionFlow($originOfficeCode, $clusterHead);
+        if ($flowError) {
+            $this->addError('transaction_flow', $flowError);
+            $this->toastMessage = $flowError;
             return;
         }
 
@@ -847,6 +900,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 if (empty($resolvedOffices) || end($resolvedOffices) !== $resolved) {
                     $resolvedOffices[] = $resolved;
                 }
+            }
+
+            if (count($resolvedOffices) <= 2) {
+                DB::rollBack();
+                $count = count($resolvedOffices);
+                $officeText = $count === 1 ? '1 office' : "{$count} offices";
+                $error = "Incomplete transaction flow being only has {$officeText}, on which is insufficient to be a transaction.";
+                $this->addError('transaction_flow', $error);
+                $this->toastMessage = $error;
+                return;
             }
 
             // Always copy custom flow

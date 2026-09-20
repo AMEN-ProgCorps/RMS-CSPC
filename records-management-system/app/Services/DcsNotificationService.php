@@ -34,10 +34,16 @@ class DcsNotificationService
      */
     public static function createNotification(string $officeCode, string $message, ?string $redirectUrl = null): bool
     {
-        $officeCode = strtoupper(trim($officeCode));
         $message = trim($message);
+        $canonical = static::resolveOfficeCode($officeCode);
 
-        if ($officeCode === '' || $message === '') {
+        if ($canonical === null || $message === '') {
+            if (trim($officeCode) !== '' && $message !== '') {
+                Log::warning('DcsNotificationService skipped: office_code not in office table', [
+                    'office' => trim($officeCode),
+                ]);
+            }
+
             return false;
         }
 
@@ -52,7 +58,7 @@ class DcsNotificationService
             ]);
 
             DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications')->insert([
-                'office'     => $officeCode,
+                'office'     => $canonical,
                 'contents'   => $contentId,
                 'created_at' => now(),
             ]);
@@ -63,6 +69,31 @@ class DcsNotificationService
 
             return false;
         }
+    }
+
+    /**
+     * Match office_code case-insensitively and return the exact DB value
+     * (Postgres FK is case-sensitive — "ACCOUNTING" ≠ "Accounting").
+     */
+    public static function resolveOfficeCode(?string $officeCode): ?string
+    {
+        $officeCode = trim((string) $officeCode);
+        if ($officeCode === '') {
+            return null;
+        }
+
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
+        $exact = DB::table($officeTbl)->where('office_code', $officeCode)->value('office_code');
+        if (is_string($exact) && $exact !== '') {
+            return $exact;
+        }
+
+        $ci = DB::table($officeTbl)
+            ->whereRaw('LOWER(office_code) = ?', [strtolower($officeCode)])
+            ->value('office_code');
+
+        return is_string($ci) && $ci !== '' ? $ci : null;
     }
 
     public static function notifyDocumentRegistered(
@@ -266,7 +297,7 @@ class DcsNotificationService
             ->whereNotNull('office_code')
             ->where('office_code', '!=', '')
             ->pluck('office_code')
-            ->map(fn ($code) => strtoupper(trim((string) $code)))
+            ->map(fn ($code) => trim((string) $code))
             ->filter()
             ->unique()
             ->values()

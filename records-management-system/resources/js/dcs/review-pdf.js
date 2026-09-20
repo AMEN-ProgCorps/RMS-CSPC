@@ -1,6 +1,22 @@
 import { runPdfCompare, buildCompareCacheKey } from './pdf-compare.js';
 import { hashFile, hashString } from './pdf-compare-cache.js';
 
+function setScanLabel(el, role, filename = '') {
+    if (!el) return;
+    el.replaceChildren();
+    const roleEl = document.createElement('span');
+    roleEl.className = 'drr-scan-role';
+    roleEl.textContent = role;
+    el.appendChild(roleEl);
+    if (filename) {
+        const fileEl = document.createElement('span');
+        fileEl.className = 'drr-scan-file';
+        fileEl.textContent = filename;
+        fileEl.title = filename;
+        el.appendChild(fileEl);
+    }
+}
+
 function stableUrlForHash(url) {
     try {
         const u = new URL(url, window.location.origin);
@@ -237,8 +253,8 @@ async function runAdhocCompare() {
 
     const leftLabel = document.getElementById('drrAdhocLeftLabel');
     const rightLabel = document.getElementById('drrAdhocRightLabel');
-    if (leftLabel) leftLabel.textContent = `Older / original · ${leftFile.name}`;
-    if (rightLabel) rightLabel.textContent = `Newer / revised · ${rightFile.name}`;
+    setScanLabel(leftLabel, 'Older / original', leftFile.name);
+    setScanLabel(rightLabel, 'Newer / revised', rightFile.name);
 
     openAdhocModal();
 

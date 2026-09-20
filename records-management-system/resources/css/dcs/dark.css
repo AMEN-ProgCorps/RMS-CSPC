@@ -1594,6 +1594,18 @@
     border-color: #1e293b !important;
 }
 
+[data-theme="dark"] .reg-revision-loading {
+    background: rgba(15, 23, 42, 0.92);
+}
+
+[data-theme="dark"] .reg-revision-loading-text {
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .reg-revision-loading-sub {
+    color: #94a3b8;
+}
+
 [data-theme="dark"] .reg-table thead {
     background: #1e3a5f !important;
 }
@@ -2156,6 +2168,21 @@
 [data-theme="dark"] .drr-adhoc-modal {
     background: #131c2e !important;
     border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .drr-scan-label {
+    background: #0f172a !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .drr-scan-role {
+    color: #93c5fd !important;
+    background: #172554 !important;
+    border-color: #1e3a8a !important;
+}
+
+[data-theme="dark"] .drr-scan-file {
+    color: #cbd5e1 !important;
 }
 
 [data-theme="dark"] .drr-adhoc-modal-head {

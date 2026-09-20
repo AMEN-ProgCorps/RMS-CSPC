@@ -2,7 +2,6 @@
 
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
-use Illuminate\Http\RedirectResponse;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
@@ -12,7 +11,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
     #[Url]
     public string $type = 'all';
 
-    public function mount(): ?RedirectResponse
+    public function mount(): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
 
@@ -22,15 +21,15 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                 'Office document lists are available to each office. RFIO can browse the full inventory in Database and Reports.'
             );
 
-            return new RedirectResponse(route('dcs', absolute: false));
+            $this->redirect(route('dcs', absolute: false));
+
+            return;
         }
 
         $keys = array_keys(OfficeIntakeHelper::documentGroupDefs());
         if ($this->type !== 'all' && ! in_array($this->type, $keys, true)) {
             $this->type = 'all';
         }
-
-        return null;
     }
 
     public function selectType(string $type): void
@@ -81,9 +80,11 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
             <div>
                 <h1>Office Documents</h1>
                 <p>
-                    Documents appear here only when RFIO distributes a controlled document
-                    to <strong>{{ $officeName }}</strong>. Forms your office submitted
-                    are not listed here.
+                    <strong>Internal</strong>, <strong>Internal Forms</strong>, and <strong>External</strong>
+                    appear when RFIO distributes a controlled document to
+                    <strong>{{ $officeName }}</strong>.
+                    <strong>Forms</strong> and <strong>Logbooks</strong> appear when your office
+                    is listed as the Source Unit.
                 </p>
             </div>
         </div>
@@ -130,7 +131,10 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                     <i class="fa-regular fa-folder-open" aria-hidden="true"></i>
                     @if($total < 1)
                         <strong>No documents yet</strong>
-                        <p>No controlled documents list your office in Document Distribution yet.</p>
+                        <p>
+                            No controlled documents list your office in Document Distribution yet,
+                            and no Forms/Logbooks list your office as Source Unit.
+                        </p>
                     @else
                         <strong>No {{ strtolower($activeLabel) }} documents</strong>
                         <p>

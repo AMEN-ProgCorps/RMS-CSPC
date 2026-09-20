@@ -747,8 +747,7 @@
         <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIO review</span>
     @else
         <p class="print-toolbar-tip">
-            Important: in the print dialog set <strong>Margins → None</strong>
-            (your screenshot still showed Default — that alone adds the top gap).
+            Important: in the print dialog set <strong>Margins → None.</strong>
             Keep paper <strong>Mexico Legal</strong>, and leave Headers and footers off.
         </p>
         @if($isReviewer)

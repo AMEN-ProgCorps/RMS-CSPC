@@ -27,7 +27,7 @@
 
             <label class="ofi-receive-check" data-ofi-receive-label>
                 <input type="checkbox" data-ofi-receive-check>
-                <span>I already received the document and reviewed the data's inputed are correct.</span>
+                <span>I have received the signed printed form and verified that the data matches this submission.</span>
             </label>
             <p class="ofi-receive-meta" data-ofi-receive-meta hidden></p>
 

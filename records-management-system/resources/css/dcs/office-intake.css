@@ -334,6 +334,74 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     background: #dbeafe;
     border-color: #3b82f6;
 }
+.ofi-approvals {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed #e2e8f0;
+}
+.ofi-approvals-head .ofi-dcn-section-label {
+    margin-bottom: 4px;
+}
+.ofi-approvals-hint {
+    margin: 0 0 4px;
+    font-size: 0.8rem;
+    color: #64748b;
+}
+.ofi-approvals-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.ofi-approval-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #f8fafc;
+    padding: 12px 14px;
+}
+.ofi-approval-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.ofi-approvals-readonly {
+    margin-top: 14px;
+}
+.ofi-approvals-table-wrap {
+    overflow-x: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+}
+.ofi-approvals-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+.ofi-approvals-table th,
+.ofi-approvals-table td {
+    padding: 10px 12px;
+    text-align: center;
+    vertical-align: middle;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 0.9rem;
+    word-break: break-word;
+}
+.ofi-approvals-table th {
+    background: #f1f5f9;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #475569;
+}
+.ofi-approvals-table tbody tr:last-child td {
+    border-bottom: none;
+}
 .ofi-show-reviewed {
     font-family: Arial, Helvetica, sans-serif;
     font-size: 11pt;

@@ -79,10 +79,12 @@ class RegisterScanService
 
             // 2) OCR raster pages when native text is missing or unparseable.
             $ocrError = null;
+            $ocrDiagnostics = null;
             if (! self::hasParsedValue($fields)) {
                 $ocr = self::ocrPdfPagesDetailed($fullPath);
                 $ocrText = $ocr['text'];
                 $ocrError = $ocr['error'];
+                $ocrDiagnostics = $ocr['diagnostics'] ?? null;
                 if (trim($ocrText) !== '') {
                     $rawText = trim($rawText) !== '' ? ($rawText . "\n" . $ocrText) : $ocrText;
                     $engine = $engine ? ($engine . '+paddle') : 'paddle';
@@ -96,8 +98,8 @@ class RegisterScanService
             if (! $ok) {
                 $message = match ($reason) {
                     'no_text' => $ocrError
-                        ? ('OCR failed on server: ' . Str::limit($ocrError, 180))
-                        : 'No readable text from this scan (check Ghostscript/PaddleOCR on the server).',
+                        ? ('OCR failed on server: ' . Str::limit($ocrError, 320))
+                        : 'No readable text from this scan (Ghostscript/pdftoppm/PaddleOCR may be missing on the server).',
                     'parse_miss' => 'Scan was read but DRF fields could not be matched — fill them in manually.',
                     default => 'Could not auto-read this scan. Upload kept — fill fields manually.',
                 };
@@ -107,6 +109,8 @@ class RegisterScanService
                 'extracted' => $ok,
                 'reason' => $reason,
                 'engine' => $engine,
+                'ocr_error' => $ocrError ? Str::limit($ocrError, 240) : null,
+                'stack' => $ocrDiagnostics['stack'] ?? null,
             ]);
 
             return [
@@ -116,6 +120,8 @@ class RegisterScanService
                 'message' => $message,
                 'fields' => $fields,
                 'raw_text_preview' => Str::limit($rawText, 500),
+                // Shown in UI / network tab so deploy can be diagnosed without SSH.
+                'diagnostics' => $ok ? null : $ocrDiagnostics,
             ];
         } catch (\Throwable $e) {
             Log::warning('OCR extraction failed: ' . $e->getMessage(), [
@@ -159,31 +165,86 @@ class RegisterScanService
     private static function extractPdfText(string $pdfPath): string
     {
         $bin = self::pdftotextBinary();
-        if ($bin === null) {
-            return '';
-        }
-
-        try {
-            $process = new Process([
-                $bin,
-                '-layout',
-                '-f', '1',
-                '-l', '2',
-                $pdfPath,
-                '-',
-            ]);
-            $process->setTimeout(30);
-            $process->run();
-            if (! $process->isSuccessful()) {
-                return '';
+        if ($bin !== null) {
+            foreach ([
+                ['-layout', '-f', '1', '-l', '2', $pdfPath, '-'],
+                ['-raw', '-f', '1', '-l', '2', $pdfPath, '-'],
+                ['-f', '1', '-l', '1', $pdfPath, '-'],
+            ] as $args) {
+                try {
+                    $process = new Process(array_merge([$bin], $args));
+                    $process->setTimeout(30);
+                    $process->run();
+                    if ($process->isSuccessful()) {
+                        $out = trim($process->getOutput());
+                        if ($out !== '') {
+                            return $out;
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    Log::info('pdftotext skipped: ' . $e->getMessage());
+                }
             }
+        }
 
-            return trim($process->getOutput());
-        } catch (\Throwable $e) {
-            Log::info('pdftotext skipped: ' . $e->getMessage());
+        // Deploy without poppler: pull plain literal strings from simple digital PDFs.
+        $fallback = self::extractPdfLiteralStrings($pdfPath);
+        if ($fallback !== '') {
+            Log::info('DRF used PDF literal-string text fallback (pdftotext missing or empty).');
 
+            return $fallback;
+        }
+
+        return '';
+    }
+
+    /**
+     * Best-effort text from uncompressed PDF string literals — enough for simple
+     * typed DRF test PDFs when pdftotext is unavailable on the server.
+     */
+    private static function extractPdfLiteralStrings(string $pdfPath): string
+    {
+        $bytes = @file_get_contents($pdfPath);
+        if ($bytes === false || $bytes === '' || strlen($bytes) > 8_000_000) {
             return '';
         }
+
+        // Skip obvious image-only / binary-heavy scans.
+        if (! str_contains($bytes, '/Type /Page') && ! str_contains($bytes, '/Type/Page')) {
+            return '';
+        }
+
+        if (! preg_match_all('/\((?:\\\\.|[^\\\\\\)]){1,300}\)/s', $bytes, $matches)) {
+            return '';
+        }
+
+        $parts = [];
+        foreach ($matches[0] as $raw) {
+            $s = substr($raw, 1, -1);
+            $s = str_replace(['\\n', '\\r', '\\t', '\\(', '\\)', '\\\\'], ["\n", "\r", "\t", '(', ')', '\\'], $s);
+            $s = preg_replace('/\\\\[0-7]{1,3}/', '', $s) ?? $s;
+            $s = trim($s);
+            if ($s === '' || strlen($s) < 2) {
+                continue;
+            }
+            // Drop font/encoding noise tokens.
+            if (preg_match('/^[A-Za-z]{1,3}\d+$/', $s)) {
+                continue;
+            }
+            $parts[] = $s;
+        }
+
+        if ($parts === []) {
+            return '';
+        }
+
+        $joined = implode("\n", $parts);
+        // Require at least one DRF-ish cue so random PDF metadata is not treated as form text.
+        if (! preg_match('/DRF|Document\s+Title|Date/i', $joined)) {
+            return '';
+        }
+
+        return trim($joined);
     }
 
     private static function pdftotextBinary(): ?string
@@ -211,50 +272,104 @@ class RegisterScanService
     }
 
     /**
-     * @return array{text: string, error: ?string}
+     * @return array{text: string, error: ?string, diagnostics: array<string, mixed>}
      */
     private static function ocrPdfPagesDetailed(string $pdfPath): array
     {
         $rawText = '';
-        $lastError = null;
-        $maxPages = 2;
+        $primaryError = null; // keep earliest real failure (never invent page-2 noise)
+        $pageErrors = [];
+        $stack = PdfPageRenderer::stackDiagnostics();
+        $pageCount = PdfPageRenderer::pageCount($pdfPath);
+
+        // CRITICAL: DRF scans are almost always 1 page. Only touch page 2 when we
+        // positively know the PDF has 2+ pages. Unknown count → page 1 only.
+        $maxPages = ($pageCount !== null && $pageCount >= 2) ? min(2, $pageCount) : 1;
+
+        Log::info('DRF OCR start', [
+            'page_count' => $pageCount,
+            'max_pages' => $maxPages,
+            'stack' => $stack,
+        ]);
+
         for ($page = 1; $page <= $maxPages; $page++) {
-            $imagePath = Storage::disk('local')->path('temp/scans/' . uniqid('ocr_', true) . '.jpg');
-            try {
-                // Slightly higher DPI helps form labels on deploy scans.
-                PdfPageRenderer::savePage($pdfPath, $imagePath, $page, 220);
-                $ocr = PaddleOcrRunner::recognize($imagePath);
-                $pageText = trim((string) ($ocr['text'] ?? ''));
-                if ($pageText === '') {
-                    if (! empty($ocr['error'])) {
-                        $lastError = (string) $ocr['error'];
-                        Log::warning('DRF OCR page empty: ' . $lastError);
-                    }
-                    if ($page === 1) {
-                        continue;
-                    }
-                    break;
-                }
-                $rawText .= ($rawText === '' ? '' : "\n") . $pageText;
+            $pageResult = self::ocrOneDrfPage($pdfPath, $page);
+            if ($pageResult['text'] !== '') {
+                $rawText .= ($rawText === '' ? '' : "\n") . $pageResult['text'];
                 $probe = self::parseDrfFields($rawText);
                 if (self::hasParsedValue($probe)) {
                     break;
                 }
-            } catch (\Throwable $pageError) {
-                $lastError = $pageError->getMessage();
-                Log::warning('DRF OCR page ' . $page . ' failed: ' . $lastError);
-                if ($page === 1) {
-                    continue;
+                continue;
+            }
+
+            if ($pageResult['error'] !== null) {
+                if (preg_match('/does not exist|requested page/i', $pageResult['error'])) {
+                    Log::info('DRF OCR stopping: page ' . $page . ' not in PDF');
+                    break;
                 }
-                break;
+                $pageErrors[] = "p{$page}: " . $pageResult['error'];
+                $primaryError ??= $pageResult['error'];
+                Log::warning('DRF OCR page ' . $page . ' failed: ' . $pageResult['error']);
+                // If page 1 cannot render, do not keep hunting other pages.
+                if ($page === 1) {
+                    break;
+                }
+            }
+        }
+
+        if ($rawText === '' && $primaryError === null) {
+            $primaryError = 'No text from OCR on page 1'
+                . ($pageCount !== null ? " (PDF reports {$pageCount} page(s))" : '')
+                . '.';
+        }
+
+        return [
+            'text' => $rawText,
+            'error' => $primaryError,
+            'diagnostics' => [
+                'page_count' => $pageCount,
+                'pages_attempted' => $maxPages,
+                'page_errors' => $pageErrors,
+                'stack' => $stack,
+            ],
+        ];
+    }
+
+    /**
+     * Render + OCR a single DRF page with DPI fallbacks.
+     *
+     * @return array{text: string, error: ?string}
+     */
+    private static function ocrOneDrfPage(string $pdfPath, int $page): array
+    {
+        $errors = [];
+        foreach ([220, 160, 120] as $dpi) {
+            $imagePath = Storage::disk('local')->path('temp/scans/' . uniqid('ocr_', true) . '.jpg');
+            try {
+                PdfPageRenderer::savePage($pdfPath, $imagePath, $page, $dpi);
+                $ocr = PaddleOcrRunner::recognize($imagePath);
+                $pageText = trim((string) ($ocr['text'] ?? ''));
+                if ($pageText !== '') {
+                    return ['text' => $pageText, 'error' => null];
+                }
+                $detail = ! empty($ocr['error'])
+                    ? (string) $ocr['error']
+                    : 'PaddleOCR returned empty text';
+                $errors[] = "dpi {$dpi}: {$detail}";
+            } catch (\Throwable $e) {
+                $errors[] = "dpi {$dpi}: " . $e->getMessage();
             } finally {
-                if (isset($imagePath) && file_exists($imagePath)) {
+                if (isset($imagePath) && is_file($imagePath)) {
                     @unlink($imagePath);
                 }
             }
         }
 
-        return ['text' => $rawText, 'error' => $lastError];
+        return [
+            'text' => '',
+            'error' => implode(' | ', $errors) ?: 'page OCR failed',
+        ];
     }
 
     private static function ocrPdfPages(string $pdfPath): string

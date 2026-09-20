@@ -74,6 +74,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->page = 1;
     }
 
+    /** Apply deferred filter panel values (shows loading overlay). */
+    public function applyFilters(): void
+    {
+        $this->page = 1;
+    }
+
     public function goToPage(int $page): void
     {
         $this->page = max(1, $page);
@@ -187,22 +193,58 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public function with(): array
     {
-        return array_merge($this->catalog(), [
+        $catalog = $this->catalog();
+
+        $receivedByOfficeName = '';
+        if ($this->receivedBy !== '') {
+            $match = collect($catalog['distributionOffices'] ?? [])
+                ->first(fn ($o) => (string) ($o->id ?? '') === (string) $this->receivedBy);
+            if ($match) {
+                $receivedByOfficeName = trim((string) ($match->office_name ?? ''));
+            } else {
+                $this->receivedBy = '';
+            }
+        }
+
+        return array_merge($catalog, [
             'list' => $this->listing(),
             'visibleGroups' => Auth::user()?->dcsDbVisibleGroups() ?? DcsDatabaseColumns::defaultVisibleGroups(),
             'groupColspans' => DcsDatabaseColumns::BUILTIN_COUNTS,
             'groupLabels' => DcsDatabaseColumns::GROUP_LABELS,
+            'receivedByOfficeName' => $receivedByOfficeName,
         ]);
     }
 
     private function catalog(): array
     {
+        $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $allOffices = \App\Helpers\RegisterQueryHelper::applySelectableOfficesFilter(
+            DB::table($officeTable)->where('is_active', true)
+        )->orderBy('office_name')->get();
+
+        $distributionOffices = collect();
+        if (Schema::hasTable('dcs_distribution_offices')) {
+            $distOfficeIds = DB::table('dcs_distribution_offices')
+                ->whereNotNull('office_id')
+                ->distinct()
+                ->pluck('office_id')
+                ->map(fn ($id) => (int) $id)
+                ->filter(fn ($id) => $id > 0)
+                ->values()
+                ->all();
+
+            if ($distOfficeIds !== []) {
+                $distributionOffices = \App\Helpers\RegisterQueryHelper::applySelectableOfficesFilter(
+                    DB::table($officeTable)->where('is_active', true)->whereIn('id', $distOfficeIds)
+                )->orderBy('office_name')->get();
+            }
+        }
+
         return [
             'docTypes' => DB::table('dcs_doc_types')->whereNull('parent_id')->get(),
             'subTypes' => DB::table('dcs_doc_types')->whereNotNull('parent_id')->orderBy('doc_type_name')->get(),
-            'offices' => \App\Helpers\RegisterQueryHelper::applySelectableOfficesFilter(
-                DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)
-            )->orderBy('office_name')->get(),
+            'offices' => $allOffices,
+            'distributionOffices' => $distributionOffices,
             'originators' => Schema::hasTable('dcs_originators')
                 ? DB::table('dcs_originators')->orderBy('originator_name')->get()
                 : collect(),
@@ -271,14 +313,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             }
 
             if ($this->receivedBy !== '') {
-                $officeId = $this->receivedBy;
-                $query->whereExists(function ($q) use ($officeId) {
-                    $q->select(DB::raw(1))
-                        ->from('dcs_document_distribution as dist')
-                        ->join('dcs_distribution_offices as dof', 'dof.distribution_id', '=', 'dist.id')
-                        ->whereColumn('dist.request_id', 'dr.id')
-                        ->where('dof.office_id', $officeId);
-                });
+                $officeId = (int) $this->receivedBy;
+                if ($officeId > 0) {
+                    // Match the same (latest) distribution record shown in the inventory row.
+                    $query->whereExists(function ($q) use ($officeId) {
+                        $q->select(DB::raw(1))
+                            ->from('dcs_document_distribution as dist')
+                            ->join('dcs_distribution_offices as dof', 'dof.distribution_id', '=', 'dist.id')
+                            ->whereColumn('dist.request_id', 'dr.id')
+                            ->where('dof.office_id', $officeId)
+                            ->whereRaw(
+                                'dist.id = (select max(d2.id) from dcs_document_distribution as d2 where d2.request_id = dist.request_id)'
+                            );
+                    });
+                }
             }
 
             if ($this->status !== '') {
@@ -318,6 +366,35 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $allRows = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get())
                 ->map(fn ($doc) => $this->mapDocument($doc));
 
+            // Keep only documents whose displayed receiving offices include the selected office.
+            if ($this->receivedBy !== '') {
+                $officeId = (int) $this->receivedBy;
+                $officeName = '';
+                if ($officeId > 0) {
+                    $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+                    $officeName = trim((string) (
+                        DB::table($officeTable)->where('id', $officeId)->value('office_name') ?? ''
+                    ));
+                }
+                $allRows = $allRows->filter(function (array $row) use ($officeId, $officeName) {
+                    if ($officeId < 1) {
+                        return false;
+                    }
+                    if (! in_array($officeId, $row['dist_office_ids'] ?? [], true)) {
+                        return false;
+                    }
+                    // Also require the office name to appear in the displayed receiving-office list.
+                    if ($officeName === '') {
+                        return true;
+                    }
+                    $names = collect(explode(',', (string) ($row['dist_offices'] ?? '')))
+                        ->map(fn ($n) => trim((string) $n))
+                        ->filter();
+
+                    return $names->contains(fn ($n) => strcasecmp($n, $officeName) === 0);
+                })->values();
+            }
+
             $grouped = $allRows->groupBy(function ($row) {
                 if (! $row['doc_no'] || $row['doc_no'] === 'N/A') {
                     return 'no_ml_' . $row['request_id'];
@@ -350,6 +427,50 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
             // Stack renumbered families: CSPC-F-102 under CSPC-F-1023 when revised_from_doc_no links them.
             $groups = $this->mergeRenumberLineageGroups($groups);
+
+            // After lineage merge, drop any parent/child that is not actually distributed to the office.
+            if ($this->receivedBy !== '') {
+                $officeId = (int) $this->receivedBy;
+                $groups = $groups
+                    ->map(function (array $g) use ($officeId) {
+                        $parentIds = $g['parent']['dist_office_ids'] ?? [];
+                        if ($officeId < 1 || ! in_array($officeId, $parentIds, true)) {
+                            // Prefer a matching child as the visible tip when the merged tip does not match.
+                            $match = collect($g['children'] ?? [])
+                                ->first(fn ($c) => in_array($officeId, $c['dist_office_ids'] ?? [], true));
+                            if (! $match) {
+                                $g['_drop'] = true;
+
+                                return $g;
+                            }
+                            $oldParent = $g['parent'];
+                            $g['parent'] = $match;
+                            $g['doc_no'] = $match['doc_no'] ?? ($g['doc_no'] ?? 'N/A');
+                            $rest = collect($g['children'] ?? [])
+                                ->filter(fn ($c) => (int) ($c['request_id'] ?? 0) !== (int) ($match['request_id'] ?? 0))
+                                ->values();
+                            if (in_array($officeId, $oldParent['dist_office_ids'] ?? [], true)) {
+                                $rest->push($oldParent);
+                            }
+                            $g['children'] = $rest
+                                ->filter(fn ($c) => in_array($officeId, $c['dist_office_ids'] ?? [], true))
+                                ->values()
+                                ->all();
+                        } else {
+                            $g['children'] = collect($g['children'] ?? [])
+                                ->filter(fn ($c) => in_array($officeId, $c['dist_office_ids'] ?? [], true))
+                                ->values()
+                                ->all();
+                        }
+                        $g['has_revisions'] = ! empty($g['children']);
+                        $g['obsolete_count'] = count($g['children']);
+                        $g['revision_count'] = 1 + count($g['children']);
+
+                        return $g;
+                    })
+                    ->reject(fn (array $g) => ! empty($g['_drop']))
+                    ->values();
+            }
 
             if ($this->revisionStatus === 'latest') {
                 $groups = $groups
@@ -497,7 +618,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         $distOffices = null;
+        $distOfficeIds = [];
         if ($dist && $dist->offices) {
+            $distOfficeIds = $dist->offices
+                ->map(fn ($o) => (int) ($o->office_id ?? 0))
+                ->filter(fn ($id) => $id > 0)
+                ->values()
+                ->all();
             $distOffices = $dist->offices
                 ->map(fn ($o) => $o->office?->office_name)
                 ->filter()->implode(', ') ?: null;
@@ -567,6 +694,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'dist_actual_date' => ($dist && $dist->doc_distribution_date_actual) ? Carbon::parse($dist->doc_distribution_date_actual)->format('M d, Y') : null,
             'dist_actual_time' => $dist && $dist->doc_distribution_time_actual ? $this->formatTime($dist->doc_distribution_time_actual) : null,
             'dist_offices' => $distOffices,
+            'dist_office_ids' => $distOfficeIds,
             'dist_scan' => ($dist && $dist->scanned_distribution) ? RegisterQueryHelper::scanUrl($dist->scanned_distribution) : null,
             'ret_onfile' => ($ret && $ret->doc_retrieval_date_file) ? Carbon::parse($ret->doc_retrieval_date_file)->format('M d, Y') : null,
             'ret_actual' => ($ret && $ret->doc_retrieval_date_actual) ? Carbon::parse($ret->doc_retrieval_date_actual)->format('M d, Y') : null,
@@ -802,6 +930,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         + collect($groupColspans)->sum()
         + 7; // collapsed summary placeholders when counting is rough; use a high colspan for category rows
     $tableColspan = max(47, $tableColspan);
+    $forceDistributionOpen = ($receivedByOfficeName ?? '') !== '';
+    if ($forceDistributionOpen) {
+        $visibleGroups['distribution'] = true;
+    }
 @endphp
 
 <div x-data="{
@@ -811,10 +943,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     groupMenu: { open: false, x: 0, y: 0, group: null },
     open: { approval: true, deadline: true, masterlist: true, dcn: true, drf: true, distribution: true, retrieval: true },
     visible: @js($visibleGroups),
+    forceDistributionOpen: @js($forceDistributionOpen),
     categories: {{ json_encode($categoryState) }},
     expandedRevs: {},
     openCourses: {},
     openOffices: {},
+    tableBusy: false,
+    busyLabel: 'Loading documents…',
+    busyHint: 'Fetching records and preparing the preview.',
+    _stickySyncTimer: null,
+    _busyTimer: null,
     init() {
         try {
             const saved = JSON.parse(sessionStorage.getItem('dcs-db-expand') || '{}');
@@ -834,28 +972,89 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 this.open = Object.assign({}, this.open, saved.open);
             }
         } catch (e) {}
+        if (this.forceDistributionOpen) {
+            this.visible.distribution = true;
+            this.open.distribution = true;
+        }
         this.$watch('notice', (v) => { if (v) setTimeout(() => { this.notice = ''; }, 4000); });
-        this.$nextTick(() => this.syncStickyHeaders());
-        this.$watch('open', () => this.$nextTick(() => this.syncStickyHeaders()), { deep: true });
-        this.$watch('visible', () => this.$nextTick(() => this.syncStickyHeaders()), { deep: true });
-        window.addEventListener('resize', () => this.syncStickyHeaders());
-        document.addEventListener('livewire:navigated', () => this.$nextTick(() => this.syncStickyHeaders()));
+        this.$watch('open', () => this.queueStickySync(), { deep: true });
+        this.$watch('visible', () => this.queueStickySync(), { deep: true });
+        this._onResizeSticky = () => this.queueStickySync();
+        this._onNavigatedSticky = () => this.queueStickySync();
+        this._onLivewireSticky = () => this.queueStickySync();
+        window.addEventListener('resize', this._onResizeSticky);
+        document.addEventListener('livewire:navigated', this._onNavigatedSticky);
+        window.addEventListener('dcs-db-resync-sticky', this._onLivewireSticky);
+
+        if (!window.__dcsDbStickyHooksBound) {
+            window.__dcsDbStickyHooksBound = true;
+            const ping = () => window.dispatchEvent(new CustomEvent('dcs-db-resync-sticky'));
+            if (window.Livewire && typeof Livewire.hook === 'function') {
+                Livewire.hook('commit', ({ succeed }) => {
+                    succeed(() => ping());
+                });
+                Livewire.hook('morph.updated', () => ping());
+            }
+        }
+
+        this.queueStickySync();
+    },
+    destroy() {
+        if (this._stickySyncTimer) {
+            clearTimeout(this._stickySyncTimer);
+            this._stickySyncTimer = null;
+        }
+        if (this._busyTimer) {
+            clearTimeout(this._busyTimer);
+            this._busyTimer = null;
+        }
+        if (this._onResizeSticky) window.removeEventListener('resize', this._onResizeSticky);
+        if (this._onNavigatedSticky) document.removeEventListener('livewire:navigated', this._onNavigatedSticky);
+        if (this._onLivewireSticky) window.removeEventListener('dcs-db-resync-sticky', this._onLivewireSticky);
+    },
+    queueStickySync() {
+        if (this._stickySyncTimer) {
+            clearTimeout(this._stickySyncTimer);
+        }
+        this.$nextTick(() => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    this.syncStickyHeaders();
+                    // One more pass after fonts/loading overlay settle.
+                    this._stickySyncTimer = setTimeout(() => this.syncStickyHeaders(), 50);
+                });
+            });
+        });
     },
     syncStickyHeaders() {
         const scroll = this.$el.querySelector('.db-table-scroll');
         if (!scroll) return;
         const table = scroll.querySelector('.db-table');
         const thead = scroll.querySelector('thead');
-        const row1 = scroll.querySelector('.db-head-primary');
-        const row2 = scroll.querySelector('.db-head-secondary');
-        const h1 = row1 ? Math.ceil(row1.getBoundingClientRect().height) : 36;
-        const h2 = row2 ? Math.ceil(row2.getBoundingClientRect().height) : 32;
-        const totalH = thead ? Math.ceil(thead.getBoundingClientRect().height) : (h1 + h2);
-        const totalW = table ? Math.ceil(table.scrollWidth) : scroll.clientWidth;
+        if (!table || !thead) return;
+
+        // Livewire morph can leave duplicate JS-injected frames.
+        const frames = scroll.querySelectorAll('.db-thead-frame');
+        frames.forEach((el, i) => { if (i > 0) el.remove(); });
+
+        const row1 = thead.querySelector('.db-head-primary');
+        const row2 = thead.querySelector('.db-head-secondary');
+        const row3 = thead.querySelector('.db-head-tertiary');
+
+        // Use offsetTop bands — getBoundingClientRect on rowspan rows reports the full span height.
+        const y1 = row1 ? row1.offsetTop : 0;
+        const y2 = row2 ? row2.offsetTop : y1;
+        const y3 = row3 ? row3.offsetTop : y2;
+        const totalH = Math.max(1, Math.ceil(thead.offsetHeight || 0));
+        let h1 = Math.ceil(y2 - y1);
+        let h2 = Math.ceil(y3 - y2);
+        if (h1 < 1) h1 = Math.ceil(this.headerBandHeight(row1) || 36);
+        if (h2 < 1) h2 = Math.ceil(this.headerBandHeight(row2) || 32);
+
         scroll.style.setProperty('--header-row1-h', h1 + 'px');
         scroll.style.setProperty('--header-row2-top', (h1 + h2) + 'px');
         scroll.style.setProperty('--header-total-h', totalH + 'px');
-        scroll.style.setProperty('--header-total-w', totalW + 'px');
+        scroll.style.setProperty('--header-total-w', Math.ceil(table.scrollWidth || scroll.clientWidth) + 'px');
 
         let frame = scroll.querySelector('.db-thead-frame');
         if (!frame) {
@@ -864,6 +1063,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             frame.setAttribute('aria-hidden', 'true');
             scroll.insertBefore(frame, scroll.firstChild);
         }
+    },
+    headerBandHeight(tr) {
+        if (!tr) return 0;
+        let max = 0;
+        let saw = false;
+        tr.querySelectorAll('th').forEach((th) => {
+            if (getComputedStyle(th).display === 'none') return;
+            const rs = parseInt(th.getAttribute('rowspan') || '1', 10);
+            if (rs > 1) return;
+            saw = true;
+            max = Math.max(max, th.offsetHeight || 0);
+        });
+        if (saw) return max;
+        return tr.offsetHeight || 0;
     },
     persistExpand() {
         try {
@@ -917,8 +1130,56 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         Object.keys(this.open).forEach(k => this.open[k] = !next);
         this.persistExpand();
     },
-    toggleCategory(slug) { this.categories[slug] = !this.categories[slug]; this.persistExpand(); },
-    toggleRev(id) { this.expandedRevs[id] = !this.expandedRevs[id]; this.persistExpand(); },
+    withTableBusy(label, hint, fn) {
+        if (this._busyTimer) {
+            clearTimeout(this._busyTimer);
+            this._busyTimer = null;
+        }
+        this.busyLabel = label || 'Loading documents…';
+        this.busyHint = hint || 'Fetching records and preparing the preview.';
+        this.tableBusy = true;
+        this.$nextTick(() => {
+            requestAnimationFrame(() => {
+                try {
+                    fn();
+                } finally {
+                    this.$nextTick(() => {
+                        requestAnimationFrame(() => {
+                            // Keep overlay briefly so dense expands don't flash empty UI.
+                            this._busyTimer = setTimeout(() => {
+                                this.tableBusy = false;
+                                this._busyTimer = null;
+                            }, 120);
+                        });
+                    });
+                }
+            });
+        });
+    },
+    toggleCategory(slug) {
+        const willExpand = !this.categories[slug];
+        if (willExpand) {
+            this.withTableBusy('Expanding category…', 'Showing documents in this group.', () => {
+                this.categories[slug] = true;
+                this.persistExpand();
+            });
+            return;
+        }
+        this.categories[slug] = false;
+        this.persistExpand();
+    },
+    toggleRev(id) {
+        const willExpand = !this.expandedRevs[id];
+        if (willExpand) {
+            this.withTableBusy('Expanding revisions…', 'Showing older revisions for this document.', () => {
+                this.expandedRevs[id] = true;
+                this.persistExpand();
+            });
+            return;
+        }
+        this.expandedRevs[id] = false;
+        this.persistExpand();
+    },
     toggleCourses(id) { this.openCourses[id] = !this.openCourses[id]; this.persistExpand(); },
     slug(name) { return String(name || 'uncategorized').toLowerCase().replace(/[^a-z0-9]+/g, '-') }
 }" @keydown.escape.window="closeGroupMenu()">
@@ -960,10 +1221,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     <div class="db-filter-group">
         <label>Received By</label>
         <select wire:model="receivedBy">
-            <option value="">All Offices</option>
-            @foreach($offices ?? [] as $office)
+            <option value="">All distribution offices</option>
+            @forelse($distributionOffices ?? [] as $office)
                 <option value="{{ $office->id }}">{{ $office->office_name }}</option>
-            @endforeach
+            @empty
+                <option value="" disabled>No distribution offices yet</option>
+            @endforelse
         </select>
     </div>
     <div class="db-filter-group">
@@ -1004,7 +1267,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     </div>
     <div class="db-filter-foot">
         <button class="db-btn db-btn-ghost" type="button" wire:click="resetFilters">Reset</button>
-        <button class="db-btn db-btn-primary" type="button" @click="filterOpen = false" wire:click="$refresh">Apply Filters</button>
+        <button class="db-btn db-btn-primary" type="button" wire:click="applyFilters" @click="filterOpen = false">Apply Filters</button>
     </div>
 </aside>
 
@@ -1029,23 +1292,26 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     <section class="db-controls">
         <div class="db-type-grid">
-            <button class="db-type-btn {{ $docTypeId === 'all' ? 'active' : '' }}" type="button" wire:click="setType('all')" wire:loading.attr="disabled">ALL</button>
+            <button class="db-type-btn {{ $docTypeId === 'all' ? 'active' : '' }}" type="button" wire:click="setType('all')" wire:loading.attr="disabled" wire:target="setType">ALL</button>
             @foreach($docTypes ?? [] as $type)
-                <button class="db-type-btn {{ (string) $docTypeId === (string) $type->id ? 'active' : '' }}" type="button" wire:click="setType('{{ $type->id }}')" wire:loading.attr="disabled">{{ strtoupper($type->doc_type_name) }}</button>
+                <button class="db-type-btn {{ (string) $docTypeId === (string) $type->id ? 'active' : '' }}" type="button" wire:click="setType('{{ $type->id }}')" wire:loading.attr="disabled" wire:target="setType">{{ strtoupper($type->doc_type_name) }}</button>
             @endforeach
         </div>
         <div class="db-controls-right">
             <div class="db-search-wrap">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                <input type="text" wire:model.live.debounce.400ms="search" placeholder="Search documents..." autocomplete="off" wire:loading.attr="disabled">
+                <input type="text" wire:model.live.debounce.400ms="search" placeholder="Search documents..." autocomplete="off" wire:loading.attr="disabled" wire:target="search">
             </div>
             <button class="db-collapse-btn" type="button" :class="{ 'is-collapsed': allCollapsed }" @click="collapseAll()" :title="allCollapsed ? 'Expand all columns' : 'Collapse all columns'">
                 <i class="fa-solid" :class="allCollapsed ? 'fa-expand' : 'fa-compress'"></i>
                 <span class="btn-label" x-text="allCollapsed ? 'Expand' : 'Collapse'"></span>
             </button>
-            <button class="db-filter-btn" type="button" @click="filterOpen = true">
+            <button class="db-filter-btn {{ $receivedBy !== '' || $originator !== '' || $sourceUnit !== '' || $status !== '' || $revisionStatus !== 'all' || $dateFrom !== '' || $dateTo !== '' || $revNo !== '' || $subTypeId !== 'all' ? 'is-active' : '' }}" type="button" @click="filterOpen = true">
                 <i class="fa-solid fa-filter"></i>
                 <span class="btn-label">Filter</span>
+                @if($receivedBy !== '')
+                    <span class="db-filter-dot" title="Received By filter active"></span>
+                @endif
             </button>
             <button class="db-export-btn" type="button" wire:click="export" title="Download CSV using the current filters">
                 <i class="fa-solid fa-download"></i>
@@ -1054,11 +1320,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
     </section>
 
-    <section class="db-table-wrap" wire:loading.class="is-loading">
-        <div class="dcs-loading-overlay" wire:loading.flex>
+    <section class="db-table-wrap" wire:loading.class="is-loading" wire:target="setType,applyFilters,resetFilters,goToPage,search" :class="{ 'is-loading': tableBusy }">
+        <div class="dcs-loading-overlay" wire:loading.class="is-visible" wire:target="setType,applyFilters,resetFilters,goToPage,search">
             <div class="dcs-loading-spinner" aria-hidden="true"></div>
             <h4>Loading documents…</h4>
             <p>Fetching records and preparing the preview.</p>
+        </div>
+        <div class="dcs-loading-overlay" x-show="tableBusy" x-cloak :class="{ 'is-visible': tableBusy }">
+            <div class="dcs-loading-spinner" aria-hidden="true"></div>
+            <h4 x-text="busyLabel">Loading documents…</h4>
+            <p x-text="busyHint">Fetching records and preparing the preview.</p>
         </div>
         <div class="db-table-scroll">
             <table class="db-table" id="inventoryTable">
@@ -1108,7 +1379,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN NO.</th>
                         <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN DATE</th>
                         <th colspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN RECEIPT (ACTUAL)</th>
-                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">PURPOSE OF REVISION</th>
+                        <th rowspan="2" class="col-group-dcn col-group-expanded db-offices-col" x-show="visible.dcn && open.dcn">PURPOSE OF REVISION</th>
                         <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">SCANNED DCN</th>
                         <th rowspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DRF NO.</th>
                         <th rowspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DRF DATE</th>
@@ -1223,11 +1494,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         @if(($list['last_page'] ?? 1) > 1)
             <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 16px;">
                 @if(($list['page'] ?? 1) > 1)
-                    <button type="button" class="db-btn" wire:click="goToPage({{ $list['page'] - 1 }})">Previous</button>
+                    <button type="button" class="db-btn" wire:click="goToPage({{ $list['page'] - 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Previous</button>
                 @endif
                 <span>Page {{ $list['page'] }} of {{ $list['last_page'] }}</span>
                 @if(($list['page'] ?? 1) < ($list['last_page'] ?? 1))
-                    <button type="button" class="db-btn" wire:click="goToPage({{ $list['page'] + 1 }})">Next</button>
+                    <button type="button" class="db-btn" wire:click="goToPage({{ $list['page'] + 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Next</button>
                 @endif
             </div>
         @endif
@@ -1250,26 +1521,55 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 </div>
 
 <script>
-window.dcsOfficesClamp = function (offices) {
+window.dcsOfficesClamp = function (offices, highlightOffice) {
     return {
         offices: Array.isArray(offices) ? offices.filter(Boolean) : [],
+        highlightOffice: String(highlightOffice || '').trim(),
         expanded: false,
-        needsMore: false,
-        collapsedText: '',
-        fullText: '',
+        visibleCount: 0,
+        visibleHtml: '',
+        showToggle: false,
         _ro: null,
+        escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        },
+        isHit(name) {
+            if (!this.highlightOffice) return false;
+            return String(name).localeCompare(this.highlightOffice, undefined, { sensitivity: 'accent' }) === 0;
+        },
+        hasHighlight() {
+            return this.offices.some((name) => this.isHit(name));
+        },
+        renderHtml(list) {
+            return (Array.isArray(list) ? list : []).map((name) => {
+                const safe = this.escapeHtml(name);
+                return this.isHit(name)
+                    ? '<mark class="db-office-hit">' + safe + '</mark>'
+                    : safe;
+            }).join(', ');
+        },
         init() {
-            this.fullText = this.offices.join(', ');
-            this.collapsedText = this.fullText;
-            this.$nextTick(() => this.recompute());
-            if (typeof ResizeObserver !== 'undefined') {
-                this._ro = new ResizeObserver(() => {
-                    if (!this.expanded) this.recompute();
-                });
-                this.$nextTick(() => {
-                    if (this.$refs.view) this._ro.observe(this.$refs.view);
-                });
+            this.visibleCount = this.offices.length;
+            this.visibleHtml = this.renderHtml(this.offices);
+            this.showToggle = false;
+            // Received By filter: start expanded so match is visible; user can still collapse.
+            if (this.hasHighlight()) {
+                this.expanded = true;
             }
+            this.$nextTick(() => {
+                this.sync();
+                if (typeof ResizeObserver !== 'undefined') {
+                    this._ro = new ResizeObserver(() => {
+                        if (!this.expanded) this.sync();
+                    });
+                    if (this.$refs.view) this._ro.observe(this.$refs.view);
+                }
+            });
         },
         lineHeightPx() {
             const view = this.$refs.view;
@@ -1288,23 +1588,34 @@ window.dcsOfficesClamp = function (offices) {
             const maxH = (this.lineHeightPx() * 2) + 2;
             return measure.scrollHeight <= maxH;
         },
-        recompute() {
-            if (!this.offices.length) {
-                this.collapsedText = '';
-                this.needsMore = false;
+        sync() {
+            const total = this.offices.length;
+            if (total === 0) {
+                this.visibleHtml = '';
+                this.visibleCount = 0;
+                this.showToggle = false;
                 return;
             }
+
+            if (this.expanded) {
+                this.visibleCount = total;
+                this.visibleHtml = this.renderHtml(this.offices);
+                this.showToggle = total > 1 && !this.fitsTwoLines(this.offices.join(', '));
+                return;
+            }
+
             const full = this.offices.join(', ');
             if (this.fitsTwoLines(full)) {
-                this.collapsedText = full;
-                this.needsMore = false;
+                this.visibleCount = total;
+                this.visibleHtml = this.renderHtml(this.offices);
+                this.showToggle = false;
                 return;
             }
-            // Find the largest prefix of complete office names that still fits in 2 lines
-            // with room for the inline "See more" control.
+
+            // Largest prefix of complete office names that still fits in 2 lines with " See more".
             let best = 1;
             let lo = 1;
-            let hi = this.offices.length;
+            let hi = total;
             while (lo <= hi) {
                 const mid = (lo + hi) >> 1;
                 const candidate = this.offices.slice(0, mid).join(', ') + ' See more';
@@ -1316,15 +1627,109 @@ window.dcsOfficesClamp = function (offices) {
                 }
             }
             if (best < 1) best = 1;
-            this.collapsedText = this.offices.slice(0, best).join(', ');
-            this.needsMore = best < this.offices.length;
+            if (best >= total) best = Math.max(1, total - 1);
+
+            this.visibleCount = best;
+            this.visibleHtml = this.renderHtml(this.offices.slice(0, best));
+            this.showToggle = true;
         },
-        expand() {
-            this.expanded = true;
+        toggle() {
+            this.expanded = !this.expanded;
+            this.$nextTick(() => this.sync());
         },
-        collapse() {
-            this.expanded = false;
-            this.$nextTick(() => this.recompute());
+    };
+};
+
+window.dcsTextClamp = function (text) {
+    return {
+        fullText: String(text ?? '').trim(),
+        expanded: false,
+        visibleText: '',
+        showToggle: false,
+        _ro: null,
+        init() {
+            this.visibleText = this.fullText;
+            this.showToggle = false;
+            this.$nextTick(() => {
+                this.sync();
+                if (typeof ResizeObserver !== 'undefined') {
+                    this._ro = new ResizeObserver(() => {
+                        if (!this.expanded) this.sync();
+                    });
+                    if (this.$refs.view) this._ro.observe(this.$refs.view);
+                }
+            });
+        },
+        lineHeightPx() {
+            const view = this.$refs.view;
+            if (!view) return 18;
+            const lh = parseFloat(getComputedStyle(view).lineHeight);
+            return Number.isFinite(lh) && lh > 0 ? lh : 18;
+        },
+        fitsTwoLines(value) {
+            const measure = this.$refs.measure;
+            const view = this.$refs.view;
+            if (!measure || !view) return true;
+            const width = view.clientWidth || view.offsetWidth;
+            if (width < 8) return true;
+            measure.style.width = width + 'px';
+            measure.textContent = value;
+            const maxH = (this.lineHeightPx() * 2) + 2;
+            return measure.scrollHeight <= maxH;
+        },
+        trimAtWord(value, maxLen) {
+            if (maxLen >= value.length) return value;
+            let cut = value.slice(0, Math.max(1, maxLen));
+            const space = cut.lastIndexOf(' ');
+            if (space >= Math.floor(maxLen * 0.5)) {
+                cut = cut.slice(0, space);
+            }
+            return cut.replace(/[,\s.;:!-]+$/g, '');
+        },
+        sync() {
+            const full = this.fullText;
+            if (!full) {
+                this.visibleText = '';
+                this.showToggle = false;
+                return;
+            }
+
+            if (this.expanded) {
+                this.visibleText = full;
+                this.showToggle = !this.fitsTwoLines(full);
+                return;
+            }
+
+            if (this.fitsTwoLines(full)) {
+                this.visibleText = full;
+                this.showToggle = false;
+                return;
+            }
+
+            // Largest prefix that still fits in 2 lines with " See more".
+            let best = 1;
+            let lo = 1;
+            let hi = full.length;
+            while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                const candidate = this.trimAtWord(full, mid) + ' See more';
+                if (this.fitsTwoLines(candidate)) {
+                    best = mid;
+                    lo = mid + 1;
+                } else {
+                    hi = mid - 1;
+                }
+            }
+            if (best < 1) best = 1;
+            this.visibleText = this.trimAtWord(full, best);
+            if (!this.visibleText) {
+                this.visibleText = full.slice(0, Math.max(1, best));
+            }
+            this.showToggle = true;
+        },
+        toggle() {
+            this.expanded = !this.expanded;
+            this.$nextTick(() => this.sync());
         },
     };
 };

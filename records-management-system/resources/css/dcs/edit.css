@@ -38,6 +38,32 @@
     padding: 0;
     cursor: pointer;
 }
+
+.reg-scan-name-preview {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    border: 1px dashed var(--reg-border);
+    border-radius: var(--reg-radius-sm);
+    background: var(--reg-accent-subtle, #f8fafc);
+    font-size: 0.78rem;
+    color: var(--reg-text-muted);
+    line-height: 1.35;
+    word-break: break-all;
+}
+
+.reg-scan-name-preview strong {
+    display: block;
+    margin-bottom: 2px;
+    font-weight: 600;
+    color: var(--reg-text);
+}
+
+.reg-scan-name-preview code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    color: var(--reg-accent, #0f766e);
+    font-weight: 600;
+}
 .edit-badge {
     display: inline-flex;
     align-items: center;

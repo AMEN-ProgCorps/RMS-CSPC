@@ -58,7 +58,19 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
     window.__timeSpentNonWorkingDateSet[iso] = true;
 });
 </script>
-<div class="reg-container main-content" id="dcsEditRoot" wire:ignore x-data="dcsRegisterPage()">
+<div class="reg-container main-content" id="dcsEditRoot" wire:ignore
+    x-data="{
+        syllabiStep: 1,
+        reviewOpen: false,
+        setSyllabiStep(step) { this.syllabiStep = Number(step) === 2 ? 2 : 1; window.syllabiCurrentStep = this.syllabiStep; },
+        closeReview() {
+            if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
+            this.reviewOpen = false;
+            const el = document.getElementById('dcsEditRoot');
+            if (el) el.style.overflow = '';
+        },
+        addSyllabiRow() { if (typeof window.addSyllabiRow === 'function') window.addSyllabiRow(); },
+    }">
         <!-- Header -->
         <div class="reg-header">
             <div>
@@ -230,8 +242,13 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <span>Document Change Notice</span>
                 </div>
                 <div class="reg-card-body">
-                    <div class="reg-field reg-revision-table">
+                    <div class="reg-field reg-revision-table" id="revisionTableField">
                         <label>Document Revisions</label>
+                        <div class="reg-revision-loading" id="revisionTableLoading" aria-live="polite" aria-busy="false">
+                            <div class="dcs-loading-spinner" aria-hidden="true"></div>
+                            <p class="reg-revision-loading-text">Loading document…</p>
+                            <p class="reg-revision-loading-sub">Fetching revision history</p>
+                        </div>
                         <div class="reg-table-wrap">
                             <table class="reg-table">
                                 <thead>
@@ -337,6 +354,10 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                 <i class="fa-solid fa-cloud-arrow-up"></i>
                                 <span>{{ $dcn && $dcn->scanned_dcn ? 'Replace file' : 'Choose scanned PDF' }}</span>
                             </label>
+                            <p class="reg-scan-name-preview" data-scan-preview="dcn">
+                                <strong>{{ $dcn && $dcn->scanned_dcn ? 'Replacement will be saved as' : 'Will be saved as' }}</strong>
+                                <code data-scan-preview-name>—</code>
+                            </p>
                         </div>
                         <div class="reg-field">
                             <label>Source Unit</label>
@@ -413,6 +434,10 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                             <i class="fa-solid fa-cloud-arrow-up"></i>
                             <span>{{ $drf && $drf->scanned_drf ? 'Replace file' : 'Choose scanned PDF' }}</span>
                         </label>
+                        <p class="reg-scan-name-preview" data-scan-preview="drf">
+                            <strong>{{ $drf && $drf->scanned_drf ? 'Replacement will be saved as' : 'Will be saved as' }}</strong>
+                            <code data-scan-preview-name>—</code>
+                        </p>
                     </div>
                 </div>
             </section>
@@ -609,6 +634,10 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                             <i class="fa-solid fa-cloud-arrow-up"></i>
                             <span>{{ $masterlist && $masterlist->scanned_masterlist ? 'Replace file' : 'Choose scanned PDF' }}</span>
                         </label>
+                        <p class="reg-scan-name-preview" data-scan-preview="masterlist">
+                            <strong>{{ $masterlist && $masterlist->scanned_masterlist ? 'Replacement / rename will be saved as' : 'Will be saved as' }}</strong>
+                            <code data-scan-preview-name>—</code>
+                        </p>
                     </div>
                 </div>
             </section>
@@ -656,6 +685,10 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                 <i class="fa-solid fa-cloud-arrow-up"></i>
                                 <span>{{ $retrieval && $retrieval->scanned_retrieval ? 'Replace file' : 'Choose scanned PDF' }}</span>
                             </label>
+                            <p class="reg-scan-name-preview" data-scan-preview="retrieval">
+                                <strong>{{ $retrieval && $retrieval->scanned_retrieval ? 'Replacement will be saved as' : 'Will be saved as' }}</strong>
+                                <code data-scan-preview-name>—</code>
+                            </p>
                         </div>
                     </div>
                     <div class="reg-split-right">
@@ -802,6 +835,10 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                 <i class="fa-solid fa-cloud-arrow-up"></i>
                                 <span>{{ $distribution && $distribution->scanned_distribution ? 'Replace file' : 'Choose scanned PDF' }}</span>
                             </label>
+                            <p class="reg-scan-name-preview" data-scan-preview="distribution">
+                                <strong>{{ $distribution && $distribution->scanned_distribution ? 'Replacement will be saved as' : 'Will be saved as' }}</strong>
+                                <code data-scan-preview-name>—</code>
+                            </p>
                         </div>
                     </div>
                     <div class="reg-split-right">
@@ -986,22 +1023,32 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
 
 <script>
 
-document.addEventListener('alpine:init', () => {
-    Alpine.data('dcsRegisterPage', () => ({
-        syllabiStep: 1,
-        reviewOpen: false,
-        setSyllabiStep(step) { this.syllabiStep = step; window.syllabiCurrentStep = step; },
-        closeReview() {
-            if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
-            this.reviewOpen = false;
-            const el = document.getElementById('dcsEditRoot');
-            if (el) el.style.overflow = '';
-        },
-        addSyllabiRow() { if (typeof window.addSyllabiRow === 'function') window.addSyllabiRow(); },
-    }));
-});
+/** Safe Alpine root state — Livewire can race ahead of Alpine init. */
+function getRegisterAlpineData(rootId) {
+    const root = document.getElementById(rootId || 'dcsEditRoot');
+    if (!root || !window.Alpine || typeof Alpine.$data !== 'function') return null;
+    try {
+        const data = Alpine.$data(root);
+        return data != null && typeof data === 'object' ? data : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function setRegisterAlpineProp(key, value, rootId) {
+    const data = getRegisterAlpineData(rootId || 'dcsEditRoot');
+    if (!data) return false;
+    try {
+        data[key] = value;
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
 let allOffices = [];
 let allDocTypes = [];
+window.allDocTypes = allDocTypes;
 let allOriginators = [];
 let allFaculties = [];
 let syllabiGroupCounter = 0;
@@ -1100,11 +1147,15 @@ function workingMinutesBetween(start, end) {
     const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
     const cur = new Date(startDay);
     while (cur <= endDay) {
-        if (!isExcludedNonWorkingDay(cur)) {
+        const isStartDay = cur.getTime() === startDay.getTime();
+        const isEndDay = cur.getTime() === endDay.getTime();
+        // Always count the start/end days (staff timestamped work then), even on
+        // weekends/holidays. Only skip fully intervening non-working days.
+        if (isStartDay || isEndDay || !isExcludedNonWorkingDay(cur)) {
             const dayStart = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate());
             const nextMidnight = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1);
-            const from = (dayStart.getTime() === startDay.getTime()) ? start : dayStart;
-            const to = (dayStart.getTime() === endDay.getTime()) ? end : nextMidnight;
+            const from = isStartDay ? start : dayStart;
+            const to = isEndDay ? end : nextMidnight;
             total += Math.max(0, Math.floor((to - from) / 60000));
         }
         cur.setDate(cur.getDate() + 1);
@@ -1566,8 +1617,10 @@ document.addEventListener("DOMContentLoaded", async function () {
 
         allOffices = Array.isArray(offices) ? offices : [];
         allDocTypes = Array.isArray(docTypes) ? docTypes : [];
+        window.allDocTypes = allDocTypes;
         allOriginators = Array.isArray(originators) ? originators : [];
         allFaculties = [];
+        window.DCSScanNamePreview?.update();
 
         const versionSelect = document.getElementById("versionType");
         while (versionSelect.options.length > 1) versionSelect.remove(1);
@@ -1816,12 +1869,16 @@ document.addEventListener("DOMContentLoaded", async function () {
             });
             const retBody = document.getElementById('retrievalBody');
             const distBody = document.getElementById('distBody');
-            initialState['officeCount|retrievalBody'] = String(
-                retBody ? retBody.querySelectorAll('input[type="hidden"][name="retrievalOffice[]"]').length : 0
-            );
-            initialState['officeCount|distBody'] = String(
-                distBody ? distBody.querySelectorAll('input[type="hidden"][name="distOffice[]"]').length : 0
-            );
+            const retIds = retBody
+                ? [...retBody.querySelectorAll('input[type="hidden"][name="retrievalOffice[]"]')].map((i) => String(i.value)).filter(Boolean).sort()
+                : [];
+            const distIds = distBody
+                ? [...distBody.querySelectorAll('input[type="hidden"][name="distOffice[]"]')].map((i) => String(i.value)).filter(Boolean).sort()
+                : [];
+            initialState['officeCount|retrievalBody'] = String(retIds.length);
+            initialState['officeCount|distBody'] = String(distIds.length);
+            initialState['officeIds|retrievalBody'] = retIds.join(',');
+            initialState['officeIds|distBody'] = distIds.join(',');
         }
 
         function isDirty() {
@@ -1860,8 +1917,19 @@ document.addEventListener("DOMContentLoaded", async function () {
                 if (dirty) return;
                 const tbody = document.getElementById(bodyId);
                 if (!tbody || initialState['officeCount|' + bodyId] === undefined) return;
-                const currentCount = String(tbody.querySelectorAll('input[type="hidden"][name="' + name + '"]').length);
-                if (currentCount !== initialState['officeCount|' + bodyId]) dirty = true;
+                const ids = [...tbody.querySelectorAll('input[type="hidden"][name="' + name + '"]')]
+                    .map((inp) => String(inp.value))
+                    .filter(Boolean)
+                    .sort();
+                const currentCount = String(ids.length);
+                if (currentCount !== initialState['officeCount|' + bodyId]) {
+                    dirty = true;
+                    return;
+                }
+                const baselineIds = initialState['officeIds|' + bodyId];
+                if (baselineIds !== undefined && baselineIds !== ids.join(',')) {
+                    dirty = true;
+                }
             });
 
             return dirty;
@@ -1872,6 +1940,15 @@ document.addEventListener("DOMContentLoaded", async function () {
             captureInitialState();
             stateCaptured = true;
             userInteracted = false;
+            updateButtonState();
+        };
+        /** Cluster chips / office add-remove don't fire input events — mark dirty explicitly. */
+        window.__regEditMarkDirty = function () {
+            if (!stateCaptured) {
+                captureInitialState();
+                stateCaptured = true;
+            }
+            userInteracted = true;
             updateButtonState();
         };
 
@@ -2362,6 +2439,7 @@ function applyRevisedDocumentContext(data, options = {}) {
         hint.style.color = '#16a34a';
         hint.dataset.valid = 'true';
     }
+    window.DCSScanNamePreview?.update();
 }
 
 /**
@@ -2749,6 +2827,10 @@ window.pickRevisionDocument = async function (key, idx) {
 
     closeRevSearchDropdown(key);
 
+    // Immediate feedback so the pick doesn't look empty while history loads.
+    populateRevisionRowFromDoc(row, doc);
+    setRevisionTableLoading(true);
+
     let revisions = [];
     try {
         if (doc.request_id) {
@@ -2767,12 +2849,24 @@ window.pickRevisionDocument = async function (key, idx) {
 
     const pickedNo = String(doc.doc_no || '').trim().toLowerCase();
 
-    await fillRevisionTableWithDocumentHistory(row, revisions, { docNo: pickedNo });
+    try {
+        await fillRevisionTableWithDocumentHistory(row, revisions, { docNo: pickedNo });
 
-    if (isDcnSectionVisible() && doc.doc_no) {
-        await bridgeDcnPickToMasterlist(doc.doc_no);
+        if (isDcnSectionVisible() && doc.doc_no) {
+            await bridgeDcnPickToMasterlist(doc.doc_no);
+        }
+    } finally {
+        setRevisionTableLoading(false);
     }
 };
+
+function setRevisionTableLoading(on) {
+    const field = document.getElementById('revisionTableField')
+        || document.querySelector('#section-2 .reg-revision-table');
+    const overlay = document.getElementById('revisionTableLoading');
+    if (field) field.classList.toggle('is-loading', !!on);
+    if (overlay) overlay.setAttribute('aria-busy', on ? 'true' : 'false');
+}
 
 function lockRevisionPopulatedField(el) {
     if (!el) return;
@@ -3621,10 +3715,12 @@ function triggerScanExtraction(input, file) {
                 }
             }
 
+            if (data.diagnostics) {
+                console.warn('[DRF OCR diagnostics]', data.diagnostics);
+            }
             showOcrSoftHint(
                 container,
-                data.message
-                    || 'Could not auto-fill DRF fields from this scan. Upload kept — fill them in manually.'
+                formatDrfOcrHint(data)
             );
         })
         .catch(err => {
@@ -3667,6 +3763,7 @@ function autofillDrfFields(fields) {
             console.error('Source Unit autofill failed:', err);
         }
     }
+    window.DCSScanNamePreview?.update();
     return filled;
 }
 
@@ -3730,6 +3827,22 @@ function showOcrSoftHint(container, message) {
     hint.className = 'reg-ocr-hint';
     hint.innerHTML = '<i class="fa-solid fa-circle-info"></i> ' + escapeHtml(message);
     parent.appendChild(hint);
+}
+
+/** Prefer server message; append missing-tool hints from diagnostics (no SSH needed). */
+function formatDrfOcrHint(data) {
+    let msg = data?.message
+        || 'Could not auto-fill DRF fields from this scan. Upload kept — fill them in manually.';
+    const stack = data?.diagnostics?.stack;
+    if (!stack || typeof stack !== 'object') return msg;
+    const missing = [];
+    if (!stack.ghostscript) missing.push('Ghostscript');
+    if (!stack.pdftoppm) missing.push('pdftoppm');
+    if (!stack.imagick_ext) missing.push('Imagick');
+    if (missing.length) {
+        msg += ' Missing on server: ' + missing.join(', ') + '.';
+    }
+    return msg;
 }
 
 function resetUploadArea(container, icon, label, originalText) {
@@ -4928,9 +5041,15 @@ function showExistingSyllabiScannedFile(tr, path) {
 // SYLLABI WIZARD — STEP NAVIGATION
 // ══════════════════════════════════════════════
 function setSyllabiStep(step) {
+    step = Number(step) === 2 ? 2 : 1;
     syllabiCurrentStep = step;
-    const root = document.getElementById("dcsEditRoot");
-    if (root && window.Alpine) Alpine.$data(root).syllabiStep = step;
+    window.syllabiCurrentStep = step;
+    if (setRegisterAlpineProp('syllabiStep', step, 'dcsEditRoot')) return;
+    const retry = () => setRegisterAlpineProp('syllabiStep', step, 'dcsEditRoot');
+    document.addEventListener('alpine:initialized', retry, { once: true });
+    queueMicrotask(retry);
+    setTimeout(retry, 0);
+    setTimeout(retry, 50);
 }
 
 window.syllabiStepNext = function () {
@@ -5611,16 +5730,19 @@ function isClusterFullySelected(clusterCode) {
 }
 
 function addOfficesByCluster(clusterCode) {
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
     clusterOffices(clusterCode).forEach((o) => {
         addOffice(o.office_id, o.office_name, 'distBody', 'distTotal', 'distResults');
     });
     syncDistClusterChipState();
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
 }
 
 function removeOfficesByCluster(clusterCode) {
     const tbody = document.getElementById('distBody');
     if (!tbody) return;
 
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
     const ids = new Set(clusterOffices(clusterCode).map((o) => String(o.office_id)));
     tbody.querySelectorAll('tr.reg-office-added').forEach((tr) => {
         const inp = tr.querySelector('input[type="hidden"][name="distOffice[]"]');
@@ -5635,15 +5757,18 @@ function removeOfficesByCluster(clusterCode) {
         tbody.innerHTML = emptyOfficeRowHTML('distBody');
     }
     syncDistClusterChipState();
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
 }
 
 function toggleOfficesByCluster(clusterCode) {
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
     if (isClusterFullySelected(clusterCode)) {
         removeOfficesByCluster(clusterCode);
     } else {
         addOfficesByCluster(clusterCode);
     }
     syncDistClusterChipState();
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
 }
 
 function syncDistClusterChipState() {
@@ -6198,7 +6323,9 @@ window.confirmSave = function () {
 
     const root = document.getElementById("dcsEditRoot");
     if (root) root.style.overflow = "hidden";
-    if (root && window.Alpine) Alpine.$data(root).reviewOpen = true;
+    if (!setRegisterAlpineProp('reviewOpen', true, 'dcsEditRoot')) {
+        [0, 30, 100].forEach((ms) => setTimeout(() => setRegisterAlpineProp('reviewOpen', true, 'dcsEditRoot'), ms));
+    }
 };
 
 function buildSyllabiInfoReview(reviewContent) {
@@ -6348,7 +6475,7 @@ function buildDistributionReview(reviewContent) {
 window.closeConfirmModal = function () {
     if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
     const root = document.getElementById("dcsEditRoot");
-    if (root && window.Alpine) Alpine.$data(root).reviewOpen = false;
+    setRegisterAlpineProp('reviewOpen', false, 'dcsEditRoot');
     if (root) root.style.overflow = "";
 };
 
@@ -6560,6 +6687,8 @@ window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
         }
     }
 
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
+
     if (isRetrieval) {
         seedRetrievalOfficeRow(bodyId, totalId, officeId, officeName, 1, 'pending');
         updateTotal(totalId, bodyId);
@@ -6569,6 +6698,7 @@ window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
             if (searchInput) searchInput.value = "";
         }
         refreshOfficeSeeMore(bodyId);
+        if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
         return;
     }
 
@@ -6592,12 +6722,14 @@ window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
     }
     if (bodyId === 'distBody') syncDistClusterChipState();
     refreshOfficeSeeMore(bodyId);
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
 };
 
 window.removeOffice = function (btn, totalId, bodyId) {
     if (bodyId === 'retrievalBody') {
         return;
     }
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
     const tr = btn.closest("tr");
     if (bodyId === 'distBody') {
         maybeRestoreDistOfficeToRetrieval(tr);
@@ -6611,6 +6743,7 @@ window.removeOffice = function (btn, totalId, bodyId) {
         }
         if (bodyId === 'distBody') syncDistClusterChipState();
         refreshOfficeSeeMore(bodyId);
+        if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
     }, 200);
 };
 
@@ -6694,5 +6827,6 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 @include('pages.dcs.register.partials.dist-office-groups-script')
+@include('pages.dcs.register.partials.scan-name-preview')
 <script src="{{ asset('js/dcs/register-draft-guard.js') }}"></script>
 @endif

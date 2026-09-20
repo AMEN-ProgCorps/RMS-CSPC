@@ -414,8 +414,10 @@ class CalendarHelper
     }
 
     /**
-     * Elapsed minutes between two datetimes excluding Sat/Sun, Philippine holidays,
-     * and calendar Suspension events. Returns null when end is before start.
+     * Elapsed minutes between two datetimes. Fully intervening Sat/Sun, Philippine
+     * holidays, and calendar Suspension dates are excluded. Start and end days are
+     * always counted (even on weekends/holidays) because work was timestamped then.
+     * Returns null when end is before start.
      */
     public static function workingMinutesBetween(\Carbon\CarbonInterface $start, \Carbon\CarbonInterface $end): ?int
     {
@@ -435,13 +437,18 @@ class CalendarHelper
         while ($cursor->lte($lastDay)) {
             $iso = $cursor->toDateString();
             $isWeekend = $cursor->isSaturday() || $cursor->isSunday();
+            $isStartDay = $cursor->isSameDay($start);
+            $isEndDay = $cursor->isSameDay($end);
+            // Always count start/end days (actual stamped work), even on weekends
+            // or holidays. Only skip fully intervening non-working days.
+            $countDay = $isStartDay || $isEndDay || (!$isWeekend && !isset($excluded[$iso]));
 
-            if (!$isWeekend && !isset($excluded[$iso])) {
-                if ($cursor->isSameDay($start) && $cursor->isSameDay($end)) {
+            if ($countDay) {
+                if ($isStartDay && $isEndDay) {
                     $total += (int) $start->diffInMinutes($end);
-                } elseif ($cursor->isSameDay($start)) {
+                } elseif ($isStartDay) {
                     $total += (int) $start->diffInMinutes($cursor->copy()->addDay()->startOfDay());
-                } elseif ($cursor->isSameDay($end)) {
+                } elseif ($isEndDay) {
                     $total += (int) $cursor->copy()->startOfDay()->diffInMinutes($end);
                 } else {
                     $total += 1440;

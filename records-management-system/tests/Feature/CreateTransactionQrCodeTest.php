@@ -29,19 +29,22 @@ class CreateTransactionQrCodeTest extends TestCase
         DB::table('dts_transaction_details')->where('subject', 'Test Subject')->delete();
         DB::table('dts_qr_code')->where('code_id', 'like', 'QR-TST-%')->delete();
 
+        $settingsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
         // Ensure email access is NOT required during this test unless explicitly testing it
-        DB::table('system_settings')->updateOrInsert(['key' => 'dts_email_access_required_external'], ['value' => 'false']);
-        DB::table('system_settings')->updateOrInsert(['key' => 'dts_email_access_required_application'], ['value' => 'false']);
-        DB::table('system_settings')->updateOrInsert(['key' => 'dts_email_access_required_internal'], ['value' => 'false']);
+        DB::table($settingsTable)->updateOrInsert(['key' => 'dts_email_access_required_external'], ['value' => 'false']);
+        DB::table($settingsTable)->updateOrInsert(['key' => 'dts_email_access_required_application'], ['value' => 'false']);
+        DB::table($settingsTable)->updateOrInsert(['key' => 'dts_email_access_required_internal'], ['value' => 'false']);
 
         // Ensure ORIGIN exists
-        DB::table('office')->updateOrInsert(
+        DB::table($officeTable)->updateOrInsert(
             ['office_code' => 'ORIGIN'],
             ['office_name' => 'Originated Office', 'is_active' => true]
         );
 
         // Ensure a second test office exists for custom flow tests
-        DB::table('office')->updateOrInsert(
+        DB::table($officeTable)->updateOrInsert(
             ['office_code' => 'TST-OFF'],
             ['office_name' => 'Test Office', 'is_active' => true]
         );
@@ -63,10 +66,12 @@ class CreateTransactionQrCodeTest extends TestCase
             $existing = DB::table('dts_transaction_flow')->where('id', $newFlowId)->first();
         }
 
-        DB::table('dts_sequence_list')->updateOrInsert(
-            ['control_id' => $existing->id, 'sequence_ranking' => 1],
-            ['office_code' => 'ORIGIN']
-        );
+        DB::table('dts_sequence_list')->where('control_id', $existing->id)->delete();
+        DB::table('dts_sequence_list')->insert([
+            ['control_id' => $existing->id, 'sequence_ranking' => 1, 'office_code' => 'ORIGIN'],
+            ['control_id' => $existing->id, 'sequence_ranking' => 2, 'office_code' => 'TST-OFF'],
+            ['control_id' => $existing->id, 'sequence_ranking' => 3, 'office_code' => 'ORIGIN'],
+        ]);
     }
 
     protected function tearDown(): void
@@ -76,9 +81,11 @@ class CreateTransactionQrCodeTest extends TestCase
         DB::table('dts_qr_code')->where('code_id', 'like', 'QR-TST-%')->delete();
         DB::table('dts_transaction_flow')->where('flow_name', 'Custom Test Document')->delete();
 
+        $condTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details') ? 'sys_condition_details' : 'condition_details';
+
         // Restore admin permissions
         if ($this->rolePermissionId) {
-            DB::table('condition_details')->where('key_id', $this->rolePermissionId)->update([
+            DB::table($condTable)->where('key_id', $this->rolePermissionId)->update([
                 'is_sadm' => true,
                 'can_dts_create_own_flow' => true
             ]);
@@ -214,10 +221,13 @@ class CreateTransactionQrCodeTest extends TestCase
 
     public function test_custom_flow_creation_and_permissions()
     {
-        $user = DB::table('account')->where('id', $this->user->id)->first();
+        $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $condTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details') ? 'sys_condition_details' : 'condition_details';
+
+        $user = DB::table($accountTable)->where('id', $this->user->id)->first();
         
         // Disable permission first
-        DB::table('condition_details')->where('key_id', $this->rolePermissionId)->update([
+        DB::table($condTable)->where('key_id', $this->rolePermissionId)->update([
             'is_sadm' => false,
             'can_dts_create_own_flow' => false
         ]);
@@ -229,7 +239,7 @@ class CreateTransactionQrCodeTest extends TestCase
             ->assertSet('toastMessage', 'Your account does not have permission to create its own transaction flow.');
 
         // 2. Grant permission
-        DB::table('condition_details')->where('key_id', $this->rolePermissionId)->update([
+        DB::table($condTable)->where('key_id', $this->rolePermissionId)->update([
             'can_dts_create_own_flow' => true
         ]);
 

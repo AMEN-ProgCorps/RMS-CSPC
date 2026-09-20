@@ -133,8 +133,20 @@ class GoogleDriveServiceProvider extends ServiceProvider
                     $options['teamDriveId'] = $config['teamDriveId'];
                 }
 
+                $root = null;
+                if (!empty($folderId) && strtolower($folderId) !== 'root') {
+                    // When targeting a specific Google Drive Folder by its alphanumeric ID (from URL /drive/folders/<ID>),
+                    // masbug/flysystem-google-drive-ext requires passing it as 'sharedFolderId' with $root = null.
+                    // If passed as the 2nd argument ($root), the adapter mistakenly treats the ID as a literal folder NAME
+                    // and creates a new folder named after the ID!
+                    $options['sharedFolderId'] = $folderId;
+                    $root = null;
+                } else {
+                    $root = 'root';
+                }
+
                 $service = new \Google\Service\Drive($client);
-                $adapter = new GoogleDriveAdapter($service, $folderId, $options);
+                $adapter = new GoogleDriveAdapter($service, $root, $options);
                 $flysystem = new Filesystem($adapter);
 
                 return new FilesystemAdapter($flysystem, $adapter, $config);

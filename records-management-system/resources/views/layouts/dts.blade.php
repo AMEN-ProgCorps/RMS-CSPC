@@ -119,6 +119,9 @@
     </section>
     <x-chatify.floating-widget />
     <livewire:components.scanner-modal />
+    @auth
+    <livewire:components.session-guard />
+    @endauth
     @stack('scripts')
     <script>
         document.addEventListener('submit', () => {

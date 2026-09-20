@@ -1741,6 +1741,20 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
     <!-- Tab 1: Predefined Flow Manager -->
     @if($activeTab === 'predefined')
+        @if(!$selectedPredefined && $successMessage)
+            <div class="toast-alert success" style="margin: 0 0 16px 0;">
+                <i class="fa-solid fa-circle-check"></i>
+                <span>{{ $successMessage }}</span>
+            </div>
+        @endif
+
+        @if(!$selectedPredefined && $errorMessage)
+            <div class="toast-alert error" style="margin: 0 0 16px 0;">
+                <i class="fa-solid fa-circle-exclamation"></i>
+                <span>{{ $errorMessage }}</span>
+            </div>
+        @endif
+
         <div class="admin-offices-container {{ !$selectedPredefined ? 'no-selection' : 'has-selection' }}">
             <!-- Left Pane: Predefined Flows Directory -->
             <div class="directory-panel">

@@ -191,7 +191,7 @@
     <x-nav.dcs />
 
     @auth
-        <livewire:components.dcs.session-guard />
+        <livewire:components.session-guard />
     @endauth
 
     <div class="dcs-top-tabs-host">

@@ -29,6 +29,13 @@
     border-radius: inherit;
 }
 
+.dcs-loading-overlay.is-visible,
+.upd-loading-overlay.is-visible,
+.ofi-loading-overlay.is-visible,
+.db-loading-overlay.is-visible {
+    display: flex;
+}
+
 .dcs-loading-overlay.is-page,
 .ofi-loading-overlay.ofi-loading-page {
     position: fixed;

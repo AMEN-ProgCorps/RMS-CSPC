@@ -9,14 +9,32 @@ use Illuminate\Support\Facades\DB;
 class DtsNotificationTest extends TestCase
 {
     private string $officeCode = 'TEST_DTS_NOTIF_OFFICE';
+    private string $tNotifications;
+    private string $tNotifContent;
+    private string $tOffice;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->tNotifications = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $this->tNotifContent = \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $this->tOffice = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
+        DB::table($this->tOffice)->updateOrInsert(
+            ['office_code' => $this->officeCode],
+            ['office_name' => 'Notification Test Office', 'is_active' => true]
+        );
+    }
 
     protected function tearDown(): void
     {
-        $notifications = DB::table('notifications')->where('office', $this->officeCode)->get();
+        $notifications = DB::table($this->tNotifications)->where('office', $this->officeCode)->get();
         foreach ($notifications as $notif) {
-            DB::table('notifications')->where('id', $notif->id)->delete();
-            DB::table('notif_content')->where('id', $notif->contents)->delete();
+            DB::table($this->tNotifications)->where('id', $notif->id)->delete();
+            DB::table($this->tNotifContent)->where('id', $notif->contents)->delete();
         }
+
+        DB::table($this->tOffice)->where('office_code', $this->officeCode)->delete();
 
         parent::tearDown();
     }
@@ -25,12 +43,12 @@ class DtsNotificationTest extends TestCase
     {
         DtsNotificationService::notifyWaitingToBeReceived($this->officeCode, 'CTRL-1001', 'TRANS-1001');
 
-        $this->assertDatabaseHas('notif_content', [
+        $this->assertDatabaseHas($this->tNotifContent, [
             'content' => 'New Transaction CTRL-1001 is waiting to be received by your office.',
             'redirect_url' => '/dts?open=TRANS-1001',
         ]);
 
-        $this->assertDatabaseHas('notifications', [
+        $this->assertDatabaseHas($this->tNotifications, [
             'office' => $this->officeCode,
         ]);
     }
@@ -39,12 +57,12 @@ class DtsNotificationTest extends TestCase
     {
         DtsNotificationService::notifyReceived($this->officeCode, 'John', 'CTRL-1002', 'TRANS-1002');
 
-        $this->assertDatabaseHas('notif_content', [
+        $this->assertDatabaseHas($this->tNotifContent, [
             'content' => 'Transaction CTRL-1002 has been received by John.',
             'redirect_url' => '/dts?open=TRANS-1002',
         ]);
 
-        $this->assertDatabaseHas('notifications', [
+        $this->assertDatabaseHas($this->tNotifications, [
             'office' => $this->officeCode,
         ]);
     }
@@ -53,12 +71,12 @@ class DtsNotificationTest extends TestCase
     {
         DtsNotificationService::notifyForwarded($this->officeCode, 'Jane', 'CTRL-1003', 'TRANS-1003');
 
-        $this->assertDatabaseHas('notif_content', [
+        $this->assertDatabaseHas($this->tNotifContent, [
             'content' => 'Transaction CTRL-1003 has been forwarded by Jane.',
             'redirect_url' => '/dts?open=TRANS-1003',
         ]);
 
-        $this->assertDatabaseHas('notifications', [
+        $this->assertDatabaseHas($this->tNotifications, [
             'office' => $this->officeCode,
         ]);
     }
@@ -67,12 +85,12 @@ class DtsNotificationTest extends TestCase
     {
         DtsNotificationService::notifyCompleted($this->officeCode, 'CTRL-1004', 'TRANS-1004');
 
-        $this->assertDatabaseHas('notif_content', [
+        $this->assertDatabaseHas($this->tNotifContent, [
             'content' => 'Transaction CTRL-1004 has been completed, you can now check it.',
             'redirect_url' => '/dts?open=TRANS-1004',
         ]);
 
-        $this->assertDatabaseHas('notifications', [
+        $this->assertDatabaseHas($this->tNotifications, [
             'office' => $this->officeCode,
         ]);
     }

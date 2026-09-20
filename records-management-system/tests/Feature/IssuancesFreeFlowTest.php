@@ -21,31 +21,25 @@ class IssuancesFreeFlowTest extends TestCase
             Auth::login($this->user);
         }
 
-        DB::table('office')->updateOrInsert(
+        $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
+        DB::table($officeTable)->updateOrInsert(
             ['office_code' => 'GENERAL'],
             ['office_name' => 'General Administration Office', 'is_active' => true]
         );
-        DB::table('office')->updateOrInsert(
-            ['office_code' => 'RFOIU'],
-            ['office_name' => 'Records and Freedom of Information Unit', 'is_active' => true]
-        );
-        DB::table('office')->updateOrInsert(
-            ['office_code' => 'RFIO'],
-            ['office_name' => 'Records and Freedom of Information Office', 'is_active' => true]
-        );
-        DB::table('office')->updateOrInsert(
+        DB::table($officeTable)->updateOrInsert(
             ['office_code' => 'ICTU'],
             ['office_name' => 'Information and Communications Technology Unit', 'is_active' => true]
         );
-        DB::table('office')->updateOrInsert(
+        DB::table($officeTable)->updateOrInsert(
             ['office_code' => 'VP'],
             ['office_name' => 'Office of the Vice President', 'is_active' => true]
         );
-        DB::table('office')->updateOrInsert(
+        DB::table($officeTable)->updateOrInsert(
             ['office_code' => 'CAS'],
             ['office_name' => 'College of Arts and Sciences', 'is_active' => true]
         );
-        DB::table('office')->updateOrInsert(
+        DB::table($officeTable)->updateOrInsert(
             ['office_code' => '[HUB]'],
             ['office_name' => 'Office Hub [Multi-Receiving]', 'is_active' => true]
         );
@@ -174,13 +168,14 @@ class IssuancesFreeFlowTest extends TestCase
         $this->assertNotNull($qrRecord);
 
         // Verify tracking logs exist for ICTU on parent and VP on child
-        $parentLogs = DB::table('sub_document_tracking_system_logs')
+        $logsTable = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
+        $parentLogs = DB::table($logsTable)
             ->where('transaction_id', $transDetail->id)
             ->pluck('office_code')
             ->toArray();
         $this->assertContains('ICTU', $parentLogs);
 
-        $childLogs = DB::table('sub_document_tracking_system_logs')
+        $childLogs = DB::table($logsTable)
             ->where('transaction_id', $childTrans->id)
             ->pluck('office_code')
             ->toArray();
@@ -242,7 +237,8 @@ class IssuancesFreeFlowTest extends TestCase
             ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
         
         // Ensure user office has a pending log
-        DB::table('sub_document_tracking_system_logs')->updateOrInsert(
+        $logsTable = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
+        DB::table($logsTable)->updateOrInsert(
             ['transaction_id' => $transDetail->id, 'office_code' => $userOfficeCode],
             ['type' => 'forwarded', 'date_in' => null, 'date_out' => null]
         );
@@ -251,7 +247,7 @@ class IssuancesFreeFlowTest extends TestCase
             ->call('receiveIncoming', $transDetail->id)
             ->assertHasNoErrors();
 
-        $receivedLog = DB::table('sub_document_tracking_system_logs')
+        $receivedLog = DB::table($logsTable)
             ->where('transaction_id', $transDetail->id)
             ->where('office_code', $userOfficeCode)
             ->first();
@@ -289,11 +285,14 @@ class IssuancesFreeFlowTest extends TestCase
             $transDetail->id
         );
 
+        $notifTable = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifContentTable = \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+
         // Check if notification exists for origin office
-        $notif = DB::table('notifications')
-            ->join('notif_content', 'notif_content.id', '=', 'notifications.contents')
-            ->where('notifications.office', $originOffice)
-            ->where('notif_content.content', 'like', '%has received Transaction ' . $transDetail->control_number . '%')
+        $notif = DB::table($notifTable)
+            ->join($notifContentTable, $notifContentTable . '.id', '=', $notifTable . '.contents')
+            ->where($notifTable . '.office', $originOffice)
+            ->where($notifContentTable . '.content', 'like', '%has received Transaction ' . $transDetail->control_number . '%')
             ->first();
 
         $this->assertNotNull($notif);
@@ -308,10 +307,10 @@ class IssuancesFreeFlowTest extends TestCase
         );
 
         // Check if forward notification exists for origin office
-        $fwdNotif = DB::table('notifications')
-            ->join('notif_content', 'notif_content.id', '=', 'notifications.contents')
-            ->where('notifications.office', $originOffice)
-            ->where('notif_content.content', 'like', '%has completed and forwarded Transaction ' . $transDetail->control_number . '%')
+        $fwdNotif = DB::table($notifTable)
+            ->join($notifContentTable, $notifContentTable . '.id', '=', $notifTable . '.contents')
+            ->where($notifTable . '.office', $originOffice)
+            ->where($notifContentTable . '.content', 'like', '%has completed and forwarded Transaction ' . $transDetail->control_number . '%')
             ->first();
 
         $this->assertNotNull($fwdNotif);
@@ -337,7 +336,8 @@ class IssuancesFreeFlowTest extends TestCase
         $flow = DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
         $this->assertNotNull($flow);
 
-        $savedHubOffices = DB::table('hub_flow_datas')
+        $hubTable = \Illuminate\Support\Facades\Schema::hasTable('dts_hub_flow_datas') ? 'dts_hub_flow_datas' : 'hub_flow_datas';
+        $savedHubOffices = DB::table($hubTable)
             ->where('flow_owner', $flow->id)
             ->pluck('offices_hub')
             ->toArray();
@@ -366,7 +366,8 @@ class IssuancesFreeFlowTest extends TestCase
         $flow = DB::table('dts_transaction_flow')->where('flow_name', $customDocType)->first();
         $this->assertNotNull($flow);
 
-        $savedHubOffices = DB::table('hub_flow_datas')
+        $hubTable = \Illuminate\Support\Facades\Schema::hasTable('dts_hub_flow_datas') ? 'dts_hub_flow_datas' : 'hub_flow_datas';
+        $savedHubOffices = DB::table($hubTable)
             ->where('flow_owner', $flow->id)
             ->pluck('offices_hub')
             ->toArray();

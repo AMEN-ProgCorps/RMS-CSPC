@@ -16,10 +16,25 @@ class NotificationLogsTest extends TestCase
     private $subsystemId;
     private $notifContentId;
     private $notificationId;
+    private $originalOfficeId;
+
+    private string $tOffice;
+    private string $tAccountDetails;
+    private string $tSubsystems;
+    private string $tNotifContent;
+    private string $tNotifications;
+    private string $tNotificationDiv;
 
     protected function setUp(): void
     {
         parent::setUp();
+
+        $this->tOffice = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $this->tAccountDetails = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $this->tSubsystems = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+        $this->tNotifContent = \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $this->tNotifications = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $this->tNotificationDiv = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
 
         // 1. Authenticate user
         $user = User::find($this->testUserId);
@@ -29,26 +44,31 @@ class NotificationLogsTest extends TestCase
         }
         Auth::login($user);
 
+        // Store original office ID to restore later
+        $this->originalOfficeId = DB::table($this->tAccountDetails)
+            ->where('account_id', $this->testUserId)
+            ->value('office_id');
+
         // 2. Set up a test office
-        $this->officeId = DB::table('office')->insertGetId([
+        $this->officeId = DB::table($this->tOffice)->insertGetId([
             'office_name' => 'Log Test Office',
             'office_code' => $this->officeCode,
         ]);
 
         // Link the authenticated user to this test office
-        DB::table('account_details')
+        DB::table($this->tAccountDetails)
             ->where('account_id', $this->testUserId)
             ->update(['office_id' => $this->officeId]);
 
         // 3. Ensure a test subsystem exists
-        $subsystem = DB::table('subsystems')
+        $subsystem = DB::table($this->tSubsystems)
             ->where('subsystem_name', 'Profile Manager')
             ->first();
 
         if ($subsystem) {
             $this->subsystemId = $subsystem->subsystem_id;
         } else {
-            $this->subsystemId = DB::table('subsystems')->insertGetId([
+            $this->subsystemId = DB::table($this->tSubsystems)->insertGetId([
                 'subsystem_name' => 'Profile Manager',
                 'subsystem_version' => '1.0.0',
                 'created_at' => now(),
@@ -57,21 +77,21 @@ class NotificationLogsTest extends TestCase
         }
 
         // 4. Create a test notification content
-        $this->notifContentId = DB::table('notif_content')->insertGetId([
+        $this->notifContentId = DB::table($this->tNotifContent)->insertGetId([
             'system' => $this->subsystemId,
             'content' => 'Log test notification message text',
             'created_at' => now(),
         ]);
 
         // 5. Create a test notification
-        $this->notificationId = DB::table('notifications')->insertGetId([
+        $this->notificationId = DB::table($this->tNotifications)->insertGetId([
             'office' => $this->officeCode,
             'contents' => $this->notifContentId,
             'created_at' => now(),
         ]);
 
         // 6. Create a test notification_div entry
-        DB::table('notification_div')->insert([
+        DB::table($this->tNotificationDiv)->insert([
             'id' => $this->notificationId,
             'account_rec' => $this->testUserId,
             'status' => 'unread',
@@ -83,15 +103,15 @@ class NotificationLogsTest extends TestCase
     protected function tearDown(): void
     {
         // Clean up test data
-        DB::table('notification_div')->where('id', $this->notificationId)->delete();
-        DB::table('notifications')->where('id', $this->notificationId)->delete();
-        DB::table('notif_content')->where('id', $this->notifContentId)->delete();
+        DB::table($this->tNotificationDiv)->where('id', $this->notificationId)->delete();
+        DB::table($this->tNotifications)->where('id', $this->notificationId)->delete();
+        DB::table($this->tNotifContent)->where('id', $this->notifContentId)->delete();
 
-        DB::table('account_details')
+        DB::table($this->tAccountDetails)
             ->where('account_id', $this->testUserId)
-            ->update(['office_id' => null]);
+            ->update(['office_id' => $this->originalOfficeId]);
 
-        DB::table('office')->where('id', $this->officeId)->delete();
+        DB::table($this->tOffice)->where('id', $this->officeId)->delete();
 
         parent::tearDown();
     }
@@ -123,7 +143,7 @@ class NotificationLogsTest extends TestCase
             ->assertDontSee('Log test notification message text');
 
         // Update to 'read'
-        DB::table('notification_div')
+        DB::table($this->tNotificationDiv)
             ->where('id', $this->notificationId)
             ->update(['status' => 'read']);
 
@@ -153,7 +173,7 @@ class NotificationLogsTest extends TestCase
             ->assertDontSee('Log test notification message text');
 
         // Update to cleared (is_in_user_list = false)
-        DB::table('notification_div')
+        DB::table($this->tNotificationDiv)
             ->where('id', $this->notificationId)
             ->update(['is_in_user_list' => false]);
 

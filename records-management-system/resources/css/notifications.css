@@ -108,6 +108,12 @@
     margin: 0;
 }
 
+.notif-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
 .notif-mark-all-btn {
     font-family: 'Inter', sans-serif;
     font-size: 12.5px;
@@ -122,6 +128,23 @@
 
 .notif-mark-all-btn:hover {
     color: #003699;
+    text-decoration: underline;
+}
+
+.notif-clear-all-btn {
+    font-family: 'Inter', sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #9ca3af;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: color 0.2s ease;
+    padding: 0;
+}
+
+.notif-clear-all-btn:hover {
+    color: #ef4444;
     text-decoration: underline;
 }
 

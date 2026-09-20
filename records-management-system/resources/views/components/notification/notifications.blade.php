@@ -100,6 +100,19 @@ new class extends Component {
                 $query->whereNull("{$notifDivTbl}.is_in_user_list")
                       ->orWhere("{$notifDivTbl}.is_in_user_list", 1);
             })
+            ->where(function ($query) use ($notifDivTbl) {
+                $query->whereNull("{$notifDivTbl}.is_dismissed")
+                      ->orWhere("{$notifDivTbl}.is_dismissed", false);
+            })
+            ->where(function ($query) use ($notifDivTbl) {
+                $sessionId = session()->getId();
+                $query->whereNull("{$notifDivTbl}.status")
+                      ->orWhere("{$notifDivTbl}.status", '!=', 'read')
+                      ->orWhere(function ($subQuery) use ($notifDivTbl, $sessionId) {
+                          $subQuery->where("{$notifDivTbl}.status", '=', 'read')
+                                   ->where("{$notifDivTbl}.read_at_session", '=', $sessionId);
+                      });
+            })
             ->orderBy("{$notifTbl}.created_at", 'desc')
             ->select(
                 "{$notifTbl}.id",
@@ -225,6 +238,7 @@ new class extends Component {
             ],
             [
                 'status' => 'read',
+                'read_at_session' => session()->getId(),
                 'processed_on' => now()
             ]
         );
@@ -242,6 +256,7 @@ new class extends Component {
 
         $userId = Auth::id();
         $unreadItems = $this->notifications->where('status', 'unread');
+        $sessionId = session()->getId();
         
         foreach ($unreadItems as $item) {
             $exists = DB::table($notifTbl)->where('id', $item->id)->exists();
@@ -253,6 +268,7 @@ new class extends Component {
                     ],
                     [
                         'status' => 'read',
+                        'read_at_session' => $sessionId,
                         'processed_on' => now()
                     ]
                 );
@@ -263,7 +279,76 @@ new class extends Component {
     }
 
     /**
-     * Dismisses/deletes a notification for the current user.
+     * Clears a single notification from the dropdown modal (sets is_dismissed to true).
+     *
+     * @param int $notificationId The ID of the notification
+     */
+    public function clearNotification($notificationId)
+    {
+        $this->dismissNotification($notificationId);
+    }
+
+    /**
+     * Dismisses a single notification from the dropdown modal (sets is_dismissed to true).
+     *
+     * @param int $notificationId The ID of the notification
+     */
+    public function dismissNotification($notificationId)
+    {
+        $notifTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifDivTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+
+        $exists = DB::table($notifTbl)->where('id', $notificationId)->exists();
+        if (!$exists) {
+            $this->loadNotifications();
+            return;
+        }
+
+        $userId = Auth::id();
+        DB::table($notifDivTbl)->updateOrInsert(
+            [
+                'id' => $notificationId,
+                'account_rec' => $userId
+            ],
+            [
+                'is_dismissed' => true,
+                'processed_on' => now()
+            ]
+        );
+        $this->loadNotifications();
+        $this->dispatch('rms-notification-updated');
+    }
+
+    /**
+     * Mass dismisses all currently visible notifications in the dropdown modal.
+     */
+    public function clearAllNotifications()
+    {
+        $notifTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifDivTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+
+        $userId = Auth::id();
+        foreach ($this->notifications as $item) {
+            $exists = DB::table($notifTbl)->where('id', $item->id)->exists();
+            if ($exists) {
+                DB::table($notifDivTbl)->updateOrInsert(
+                    [
+                        'id' => $item->id,
+                        'account_rec' => $userId
+                    ],
+                    [
+                        'is_dismissed' => true,
+                        'processed_on' => now()
+                    ]
+                );
+            }
+        }
+        $this->loadNotifications();
+        $this->dispatch('rms-notification-updated');
+    }
+
+    /**
+     * Deletes a notification from user list (sets is_in_user_list to false).
      * 
      * @param int $notificationId The ID of the notification
      */
@@ -295,7 +380,7 @@ new class extends Component {
 };
 ?>
 
-<div class="notif-wrapper" x-data="{ open: @entangle('showDropdown') }" @click.outside="open = false" @close-notifications.window="open = false">
+<div class="notif-wrapper" x-data="{ open: @entangle('showDropdown') }" @click.outside="open = false" @close-notifications.window="open = false" @keydown.escape.window="open = false">
     <!-- Bell Button -->
     <button class="notif-bell-btn" @click="open = !open; if (open) { window.closeActionsDropdown ? window.closeActionsDropdown() : (typeof closeActionsDropdown !== 'undefined' ? closeActionsDropdown() : null); }" type="button" aria-label="Toggle notifications menu">
         <svg class="notif-bell-svg" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -309,11 +394,18 @@ new class extends Component {
     <div class="notif-dropdown" x-show="open" x-transition.opacity.scale x-cloak>
         <div class="notif-dropdown-header">
             <h3>Notifications</h3>
-            @if ($unreadCount > 0)
-                <button class="notif-mark-all-btn" wire:click="markAllAsRead" type="button">
-                    Mark all as read
-                </button>
-            @endif
+            <div class="notif-header-actions">
+                @if ($unreadCount >= 2)
+                    <button class="notif-mark-all-btn" wire:click="markAllAsRead" type="button">
+                        Mark all as read
+                    </button>
+                @endif
+                @if (count($notifications) > 0)
+                    <button class="notif-clear-all-btn" wire:click="clearAllNotifications" type="button">
+                        Clear all notification
+                    </button>
+                @endif
+            </div>
         </div>
 
         <div class="notif-dropdown-body">
@@ -347,8 +439,8 @@ new class extends Component {
                                     Mark as Read
                                 </button>
                             @endif
-                            <button class="notif-action-item delete" wire:click="deleteNotification({{ $notification->id }}); menuOpen = false" type="button">
-                                Delete
+                            <button class="notif-action-item" wire:click="clearNotification({{ $notification->id }}); menuOpen = false" type="button">
+                                Clear
                             </button>
                         </div>
                     </div>
@@ -359,7 +451,7 @@ new class extends Component {
                         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                         <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                     </svg>
-                    <p>No notifications found for this account.</p>
+                    <p>No notification currently at this session..</p>
                 </div>
             @endforelse
         </div>

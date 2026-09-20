@@ -19,6 +19,7 @@ class DtsDashboardFilteringTest extends TestCase
     private $qrCodes = [];
     private $flowId;
     private $rolePermissionId;
+    private $originalOfficeId;
 
     protected function setUp(): void
     {
@@ -33,9 +34,13 @@ class DtsDashboardFilteringTest extends TestCase
         Auth::login($user);
         $this->rolePermissionId = $user->account_role;
 
+        $tAccount = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $this->originalOfficeId = DB::table($tAccount)->where('account_id', $this->testUserId)->value('office_id');
+
         // Disable view-all permissions first
         if ($this->rolePermissionId) {
-            DB::table('condition_details')->where('key_id', $this->rolePermissionId)->update([
+            $tCond = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details') ? 'sys_condition_details' : 'condition_details';
+            DB::table($tCond)->where('key_id', $this->rolePermissionId)->update([
                 'is_sadm' => false,
                 'can_dts_view_all_current_trans' => false
             ]);
@@ -43,29 +48,32 @@ class DtsDashboardFilteringTest extends TestCase
             Auth::setUser(User::find($this->testUserId));
         }
 
+        $tOffice = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
         // 2. Set up test offices
-        $this->myOfficeId = DB::table('office')->insertGetId([
+        $this->myOfficeId = DB::table($tOffice)->insertGetId([
             'office_name' => 'My Test Office',
             'office_code' => $this->myOfficeCode,
         ]);
 
-        $this->otherOfficeId = DB::table('office')->insertGetId([
+        $this->otherOfficeId = DB::table($tOffice)->insertGetId([
             'office_name' => 'Other Test Office',
             'office_code' => $this->otherOfficeCode,
         ]);
 
         // Link the authenticated user to my test office
-        DB::table('account_details')
+        DB::table($tAccount)
             ->where('account_id', $this->testUserId)
             ->update(['office_id' => $this->myOfficeId]);
 
         // Ensure the flow 'TEST' exists
-        $existing = DB::table('dts_transaction_flow')->where('flow_code', 'TEST')->first();
+        $tFlow = \Illuminate\Support\Facades\Schema::hasTable('sys_dts_transaction_flow') ? 'sys_dts_transaction_flow' : 'dts_transaction_flow';
+        $existing = DB::table($tFlow)->where('flow_code', 'TEST')->first();
         if ($existing) {
             $this->flowId = $existing->id;
         } else {
-            $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
-            $this->flowId = DB::table('dts_transaction_flow')->insertGetId([
+            $maxId = DB::table($tFlow)->max('id') ?? 0;
+            $this->flowId = DB::table($tFlow)->insertGetId([
                 'id' => $maxId + 1,
                 'flow_code' => 'TEST',
                 'flow_name' => 'Test Flow',
@@ -79,10 +87,11 @@ class DtsDashboardFilteringTest extends TestCase
 
     protected function tearDown(): void
     {
+        $tAccount = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
         // Restore account details
-        DB::table('account_details')
+        DB::table($tAccount)
             ->where('account_id', $this->testUserId)
-            ->update(['office_id' => null]);
+            ->update(['office_id' => $this->originalOfficeId]);
 
         // Restore admin permissions
         if ($this->rolePermissionId) {

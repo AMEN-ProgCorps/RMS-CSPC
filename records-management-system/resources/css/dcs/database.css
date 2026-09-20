@@ -579,11 +579,18 @@ td.col-group-summary-body {
     vertical-align: middle;
 }
 
-.db-offices-cell {
+.db-offices-cell,
+.db-title-cell {
     max-width: 400px;
     min-width: 160px;
     width: 400px;
     vertical-align: top;
+}
+
+.db-title-cell {
+    max-width: var(--sticky-4-w);
+    min-width: var(--sticky-4-w);
+    width: var(--sticky-4-w);
 }
 
 .db-offices-clamp {

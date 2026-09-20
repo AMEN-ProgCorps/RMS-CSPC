@@ -948,7 +948,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     expandedRevs: {},
     openCourses: {},
     openOffices: {},
+    tableBusy: false,
+    busyLabel: 'Loading documents…',
+    busyHint: 'Fetching records and preparing the preview.',
     _stickySyncTimer: null,
+    _busyTimer: null,
     init() {
         try {
             const saved = JSON.parse(sessionStorage.getItem('dcs-db-expand') || '{}');
@@ -999,6 +1003,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if (this._stickySyncTimer) {
             clearTimeout(this._stickySyncTimer);
             this._stickySyncTimer = null;
+        }
+        if (this._busyTimer) {
+            clearTimeout(this._busyTimer);
+            this._busyTimer = null;
         }
         if (this._onResizeSticky) window.removeEventListener('resize', this._onResizeSticky);
         if (this._onNavigatedSticky) document.removeEventListener('livewire:navigated', this._onNavigatedSticky);
@@ -1122,8 +1130,56 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         Object.keys(this.open).forEach(k => this.open[k] = !next);
         this.persistExpand();
     },
-    toggleCategory(slug) { this.categories[slug] = !this.categories[slug]; this.persistExpand(); },
-    toggleRev(id) { this.expandedRevs[id] = !this.expandedRevs[id]; this.persistExpand(); },
+    withTableBusy(label, hint, fn) {
+        if (this._busyTimer) {
+            clearTimeout(this._busyTimer);
+            this._busyTimer = null;
+        }
+        this.busyLabel = label || 'Loading documents…';
+        this.busyHint = hint || 'Fetching records and preparing the preview.';
+        this.tableBusy = true;
+        this.$nextTick(() => {
+            requestAnimationFrame(() => {
+                try {
+                    fn();
+                } finally {
+                    this.$nextTick(() => {
+                        requestAnimationFrame(() => {
+                            // Keep overlay briefly so dense expands don't flash empty UI.
+                            this._busyTimer = setTimeout(() => {
+                                this.tableBusy = false;
+                                this._busyTimer = null;
+                            }, 120);
+                        });
+                    });
+                }
+            });
+        });
+    },
+    toggleCategory(slug) {
+        const willExpand = !this.categories[slug];
+        if (willExpand) {
+            this.withTableBusy('Expanding category…', 'Showing documents in this group.', () => {
+                this.categories[slug] = true;
+                this.persistExpand();
+            });
+            return;
+        }
+        this.categories[slug] = false;
+        this.persistExpand();
+    },
+    toggleRev(id) {
+        const willExpand = !this.expandedRevs[id];
+        if (willExpand) {
+            this.withTableBusy('Expanding revisions…', 'Showing older revisions for this document.', () => {
+                this.expandedRevs[id] = true;
+                this.persistExpand();
+            });
+            return;
+        }
+        this.expandedRevs[id] = false;
+        this.persistExpand();
+    },
     toggleCourses(id) { this.openCourses[id] = !this.openCourses[id]; this.persistExpand(); },
     slug(name) { return String(name || 'uncategorized').toLowerCase().replace(/[^a-z0-9]+/g, '-') }
 }" @keydown.escape.window="closeGroupMenu()">
@@ -1236,15 +1292,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     <section class="db-controls">
         <div class="db-type-grid">
-            <button class="db-type-btn {{ $docTypeId === 'all' ? 'active' : '' }}" type="button" wire:click="setType('all')" wire:loading.attr="disabled">ALL</button>
+            <button class="db-type-btn {{ $docTypeId === 'all' ? 'active' : '' }}" type="button" wire:click="setType('all')" wire:loading.attr="disabled" wire:target="setType">ALL</button>
             @foreach($docTypes ?? [] as $type)
-                <button class="db-type-btn {{ (string) $docTypeId === (string) $type->id ? 'active' : '' }}" type="button" wire:click="setType('{{ $type->id }}')" wire:loading.attr="disabled">{{ strtoupper($type->doc_type_name) }}</button>
+                <button class="db-type-btn {{ (string) $docTypeId === (string) $type->id ? 'active' : '' }}" type="button" wire:click="setType('{{ $type->id }}')" wire:loading.attr="disabled" wire:target="setType">{{ strtoupper($type->doc_type_name) }}</button>
             @endforeach
         </div>
         <div class="db-controls-right">
             <div class="db-search-wrap">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                <input type="text" wire:model.live.debounce.400ms="search" placeholder="Search documents..." autocomplete="off" wire:loading.attr="disabled">
+                <input type="text" wire:model.live.debounce.400ms="search" placeholder="Search documents..." autocomplete="off" wire:loading.attr="disabled" wire:target="search">
             </div>
             <button class="db-collapse-btn" type="button" :class="{ 'is-collapsed': allCollapsed }" @click="collapseAll()" :title="allCollapsed ? 'Expand all columns' : 'Collapse all columns'">
                 <i class="fa-solid" :class="allCollapsed ? 'fa-expand' : 'fa-compress'"></i>
@@ -1264,11 +1320,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
     </section>
 
-    <section class="db-table-wrap" wire:loading.class="is-loading" wire:target="applyFilters,resetFilters">
-        <div class="dcs-loading-overlay" wire:loading.flex wire:target="applyFilters,resetFilters">
+    <section class="db-table-wrap" wire:loading.class="is-loading" wire:target="setType,applyFilters,resetFilters,goToPage,search" :class="{ 'is-loading': tableBusy }">
+        <div class="dcs-loading-overlay" wire:loading.class="is-visible" wire:target="setType,applyFilters,resetFilters,goToPage,search">
             <div class="dcs-loading-spinner" aria-hidden="true"></div>
             <h4>Loading documents…</h4>
             <p>Fetching records and preparing the preview.</p>
+        </div>
+        <div class="dcs-loading-overlay" x-show="tableBusy" x-cloak :class="{ 'is-visible': tableBusy }">
+            <div class="dcs-loading-spinner" aria-hidden="true"></div>
+            <h4 x-text="busyLabel">Loading documents…</h4>
+            <p x-text="busyHint">Fetching records and preparing the preview.</p>
         </div>
         <div class="db-table-scroll">
             <table class="db-table" id="inventoryTable">
@@ -1318,7 +1379,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN NO.</th>
                         <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN DATE</th>
                         <th colspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">DCN RECEIPT (ACTUAL)</th>
-                        <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">PURPOSE OF REVISION</th>
+                        <th rowspan="2" class="col-group-dcn col-group-expanded db-offices-col" x-show="visible.dcn && open.dcn">PURPOSE OF REVISION</th>
                         <th rowspan="2" class="col-group-dcn col-group-expanded" x-show="visible.dcn && open.dcn">SCANNED DCN</th>
                         <th rowspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DRF NO.</th>
                         <th rowspan="2" class="col-group-drf col-group-expanded" x-show="visible.drf && open.drf">DRF DATE</th>
@@ -1433,11 +1494,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         @if(($list['last_page'] ?? 1) > 1)
             <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 16px;">
                 @if(($list['page'] ?? 1) > 1)
-                    <button type="button" class="db-btn" wire:click="goToPage({{ $list['page'] - 1 }})">Previous</button>
+                    <button type="button" class="db-btn" wire:click="goToPage({{ $list['page'] - 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Previous</button>
                 @endif
                 <span>Page {{ $list['page'] }} of {{ $list['last_page'] }}</span>
                 @if(($list['page'] ?? 1) < ($list['last_page'] ?? 1))
-                    <button type="button" class="db-btn" wire:click="goToPage({{ $list['page'] + 1 }})">Next</button>
+                    <button type="button" class="db-btn" wire:click="goToPage({{ $list['page'] + 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Next</button>
                 @endif
             </div>
         @endif
@@ -1570,6 +1631,100 @@ window.dcsOfficesClamp = function (offices, highlightOffice) {
 
             this.visibleCount = best;
             this.visibleHtml = this.renderHtml(this.offices.slice(0, best));
+            this.showToggle = true;
+        },
+        toggle() {
+            this.expanded = !this.expanded;
+            this.$nextTick(() => this.sync());
+        },
+    };
+};
+
+window.dcsTextClamp = function (text) {
+    return {
+        fullText: String(text ?? '').trim(),
+        expanded: false,
+        visibleText: '',
+        showToggle: false,
+        _ro: null,
+        init() {
+            this.visibleText = this.fullText;
+            this.showToggle = false;
+            this.$nextTick(() => {
+                this.sync();
+                if (typeof ResizeObserver !== 'undefined') {
+                    this._ro = new ResizeObserver(() => {
+                        if (!this.expanded) this.sync();
+                    });
+                    if (this.$refs.view) this._ro.observe(this.$refs.view);
+                }
+            });
+        },
+        lineHeightPx() {
+            const view = this.$refs.view;
+            if (!view) return 18;
+            const lh = parseFloat(getComputedStyle(view).lineHeight);
+            return Number.isFinite(lh) && lh > 0 ? lh : 18;
+        },
+        fitsTwoLines(value) {
+            const measure = this.$refs.measure;
+            const view = this.$refs.view;
+            if (!measure || !view) return true;
+            const width = view.clientWidth || view.offsetWidth;
+            if (width < 8) return true;
+            measure.style.width = width + 'px';
+            measure.textContent = value;
+            const maxH = (this.lineHeightPx() * 2) + 2;
+            return measure.scrollHeight <= maxH;
+        },
+        trimAtWord(value, maxLen) {
+            if (maxLen >= value.length) return value;
+            let cut = value.slice(0, Math.max(1, maxLen));
+            const space = cut.lastIndexOf(' ');
+            if (space >= Math.floor(maxLen * 0.5)) {
+                cut = cut.slice(0, space);
+            }
+            return cut.replace(/[,\s.;:!-]+$/g, '');
+        },
+        sync() {
+            const full = this.fullText;
+            if (!full) {
+                this.visibleText = '';
+                this.showToggle = false;
+                return;
+            }
+
+            if (this.expanded) {
+                this.visibleText = full;
+                this.showToggle = !this.fitsTwoLines(full);
+                return;
+            }
+
+            if (this.fitsTwoLines(full)) {
+                this.visibleText = full;
+                this.showToggle = false;
+                return;
+            }
+
+            // Largest prefix that still fits in 2 lines with " See more".
+            let best = 1;
+            let lo = 1;
+            let hi = full.length;
+            while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                const candidate = this.trimAtWord(full, mid) + ' See more';
+                if (this.fitsTwoLines(candidate)) {
+                    best = mid;
+                    lo = mid + 1;
+                } else {
+                    hi = mid - 1;
+                }
+            }
+            if (best < 1) best = 1;
+            this.visibleText = this.trimAtWord(full, best);
+            if (!this.visibleText) {
+                this.visibleText = full.slice(0, Math.max(1, best));
+            }
             this.showToggle = true;
         },
         toggle() {

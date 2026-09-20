@@ -60,21 +60,15 @@
         return String(el.value || '').trim();
     }
 
-    function todayYmd() {
-        const d = new Date();
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
-    }
-
     function formatScanDatePart(raw) {
         const date = String(raw || '').trim();
-        if (!date) return todayYmd();
-        // Accept YYYY-MM-DD from <input type="date">
+        // Preview placeholder until the user picks a date (do not use today).
+        if (!date) return 'YYYY-MM-DD';
+        // Prefer the value from <input type="date"> as-is (already YYYY-MM-DD).
         if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
+        // Parse other formats without timezone shift (local Y-M-D parts only).
         const parsed = new Date(date);
-        if (Number.isNaN(parsed.getTime())) return todayYmd();
+        if (Number.isNaN(parsed.getTime())) return 'YYYY-MM-DD';
         const y = parsed.getFullYear();
         const m = String(parsed.getMonth() + 1).padStart(2, '0');
         const day = String(parsed.getDate()).padStart(2, '0');

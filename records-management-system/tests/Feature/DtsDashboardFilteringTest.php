@@ -50,6 +50,9 @@ class DtsDashboardFilteringTest extends TestCase
 
         $tOffice = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
 
+        // Clean up any stale office records with these codes
+        DB::table($tOffice)->whereIn('office_code', [$this->myOfficeCode, $this->otherOfficeCode])->delete();
+
         // 2. Set up test offices
         $this->myOfficeId = DB::table($tOffice)->insertGetId([
             'office_name' => 'My Test Office',
@@ -88,6 +91,10 @@ class DtsDashboardFilteringTest extends TestCase
     protected function tearDown(): void
     {
         $tAccount = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $tCond = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details') ? 'sys_condition_details' : 'condition_details';
+        $tLogs = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
+        $tOffice = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
         // Restore account details
         DB::table($tAccount)
             ->where('account_id', $this->testUserId)
@@ -95,7 +102,7 @@ class DtsDashboardFilteringTest extends TestCase
 
         // Restore admin permissions
         if ($this->rolePermissionId) {
-            DB::table('condition_details')->where('key_id', $this->rolePermissionId)->update([
+            DB::table($tCond)->where('key_id', $this->rolePermissionId)->update([
                 'is_sadm' => true,
                 'can_dts_view_all_current_trans' => true
             ]);
@@ -108,7 +115,7 @@ class DtsDashboardFilteringTest extends TestCase
             ->toArray();
 
         if (!empty($transIds)) {
-            DB::table('sub_document_tracking_system_logs')->whereIn('transaction_id', $transIds)->delete();
+            DB::table($tLogs)->whereIn('transaction_id', $transIds)->delete();
             DB::table('dts_transaction_details')->whereIn('id', $transIds)->delete();
             DB::table('dts_transactions')->whereIn('transaction_id', $transIds)->delete();
         }
@@ -118,7 +125,7 @@ class DtsDashboardFilteringTest extends TestCase
         }
 
         DB::table('dts_transaction_flow')->where('flow_code', 'TEST')->delete();
-        DB::table('office')->whereIn('id', [$this->myOfficeId, $this->otherOfficeId])->delete();
+        DB::table($tOffice)->whereIn('id', [$this->myOfficeId, $this->otherOfficeId])->delete();
 
         parent::tearDown();
     }
@@ -162,7 +169,7 @@ class DtsDashboardFilteringTest extends TestCase
             'transaction_flow' => 'TEST',
             'is_active' => true,
             'date_created' => now(),
-            'control_number' => 'CTRL-1',
+            'control_number' => 'CTRL-A',
         ]);
 
         // 2. Transaction where originated_from is MY_OFFICE (active)
@@ -190,7 +197,7 @@ class DtsDashboardFilteringTest extends TestCase
             'transaction_flow' => 'TEST',
             'is_active' => true,
             'date_created' => now(),
-            'control_number' => 'CTRL-2',
+            'control_number' => 'CTRL-B',
         ]);
 
         // 3. Transaction that has passed through MY_OFFICE (active)
@@ -218,9 +225,10 @@ class DtsDashboardFilteringTest extends TestCase
             'transaction_flow' => 'TEST',
             'is_active' => true,
             'date_created' => now(),
-            'control_number' => 'CTRL-3',
+            'control_number' => 'CTRL-C',
         ]);
-        DB::table('sub_document_tracking_system_logs')->insert([
+        $tLogs = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
+        DB::table($tLogs)->insert([
             'transaction_id' => $t3,
             'office_code' => $this->myOfficeCode,
             'type' => 'forwarded',
@@ -245,7 +253,7 @@ class DtsDashboardFilteringTest extends TestCase
         DB::table('dts_transaction_details')->insert([
             'id' => $t4,
             'type' => 'internal',
-            'created_by' => $this->testUserId,
+            'created_by' => 17,
             'originated_from' => $this->otherOfficeCode,
             'current_office_hold' => $this->otherOfficeCode,
             'status' => 'ongoing',
@@ -255,7 +263,7 @@ class DtsDashboardFilteringTest extends TestCase
             'transaction_flow' => 'TEST',
             'is_active' => true,
             'date_created' => now(),
-            'control_number' => 'CTRL-4',
+            'control_number' => 'CTRL-D',
         ]);
 
         // 5. Inactive transaction related to MY_OFFICE (is_active = 0)
@@ -283,22 +291,34 @@ class DtsDashboardFilteringTest extends TestCase
             'transaction_flow' => 'TEST',
             'is_active' => false,
             'date_created' => now(),
-            'control_number' => 'CTRL-5',
+            'control_number' => 'CTRL-E',
         ]);
 
-        // Test component rendering and transactions count/list
-        $component = Volt::test('pages.dts.index');
-        
-        $transactions = $component->get('transactions');
-        $subjects = collect($transactions->items())->pluck('subject')->toArray();
+        // 1. Incoming view (default): must show TST-SUB-1 (incoming to user's office)
+        $incomingComponent = Volt::test('pages.dts.index');
+        $incomingTransactions = $incomingComponent->get('transactions');
+        $incomingSubjects = collect($incomingTransactions->items())->pluck('subject')->toArray();
 
-        // Must show TST-SUB-1, TST-SUB-2, TST-SUB-3
-        $this->assertContains('TST-SUB-1', $subjects);
-        $this->assertContains('TST-SUB-2', $subjects);
-        $this->assertContains('TST-SUB-3', $subjects);
+        $this->assertContains('TST-SUB-1', $incomingSubjects);
+        $this->assertNotContains('TST-SUB-4', $incomingSubjects);
+        $this->assertNotContains('TST-SUB-5', $incomingSubjects);
 
-        // Must NOT show TST-SUB-4 (no office relation) or TST-SUB-5 (inactive)
-        $this->assertNotContains('TST-SUB-4', $subjects);
-        $this->assertNotContains('TST-SUB-5', $subjects);
+        // 2. My Transactions view: must show TST-SUB-2 (originated from user's office)
+        $myTxComponent = Volt::test('pages.dts.index')->set('currentRouteName', 'dts.my-transactions');
+        $myTxTransactions = $myTxComponent->get('transactions');
+        $myTxSubjects = collect($myTxTransactions->items())->pluck('subject')->toArray();
+
+        $this->assertContains('TST-SUB-2', $myTxSubjects);
+        $this->assertNotContains('TST-SUB-4', $myTxSubjects);
+        $this->assertNotContains('TST-SUB-5', $myTxSubjects);
+
+        // 3. Forwarded view: must show TST-SUB-3 (forwarded from user's office)
+        $forwardedComponent = Volt::test('pages.dts.index')->set('currentRouteName', 'dts.forwarded');
+        $forwardedTransactions = $forwardedComponent->get('transactions');
+        $forwardedSubjects = collect($forwardedTransactions->items())->pluck('subject')->toArray();
+
+        $this->assertContains('TST-SUB-3', $forwardedSubjects);
+        $this->assertNotContains('TST-SUB-4', $forwardedSubjects);
+        $this->assertNotContains('TST-SUB-5', $forwardedSubjects);
     }
 }

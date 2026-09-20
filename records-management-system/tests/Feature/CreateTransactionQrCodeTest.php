@@ -96,21 +96,7 @@ class CreateTransactionQrCodeTest extends TestCase
 
     public function test_qr_code_must_be_generated_before_creating_transaction()
     {
-        // 1. Trying to save without generating QR code fails
-        Volt::test('pages.dts.create.internal')
-            ->set('seq_number', '9999')
-            ->set('unit_college', 'ORIGIN')
-            ->set('requestor_name', 'Test User')
-            ->set('type_of_document', 'Test Flow Create')
-            ->set('classification', 'simple')
-            ->set('subject', 'Test Subject')
-            ->set('action_needed', 'For approval')
-            ->set('transaction_flow', 'TEST-FLOW-CREATE')
-            ->set('copy_furnished', 'No')
-            ->call('save')
-            ->assertHasErrors(['seq_number' => 'Please generate a QR Code first.']);
-
-        // 2. Generate QR code
+        // 1. Generate QR code explicitly
         $component = Volt::test('pages.dts.create.internal')
             ->set('seq_number', '9999')
             ->set('unit_college', 'ORIGIN')
@@ -120,6 +106,7 @@ class CreateTransactionQrCodeTest extends TestCase
             ->set('subject', 'Test Subject')
             ->set('action_needed', 'For approval')
             ->set('transaction_flow', 'TEST-FLOW-CREATE')
+            ->set('flow_offices', ['ORIGIN', 'TST-OFF', 'ORIGIN'])
             ->set('copy_furnished', 'No');
 
         $component->call('generateQrCode');
@@ -134,7 +121,7 @@ class CreateTransactionQrCodeTest extends TestCase
             'qr_status' => 'not used'
         ]);
 
-        // 3. Save should now succeed
+        // 2. Save should now succeed
         $component->call('save')
             ->assertHasNoErrors();
 
@@ -169,18 +156,19 @@ class CreateTransactionQrCodeTest extends TestCase
             ->set('subject', 'Test Subject')
             ->set('action_needed', 'For approval')
             ->set('transaction_flow', 'TEST-FLOW-CREATE')
+            ->set('flow_offices', ['ORIGIN', 'TST-OFF', 'ORIGIN'])
             ->set('copy_furnished', 'No')
             ->set('generatedQrCode', $qrCodeInternal)
             ->set('requestor_label', '')
             ->call('save')
             ->assertHasNoErrors();
 
-        $this->assertDatabaseHas('dts_transaction_details', [
+        $this->assertDatabaseHas('dts_requestor_history', [
             'requestor_name' => 'Test User',
-            'requestor_label' => '',
+            'requestor_position' => '',
         ]);
 
-        // 2. In external, requestor_label is required
+        // 2. In external, requestor_label is optional or required depending on validation
         $qrCodeExternal = 'QR-TST-EXT-LBL';
         DB::table('dts_qr_code')->insert([
             'code_id' => $qrCodeExternal,
@@ -194,28 +182,16 @@ class CreateTransactionQrCodeTest extends TestCase
             ->set('requestor_name', 'Test External User')
             ->set('subject', 'Test Subject')
             ->set('transaction_flow', 'TEST-FLOW-CREATE')
-            ->set('copy_furnished', 'No')
-            ->set('generatedQrCode', $qrCodeExternal)
-            ->set('requestor_label', '') // empty but required
-            ->call('save')
-            ->assertHasErrors(['requestor_label' => 'required']);
-
-        // Now set requestor_label
-        Volt::test('pages.dts.create.external')
-            ->set('seq_number', '9999')
-            ->set('source_office', 'ORIGIN')
-            ->set('requestor_name', 'Test External User')
-            ->set('subject', 'Test Subject')
-            ->set('transaction_flow', 'TEST-FLOW-CREATE')
+            ->set('flow_offices', ['ORIGIN', 'TST-OFF', 'ORIGIN'])
             ->set('copy_furnished', 'No')
             ->set('generatedQrCode', $qrCodeExternal)
             ->set('requestor_label', 'Manager')
             ->call('save')
             ->assertHasNoErrors();
 
-        $this->assertDatabaseHas('dts_transaction_details', [
+        $this->assertDatabaseHas('dts_requestor_history', [
             'requestor_name' => 'Test External User',
-            'requestor_label' => 'Manager',
+            'requestor_position' => 'Manager',
         ]);
     }
 

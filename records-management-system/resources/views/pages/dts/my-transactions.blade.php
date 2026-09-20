@@ -269,7 +269,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                 if ($logs->isNotEmpty()) {
                     $steps = $logs->map(function ($logStep, $idx) use ($t) {
                         $step = new \stdClass();
-                        $step->sequence_ranking = $logStep->sequence ?: ($idx + 1);
+                        $step->sequence_ranking = ($logStep->sequence ?? null) ?: ($idx + 1);
                         $step->office_code = $logStep->office_code;
                         $step->office_name = $logStep->office_name ?: $logStep->office_code;
                         $step->date_in = $logStep->date_in;

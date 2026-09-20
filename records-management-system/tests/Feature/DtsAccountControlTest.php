@@ -19,26 +19,37 @@ class DtsAccountControlTest extends TestCase
     private int $adminId = 1;
     private int $standardRoleId;
     private int $standardUserId;
+    private string $accTable;
+    private string $accDetailsTable;
+    private string $condKeyTable;
+    private string $condDetailsTable;
+    private string $officeTable;
 
     protected function setUp(): void
     {
         parent::setUp();
 
+        $this->accTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $this->accDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $this->condKeyTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+        $this->condDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details') ? 'sys_condition_details' : 'condition_details';
+        $this->officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
         // Ensure we have a standard test user with a custom role
         DB::transaction(function () {
             // Clean up any stale records from previous failed runs
-            DB::table('account_details')->where('email', 'restricted@example.com')->delete();
-            DB::table('account')->where('username', 'dts_restricted_user')->delete();
-            DB::table('condition_key')->where('key_name', 'DTS Restricted Role')->delete();
+            DB::table($this->accDetailsTable)->where('email', 'restricted@example.com')->delete();
+            DB::table($this->accTable)->where('username', 'dts_restricted_user')->delete();
+            DB::table($this->condKeyTable)->where('key_name', 'DTS Restricted Role')->delete();
 
-            $maxDetailsId = DB::table('condition_details')->max('key_id') ?: 0;
-            $maxKeyId = DB::table('condition_key')->max('id') ?: 0;
+            $maxDetailsId = DB::table($this->condDetailsTable)->max('key_id') ?: 0;
+            $maxKeyId = DB::table($this->condKeyTable)->max('id') ?: 0;
             $newId = max($maxDetailsId, $maxKeyId) + 1;
             
             $this->standardRoleId = $newId;
 
             // Create role permission details
-            DB::table('condition_details')->insert([
+            DB::table($this->condDetailsTable)->insert([
                 'key_id' => $newId,
                 'is_sadm' => false,
                 'can_access_dts' => true,
@@ -60,7 +71,7 @@ class DtsAccountControlTest extends TestCase
             ]);
 
             // Create role list entry
-            DB::table('condition_key')->insert([
+            DB::table($this->condKeyTable)->insert([
                 'id' => $newId,
                 'key_name' => 'DTS Restricted Role',
                 'key_description' => 'Role for testing DTS restrictions',
@@ -69,7 +80,7 @@ class DtsAccountControlTest extends TestCase
             ]);
 
             // Create test account
-            $this->standardUserId = DB::table('account')->insertGetId([
+            $this->standardUserId = DB::table($this->accTable)->insertGetId([
                 'username' => 'dts_restricted_user',
                 'password' => bcrypt('password'),
                 'account_status' => 1,
@@ -80,43 +91,40 @@ class DtsAccountControlTest extends TestCase
             ]);
 
             // Ensure VPAA office exists
-            $vpaa = DB::table('office')->where('office_code', 'VPAA')->first();
-            if (!$vpaa) {
-                DB::table('office')->insert([
-                    'office_code' => 'VPAA',
-                    'office_name' => 'Vice President for Academic Affairs',
-                    'is_active' => true,
-                ]);
-            }
+            DB::table($this->officeTable)->updateOrInsert(
+                ['office_code' => 'VPAA'],
+                ['office_name' => 'Vice President for Academic Affairs', 'is_active' => true]
+            );
 
             // Ensure CASHIER office exists
-            $cashier = DB::table('office')->where('office_code', 'CASHIER')->first();
-            if (!$cashier) {
-                DB::table('office')->insert([
-                    'office_code' => 'CASHIER',
-                    'office_name' => 'Cashier Office',
-                    'is_active' => true,
-                ]);
-            }
+            DB::table($this->officeTable)->updateOrInsert(
+                ['office_code' => 'CASHIER'],
+                ['office_name' => 'Cashier Office', 'is_active' => true]
+            );
 
             // Create account details pointing to an office (e.g. VPAA)
-            DB::table('account_details')->insert([
+            DB::table($this->accDetailsTable)->insert([
                 'account_id' => $this->standardUserId,
                 'first_name' => 'Restricted',
                 'last_name' => 'User',
                 'email' => 'restricted@example.com',
-                'office_id' => DB::table('office')->where('office_code', 'VPAA')->value('id') ?: 1,
+                'office_id' => DB::table($this->officeTable)->where('office_code', 'VPAA')->value('id') ?: 1,
             ]);
         });
     }
 
     protected function tearDown(): void
     {
+        $accDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $accTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $condKeyTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key') ? 'sys_condition_key' : 'condition_key';
+        $condDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details') ? 'sys_condition_details' : 'condition_details';
+
         // Clean up test records
-        DB::table('account_details')->where('account_id', $this->standardUserId)->delete();
-        DB::table('account')->where('id', $this->standardUserId)->delete();
-        DB::table('condition_key')->where('id', $this->standardRoleId)->delete();
-        DB::table('condition_details')->where('key_id', $this->standardRoleId)->delete();
+        DB::table($accDetailsTable)->where('account_id', $this->standardUserId)->delete();
+        DB::table($accTable)->where('id', $this->standardUserId)->delete();
+        DB::table($condKeyTable)->where('id', $this->standardRoleId)->delete();
+        DB::table($condDetailsTable)->where('key_id', $this->standardRoleId)->delete();
         parent::tearDown();
     }
 
@@ -206,7 +214,7 @@ class DtsAccountControlTest extends TestCase
             ->assertSet('activeTab', 'all'); // Should remain 'all'
 
         // 2. Grant only 'internal' permission and verify behavior
-        DB::table('condition_details')
+        DB::table($this->condDetailsTable)
             ->where('key_id', $this->standardRoleId)
             ->update(['can_dts_use_internal' => true]);
 
@@ -318,7 +326,7 @@ class DtsAccountControlTest extends TestCase
     public function test_list_pages_respect_view_all_list_permission()
     {
         // 1. Grant internal use permission so they can access the page
-        DB::table('condition_details')
+        DB::table($this->condDetailsTable)
             ->where('key_id', $this->standardRoleId)
             ->update([
                 'can_dts_use_internal' => true,
@@ -381,7 +389,7 @@ class DtsAccountControlTest extends TestCase
         $this->assertFalse($hasTx);
 
         // Enable view all list permission
-        DB::table('condition_details')
+        DB::table($this->condDetailsTable)
             ->where('key_id', $this->standardRoleId)
             ->update(['can_dts_view_all_list' => true]);
         Auth::setUser(User::find($this->standardUserId));
@@ -441,14 +449,14 @@ class DtsAccountControlTest extends TestCase
     public function test_custom_flow_sharing_visibility()
     {
         // 1. Setup accounts
-        $officeVpaaId = DB::table('office')->where('office_code', 'VPAA')->value('id') ?: 1;
-        $officeCashId = DB::table('office')->where('office_code', 'CASHIER')->value('id') ?: 2;
+        $officeVpaaId = DB::table($this->officeTable)->where('office_code', 'VPAA')->value('id') ?: 1;
+        $officeCashId = DB::table($this->officeTable)->where('office_code', 'CASHIER')->value('id') ?: 2;
 
         $otherUserId = null;
         $officePeerUserId = null;
         
         DB::transaction(function() use (&$otherUserId, &$officePeerUserId, $officeVpaaId, $officeCashId) {
-            $otherUserId = DB::table('account')->insertGetId([
+            $otherUserId = DB::table($this->accTable)->insertGetId([
                 'username' => 'other_office_user',
                 'password' => bcrypt('password'),
                 'account_status' => 1,
@@ -456,7 +464,7 @@ class DtsAccountControlTest extends TestCase
                 'account_active' => true,
                 'date_created' => now(),
             ]);
-            DB::table('account_details')->insert([
+            DB::table($this->accDetailsTable)->insert([
                 'account_id' => $otherUserId,
                 'first_name' => 'Other',
                 'last_name' => 'User',
@@ -464,7 +472,7 @@ class DtsAccountControlTest extends TestCase
                 'office_id' => $officeCashId,
             ]);
 
-            $officePeerUserId = DB::table('account')->insertGetId([
+            $officePeerUserId = DB::table($this->accTable)->insertGetId([
                 'username' => 'peer_office_user',
                 'password' => bcrypt('password'),
                 'account_status' => 1,
@@ -472,7 +480,7 @@ class DtsAccountControlTest extends TestCase
                 'account_active' => true,
                 'date_created' => now(),
             ]);
-            DB::table('account_details')->insert([
+            DB::table($this->accDetailsTable)->insert([
                 'account_id' => $officePeerUserId,
                 'first_name' => 'Peer',
                 'last_name' => 'User',
@@ -555,12 +563,12 @@ class DtsAccountControlTest extends TestCase
 
             // Clean up users
             if ($otherUserId) {
-                DB::table('account_details')->where('account_id', $otherUserId)->delete();
-                DB::table('account')->where('id', $otherUserId)->delete();
+                DB::table($this->accDetailsTable)->where('account_id', $otherUserId)->delete();
+                DB::table($this->accTable)->where('id', $otherUserId)->delete();
             }
             if ($officePeerUserId) {
-                DB::table('account_details')->where('account_id', $officePeerUserId)->delete();
-                DB::table('account')->where('id', $officePeerUserId)->delete();
+                DB::table($this->accDetailsTable)->where('account_id', $officePeerUserId)->delete();
+                DB::table($this->accTable)->where('id', $officePeerUserId)->delete();
             }
         }
     }

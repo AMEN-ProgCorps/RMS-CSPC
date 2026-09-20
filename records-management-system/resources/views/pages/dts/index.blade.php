@@ -129,10 +129,23 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
         // Auto-heal any legacy records where current_office was saved as 'ORIGIN'
         try {
-            DB::table('dts_transactions as dt')
-                ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
-                ->where('dt.current_office', 'ORIGIN')
-                ->update(['dt.current_office' => DB::raw('dtd.originated_from')]);
+            $originTxIds = DB::table('dts_transactions')
+                ->where('current_office', 'ORIGIN')
+                ->pluck('transaction_id');
+
+            if ($originTxIds->isNotEmpty()) {
+                $details = DB::table('dts_transaction_details')
+                    ->whereIn('id', $originTxIds)
+                    ->pluck('originated_from', 'id');
+
+                foreach ($details as $txId => $originatedFrom) {
+                    if ($originatedFrom) {
+                        DB::table('dts_transactions')
+                            ->where('transaction_id', $txId)
+                            ->update(['current_office' => $originatedFrom]);
+                    }
+                }
+            }
         } catch (\Throwable $e) {}
 
         $routeName = !empty($this->currentRouteName) ? $this->currentRouteName : (request()->route()?->getName() ?: 'dts');
@@ -555,7 +568,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 if ($logs->isNotEmpty()) {
                     $steps = $logs->map(function ($logStep, $idx) use ($t) {
                         $step = new \stdClass();
-                        $step->sequence_ranking = $logStep->sequence ?: ($idx + 1);
+                        $step->sequence_ranking = ($logStep->sequence ?? null) ?: ($idx + 1);
                         $step->office_code = $logStep->office_code;
                         $step->office_name = $logStep->office_name ?: $logStep->office_code;
                         $step->date_in = $logStep->date_in;

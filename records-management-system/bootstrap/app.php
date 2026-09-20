@@ -53,6 +53,10 @@ return Application::configure(basePath: dirname(__DIR__))
         });
 
         $exceptions->render(function (\Throwable $e, \Illuminate\Http\Request $request) {
+            if (app()->runningInConsole() || app()->environment('testing') || app()->runningUnitTests()) {
+                return null;
+            }
+
             if ($request->is('api/*')) {
                 return null;
             }
@@ -70,7 +74,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     return null;
                 }
 
-                return redirect()->route('portal');
+                return new \Illuminate\Http\RedirectResponse(route('portal'));
             }
 
             return null;

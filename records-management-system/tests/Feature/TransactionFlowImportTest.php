@@ -11,9 +11,17 @@ use Illuminate\Support\Facades\DB;
 
 class TransactionFlowImportTest extends TestCase
 {
+    protected string $tOffice;
+    protected string $tCluster;
+    protected string $tLogs;
+
     protected function setUp(): void
     {
         parent::setUp();
+
+        $this->tOffice = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $this->tCluster = \Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster';
+        $this->tLogs = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
 
         // Authenticate admin user (ID 1)
         $admin = User::find(1);
@@ -22,18 +30,16 @@ class TransactionFlowImportTest extends TestCase
         }
 
         // Clean up any existing test records to avoid conflicts
-        DB::table('office')->whereIn('office_code', ['TEST-OFF1', 'TEST-OFF2', 'TEST-OFF3', 'TEST-OFF4', 'TEST-OFF5'])->delete();
-        DB::table('dts_transaction_flow')->whereIn('flow_code', ['TEST-FLOW-IMP1', 'TEST-FLOW-IMP2', 'TEST-FLOW-IMP-DUP', 'NEW-PREDEF-CF-FLOW'])->delete();
-        DB::table('dts_copy_filled_transaction')->where('control_num', 'NEW-PREDEF-CF-FLOW')->delete();
+        $this->cleanupTestRecords();
         
         // Ensure ORIGIN exists
-        DB::table('office')->updateOrInsert(
+        DB::table($this->tOffice)->updateOrInsert(
             ['office_code' => 'ORIGIN'],
             ['office_name' => 'Originated Office', 'is_active' => true]
         );
 
         // Seed test offices
-        DB::table('office')->insert([
+        DB::table($this->tOffice)->insert([
             ['office_code' => 'TEST-OFF1', 'office_name' => 'Test Office One', 'is_active' => true],
             ['office_code' => 'TEST-OFF2', 'office_name' => 'Test Office Two', 'is_active' => true],
         ]);
@@ -41,10 +47,45 @@ class TransactionFlowImportTest extends TestCase
 
     protected function tearDown(): void
     {
-        DB::table('office')->whereIn('office_code', ['TEST-OFF1', 'TEST-OFF2', 'TEST-OFF3', 'TEST-OFF4', 'TEST-OFF5'])->delete();
-        DB::table('dts_transaction_flow')->whereIn('flow_code', ['TEST-FLOW-IMP1', 'TEST-FLOW-IMP2', 'TEST-FLOW-IMP-DUP', 'NEW-PREDEF-CF-FLOW'])->delete();
-        DB::table('dts_copy_filled_transaction')->where('control_num', 'NEW-PREDEF-CF-FLOW')->delete();
+        $this->cleanupTestRecords();
         parent::tearDown();
+    }
+
+    private function cleanupTestRecords(): void
+    {
+        $testFlowCodes = [
+            'TEST-FLOW-IMP1',
+            'TEST-FLOW-IMP2',
+            'TEST-FLOW-IMP-DUP',
+            'NEW-PREDEF-CF-FLOW',
+            'TEST-FLOW-CLUST',
+            'TEST-FLOW-USE-IMP',
+            'TEST-FLOW-ABBR-IMP',
+            'TEST-FLOW-ACT1',
+            'TEST-FLOW-ACT2',
+            'TEST-FLOW-CF-LOAD',
+        ];
+
+        $flowIds = DB::table('dts_transaction_flow')->whereIn('flow_code', $testFlowCodes)->pluck('id');
+        if ($flowIds->isNotEmpty()) {
+            DB::table('dts_sequence_list')->whereIn('control_id', $flowIds)->delete();
+        }
+
+        $cfTx = DB::table('dts_copy_filled_transaction')->whereIn('control_num', $testFlowCodes)->get();
+        if ($cfTx->isNotEmpty()) {
+            DB::table('dts_copy_filled_to_office')->whereIn('control_id', $cfTx->pluck('assign_offices_id'))->delete();
+            DB::table('dts_copy_filled_transaction')->whereIn('control_num', $testFlowCodes)->delete();
+        }
+
+        DB::table('dts_transaction_flow')->whereIn('flow_code', $testFlowCodes)->delete();
+
+        $tOffice = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        DB::table($tOffice)->whereIn('office_code', [
+            'TEST-OFF1', 'TEST-OFF2', 'TEST-OFF3', 'TEST-OFF4', 'TEST-OFF5', 'TEST-CH1', 'TEST-ORG1'
+        ])->delete();
+
+        $tCluster = \Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster';
+        DB::table($tCluster)->whereIn('cluster_code', ['TEST-CLUST1'])->delete();
     }
 
     public function test_successful_multiple_flows_import_with_last_stop_origin()
@@ -375,7 +416,7 @@ class TransactionFlowImportTest extends TestCase
     public function test_save_predefined_flow_with_copy_furnished()
     {
         // Insert temporary copy furnished offices
-        DB::table('office')->insert([
+        DB::table($this->tOffice)->insert([
             ['office_code' => 'TEST-OFF3', 'office_name' => 'Test Office Three', 'is_active' => true],
             ['office_code' => 'TEST-OFF4', 'office_name' => 'Test Office Four', 'is_active' => true],
             ['office_code' => 'TEST-OFF5', 'office_name' => 'Test Office Five', 'is_active' => true],
@@ -429,26 +470,26 @@ class TransactionFlowImportTest extends TestCase
             DB::table('dts_copy_filled_to_office')->where('control_id', $cfTxNew->assign_offices_id)->delete();
             DB::table('dts_copy_filled_transaction')->where('control_num', 'NEW-PREDEF-CF-FLOW')->delete();
         } finally {
-            DB::table('office')->whereIn('office_code', ['TEST-OFF3', 'TEST-OFF4', 'TEST-OFF5'])->delete();
+            DB::table($this->tOffice)->whereIn('office_code', ['TEST-OFF3', 'TEST-OFF4', 'TEST-OFF5'])->delete();
         }
     }
 
     public function test_predefined_flow_import_and_resolution_with_cluster_head()
     {
         // 1. Seed cluster and offices
-        DB::table('office')->insert([
+        DB::table($this->tOffice)->insert([
             ['office_code' => 'TEST-CH1', 'office_name' => 'Test Cluster Head Office', 'is_active' => true],
             ['office_code' => 'TEST-ORG1', 'office_name' => 'Test Originating Office', 'is_active' => true],
         ]);
 
-        DB::table('cluster')->insert([
+        DB::table($this->tCluster)->insert([
             'cluster_code' => 'TEST-CLUST1',
             'cluster_name' => 'Test Cluster One',
             'cluster_head' => 'TEST-CH1',
             'is_active' => true,
         ]);
 
-        DB::table('office')->where('office_code', 'TEST-ORG1')->update(['cluster' => 'TEST-CLUST1']);
+        DB::table($this->tOffice)->where('office_code', 'TEST-ORG1')->update(['cluster' => 'TEST-CLUST1']);
 
         try {
             // 2. Import flow containing [H]
@@ -508,7 +549,7 @@ class TransactionFlowImportTest extends TestCase
             DB::table('dts_transaction_flow')->where('flow_code', $customFlow->flow_code)->delete();
             DB::table('dts_transaction_details')->where('id', $transaction->id)->delete();
             DB::table('dts_transactions')->where('transaction_id', $transaction->id)->delete();
-            DB::table('sub_document_tracking_system_logs')->where('transaction_id', $transaction->id)->delete();
+            DB::table($this->tLogs)->where('transaction_id', $transaction->id)->delete();
             DB::table('dts_qr_code')->where('code_id', $qrCode)->delete();
 
             // Cleanup imported predefined flow
@@ -516,8 +557,8 @@ class TransactionFlowImportTest extends TestCase
             DB::table('dts_transaction_flow')->where('flow_code', 'TEST-FLOW-CLUST')->delete();
 
         } finally {
-            DB::table('office')->whereIn('office_code', ['TEST-CH1', 'TEST-ORG1'])->delete();
-            DB::table('cluster')->where('cluster_code', 'TEST-CLUST1')->delete();
+            DB::table($this->tOffice)->whereIn('office_code', ['TEST-CH1', 'TEST-ORG1'])->delete();
+            DB::table($this->tCluster)->where('cluster_code', 'TEST-CLUST1')->delete();
         }
     }
 
@@ -596,17 +637,17 @@ class TransactionFlowImportTest extends TestCase
         Volt::test('pages.admin.dts.transaction-flows')
             ->set('predefinedPurposeFilter', 'all')
             ->assertViewHas('predefinedFlows', function ($flows) {
-                $codes = collect($flows)->pluck('flow_code')->toArray();
+                $codes = $flows->pluck('flow_code')->toArray();
                 return in_array('TEST-FLOW-ACT1', $codes) && in_array('TEST-FLOW-ACT2', $codes);
             })
             ->set('predefinedPurposeFilter', 'internal')
             ->assertViewHas('predefinedFlows', function ($flows) {
-                $codes = collect($flows)->pluck('flow_code')->toArray();
+                $codes = $flows->pluck('flow_code')->toArray();
                 return in_array('TEST-FLOW-ACT1', $codes) && !in_array('TEST-FLOW-ACT2', $codes);
             })
             ->set('predefinedPurposeFilter', 'application')
             ->assertViewHas('predefinedFlows', function ($flows) {
-                $codes = collect($flows)->pluck('flow_code')->toArray();
+                $codes = $flows->pluck('flow_code')->toArray();
                 return !in_array('TEST-FLOW-ACT1', $codes) && in_array('TEST-FLOW-ACT2', $codes);
             });
 

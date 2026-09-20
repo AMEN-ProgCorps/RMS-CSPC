@@ -23,6 +23,11 @@ class DtsEmailAccessTest extends TestCase
         }
     }
 
+    private function getSettingsTable(): string
+    {
+        return \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+    }
+
     public function test_system_settings_toggles_dts_email_access_requirements()
     {
         $admin = User::find($this->testUserId);
@@ -31,10 +36,12 @@ class DtsEmailAccessTest extends TestCase
             return;
         }
 
+        $settingsTable = $this->getSettingsTable();
+
         // Initialize setting values
-        DB::table('system_settings')->updateOrInsert(['key' => 'dts_email_access_required_external'], ['value' => 'true']);
-        DB::table('system_settings')->updateOrInsert(['key' => 'dts_email_access_required_application'], ['value' => 'true']);
-        DB::table('system_settings')->updateOrInsert(['key' => 'dts_email_access_required_internal'], ['value' => 'false']);
+        DB::table($settingsTable)->updateOrInsert(['key' => 'dts_email_access_required_external'], ['value' => 'true']);
+        DB::table($settingsTable)->updateOrInsert(['key' => 'dts_email_access_required_application'], ['value' => 'true']);
+        DB::table($settingsTable)->updateOrInsert(['key' => 'dts_email_access_required_internal'], ['value' => 'false']);
 
         $component = Volt::test('pages.admin.settings.index')
             ->assertSet('emailAccessRequiredExternal', true)
@@ -47,18 +54,20 @@ class DtsEmailAccessTest extends TestCase
             ->set('emailAccessRequiredInternal', true)
             ->call('saveSettings')
             ->assertHasNoErrors()
-            ->assertSet('successMessage', 'System settings updated successfully!');
+            ->assertSet('successMessage', fn ($msg) => str_contains($msg, 'System settings updated successfully!'));
 
         // Assert DB updated
-        $this->assertDatabaseHas('system_settings', ['key' => 'dts_email_access_required_external', 'value' => 'false']);
-        $this->assertDatabaseHas('system_settings', ['key' => 'dts_email_access_required_application', 'value' => 'false']);
-        $this->assertDatabaseHas('system_settings', ['key' => 'dts_email_access_required_internal', 'value' => 'true']);
+        $this->assertDatabaseHas($settingsTable, ['key' => 'dts_email_access_required_external', 'value' => 'false']);
+        $this->assertDatabaseHas($settingsTable, ['key' => 'dts_email_access_required_application', 'value' => 'false']);
+        $this->assertDatabaseHas($settingsTable, ['key' => 'dts_email_access_required_internal', 'value' => 'true']);
     }
 
     public function test_transaction_creation_validates_email_access_correctly()
     {
+        $settingsTable = $this->getSettingsTable();
+
         // 1. External (required by default)
-        DB::table('system_settings')->updateOrInsert(['key' => 'dts_email_access_required_external'], ['value' => 'true']);
+        DB::table($settingsTable)->updateOrInsert(['key' => 'dts_email_access_required_external'], ['value' => 'true']);
         
         $componentExternal = Volt::test('pages.dts.create.external');
         $componentExternal->set('seq_number', '99999')
@@ -73,7 +82,7 @@ class DtsEmailAccessTest extends TestCase
             ->assertHasErrors(['email_access_input', 'document_password_input']);
 
         // 2. Application Letters (required by default)
-        DB::table('system_settings')->updateOrInsert(['key' => 'dts_email_access_required_application'], ['value' => 'true']);
+        DB::table($settingsTable)->updateOrInsert(['key' => 'dts_email_access_required_application'], ['value' => 'true']);
         
         $componentApp = Volt::test('pages.dts.create.application-letters');
         $componentApp->set('seq_number', '99999')
@@ -88,7 +97,7 @@ class DtsEmailAccessTest extends TestCase
             ->assertHasErrors(['email_access_input', 'document_password_input']);
 
         // 3. Internal (optional by default)
-        DB::table('system_settings')->updateOrInsert(['key' => 'dts_email_access_required_internal'], ['value' => 'false']);
+        DB::table($settingsTable)->updateOrInsert(['key' => 'dts_email_access_required_internal'], ['value' => 'false']);
         
         $componentInternal = Volt::test('pages.dts.create.internal');
         // If email and password are empty, it should not fail on them
@@ -119,17 +128,19 @@ class DtsEmailAccessTest extends TestCase
         DB::table('dts_transaction_details')->where('id', $transactionId)->delete();
         DB::table('dts_transactions')->where('transaction_id', $transactionId)->delete();
         DB::table('dts_qr_code')->where('code_id', $qrCode)->delete();
+        DB::table('dts_email_access')->where('email', $email)->delete();
         DB::table('dts_transaction_flow')->where('flow_code', 'TEST')->delete();
 
         // Create test flow
+        $maxFlowId = DB::table('dts_transaction_flow')->max('id') ?? 0;
         DB::table('dts_transaction_flow')->insert([
-            'id' => 9999,
+            'id' => $maxFlowId + 1,
             'flow_code' => 'TEST',
             'flow_name' => 'Test Flow',
             'added_by' => $this->testUserId,
             'date_added' => now(),
             'flow_use' => 'external',
-            'is_active' => 1,
+            'is_active' => true,
         ]);
 
         // Create QR code
@@ -157,14 +168,23 @@ class DtsEmailAccessTest extends TestCase
             'date_created' => now(),
         ]);
 
+        // Insert requestor history
+        $requestorId = DB::table('dts_requestor_history')->insertGetId([
+            'requestor_name' => 'Test User',
+            'requestor_position' => 'Staff',
+            'office' => 'ORIGIN',
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         // Insert transaction details
         DB::table('dts_transaction_details')->insert([
             'id' => $transactionId,
             'type' => 'external',
             'created_by' => $this->testUserId,
             'originated_from' => 'ORIGIN',
-            'requestor_name' => 'Test User',
-            'requestor_label' => 'Dr.',
+            'requestor_id' => $requestorId,
             'subject' => 'Test Subject',
             'classification' => 'Simple',
             'action_needed' => 'For action',
@@ -173,7 +193,7 @@ class DtsEmailAccessTest extends TestCase
             'document_password' => $password,
             'email_access' => $emailAccessId,
             'transaction_flow' => 'TEST',
-            'is_active' => 1,
+            'is_active' => true,
             'date_created' => now(),
             'control_number' => 'EXT-2026-TEST',
         ]);
@@ -204,6 +224,7 @@ class DtsEmailAccessTest extends TestCase
         DB::table('dts_transactions')->where('transaction_id', $transactionId)->delete();
         DB::table('dts_qr_code')->where('code_id', $qrCode)->delete();
         DB::table('dts_email_access')->where('id', $emailAccessId)->delete();
+        DB::table('dts_requestor_history')->where('id', $requestorId)->delete();
         DB::table('dts_transaction_flow')->where('flow_code', 'TEST')->delete();
     }
 }

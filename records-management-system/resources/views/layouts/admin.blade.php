@@ -117,29 +117,7 @@
     <x-chatify.floating-widget />
     <livewire:components.scanner-modal />
     @auth
-    <script>
-        document.addEventListener("DOMContentLoaded", () => {
-            // Heartbeat ping every 30s to keep session active while tab is visible
-            setInterval(() => {
-                if (document.visibilityState === 'visible') {
-                    fetch('/api/session/ping', {
-                        method: 'POST',
-                        headers: {
-                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
-                            'Content-Type': 'application/json'
-                        }
-                    }).catch(() => {});
-                }
-            }, 30000);
-
-            // Tab Closure Beacon
-            window.addEventListener('pagehide', () => {
-                const data = new FormData();
-                data.append('_token', '{{ csrf_token() }}');
-                navigator.sendBeacon('/api/session/tab-closed', data);
-            });
-        });
-    </script>
+    <livewire:components.session-guard />
     @endauth
     @stack('scripts')
 </body>

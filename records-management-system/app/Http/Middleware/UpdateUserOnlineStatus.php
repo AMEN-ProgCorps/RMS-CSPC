@@ -21,6 +21,8 @@ class UpdateUserOnlineStatus
     {
         $sysSettingsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
         $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $secLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+        $secStatusTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_security_status') ? 'sys_security_status' : 'security_status';
 
         // 1. Determine configured session inactivity / tab-close timeout (Default: 15 minutes)
         $timeoutMinutes = 15;
@@ -31,18 +33,26 @@ class UpdateUserOnlineStatus
             }
         } catch (\Throwable) {}
 
+        $isBackgroundPoll = $this->isAutomatedBackgroundPoll($request);
+
         if ($user = Auth::user()) {
             $details = DB::table($accDetailsTbl)->where('account_id', $user->id)->first();
             $now = now();
 
             // Helper to build appropriate logout response depending on request type (AJAX vs Chatify iframe vs Main page)
             $buildLogoutResponse = function (string $reasonMessage) use ($request) {
-                if ($request->ajax() || $request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
-                    return response()->json([
+                if ($request->ajax() || $request->wantsJson() || $request->header('X-Livewire') || $request->header('X-Requested-With') === 'XMLHttpRequest') {
+                    $response = response()->json([
                         'error' => 'Unauthenticated',
                         'message' => $reasonMessage,
                         'redirect' => route('login'),
                     ], 401);
+
+                    if ($request->header('X-Livewire')) {
+                        $response->header('X-Livewire-Redirect', route('login'));
+                    }
+
+                    return $response;
                 }
 
                 if ($request->is('chat/unread-count')) {
@@ -64,6 +74,15 @@ class UpdateUserOnlineStatus
 
             // A. Check if Admin modified account (Forced Logout)
             if ($details && $details->force_logout_at !== null) {
+                try {
+                    DB::table($secLogsTbl)->insert([
+                        'status' => 3, // Logout
+                        'account' => $user->id,
+                        'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
+                        'time' => $now,
+                    ]);
+                } catch (\Throwable) {}
+
                 DB::table($accDetailsTbl)
                     ->where('account_id', $user->id)
                     ->update([
@@ -82,6 +101,22 @@ class UpdateUserOnlineStatus
             if ($details && $details->last_online_time !== null) {
                 $lastOnline = \Carbon\Carbon::parse($details->last_online_time);
                 if ($lastOnline->diffInMinutes($now) >= $timeoutMinutes) {
+                    $statusId = 3;
+                    try {
+                        if (DB::table($secStatusTbl)->where('status_id', 8)->exists()) {
+                            $statusId = 8;
+                        }
+                    } catch (\Throwable) {}
+
+                    try {
+                        DB::table($secLogsTbl)->insert([
+                            'status' => $statusId, // Session Timeout (8) or Logout (3)
+                            'account' => $user->id,
+                            'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
+                            'time' => $now,
+                        ]);
+                    } catch (\Throwable) {}
+
                     DB::table($accDetailsTbl)
                         ->where('account_id', $user->id)
                         ->update(['is_currently_online' => false]);
@@ -94,13 +129,15 @@ class UpdateUserOnlineStatus
                 }
             }
 
-            // C. Update current user activity
-            DB::table($accDetailsTbl)
-                ->where('account_id', $user->id)
-                ->update([
-                    'is_currently_online' => true,
-                    'last_online_time' => $now,
-                ]);
+            // C. Update current user activity ONLY if this was NOT an automated background poll
+            if (! $isBackgroundPoll) {
+                DB::table($accDetailsTbl)
+                    ->where('account_id', $user->id)
+                    ->update([
+                        'is_currently_online' => true,
+                        'last_online_time' => $now,
+                    ]);
+            }
         }
 
         // 2. Mark users who haven't made a request in $timeoutMinutes as offline
@@ -112,5 +149,55 @@ class UpdateUserOnlineStatus
         } catch (\Throwable) {}
 
         return $next($request);
+    }
+
+    /**
+     * Determine if the incoming request is an automated background poll
+     * (e.g. wire:poll without user action, chat unread count polling, etc.)
+     */
+    protected function isAutomatedBackgroundPoll(Request $request): bool
+    {
+        // 1. Chat widget unread count badge polling
+        if ($request->is('chat/unread-count')) {
+            return true;
+        }
+
+        // 2. Livewire requests
+        if ($request->header('X-Livewire')) {
+            $components = $request->input('components');
+            if (is_array($components)) {
+                $hasUserAction = false;
+
+                foreach ($components as $component) {
+                    // Check for property updates (e.g. typing into inputs, wire:model)
+                    $updates = $component['updates'] ?? [];
+                    if (! empty($updates)) {
+                        $hasUserAction = true;
+                        break;
+                    }
+
+                    // Check for method calls (e.g. wire:click)
+                    $calls = $component['calls'] ?? [];
+                    if (! empty($calls)) {
+                        foreach ($calls as $call) {
+                            $method = $call['method'] ?? '';
+                            // Methods used purely by background polls
+                            $backgroundPollMethods = ['checkRoleUpdate', 'refresh', 'ping', 'render'];
+                            if (! in_array($method, $backgroundPollMethods, true)) {
+                                $hasUserAction = true;
+                                break 2;
+                            }
+                        }
+                    }
+                }
+
+                // If no property updates and no user action calls were found, it's an automated poll
+                if (! $hasUserAction) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }

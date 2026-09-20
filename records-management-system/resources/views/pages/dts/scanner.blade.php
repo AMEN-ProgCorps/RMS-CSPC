@@ -663,6 +663,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                                 'account_forwarded' => auth()->id(),
                                 'action_needed' => $this->actionNeeded,
                                 'note' => $this->notes ?: null,
+                                'scanned_id' => true,
                             ]);
                     }
                 }

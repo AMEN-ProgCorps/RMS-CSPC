@@ -11,12 +11,19 @@ class DtsNotificationTest extends TestCase
     private string $officeCode = 'TEST_DTS_NOTIF_OFFICE';
     private string $tNotifications;
     private string $tNotifContent;
+    private string $tOffice;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->tNotifications = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
         $this->tNotifContent = \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $this->tOffice = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
+        DB::table($this->tOffice)->updateOrInsert(
+            ['office_code' => $this->officeCode],
+            ['office_name' => 'Notification Test Office', 'is_active' => true]
+        );
     }
 
     protected function tearDown(): void
@@ -26,6 +33,8 @@ class DtsNotificationTest extends TestCase
             DB::table($this->tNotifications)->where('id', $notif->id)->delete();
             DB::table($this->tNotifContent)->where('id', $notif->contents)->delete();
         }
+
+        DB::table($this->tOffice)->where('office_code', $this->officeCode)->delete();
 
         parent::tearDown();
     }

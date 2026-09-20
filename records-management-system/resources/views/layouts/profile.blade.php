@@ -190,5 +190,8 @@
     })();
     </script>
     <x-chatify.floating-widget />
+    @auth
+    <livewire:components.session-guard />
+    @endauth
 </body>
 </html>

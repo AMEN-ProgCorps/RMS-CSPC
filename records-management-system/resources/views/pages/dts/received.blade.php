@@ -394,14 +394,15 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
             ->where('dtd.is_active', 1)
             ->whereNotIn('dt.status', ['cancelled'])
             ->where(function($q) use ($userOfficeCode) {
+                $logsTable = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
                 $q->where('dt.current_office', $userOfficeCode)
-                  ->orWhereExists(function($sub) use ($userOfficeCode) {
+                  ->orWhereExists(function($sub) use ($userOfficeCode, $logsTable) {
                       $sub->select(DB::raw(1))
-                          ->from(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
-                          ->whereColumn('sub_document_tracking_system_logs.transaction_id', 'dt.transaction_id')
-                          ->where('sub_document_tracking_system_logs.office_code', $userOfficeCode)
-                          ->whereNotNull('sub_document_tracking_system_logs.date_in')
-                          ->where('sub_document_tracking_system_logs.type', 'received');
+                          ->from($logsTable . ' as sub_logs')
+                          ->whereColumn('sub_logs.transaction_id', 'dt.transaction_id')
+                          ->where('sub_logs.office_code', $userOfficeCode)
+                          ->whereNotNull('sub_logs.date_in')
+                          ->where('sub_logs.type', 'received');
                   });
             });
 

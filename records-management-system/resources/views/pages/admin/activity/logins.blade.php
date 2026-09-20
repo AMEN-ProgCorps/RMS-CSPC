@@ -224,7 +224,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Logins')] class extends 
                                             $border = 'rgba(16,185,129,0.25)';
                                             break;
                                         case 3: // Logout
-                                            $badgeIcon = 'fa-right-from-bracket';
+                                        case 8: // Session Timeout
+                                            $badgeIcon = ($sid == 8) ? 'fa-clock-rotate-left' : 'fa-right-from-bracket';
                                             $bg = 'rgba(245,158,11,0.12)';
                                             $color = '#d97706';
                                             $border = 'rgba(245,158,11,0.25)';

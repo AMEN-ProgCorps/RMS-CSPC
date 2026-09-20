@@ -2088,10 +2088,12 @@
         );
 
         const frag = document.createDocumentFragment();
+        const insertedItems = []; // only items actually inserted into DOM
         oldItems.forEach(el => {
           const msgId = el.getAttribute('data-msg-id');
           if (!msgId || !existingIds.has(msgId)) {
             frag.appendChild(el);
+            insertedItems.push(el);
           }
         });
 
@@ -2109,7 +2111,7 @@
 
         const restoreFn = (typeof restoreScrollAnchor === 'function') ? restoreScrollAnchor : (window.restoreScrollAnchor ? window.restoreScrollAnchor : null);
         if (anchor && restoreFn) {
-          restoreFn(anchor, oldItems);
+          restoreFn(anchor, insertedItems);
         } else {
           const safePrevScrollTop = Math.max(0, prevScrollTop);
           const heightDiff = chatBox.scrollHeight - prevScrollHeight;
@@ -2393,10 +2395,12 @@
         );
 
         const frag = document.createDocumentFragment();
+        const insertedItems = []; // only items actually inserted into DOM
         oldItems.forEach(el => {
           const msgId = el.getAttribute('data-msg-id');
           if (!msgId || !existingIds.has(msgId)) {
             frag.appendChild(el);
+            insertedItems.push(el);
           }
         });
 
@@ -2414,7 +2418,7 @@
 
         const restoreFn = (typeof restoreScrollAnchor === 'function') ? restoreScrollAnchor : (window.restoreScrollAnchor ? window.restoreScrollAnchor : null);
         if (anchor && restoreFn) {
-          restoreFn(anchor, oldItems);
+          restoreFn(anchor, insertedItems);
         } else {
           const safePrevScrollTop = Math.max(0, prevScrollTop);
           const heightDiff = chatBox.scrollHeight - prevScrollHeight;
@@ -4994,6 +4998,11 @@
         if (prevHeight === undefined) return; // first measurement is just the baseline
         const delta = newHeight - prevHeight;
         if (!delta) return;
+        // Skip detached elements — filtered-out duplicate messages are not inserted
+        // into the DOM but their images may still be observed. A detached element's
+        // getBoundingClientRect().bottom is 0, which is always <= chatRect.top + 2
+        // (since chatBox sits below the page top), causing phantom scrollTop bumps.
+        if (!el.isConnected) return;
         const elRect = el.getBoundingClientRect();
         if (elRect.bottom <= chatRect.top + 2) {
           chatBox.scrollTop += delta;

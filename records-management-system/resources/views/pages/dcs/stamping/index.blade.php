@@ -101,6 +101,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 @endpush
 
 <div>
+    <div class="dcs-loading-overlay is-page" wire:loading.flex>
+        <div class="dcs-loading-spinner" aria-hidden="true"></div>
+        <h4>Loading stamp documents…</h4>
+        <p>Fetching records and preparing the list.</p>
+    </div>
+
     <div class="st-container main-content">
 
         {{-- ═══ Header ═══ --}}
@@ -136,7 +142,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
 
         {{-- ═══ Table ═══ --}}
-        <div class="st-table-card">
+        <div class="st-table-card" style="position:relative;" wire:loading.class="is-loading">
             <div class="st-table-scroll">
                 <table class="st-table">
                     <thead>

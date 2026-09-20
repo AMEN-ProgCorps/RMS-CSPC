@@ -154,6 +154,29 @@
                 .join('');
         }
 
+        function updateSelectedCount() {
+            const n = selected.length;
+            document.querySelectorAll('[data-ofi-selected-count="' + opts.key + '"]').forEach((countEl) => {
+                countEl.textContent = String(n);
+            });
+            const arrowCount = document.querySelector('[data-ofi-arrow-count="' + opts.key + '"]');
+            if (arrowCount) {
+                arrowCount.textContent = String(n);
+                arrowCount.hidden = n < 1;
+            }
+            const chipsEl = opts.chipsId ? document.getElementById(opts.chipsId) : null;
+            if (chipsEl) {
+                let header = chipsEl.querySelector('[data-ofi-panel-count]');
+                if (!header) {
+                    header = document.createElement('div');
+                    header.className = 'ofi-selected-panel-header';
+                    header.setAttribute('data-ofi-panel-count', '1');
+                    chipsEl.insertBefore(header, chipsEl.firstChild);
+                }
+                header.textContent = n === 1 ? '1 office selected' : n + ' offices selected';
+            }
+        }
+
         function render() {
             const widget = document.getElementById(opts.widgetId);
             if (!widget) return;
@@ -180,6 +203,9 @@
                         ? '<div class="reg-reldocs-empty">Nothing selected yet</div>'
                         : renderChipList();
             }
+
+            updateSelectedCount();
+            window.__sourceWidgets[opts.key]?.onSelectionChange?.();
         }
 
         function getCurrentQuery(input) {
@@ -281,7 +307,6 @@
                 label: officeChipLabel(item, opts.labelFormat),
             });
             render();
-            window.__sourceWidgets[opts.key]?.onSelectionChange?.();
         }
 
         function pick(itemId) {
@@ -301,7 +326,6 @@
             selected = selected.filter((i) => !(i.type === type && String(i.id) === String(id)));
             render();
             syncInputText();
-            window.__sourceWidgets[opts.key]?.onSelectionChange?.();
         }
 
         function positionPanel(panelEl, anchorEl) {

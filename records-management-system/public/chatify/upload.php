@@ -37,21 +37,40 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// ── Blocked (executable / script) extensions ─────────────────────────────────
-const REJECTED_EXTENSIONS = [
-    'exe', 'bat', 'cmd', 'sh', 'bash', 'zsh',
-    'php', 'php3', 'php4', 'php5', 'phtml', 'phar',
-    'pl', 'py', 'rb', 'go', 'swift',
-    'js', 'ts', 'jsx', 'tsx',
-    'jar', 'class',
-    'msi', 'vbs', 'vbe', 'wsf', 'ws', 'wsc',
-    'scr', 'com', 'pif', 'gadget',
-    'ps1', 'ps2', 'psm1', 'psd1',
-    'msc', 'hta', 'cpl', 'inf', 'reg',
-    'lnk', 'url',
-    'asp', 'aspx', 'jsp', 'jspx',
-    'dll', 'so', 'ko', 'sys', 'drv', 'mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'opus',
-    'cgi', 'fcgi','mp4', 'webm', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'rm', 'rmvb', 'ts', 'm2ts', 'mts',
+// ── Allowed extensions (strict whitelist) ──────────────────────────────────
+// Only explicitly safe documents, images, media, and archives are permitted.
+// Scripts and web files (html, htm, xhtml, svg, xml, php*, js, etc.) are strictly rejected.
+const ALLOWED_EXTENSIONS = [
+    // Images (svg excluded to prevent script execution / XSS)
+    'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico',
+    // Documents
+    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv',
+    // Audio & Video
+    'mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'opus',
+    'mp4', 'webm', 'mkv', 'avi', 'mov',
+    // Archives
+    'zip', 'rar', '7z'
+];
+
+// Disallowed MIME types (defense-in-depth against polyglots & disguised scripts)
+const BLOCKED_MIME_TYPES = [
+    'text/html',
+    'application/xhtml+xml',
+    'image/svg+xml',
+    'application/xml',
+    'text/xml',
+    'application/javascript',
+    'text/javascript',
+    'application/x-javascript',
+    'application/x-msdownload',
+    'application/x-msdos-program',
+    'application/x-executable',
+    'application/x-sharedlib',
+    'text/x-shellscript',
+    'application/x-php',
+    'text/x-php',
+    'application/x-httpd-php',
+    'application/x-httpd-php-source',
 ];
 
 // ── Upload directory ──────────────────────────────────────────────────────────
@@ -94,28 +113,19 @@ for ($i = 0; $i < $total; $i++) {
         continue;
     }
 
-    // ── Extension validation ──────────────────────────────────────────────────
+    // ── Extension validation (Strict Whitelist) ───────────────────────────────
     $safeOriginal = basename($originalName);
     $ext          = strtolower(pathinfo($safeOriginal, PATHINFO_EXTENSION));
 
-    if (in_array($ext, REJECTED_EXTENSIONS, true)) {
-        $response['errors'][] = "'{$safeOriginal}' was rejected: executable/script files are not allowed.";
+    if (empty($ext) || !in_array($ext, ALLOWED_EXTENSIONS, true)) {
+        $response['errors'][] = "'{$safeOriginal}' was rejected: file type is not allowed.";
         continue;
     }
 
     // ── MIME type double-check (defense-in-depth) ─────────────────────────────
-    // Reject files whose MIME type indicates an executable regardless of extension
     $mime = mime_content_type($tmpName);
-    $blockedMimes = [
-        'application/x-msdownload',
-        'application/x-msdos-program',
-        'application/x-executable',
-        'application/x-sharedlib',
-        'text/x-shellscript',
-        'application/x-php',
-    ];
-    if ($mime !== false && in_array($mime, $blockedMimes, true)) {
-        $response['errors'][] = "'{$safeOriginal}' was rejected: disallowed file type ({$mime}).";
+    if ($mime !== false && in_array(strtolower($mime), BLOCKED_MIME_TYPES, true)) {
+        $response['errors'][] = "'{$safeOriginal}' was rejected: disallowed content type ({$mime}).";
         continue;
     }
 

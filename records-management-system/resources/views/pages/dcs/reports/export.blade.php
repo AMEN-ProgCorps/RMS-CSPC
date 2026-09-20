@@ -225,7 +225,6 @@
             .data-table th,
             .data-table td { font-family: Arial, sans-serif; font-size: 10pt; }
             .rpt-footer { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; }
-            .rpt-period { display: none !important; }
         }
     </style>
 </head>
@@ -440,23 +439,12 @@
             var btnPrint = document.getElementById('btnPrint');
             if (btnPrint) btnPrint.addEventListener('click', function(e) {
                 e.preventDefault();
-                // Route print through PDF so browser URL/timestamp headers are not injected
-                var p = new URLSearchParams(window.location.search);
-                p.set('format', 'pdf');
-                p.set('inline', '1');
-                p.set('autoPrint', '1');
-                window.location.href = window.location.pathname + '?' + p.toString();
+                window.print();
             });
             var btnClose = document.getElementById('btnClose');
             if (btnClose) btnClose.addEventListener('click', function() { window.close(); });
-            if (new URLSearchParams(window.location.search).has('autoPrint') && new URLSearchParams(window.location.search).get('format') !== 'pdf') {
-                setTimeout(function() {
-                    var p = new URLSearchParams(window.location.search);
-                    p.set('format', 'pdf');
-                    p.set('inline', '1');
-                    p.set('autoPrint', '1');
-                    window.location.replace(window.location.pathname + '?' + p.toString());
-                }, 50);
+            if (new URLSearchParams(window.location.search).get('autoPrint') === '1') {
+                setTimeout(function() { window.print(); }, 250);
             }
         });
     </script>

@@ -28,6 +28,27 @@ require_once __DIR__ . '/core/ConversationManager.php';
 require_once __DIR__ . '/core/Reactions.php';
 require_once __DIR__ . '/log_chat_action.php';
 
+// ── Secure Session Cookie Configuration ─────────────────────────────────────
+// Ensure all sessions created or resumed in Chatify enforce HttpOnly, SameSite,
+// and Secure flags so that session cookies (PHPSESSID) cannot be read via JavaScript.
+if (session_status() === PHP_SESSION_NONE) {
+    ini_set('session.cookie_httponly', '1');
+    ini_set('session.use_only_cookies', '1');
+    $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+    if ($isSecure) {
+        ini_set('session.cookie_secure', '1');
+    }
+    session_set_cookie_params([
+        'lifetime' => defined('CHAT_SESSION_LIFETIME') ? CHAT_SESSION_LIFETIME : 28800,
+        'path'     => '/',
+        'domain'   => '',
+        'secure'   => $isSecure,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
+}
+
 // ── Never let the browser (or any proxy) cache dynamic chat responses ──────
 // Without this, a GET endpoint hit with an identical URL on every poll (e.g.
 // load_dm.php / load_dm_admin.php's "latest window" request) can get served

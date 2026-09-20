@@ -626,14 +626,15 @@
                       loadChatForced();
                     }
                   } else {
-                    const wasAtBottom = (typeof isAtBottom === 'function') ? isAtBottom() : true;
                     renderAndAppendWsMessage(data);
-                    if (wasAtBottom && shouldMarkReadNow()) {
+                    // renderAndAppendWsMessage already calls showScrollIndicator(1)
+                    // internally when the user is scrolled up — don't call it again
+                    // here or the counter increments twice per message (+2 instead of +1).
+                    // Only markRead needs to be handled separately.
+                    if ((typeof isAtBottom === 'function' ? isAtBottom() : false) && shouldMarkReadNow()) {
                       userScrolledUp = false;
                       shouldAutoScroll = true;
                       markRead(activeDM, data.msg_uuid || data.id);
-                    } else if (typeof showScrollIndicator === 'function' && !wasAtBottom) {
-                      showScrollIndicator(1);
                     }
                   }
                 } else {
@@ -3118,10 +3119,14 @@
       }
 
       // Register prepended images with ResizeObserver so any late image load above
-      // the visible viewport adjusts scrollTop smoothly without duplicate callbacks
+      // the visible viewport adjusts scrollTop smoothly without duplicate callbacks.
+      // Guard: only observe images whose parent element is actually connected to the
+      // DOM — filtered-out duplicate items are never inserted, so their images would
+      // generate phantom delta adjustments (detached el.getBoundingClientRect().bottom
+      // is 0, which always passes the "above viewport" test and falsely bumps scrollTop).
       if (prependedItems && prependedItems.length > 0 && typeof scrollAnchorObserver !== 'undefined' && scrollAnchorObserver) {
         prependedItems.forEach(item => {
-          if (!item.querySelectorAll) return;
+          if (!item.querySelectorAll || !item.isConnected) return;
           item.querySelectorAll('img:not(.avatar-img)').forEach(img => {
             if (!img.dataset.scrollListener) {
               img.dataset.scrollListener = '1';
@@ -3873,10 +3878,12 @@
           );
 
           const frag = document.createDocumentFragment();
+          const insertedItems = []; // only items actually inserted into DOM
           oldItems.forEach(el => {
             const msgId = el.getAttribute('data-msg-id');
             if (!msgId || !existingIds.has(msgId)) {
               frag.appendChild(el);
+              insertedItems.push(el);
             }
           });
 
@@ -3894,7 +3901,7 @@
 
           const restoreFn = (typeof restoreScrollAnchor === 'function') ? restoreScrollAnchor : (window.restoreScrollAnchor ? window.restoreScrollAnchor : null);
           if (anchor && restoreFn) {
-            restoreFn(anchor, oldItems);
+            restoreFn(anchor, insertedItems);
           } else {
             const safePrevScrollTop = Math.max(0, prevScrollTop);
             const heightDiff = chatBox.scrollHeight - prevScrollHeight;

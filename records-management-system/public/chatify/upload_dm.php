@@ -44,10 +44,27 @@ if ($targetInfo === null) {
     exit;
 }
 
+// ── Allowed extensions (strict whitelist) ──────────────────────────────────
+const ALLOWED_EXTENSIONS = [
+    'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico',
+    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv',
+    'mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'opus',
+    'mp4', 'webm', 'mkv', 'avi', 'mov',
+    'zip', 'rar', '7z'
+];
+
+const BLOCKED_MIME_TYPES = [
+    'text/html', 'application/xhtml+xml', 'image/svg+xml', 'application/xml', 'text/xml',
+    'application/javascript', 'text/javascript', 'application/x-javascript',
+    'application/x-msdownload', 'application/x-msdos-program', 'application/x-executable',
+    'application/x-sharedlib', 'text/x-shellscript', 'application/x-php', 'text/x-php',
+    'application/x-httpd-php', 'application/x-httpd-php-source'
+];
+
 // ── Upload files ──────────────────────────────────────────────────────────────
 $uploadDir = UPLOADS_DIR;
 if (!is_dir($uploadDir)) {
-    mkdir($uploadDir, 0777, true);
+    mkdir($uploadDir, 0755, true);
 }
 
 $response = ['success' => false, 'uploaded' => [], 'errors' => []];
@@ -62,38 +79,47 @@ $total = count($_FILES['files']['name']);
 
 for ($i = 0; $i < $total; $i++) {
     $tmpName      = $_FILES['files']['tmp_name'][$i];
-    $originalName = basename($_FILES['files']['name'][$i]);
+    $rawName      = $_FILES['files']['name'][$i];
     $error        = $_FILES['files']['error'][$i];
 
     if ($error !== UPLOAD_ERR_OK || !is_uploaded_file($tmpName)) {
-        $response['errors'][] = "Error uploading {$originalName} (error code {$error}).";
+        $response['errors'][] = "Error uploading {$rawName} (error code {$error}).";
         continue;
     }
 
-    $target = $uploadDir . '/' . $originalName;
+    $safeOriginal = basename($rawName);
+    $ext          = strtolower(pathinfo($safeOriginal, PATHINFO_EXTENSION));
 
-    // Prevent overwrite
-    if (file_exists($target)) {
-        $ext          = pathinfo($originalName, PATHINFO_EXTENSION);
-        $base         = pathinfo($originalName, PATHINFO_FILENAME);
-        $originalName = $base . '_' . time() . ($ext ? ".{$ext}" : '');
-        $target       = $uploadDir . '/' . $originalName;
+    if (empty($ext) || !in_array($ext, ALLOWED_EXTENSIONS, true)) {
+        $response['errors'][] = "'{$safeOriginal}' was rejected: file type is not permitted.";
+        continue;
     }
 
+    $mime = mime_content_type($tmpName);
+    if ($mime !== false && in_array(strtolower($mime), BLOCKED_MIME_TYPES, true)) {
+        $response['errors'][] = "'{$safeOriginal}' was rejected: disallowed content type ({$mime}).";
+        continue;
+    }
+
+    $base         = pathinfo($safeOriginal, PATHINFO_FILENAME);
+    $base         = preg_replace('/[^a-zA-Z0-9_\-]/', '_', $base);
+    $storedName   = $base . '_' . time() . '_' . bin2hex(random_bytes(4)) . ".{$ext}";
+    $target       = $uploadDir . '/' . $storedName;
+
     if (!move_uploaded_file($tmpName, $target)) {
-        $response['errors'][] = "Failed to move {$originalName}.";
+        $response['errors'][] = "Failed to save {$safeOriginal}.";
         continue;
     }
 
     // Record via ConversationManager (same storage as send_dm.php)
-    $result = ConversationManager::addUploadMessage($senderId, $targetId, $originalName);
+    $result = ConversationManager::addUploadMessage($senderId, $targetId, $storedName);
     if ($result === false) {
-        $response['errors'][] = "Failed to record upload message for {$originalName}.";
-        @unlink($target); // Roll back the file move
+        $response['errors'][] = "Failed to record upload message for {$safeOriginal}.";
+        @unlink($target);
         continue;
     }
 
-    $response['uploaded'][] = $originalName;
+    $response['uploaded'][] = $storedName;
 }
 
 $response['success'] = count($response['uploaded']) > 0;

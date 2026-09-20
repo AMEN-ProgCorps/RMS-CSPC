@@ -623,7 +623,7 @@ class ReportHelper
             if ($timeSpent1 === null && $drf && $drf->drf_date && $drf->drf_receipt_time && $ml && $ml->doc_registered_date) {
                 $start = $this->combineDateTime($drf->drf_date, $drf->drf_receipt_time);
                 $end = $this->combineDateTime($ml->doc_registered_date, $ml->doc_registered_time);
-                $timeSpent1 = ($start && $end) ? (int) $start->diffInMinutes($end) : null;
+                $timeSpent1 = ($start && $end) ? CalendarHelper::workingMinutesBetween($start, $end) : null;
             }
 
             // Time released date — from distribution when available
@@ -642,7 +642,7 @@ class ReportHelper
             if ($timeSpent2 === null && $ml && $ml->doc_receipt_date && $dist && $dist->doc_distribution_date_actual) {
                 $start = $this->combineDateTime($ml->doc_receipt_date, $ml->doc_receipt_time);
                 $end = $this->combineDateTime($dist->doc_distribution_date_actual, $dist->doc_distribution_time_actual);
-                $timeSpent2 = ($start && $end) ? (int) $start->diffInMinutes($end) : null;
+                $timeSpent2 = ($start && $end) ? CalendarHelper::workingMinutesBetween($start, $end) : null;
             }
 
             // Forwarded for DRR
@@ -798,7 +798,7 @@ class ReportHelper
             if ($minsSpent === null && $drf && $drf->drf_date && $drf->drf_receipt_time && $ml && $ml->doc_registered_date) {
                 $start = $this->combineDateTime($drf->drf_date, $drf->drf_receipt_time);
                 $end = $this->combineDateTime($ml->doc_registered_date, $ml->doc_registered_time);
-                $minsSpent = ($start && $end) ? (int) $start->diffInMinutes($end) : null;
+                $minsSpent = ($start && $end) ? CalendarHelper::workingMinutesBetween($start, $end) : null;
             }
 
             // Source (originator)
@@ -1123,18 +1123,34 @@ class ReportHelper
                     : null)
                 : $releasedAt;
 
-            // + advanced (end before received), - delayed (end after received)
+            // Days Advance (+) / Delay (−)
+            // - Masterlist: Registered vs Received (same calendar day = 0). The table only
+            //   shows those two dates — do not mix in deadline/effectivity here.
+            // - Issuance / forms / logbooks: Released vs Deadline (else Effectivity).
+            //   + finished before target, − after target, 0 on time.
             $daysDiff = null;
             $daysType = null;
-            if ($receivedAt && $compareEnd) {
-                if ($compareEnd->lt($receivedAt)) {
-                    $daysDiff = (int) $compareEnd->diffInDays($receivedAt);
+            if ($layout === 'masterlist') {
+                if ($receivedAt && $compareEnd) {
+                    $daysDiff = (int) $compareEnd->diffInDays($receivedAt, false);
+                }
+            } else {
+                $targetAt = null;
+                if ($ml && $ml->deadline) {
+                    $targetAt = \Carbon\Carbon::parse($ml->deadline)->startOfDay();
+                } elseif ($ml && $ml->effectivity_date) {
+                    $targetAt = \Carbon\Carbon::parse($ml->effectivity_date)->startOfDay();
+                }
+                if ($targetAt && $compareEnd) {
+                    $daysDiff = (int) $compareEnd->diffInDays($targetAt, false);
+                }
+            }
+            if ($daysDiff !== null) {
+                if ($daysDiff > 0) {
                     $daysType = 'advanced';
-                } elseif ($compareEnd->gt($receivedAt)) {
-                    $daysDiff = -1 * (int) $receivedAt->diffInDays($compareEnd);
+                } elseif ($daysDiff < 0) {
                     $daysType = 'delayed';
                 } else {
-                    $daysDiff = 0;
                     $daysType = 'on_time';
                 }
             }

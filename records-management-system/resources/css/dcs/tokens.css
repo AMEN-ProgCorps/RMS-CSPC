@@ -3,12 +3,13 @@
     --dcs-font: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --dcs-header: #000080;
     --dcs-gold: #FFB800;
-    --dcs-accent: #0d2a7a;
-    --dcs-accent-hover: #0b2368;
-    --dcs-accent-dark: #091d5a;
-    --dcs-accent-light: #1a3a9e;
+    /* Match DTS/RDP dashboard accent (#043899) and slate text palette */
+    --dcs-accent: #043899;
+    --dcs-accent-hover: #003699;
+    --dcs-accent-dark: #002b7a;
+    --dcs-accent-light: #1a4db8;
     --dcs-accent-subtle: #eef2ff;
-    --dcs-accent-glow: rgba(13, 42, 122, 0.08);
+    --dcs-accent-glow: rgba(4, 56, 153, 0.08);
     --dcs-surface: #ffffff;
     --dcs-surface-hover: #f4f6fb;
     --dcs-surface-active: #eef2ff;
@@ -21,6 +22,8 @@
     --dcs-text-sec: #475569;
     --dcs-text-muted: #64748b;
     --dcs-text-subtle: #94a3b8;
+    --dcs-tab-inactive: #2d2d2d;
+    --set-tab-inactive: #2d2d2d;
     --dcs-green: #059669;
     --dcs-green-bg: #ecfdf5;
     --dcs-success: #16a34a;
@@ -307,7 +310,9 @@
     --dcs-text-secondary: #94a3b8;
     --dcs-text-sec: #cbd5e1;
     --dcs-text-muted: #94a3b8;
-    --dcs-text-subtle: #64748b;
+    --dcs-text-subtle: #94a3b8;
+    --dcs-tab-inactive: #cbd5e1;
+    --set-tab-inactive: #cbd5e1;
 
     --dcs-green: #34d399;
     --dcs-green-bg: #052e1c;

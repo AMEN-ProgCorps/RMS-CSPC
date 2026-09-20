@@ -5,3 +5,108 @@
 @import './toast.css';
 @import './top-tabs.css';
 @import './dark.css';
+
+/* ═══════════════════════════════════
+   Shared loading — same look as Generate Report (rpt-preview-loading)
+   Used by Update / Drafts / Request / Database / Office Documents / Stamp
+   ═══════════════════════════════════ */
+.dcs-loading-overlay,
+.upd-loading-overlay,
+.ofi-loading-overlay,
+.db-loading-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 48px 24px;
+    text-align: center;
+    background: rgba(248, 250, 252, 0.92);
+    backdrop-filter: blur(2px);
+    border-radius: inherit;
+}
+
+.dcs-loading-overlay.is-visible,
+.upd-loading-overlay.is-visible,
+.ofi-loading-overlay.is-visible,
+.db-loading-overlay.is-visible {
+    display: flex;
+}
+
+.dcs-loading-overlay.is-page,
+.ofi-loading-overlay.ofi-loading-page {
+    position: fixed;
+    top: var(--dcs-header-height, 70px);
+    left: var(--dcs-sidebar, 300px);
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    border-radius: 0;
+}
+
+html[data-dcs-sidebar-collapsed="1"] .dcs-loading-overlay.is-page,
+html[data-dcs-sidebar-collapsed="1"] .ofi-loading-overlay.ofi-loading-page,
+body:has(#dcs-sidebar-collapsed:checked) .dcs-loading-overlay.is-page,
+body:has(#dcs-sidebar-collapsed:checked) .ofi-loading-overlay.ofi-loading-page {
+    left: var(--dcs-sidebar-collapsed, 68px);
+}
+
+.dcs-loading-spinner {
+    width: 34px;
+    height: 34px;
+    border: 3px solid var(--dcs-border, #e2e8f0);
+    border-top-color: var(--dcs-accent, #043899);
+    border-radius: 50%;
+    margin: 0 auto;
+    animation: dcsLoadingSpin 0.7s linear infinite;
+    flex-shrink: 0;
+}
+
+.dcs-loading-overlay h4,
+.upd-loading-overlay h4,
+.ofi-loading-overlay h4,
+.db-loading-overlay h4 {
+    margin: 4px 0 0;
+    font-family: var(--dcs-font);
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--dcs-text, #1e293b);
+}
+
+.dcs-loading-overlay p,
+.upd-loading-overlay p,
+.ofi-loading-overlay p,
+.db-loading-overlay p {
+    margin: 0;
+    font-family: var(--dcs-font);
+    font-size: 0.82rem;
+    font-weight: 400;
+    color: var(--dcs-text-subtle, #94a3b8);
+    max-width: 280px;
+    line-height: 1.5;
+}
+
+/* Legacy panel markup still renders cleanly if present */
+.dcs-loading-panel,
+.upd-loading-panel,
+.ofi-loading-panel,
+.db-loading-panel {
+    display: contents;
+}
+
+@keyframes dcsLoadingSpin {
+    to { transform: rotate(360deg); }
+}
+
+.is-loading > .db-table-scroll,
+.is-loading > .upd-table-scroll,
+.is-loading > .st-table-scroll,
+.is-loading > .ofi-table-wrap,
+.is-loading > .ofi-doc-empty {
+    opacity: 0.4;
+    pointer-events: none;
+}
+

@@ -1,6 +1,12 @@
 <td>{{ $r['doc_no'] }}</td>
 <td>{{ $r['rev_no'] }}</td>
-<td title="{{ $r['title'] }}">{{ $r['title'] }}</td>
+<td class="db-title-cell" title="{{ $r['title'] }}">
+    @include('pages.dcs.database._text-clamp', [
+        'text' => $r['title'] ?? '',
+        'clampKey' => 'title-' . ($r['request_id'] ?? 0),
+        'emptyLabel' => 'N/A',
+    ])
+</td>
 <td>{{ $r['effectivity'] }}</td>
 <td>{{ $r['originator'] }}</td>
 <td style="text-align:center">{{ $r['pages'] }}</td>
@@ -8,7 +14,12 @@
 <td style="text-align:center">
     @include('pages.dcs.database._scan', ['url' => $r['pdf_path'] ?? null])
 </td>
-<td class="db-offices-cell" title="{{ $r['source_unit'] }}">{{ $r['source_unit'] ?: '—' }}</td>
+<td class="db-offices-cell" wire:key="source-unit-{{ $r['request_id'] ?? 0 }}">
+    @include('pages.dcs.database._offices-clamp', [
+        'officesText' => $r['source_unit'] ?? '',
+        'clampKey' => 'su' . ($r['request_id'] ?? 0),
+    ])
+</td>
 <td>
     @forelse($r['related'] ?? [] as $rel)
         <span class="db-related-tag">{{ $rel['title'] ?? $rel['doc_no'] }}</span>
@@ -45,7 +56,12 @@
 <td class="col-group-dcn" x-show="visible.dcn && open.dcn">{{ $r['dcn_date'] ?: '—' }}</td>
 <td class="col-group-dcn" x-show="visible.dcn && open.dcn">{{ $r['dcn_receipt_date'] ?: '—' }}</td>
 <td class="col-group-dcn" x-show="visible.dcn && open.dcn">{{ $r['dcn_receipt_time'] ?: '—' }}</td>
-<td class="col-group-dcn" x-show="visible.dcn && open.dcn">{{ $r['dcn_purpose'] ?: '—' }}</td>
+<td class="col-group-dcn db-offices-cell" x-show="visible.dcn && open.dcn" wire:key="dcn-purpose-{{ $r['request_id'] ?? 0 }}">
+    @include('pages.dcs.database._text-clamp', [
+        'text' => $r['dcn_purpose'] ?? '',
+        'clampKey' => 'purpose-' . ($r['request_id'] ?? 0),
+    ])
+</td>
 <td class="col-group-dcn" x-show="visible.dcn && open.dcn">@include('pages.dcs.database._scan', ['url' => $r['dcn_scan'] ?? null])</td>
 
 <td class="col-group-summary-body col-group-summary-drf" x-show="visible.drf && !open.drf">
@@ -64,7 +80,13 @@
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_onfile_time'] ?: '—' }}</td>
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_actual_date'] ?: '—' }}</td>
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">{{ $r['dist_actual_time'] ?: '—' }}</td>
-<td class="col-group-distribution db-offices-cell" x-show="visible.distribution && open.distribution" title="{{ $r['dist_offices'] }}">{{ $r['dist_offices'] ?: '—' }}</td>
+<td class="col-group-distribution db-offices-cell" x-show="visible.distribution && open.distribution" wire:key="dist-offices-{{ $r['request_id'] ?? 0 }}">
+    @include('pages.dcs.database._offices-clamp', [
+        'officesText' => $r['dist_offices'] ?? '',
+        'clampKey' => 'd' . ($r['request_id'] ?? 0),
+        'highlightOffice' => $receivedByOfficeName ?? '',
+    ])
+</td>
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">@include('pages.dcs.database._scan', ['url' => $r['dist_scan'] ?? null])</td>
 
 <td class="col-group-summary-body col-group-summary-retrieval" x-show="visible.retrieval && !open.retrieval">
@@ -72,5 +94,10 @@
 </td>
 <td class="col-group-retrieval" x-show="visible.retrieval && open.retrieval">{{ $r['ret_onfile'] ?: '—' }}</td>
 <td class="col-group-retrieval" x-show="visible.retrieval && open.retrieval">{{ $r['ret_actual'] ?: '—' }}</td>
-<td class="col-group-retrieval db-offices-cell" x-show="visible.retrieval && open.retrieval" title="{{ $r['ret_offices'] }}">{{ $r['ret_offices'] ?: '—' }}</td>
+<td class="col-group-retrieval db-offices-cell" x-show="visible.retrieval && open.retrieval" wire:key="ret-offices-{{ $r['request_id'] ?? 0 }}">
+    @include('pages.dcs.database._offices-clamp', [
+        'officesText' => $r['ret_offices'] ?? '',
+        'clampKey' => 'r' . ($r['request_id'] ?? 0),
+    ])
+</td>
 <td class="col-group-retrieval" x-show="visible.retrieval && open.retrieval">@include('pages.dcs.database._scan', ['url' => $r['ret_scan'] ?? null])</td>

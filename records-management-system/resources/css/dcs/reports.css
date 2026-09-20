@@ -75,10 +75,6 @@ body {
     color: var(--rpt-text);
     background: var(--rpt-surface);
 }
-.rpt-template-upload {
-    cursor: pointer;
-}
-
 .rpt-template-picker {
     margin: 0 0 16px;
     padding: 14px 16px;
@@ -122,32 +118,6 @@ body {
     text-align: left;
     font: inherit;
     color: inherit;
-}
-.rpt-tpl-delete {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    z-index: 2;
-    width: 26px;
-    height: 26px;
-    border: none;
-    border-radius: 6px;
-    background: rgba(15, 23, 42, 0.72);
-    color: #fff;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.7rem;
-    opacity: 0;
-    transition: opacity 0.15s ease, background 0.15s ease;
-}
-.rpt-tpl-card:hover .rpt-tpl-delete,
-.rpt-tpl-delete:focus {
-    opacity: 1;
-}
-.rpt-tpl-delete:hover {
-    background: #be123c;
 }
 .rpt-tpl-card.is-active {
     border-color: var(--rpt-accent, #0d2a7a);
@@ -708,7 +678,7 @@ body {
 .rpt-state-spinner {
     width: 34px; height: 34px;
     border: 3px solid var(--rpt-border); border-top-color: var(--rpt-accent);
-    border-radius: 50%; margin: 0 auto; animation: rptSpin 0.7s linear infinite;
+    border-radius: 50%; margin: 0 auto; animation: dcsLoadingSpin 0.7s linear infinite;
 }
 .rpt-state h4 { font-size: 0.88rem; font-weight: 700; color: var(--rpt-text); margin-bottom: 4px; }
 .rpt-state p { font-size: 0.82rem; color: var(--rpt-text-subtle); max-width: 280px; margin: 0 auto; line-height: 1.5; }
@@ -837,6 +807,7 @@ body {
 @keyframes rptSlideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes rptDdIn { from { opacity: 0; transform: translateY(-4px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes rptSpin { to { transform: rotate(360deg); } }
+@keyframes dcsLoadingSpin { to { transform: rotate(360deg); } }
 
 /* ═══════════════════════════════════════════
    RESPONSIVE — Small laptops / tablets
@@ -1432,10 +1403,75 @@ body {
     min-height: 0;
     background: #f1f5f9;
     border-top: 1px solid var(--rpt-border);
+    position: relative;
+}
+
+.rpt-body-slot {
+    position: relative;
+    min-height: 280px;
+}
+
+.rpt-body-loading {
+    min-height: 280px;
+    border-radius: 0 0 var(--rpt-radius, 10px) var(--rpt-radius, 10px);
+}
+
+.rpt-results.is-dimmed,
+.rpt-state-pick.is-dimmed {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+.rpt-subs.is-busy .rpt-sub {
+    cursor: wait;
 }
 
 .rpt-preview-shell--frame {
     min-height: 420px;
+}
+
+.rpt-preview-frame-wrap {
+    position: relative;
+    min-height: 420px;
+}
+
+.rpt-preview-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 48px 24px;
+    text-align: center;
+    background: rgba(248, 250, 252, 0.92);
+    backdrop-filter: blur(2px);
+}
+
+.rpt-preview-loading h4 {
+    margin: 4px 0 0;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--rpt-text);
+}
+
+.rpt-preview-loading p {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--rpt-text-subtle);
+    max-width: 280px;
+    line-height: 1.5;
+}
+
+.rpt-preview-frame.is-loading {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.opcr-doc.is-dimmed {
+    opacity: 0.45;
+    pointer-events: none;
 }
 
 .rpt-preview-shell--table {
@@ -1478,7 +1514,7 @@ body {
 
 .opcr-doc-republic {
     font-size: 0.72rem;
-    color: #64748b;
+    color: #475569;
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
@@ -1494,7 +1530,7 @@ body {
 
 .opcr-doc-loc {
     font-size: 0.72rem;
-    color: #64748b;
+    color: #475569;
 }
 
 .opcr-doc-rule {
@@ -1671,7 +1707,7 @@ body {
 .mon-pct-good { color: #1d4ed8; }
 .mon-pct-mid { color: #b45309; }
 .mon-pct-low { color: #b91c1c; }
-.mon-pct-empty { color: #64748b; }
+.mon-pct-empty { color: #475569; }
 
 .mon-remark {
     width: 100%;
@@ -1687,7 +1723,7 @@ body {
 
 .mon-remark-empty {
     background: #fff;
-    color: #64748b;
+    color: #475569;
     border-color: #cbd5e1;
 }
 

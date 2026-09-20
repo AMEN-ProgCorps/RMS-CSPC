@@ -90,7 +90,7 @@ body {
     left: 14px;
     top: 50%;
     transform: translateY(-50%);
-    color: #64748b;
+    color: #475569;
     font-size: 0.82rem;
     pointer-events: none;
     transition: color 0.2s;
@@ -160,7 +160,7 @@ body {
 .st-btn-clear:hover {
     background: #f1f5f9;
     color: #0f172a;
-    border-color: #64748b;
+    border-color: #475569;
 }
 
 /* ═══════════════════════════════════════════

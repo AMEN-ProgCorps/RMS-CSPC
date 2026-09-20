@@ -139,7 +139,7 @@
         .hdr-rule-line {
             flex: 1 1 auto;
             min-width: 0;
-            height: 2px;
+            height: 1.5pt;
             background: #0071BC;
             border: none;
         }
@@ -351,7 +351,30 @@
             padding-left: 0.08in;
             padding-right: 0.12in;
         }
-        .fline.sig { width: 3.16in; flex: 0 0 3.16in; }
+        /* Fixed label column so Originator / Department / Reviewed underlines share one start */
+        .r4-band .lbl-11 {
+            flex: 0 0 1.52in;
+            width: 1.52in;
+            max-width: 1.52in;
+            margin-right: 0;
+            overflow: hidden;
+        }
+        .fline.sig {
+            width: 3.15in;
+            flex: 0 0 3.15in;
+            max-width: 3.15in;
+        }
+        .fline.sig.is-reviewed .val {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11pt;
+            font-weight: 700;
+            text-transform: uppercase;
+            line-height: 1;
+        }
+        /* Invisible spacer so 2nd reviewer lines up under the 1st value */
+        .r4-lbl-spacer {
+            visibility: hidden;
+        }
 
         /* Row 5 header: 0.18in — 4 cols = 1.85+2.25+1.00+1.29 = 6.39 */
         .r5-head { height: 0.18in; padding: 0; border-bottom: 1px solid #000; }
@@ -389,7 +412,7 @@
             font-weight: 400;
         }
 
-        /* Row 5 body: 0.18 × 9 = 1.62in */
+        /* Row 5 body: 0.18 × 9 = 1.62in — one centered line per approval */
         .r5-body { height: 1.62in; padding: 0; }
         .approvals-body {
             width: 100%;
@@ -400,15 +423,29 @@
         .approvals-body td {
             border: none;
             border-right: 1px solid #000;
-            height: 1.62in;
-            vertical-align: top;
-            padding: 0;
+            border-bottom: 1px solid #000;
+            height: 0.18in;
+            max-height: 0.18in;
+            vertical-align: middle;
+            text-align: center;
+            padding: 0 2px;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 10pt;
+            font-weight: 400;
+            line-height: 1.1;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
         }
         .approvals-body td:last-child { border-right: none; }
+        .approvals-body tr:last-child td { border-bottom: none; }
         .approvals-body col.c1 { width: 1.85in; }
         .approvals-body col.c2 { width: 2.25in; }
         .approvals-body col.c3 { width: 1.00in; }
         .approvals-body col.c4 { width: 1.29in; }
+        .approvals-body tr.appr-blank td {
+            height: 0.18in;
+        }
 
         /* Footer: line left 0.69 / right 0.72; bottom margin 0.46 */
         .footer-wrap {
@@ -420,7 +457,7 @@
         .footer-rule {
             margin: 0 0.72in 0 0.69in;
             border: none;
-            border-top: 2px solid #0071BC;
+            border-top: 1.5pt solid #0071BC;
             height: 0;
         }
         .footer {
@@ -483,7 +520,15 @@
     $departmentDate = \App\Helpers\OfficeIntakeHelper::departmentDateForPrint(
         trim((string) ($dcn->department_date ?? ''))
     );
-    $reviewedByDate = trim((string) ($dcn->reviewed_by_date ?? ''));
+    $printReviewers = \App\Helpers\OfficeIntakeHelper::loadDcnReviewers((int) $dcn->id, $dcn);
+    $reviewedByDate = trim((string) ($printReviewers[0]['label'] ?? ''));
+    $reviewedByDate2 = trim((string) ($printReviewers[1]['label'] ?? ''));
+    if ($reviewedByDate === '') {
+        $reviewedByDate = trim((string) ($dcn->reviewed_by_date ?? ''));
+    }
+    if ($reviewedByDate2 === '') {
+        $reviewedByDate2 = trim((string) ($dcn->reviewed_by_date_2 ?? ''));
+    }
     $dcnNo = trim((string) ($dcn->dcn_no ?? ''));
 
     $fromLines = array_pad([''], 6, '');
@@ -513,9 +558,20 @@
         }
     }
 @endphp
+@php
+    $isReviewer = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake();
+    $viewerMode = ! empty($viewerMode);
+@endphp
 <div class="print-toolbar">
-    <button type="button" class="btn-print" onclick="document.title=''; window.print();">Print</button>
-    <button type="button" class="btn-close" onclick="window.close()">Close</button>
+    @if($viewerMode)
+        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIO review</span>
+    @else
+        @if($isReviewer)
+            <a href="{{ route('dcs.requests.index', absolute: false) }}" class="btn-close" style="text-decoration:none;display:inline-flex;align-items:center;">Back to Request</a>
+        @endif
+        <button type="button" class="btn-print" onclick="document.title=''; window.print();">Print</button>
+        <button type="button" class="btn-close" onclick="window.close()">Close</button>
+    @endif
 </div>
 
 <div class="sheet">
@@ -638,12 +694,20 @@
                     </div>
                     <div class="r4-band">
                         <span class="lbl-11">Reviewed by/ Date:</span>
-                        <div class="fline sig">
+                        <div class="fline sig is-reviewed">
                             <div class="val">{{ $reviewedByDate }}</div>
                             <div class="rule"></div>
                         </div>
                     </div>
-                    <div class="r4-band"></div>
+                    <div class="r4-band">
+                        @if($reviewedByDate2 !== '')
+                            <span class="lbl-11 r4-lbl-spacer" aria-hidden="true">Reviewed by/ Date:</span>
+                            <div class="fline sig is-reviewed">
+                                <div class="val">{{ $reviewedByDate2 }}</div>
+                                <div class="rule"></div>
+                            </div>
+                        @endif
+                    </div>
                 </div>
             </td>
         </tr>
@@ -665,19 +729,42 @@
             </td>
         </tr>
 
-        {{-- Row 5 body: 11 × 0.18 --}}
+        {{-- Row 5 body: up to 9 × 0.18in, text centered --}}
         <tr>
             <td class="r5-body">
+                @php
+                    $approvalRows = \App\Helpers\OfficeIntakeHelper::loadDcnApprovals((int) $dcn->id);
+                    $approvalSlots = 9;
+                    while (count($approvalRows) < $approvalSlots) {
+                        $approvalRows[] = ['position' => '', 'name' => '', 'date' => null];
+                    }
+                    $approvalRows = array_slice($approvalRows, 0, $approvalSlots);
+                @endphp
                 <table class="approvals-body">
                     <colgroup>
                         <col class="c1"><col class="c2"><col class="c3"><col class="c4">
                     </colgroup>
-                    <tr>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                        <td></td>
-                    </tr>
+                    @foreach($approvalRows as $appr)
+                        @php
+                            $pos = trim((string) ($appr['position'] ?? ''));
+                            $nm = trim((string) ($appr['name'] ?? ''));
+                            $dt = '';
+                            if (! empty($appr['date'])) {
+                                try {
+                                    $dt = \Carbon\Carbon::parse($appr['date'])->format('M d, Y');
+                                } catch (\Throwable) {
+                                    $dt = (string) $appr['date'];
+                                }
+                            }
+                            $isBlank = $pos === '' && $nm === '' && $dt === '';
+                        @endphp
+                        <tr @class(['appr-blank' => $isBlank])>
+                            <td>{{ $pos }}</td>
+                            <td>{{ $nm }}</td>
+                            <td></td>
+                            <td>{{ $dt }}</td>
+                        </tr>
+                    @endforeach
                 </table>
             </td>
         </tr>

@@ -167,6 +167,22 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
 }; ?>
 
 <div>
+{{-- Full-viewport overlay (outside .drr-container so fixed covers header + sidenav) --}}
+@if($selectedDocNo === '')
+    <div
+        class="drr-page-loading"
+        wire:loading.flex
+        wire:target="selectDocument"
+        aria-live="polite"
+        aria-busy="true"
+    >
+        <div class="drr-page-loading-card">
+            <div class="drr-page-spinner" aria-hidden="true"></div>
+            <h4>Opening review…</h4>
+            <p>Loading revisions and scanned copies.</p>
+        </div>
+    </div>
+@endif
 <div class="drr-container main-content">
     <div class="drr-header">
         <div>
@@ -186,7 +202,10 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
     </div>
 
     @if($selectedDocNo === '')
-        <section class="drr-adhoc-card" id="drrAdhocCard" aria-labelledby="drrAdhocHeading">
+        <section class="drr-adhoc-card" id="drrAdhocCard" aria-labelledby="drrAdhocHeading"
+            wire:loading.class="is-dimmed"
+            wire:target="selectDocument"
+        >
             <div class="drr-adhoc-head">
                 <div>
                     <h2 id="drrAdhocHeading" class="drr-adhoc-title">
@@ -221,7 +240,10 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
             <p class="drr-adhoc-error" id="drrAdhocError" hidden role="alert"></p>
         </section>
 
-        <section class="drr-list-block" aria-labelledby="drrListHeading">
+        <section class="drr-list-block" aria-labelledby="drrListHeading"
+            wire:loading.class="is-dimmed"
+            wire:target="selectDocument"
+        >
             <div class="drr-list-head">
                 <div>
                     <h2 id="drrListHeading" class="drr-list-title">Registered documents</h2>
@@ -273,8 +295,19 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                                     <td><span class="drr-rev-pill">Rev {{ $doc['rev_no'] }}</span></td>
                                     <td class="drr-rev-count">{{ $doc['rev_count'] }}</td>
                                     <td>
-                                        <button type="button" class="drr-btn-review" wire:click="selectDocument(@js($doc['doc_no']))">
-                                            <i class="fa-solid fa-code-compare" aria-hidden="true"></i> Review
+                                        <button
+                                            type="button"
+                                            class="drr-btn-review"
+                                            wire:click="selectDocument(@js($doc['doc_no']))"
+                                            wire:loading.attr="disabled"
+                                            wire:target="selectDocument"
+                                        >
+                                            <span wire:loading.remove.delay wire:target="selectDocument">
+                                                <i class="fa-solid fa-code-compare" aria-hidden="true"></i> Review
+                                            </span>
+                                            <span wire:loading.delay wire:target="selectDocument">
+                                                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Opening…
+                                            </span>
                                         </button>
                                     </td>
                                 </tr>
@@ -375,10 +408,10 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                 </div>
 
                 @if($canCompare)
-                    <div class="drr-legend">
-                        <span class="drr-leg drr-leg-del">Removed</span>
-                        <span class="drr-leg drr-leg-ins">Added</span>
-                        <span class="drr-leg drr-leg-chg">Changed</span>
+                    <div class="drr-legend" aria-label="Highlight legend">
+                        <span class="drr-leg drr-leg-del"><i class="drr-leg-swatch is-del" aria-hidden="true"></i>Removed</span>
+                        <span class="drr-leg drr-leg-ins"><i class="drr-leg-swatch is-ins" aria-hidden="true"></i>Added</span>
+                        <span class="drr-leg drr-leg-chg"><i class="drr-leg-swatch is-chg" aria-hidden="true"></i>Changed</span>
                     </div>
                 @endif
             </div>
@@ -418,7 +451,12 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                             @if($canCompare)
                                 @php $scanStatus = $pair['scan_status'] ?? 'none'; @endphp
                                 <div class="drr-scan is-{{ $scanStatus }}">
-                                    <div class="drr-scan-label">{{ $olderLabel }}{{ $pair['left_scan']['name'] ? ' · ' . $pair['left_scan']['name'] : '' }}</div>
+                                    <div class="drr-scan-label">
+                                        <span class="drr-scan-role">{{ $olderLabel }}</span>
+                                        @if(!empty($pair['left_scan']['name']))
+                                            <span class="drr-scan-file" title="{{ $pair['left_scan']['name'] }}">{{ $pair['left_scan']['name'] }}</span>
+                                        @endif
+                                    </div>
                                     @if($pair['left_scan']['url'] && $pair['left_scan']['is_pdf'])
                                         <div class="drr-pdf-stage" data-review-side="left" wire:ignore></div>
                                         <p class="drr-pdf-note" data-review-note="left"></p>
@@ -431,7 +469,12 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                                 </div>
 
                                 <div class="drr-scan is-{{ $scanStatus }}">
-                                    <div class="drr-scan-label">{{ $newerLabel }}{{ $pair['right_scan']['name'] ? ' · ' . $pair['right_scan']['name'] : '' }}</div>
+                                    <div class="drr-scan-label">
+                                        <span class="drr-scan-role">{{ $newerLabel }}</span>
+                                        @if(!empty($pair['right_scan']['name']))
+                                            <span class="drr-scan-file" title="{{ $pair['right_scan']['name'] }}">{{ $pair['right_scan']['name'] }}</span>
+                                        @endif
+                                    </div>
                                     @if($pair['right_scan']['url'] && $pair['right_scan']['is_pdf'])
                                         <div class="drr-pdf-stage" data-review-side="right" wire:ignore></div>
                                         <p class="drr-pdf-note" data-review-note="right"></p>
@@ -449,7 +492,12 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                                     $viewLabel = !empty($pair['right_scan']['url']) ? $newerLabel : $olderLabel;
                                 @endphp
                                 <div class="drr-scan is-same">
-                                    <div class="drr-scan-label">{{ $viewLabel }}{{ ($viewScan['name'] ?? null) ? ' · ' . $viewScan['name'] : '' }}</div>
+                                    <div class="drr-scan-label">
+                                        <span class="drr-scan-role">{{ $viewLabel }}</span>
+                                        @if(!empty($viewScan['name']))
+                                            <span class="drr-scan-file" title="{{ $viewScan['name'] }}">{{ $viewScan['name'] }}</span>
+                                        @endif
+                                    </div>
                                     @if(!empty($viewScan['url']) && !empty($viewScan['is_pdf']))
                                         <div class="drr-pdf-stage" data-review-side="right" wire:ignore></div>
                                         <p class="drr-pdf-note" data-review-note="right"></p>
@@ -486,19 +534,23 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
             </button>
         </div>
         <div class="drr-adhoc-modal-body">
-            <div class="drr-legend drr-adhoc-legend">
-                <span class="drr-leg drr-leg-del">Removed</span>
-                <span class="drr-leg drr-leg-ins">Added</span>
-                <span class="drr-leg drr-leg-chg">Changed</span>
+            <div class="drr-legend drr-adhoc-legend" aria-label="Highlight legend">
+                <span class="drr-leg drr-leg-del"><i class="drr-leg-swatch is-del" aria-hidden="true"></i>Removed</span>
+                <span class="drr-leg drr-leg-ins"><i class="drr-leg-swatch is-ins" aria-hidden="true"></i>Added</span>
+                <span class="drr-leg drr-leg-chg"><i class="drr-leg-swatch is-chg" aria-hidden="true"></i>Changed</span>
             </div>
             <div class="drr-scans" id="drr-adhoc-pdf-compare">
                 <div class="drr-scan is-changed">
-                    <div class="drr-scan-label" id="drrAdhocLeftLabel">Older / original</div>
+                    <div class="drr-scan-label" id="drrAdhocLeftLabel">
+                        <span class="drr-scan-role">Older / original</span>
+                    </div>
                     <div class="drr-pdf-stage" data-review-side="left"></div>
                     <p class="drr-pdf-note" data-review-note="left"></p>
                 </div>
                 <div class="drr-scan is-changed">
-                    <div class="drr-scan-label" id="drrAdhocRightLabel">Newer / revised</div>
+                    <div class="drr-scan-label" id="drrAdhocRightLabel">
+                        <span class="drr-scan-role">Newer / revised</span>
+                    </div>
                     <div class="drr-pdf-stage" data-review-side="right"></div>
                     <p class="drr-pdf-note" data-review-note="right"></p>
                 </div>

@@ -79,10 +79,55 @@
                 <dt>Date</dt>
                 <dd>{{ $departmentParts['date_label'] ?: '—' }}</dd>
             </div>
+            @php
+                $reviewerRows = \App\Helpers\OfficeIntakeHelper::loadDcnReviewers((int) $dcn->id, $dcn);
+            @endphp
+            @forelse($reviewerRows as $i => $rev)
             <div class="ofi-review-field">
-                <dt>Reviewed by/ Date</dt>
-                <dd>{{ $dcn->reviewed_by_date ?: '—' }}</dd>
+                <dt>Reviewed by / Date{{ count($reviewerRows) > 1 ? ' ('.($i + 1).')' : '' }}</dt>
+                <dd class="ofi-show-reviewed">{{ $rev['label'] !== '' ? $rev['label'] : '—' }}</dd>
             </div>
+            @empty
+            <div class="ofi-review-field">
+                <dt>Reviewed by / Date</dt>
+                <dd class="ofi-show-reviewed">{{ $dcn->reviewed_by_date ?: '—' }}</dd>
+            </div>
+            @endforelse
         </dl>
     </section>
+
+    @php
+        $approvalRows = \App\Helpers\OfficeIntakeHelper::loadDcnApprovals((int) $dcn->id);
+    @endphp
+    @if($approvalRows !== [])
+    <section class="ofi-review-section">
+        <h4 class="ofi-review-section-title">Approvals</h4>
+        <div class="ofi-approvals-table-wrap">
+            <table class="ofi-approvals-table">
+                <thead>
+                    <tr>
+                        <th>Position</th>
+                        <th>Name</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($approvalRows as $appr)
+                        <tr>
+                            <td>{{ $appr['position'] !== '' ? $appr['position'] : '—' }}</td>
+                            <td>{{ $appr['name'] !== '' ? $appr['name'] : '—' }}</td>
+                            <td>
+                                @if(!empty($appr['date']))
+                                    {{ \Carbon\Carbon::parse($appr['date'])->format('M d, Y') }}
+                                @else
+                                    —
+                                @endif
+                            </td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    </section>
+    @endif
 </div>

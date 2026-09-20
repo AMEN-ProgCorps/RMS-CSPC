@@ -69,7 +69,15 @@
     </section>
 
     <section class="ofi-review-section">
-        <h4 class="ofi-review-section-title">Distribution</h4>
+        <h4 class="ofi-review-section-title">
+            Distribute document to (department/position)
+            <span class="ofi-total-offices" style="margin-left:8px;font-weight:600;text-transform:none;letter-spacing:0;">
+                total offices: <strong>{{ count($distributeOffices ?? []) }}</strong>
+            </span>
+        </h4>
+        <p class="ofi-review-hint" style="margin:0 0 10px;font-size:0.82rem;color:#64748b;line-height:1.4;">
+            All offices listed here are recipients for <strong>distribution</strong> of this document.
+        </p>
         @if(!empty($distributeOffices))
             <div class="ofi-review-chips">
                 @foreach($distributeOffices as $office)
@@ -86,5 +94,35 @@
         @else
             <div class="ofi-review-empty">No distribution offices listed.</div>
         @endif
+    </section>
+
+    <section class="ofi-review-section">
+        <h4 class="ofi-review-section-title">Signatories</h4>
+        <dl class="ofi-review-fields">
+            <div class="ofi-review-field">
+                <dt>Prepared by — Name</dt>
+                <dd>{{ trim((string) data_get($drf, 'prepared_by_name', '')) ?: '—' }}</dd>
+            </div>
+            <div class="ofi-review-field">
+                <dt>Prepared by — Designation</dt>
+                <dd>{{ trim((string) data_get($drf, 'prepared_by_designation', '')) ?: '—' }}</dd>
+            </div>
+            <div class="ofi-review-field">
+                <dt>Reviewed by — Name</dt>
+                <dd>{{ trim((string) data_get($drf, 'reviewed_by_name', '')) ?: '—' }}</dd>
+            </div>
+            <div class="ofi-review-field">
+                <dt>Reviewed by — Designation</dt>
+                <dd>{{ trim((string) data_get($drf, 'reviewed_by_designation', '')) ?: '—' }}</dd>
+            </div>
+            <div class="ofi-review-field">
+                <dt>Approved by — Name</dt>
+                <dd>{{ trim((string) data_get($drf, 'approved_by_name', '')) ?: '—' }}</dd>
+            </div>
+            <div class="ofi-review-field">
+                <dt>Approved by — Designation</dt>
+                <dd>{{ trim((string) data_get($drf, 'approved_by_designation', '')) ?: '—' }}</dd>
+            </div>
+        </dl>
     </section>
 </div>

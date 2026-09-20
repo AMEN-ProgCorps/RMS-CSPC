@@ -14,6 +14,7 @@ new #[Layout('layouts.dcs')] class extends Component {
     public ?int $parentId = null;
 
     public string $docTypeName = '';
+    public bool $docTypeAllowsRevision = true;
     public string $originatorName = '';
     public string $facultyName = '';
     public string $collegeId = '';
@@ -48,11 +49,12 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->parentId = null;
         $this->modalKind = '';
         $this->reset([
-            'docTypeName', 'originatorName',
+            'docTypeName', 'docTypeAllowsRevision', 'originatorName',
             'facultyName', 'collegeId', 'collegeName', 'officeId', 'programName', 'programCode',
             'semesterName', 'schoolYear', 'programId', 'semesterId', 'courseName', 'courseCode', 'courseYearLevel',
             'deleteTitle', 'deleteMessage',
         ]);
+        $this->docTypeAllowsRevision = true;
         $this->courseRows = [['code' => '', 'name' => '']];
         $this->csvFile = null;
         $this->resetValidation();
@@ -63,11 +65,17 @@ new #[Layout('layouts.dcs')] class extends Component {
     {
         $this->resetFormFor('docType', $id);
         $this->parentId = $parentId;
+        $this->docTypeAllowsRevision = true;
         if ($id) {
             $row = DB::table('dcs_doc_types')->where('id', $id)->first();
             abort_unless($row, 404);
             $this->docTypeName = $row->doc_type_name;
             $this->parentId = $row->parent_id ? (int) $row->parent_id : null;
+            if (Schema::hasColumn('dcs_doc_types', 'allows_revision')) {
+                $this->docTypeAllowsRevision = (bool) ($row->allows_revision ?? true);
+            } else {
+                $this->docTypeAllowsRevision = ! \App\Helpers\RegisterQueryHelper::isSyllabiLikeName($row->doc_type_name ?? null);
+            }
         }
     }
 
@@ -268,16 +276,38 @@ new #[Layout('layouts.dcs')] class extends Component {
             return;
         }
 
+        $payload = ['doc_type_name' => $this->docTypeName];
+        if (Schema::hasColumn('dcs_doc_types', 'allows_revision')) {
+            $payload['allows_revision'] = (bool) $this->docTypeAllowsRevision;
+        }
+
         if ($this->editingId) {
-            DB::table('dcs_doc_types')->where('id', $this->editingId)->update(['doc_type_name' => $this->docTypeName]);
+            DB::table('dcs_doc_types')->where('id', $this->editingId)->update($payload);
+            // Keep denormalized masterlist flag in sync for this type/subtype.
+            if (Schema::hasColumn('dcs_masterlist_registration', 'allows_revision')) {
+                $typeId = (int) $this->editingId;
+                $requestIds = DB::table('dcs_document_requests')
+                    ->where(function ($q) use ($typeId, $parentId) {
+                        if ($parentId) {
+                            $q->where('sub_type_id', $typeId);
+                        } else {
+                            $q->where('doc_type_id', $typeId)->whereNull('sub_type_id');
+                        }
+                    })
+                    ->pluck('id');
+                if ($requestIds->isNotEmpty()) {
+                    DB::table('dcs_masterlist_registration')
+                        ->whereIn('request_id', $requestIds)
+                        ->update(['allows_revision' => (bool) $this->docTypeAllowsRevision]);
+                }
+            }
             $this->done('Updated successfully.');
             return;
         }
 
-        DB::table('dcs_doc_types')->insert([
-            'doc_type_name' => $this->docTypeName,
+        DB::table('dcs_doc_types')->insert(array_merge($payload, [
             'parent_id' => $parentId,
-        ]);
+        ]));
         $this->done($parentId ? 'Sub-type added.' : 'Document type added.');
     }
 
@@ -1018,11 +1048,15 @@ new #[Layout('layouts.dcs')] class extends Component {
     {
         $docTypeParentsQ = DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('doc_type_name');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($docTypeParentsQ, 'dcs_doc_types');
-        $docTypeParents = $docTypeParentsQ->get(['id', 'doc_type_name', 'parent_id']);
+        $docTypeParentCols = ['id', 'doc_type_name', 'parent_id'];
+        if (Schema::hasColumn('dcs_doc_types', 'allows_revision')) {
+            $docTypeParentCols[] = 'allows_revision';
+        }
+        $docTypeParents = $docTypeParentsQ->get($docTypeParentCols);
 
         $docTypeSubsQ = DB::table('dcs_doc_types')->whereNotNull('parent_id')->orderBy('doc_type_name');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($docTypeSubsQ, 'dcs_doc_types');
-        $docTypeSubs = $docTypeSubsQ->get(['id', 'doc_type_name', 'parent_id'])
+        $docTypeSubs = $docTypeSubsQ->get($docTypeParentCols)
             ->groupBy(fn ($row) => (string) $row->parent_id);
 
         $collegesQ = DB::table('dcs_colleges as c')
@@ -1596,6 +1630,15 @@ new #[Layout('layouts.dcs')] class extends Component {
                         <input type="text" class="st-input @error('docTypeName') error @enderror" wire:model="docTypeName" placeholder="e.g. Internal, Syllabi">
                         @error('docTypeName') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
+                    @if(\Illuminate\Support\Facades\Schema::hasColumn('dcs_doc_types', 'allows_revision'))
+                        <div class="st-field">
+                            <label class="st-check-label" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                                <input type="checkbox" wire:model="docTypeAllowsRevision" style="width:auto;">
+                                <span>Allows revision / DCN</span>
+                            </label>
+                            <div class="st-faculty-hint">When off, registrations stay Rev 0 and the same document number can be stacked without marking older copies Obsolete.</div>
+                        </div>
+                    @endif
                 @elseif($modalKind === 'originator')
                     <div class="st-field">
                         <label class="st-label">Originator Name</label>

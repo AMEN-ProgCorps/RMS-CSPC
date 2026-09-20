@@ -2793,4 +2793,142 @@ class OfficeIntakeHelper
 
         return $rows;
     }
+
+    /**
+     * Documents for Random Check (by office + optional parent type group).
+     *
+     * @param  bool  $distributionOnly  When true, always scope by Document Distribution
+     *                                  (used by Random Check office audits).
+     * @return list<array{
+     *     masterlist_id: int,
+     *     doc_no: string,
+     *     rev_no: int,
+     *     doc_title: string,
+     *     effectivity_date: string|null,
+     *     effectivity_date_raw: string|null,
+     *     doc_type_key: string,
+     *     doc_type_label: string
+     * }>
+     */
+    public static function listDocumentsForCheck(
+        ?int $officeId = null,
+        string $groupKey = 'all',
+        bool $distributionOnly = false
+    ): array {
+        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
+        if (! $officeId) {
+            return [];
+        }
+
+        $groupKey = trim($groupKey);
+        if ($groupKey === '' || $groupKey === 'all') {
+            $rows = [];
+            $seen = [];
+            foreach (array_keys(self::documentGroupDefs()) as $key) {
+                foreach (self::listDocumentsForCheckGroup((int) $officeId, $key, $distributionOnly) as $row) {
+                    $id = (int) $row['masterlist_id'];
+                    if (isset($seen[$id])) {
+                        continue;
+                    }
+                    $seen[$id] = true;
+                    $rows[] = $row;
+                }
+            }
+
+            return $rows;
+        }
+
+        if (! isset(self::documentGroupDefs()[$groupKey])) {
+            return [];
+        }
+
+        return self::listDocumentsForCheckGroup((int) $officeId, $groupKey, $distributionOnly);
+    }
+
+    /**
+     * Type counts for an office (distribution recipients when $distributionOnly).
+     *
+     * @return list<array{key: string, label: string, count: int}>
+     */
+    public static function officeDocumentGroupsForCheck(?int $officeId = null, bool $distributionOnly = true): array
+    {
+        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
+        $groups = [];
+        foreach (self::documentGroupDefs() as $key => $label) {
+            $count = $officeId
+                ? count(self::listDocumentsForCheckGroup((int) $officeId, $key, $distributionOnly))
+                : 0;
+            $groups[] = [
+                'key' => $key,
+                'label' => $label,
+                'count' => $count,
+            ];
+        }
+
+        return $groups;
+    }
+
+    /**
+     * @return list<array{
+     *     masterlist_id: int,
+     *     doc_no: string,
+     *     rev_no: int,
+     *     doc_title: string,
+     *     effectivity_date: string|null,
+     *     effectivity_date_raw: string|null,
+     *     doc_type_key: string,
+     *     doc_type_label: string
+     * }>
+     */
+    protected static function listDocumentsForCheckGroup(
+        int $officeId,
+        string $groupKey,
+        bool $distributionOnly = false
+    ): array {
+        $label = self::documentGroupLabel($groupKey);
+        $scope = $distributionOnly ? 'distribution' : self::documentGroupScope($groupKey);
+        $query = self::applyMasterlistGroupFilter(
+            self::officeMasterlistQuery($officeId, $scope),
+            $groupKey
+        );
+
+        $records = $query
+            ->orderByRaw("CASE WHEN COALESCE(TRIM(ml.doc_no), '') = '' THEN 1 ELSE 0 END")
+            ->orderBy('ml.doc_no')
+            ->orderBy('ml.id')
+            ->get([
+                'ml.id',
+                'ml.doc_no',
+                'ml.revise_no',
+                'ml.doc_title',
+                'ml.effectivity_date',
+            ]);
+
+        $rows = [];
+        foreach ($records as $ml) {
+            $raw = $ml->effectivity_date ?? null;
+            $rows[] = [
+                'masterlist_id' => (int) $ml->id,
+                'doc_no' => (string) ($ml->doc_no ?? ''),
+                'rev_no' => (int) ($ml->revise_no ?? 0),
+                'doc_title' => (string) ($ml->doc_title ?? ''),
+                'effectivity_date' => $raw
+                    ? \Carbon\Carbon::parse($raw)->format('M d, Y')
+                    : null,
+                'effectivity_date_raw' => $raw
+                    ? \Carbon\Carbon::parse($raw)->format('Y-m-d')
+                    : null,
+                'doc_type_key' => $groupKey,
+                'doc_type_label' => $label,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /** @deprecated Use listDocumentsForCheck() */
+    public static function listDistributedDocumentsForCheck(?int $officeId = null): array
+    {
+        return self::listDocumentsForCheck($officeId, 'all', true);
+    }
 }

@@ -815,6 +815,10 @@ Route::middleware(['auth'])
                 Route::middleware(['dcs.module:manage_files'])->group(function () {
                     Volt::route('/manage-files', 'pages.dcs.manage-files')->name('manage-files');
                 });
+
+                Route::middleware(['dcs.module:random_check'])->group(function () {
+                    Volt::route('/random-check', 'pages.dcs.random-check.index')->name('random-check');
+                });
             });
         });
     });

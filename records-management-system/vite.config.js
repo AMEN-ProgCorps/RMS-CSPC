@@ -47,6 +47,7 @@ export default defineConfig({
                 'resources/css/dcs/reports.css',
                 'resources/css/dcs/stamping.css',
                 'resources/css/dcs/database.css',
+                'resources/css/dcs/random-check.css',
                 'resources/css/dcs/manage-files.css',
                 'resources/css/dcs/office-intake.css',
                 'resources/js/dcs/office-intake-modal.js',

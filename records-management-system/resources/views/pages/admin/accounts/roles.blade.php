@@ -80,6 +80,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $dcsCanStamping = false;
     public bool $dcsCanDatabase = false;
     public bool $dcsCanManageFiles = false;
+    public bool $dcsCanRandomCheck = false;
     public bool $canModifyDocflow = false;
     public bool $canModifyAccountlist = false;
     public bool $canModifyPass = false;
@@ -190,6 +191,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->dcsCanStamping = false;
         $this->dcsCanDatabase = false;
         $this->dcsCanManageFiles = false;
+        $this->dcsCanRandomCheck = false;
         $this->canModifyDocflow = false;
         $this->canModifyAccountlist = false;
         $this->canModifyPass = false;
@@ -266,6 +268,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->dcsCanStamping = (bool) ($perms->dcs_can_stamping ?? false);
                 $this->dcsCanDatabase = (bool) ($perms->dcs_can_database ?? false);
                 $this->dcsCanManageFiles = (bool) ($perms->dcs_can_manage_files ?? false);
+                $this->dcsCanRandomCheck = (bool) ($perms->dcs_can_random_check ?? false);
                 $this->canModifyDocflow = (bool) $perms->can_dts_modify_docflow;
                 $this->canModifyAccountlist = (bool) $perms->can_sadm_modify_accountlist;
                 $this->canModifyPass = (bool) $perms->can_sadm_modify_pass;
@@ -503,6 +506,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->dcs_can_stamping = $this->canAccessDcs ? $this->dcsCanStamping : false;
         $perms->dcs_can_database = $this->canAccessDcs ? $this->dcsCanDatabase : false;
         $perms->dcs_can_manage_files = $this->canAccessDcs ? $this->dcsCanManageFiles : false;
+        $perms->dcs_can_random_check = $this->canAccessDcs ? $this->dcsCanRandomCheck : false;
         $perms->can_dts_modify_docflow = $this->canModifyDocflow;
         $perms->can_sadm_modify_accountlist = $this->canModifyAccountlist;
         $perms->can_sadm_modify_pass = $this->canModifyPass;
@@ -592,6 +596,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             $this->dcsCanStamping = false;
             $this->dcsCanDatabase = false;
             $this->dcsCanManageFiles = false;
+            $this->dcsCanRandomCheck = false;
             $this->canAccessDcsAdmin = false;
         }
     }
@@ -671,6 +676,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->dcsCanStamping = true;
         $this->dcsCanDatabase = true;
         $this->dcsCanManageFiles = true;
+        $this->dcsCanRandomCheck = true;
         $this->canAccessDcsAdmin = true;
         $this->canModifyDocflow = true;
         $this->canModifyAccountlist = true;
@@ -709,6 +715,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             'dcsCanStamping',
             'dcsCanDatabase',
             'dcsCanManageFiles',
+            'dcsCanRandomCheck',
             'canModifyDocflow',
             'canModifyAccountlist',
             'canModifyPass',
@@ -1442,6 +1449,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="dcsCanManageFiles" {{ !$canAccessDcs ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Random Check</span>
+                                            <span class="permission-toggle-desc">Sample and verify documents distributed to offices (availability, remarks, recommended actions).</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="dcsCanRandomCheck" {{ !$canAccessDcs ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
                                     </div>

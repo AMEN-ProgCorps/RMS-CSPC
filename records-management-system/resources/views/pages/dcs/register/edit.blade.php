@@ -49,7 +49,7 @@ window.__existingDcnOffices = @json($dcnOfficesSeed);
 window.__existingMasterlistSource = @json($masterlistSourceSeed);
 window.__existingMasterlistOriginator = @json($masterlistOriginatorSeed);
 window.__existingSyllabiGroups = @json($syllabiGroupsSeed);
-window.__syllabiEditLocked = true;
+window.__syllabiEditLocked = false;
 window.__allowsRetrieval = @json($allowsRetrieval);
 window.__registerCatalog = @json($catalog);
 window.__timeSpentNonWorkingDates = @json(\App\Helpers\CalendarHelper::nonWorkingDatesForTimeSpent());
@@ -132,7 +132,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                 </div>
             </div>
 
-            <!-- ═══ SYLLABI / TOS-Rubrics (mirrors register — context locked on edit) ═══ -->
+            <!-- ═══ SYLLABI / TOS-Rubrics (mirrors register — context editable on edit) ═══ -->
             <section class="reg-card" id="section-syllabi" style="display: {{ $isSyllabiLikeEdit ? 'block' : 'none' }};">
                 <div class="reg-card-header">
                     <span>Syllabi</span>
@@ -142,25 +142,25 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <div class="reg-grid-4">
                         <div class="reg-field">
                             <label>College</label>
-                            <select id="syllabiCollege" disabled>
+                            <select id="syllabiCollege">
                                 <option value="" selected disabled>Select college</option>
                             </select>
                         </div>
                         <div class="reg-field">
                             <label>Program</label>
-                            <select id="syllabiProgram" disabled>
+                            <select id="syllabiProgram">
                                 <option value="" selected disabled>Select program</option>
                             </select>
                         </div>
                         <div class="reg-field">
                             <label>Semester</label>
-                            <select id="syllabiSemester" disabled>
+                            <select id="syllabiSemester">
                                 <option value="" selected disabled>Select semester</option>
                             </select>
                         </div>
                         <div class="reg-field">
                             <label>School Year</label>
-                            <select id="syllabiSchoolYear" disabled>
+                            <select id="syllabiSchoolYear">
                                 <option value="" selected disabled>Select school year</option>
                             </select>
                         </div>
@@ -1071,6 +1071,15 @@ function isSyllabiLikeSubType(subTypeId) {
     return !!(t && t.is_syllabi_like);
 }
 
+function typeAllowsRevision(docTypeId, subTypeId) {
+    const sid = subTypeId ? String(subTypeId) : '';
+    const tid = docTypeId ? String(docTypeId) : '';
+    const row = (allDocTypes || []).find(d => String(d.doc_type_id) === (sid || tid));
+    if (!row) return true;
+    if (typeof row.allows_revision === 'boolean') return row.allows_revision;
+    return !row.is_syllabi_like;
+}
+
 const ALLOWED_EXTENSIONS = ['pdf'];
 const MAX_FILE_SIZE = 200 * 1024 * 1024;
 const OCR_MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -1783,10 +1792,8 @@ document.addEventListener("DOMContentLoaded", async function () {
         // ── Syllabi: rebuild wizard rows from existing grouped data ──
         seedExistingSyllabiGroups();
 
-        // Register page wires context dropdowns for auto-fill; edit locks them read-only.
-        if (!window.__syllabiEditLocked) {
-            initSyllabiContextWiring();
-        }
+        // Wire college/program/semester/school year so they stay editable on update.
+        initSyllabiContextWiring();
 
         // ── Syllabi title tracking ──
         const titleInput = document.getElementById("syllabiDocTitle");
@@ -2314,7 +2321,14 @@ async function runDocNoLookup(docNo, hintEl, revField) {
         const res = await fetch(url);
         const data = await res.json();
 
-        if (data.exists && !data.is_self) {
+        if (data.exists && !data.is_self && data.allows_revision === false) {
+            docNoDuplicate = false;
+            if (hintEl) {
+                hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Document number is shared by stacked Rev 0 registrations for this type.';
+                hintEl.style.color = '#16a34a';
+                hintEl.dataset.valid = 'stackable';
+            }
+        } else if (data.exists && !data.is_self) {
             docNoDuplicate = true;
             if (hintEl) {
                 hintEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> ' +
@@ -4410,6 +4424,7 @@ async function initSyllabiContextWiring() {
             clearSyllabiCourseRows();
             allFaculties = [];
             window.__facultiesCacheKey = null;
+            syncSyllabiContextHidden();
 
             if (!this.value) return;
             await reloadFacultiesForCollege(this.value);
@@ -4433,6 +4448,7 @@ async function initSyllabiContextWiring() {
             if (sySel) { sySel.value = ""; sySel.disabled = true; }
             updateSyllabiTitle();
             clearSyllabiCourseRows();
+            syncSyllabiContextHidden();
         });
     }
     if (semSel && !semSel.dataset.wired) {
@@ -4441,12 +4457,14 @@ async function initSyllabiContextWiring() {
             if (sySel) { sySel.value = ""; sySel.disabled = !this.value; }
             updateSyllabiTitle();
             clearSyllabiCourseRows();
+            syncSyllabiContextHidden();
         });
     }
     if (sySel && !sySel.dataset.wired) {
         sySel.dataset.wired = "true";
         sySel.addEventListener("change", function () {
             updateSyllabiTitle();
+            syncSyllabiContextHidden();
             autoPopulateSyllabiCourses();
         });
     }
@@ -4883,7 +4901,7 @@ async function seedExistingSyllabiGroups() {
     if (groups.length === 0) {
         addSyllabiRow();
         setSyllabiStep(1);
-        if (window.__syllabiEditLocked) lockSyllabiContextDropdowns();
+        unlockSyllabiContextDropdowns();
         return;
     }
 
@@ -4910,7 +4928,7 @@ async function seedExistingSyllabiGroups() {
     if (semSel && first.semester_id) semSel.value = first.semester_id;
     if (sySel && first.school_year_id) sySel.value = first.school_year_id;
 
-    if (window.__syllabiEditLocked) lockSyllabiContextDropdowns();
+    unlockSyllabiContextDropdowns();
     syncSyllabiContextHidden();
     if (first.college_id) await reloadFacultiesForCollege(first.college_id);
 
@@ -4998,6 +5016,34 @@ function lockSyllabiContextDropdowns() {
             el.classList.add('reg-field-locked');
         }
     });
+}
+
+function unlockSyllabiContextDropdowns() {
+    const collegeSel = document.getElementById('syllabiCollege');
+    const programSel = document.getElementById('syllabiProgram');
+    const semSel = document.getElementById('syllabiSemester');
+    const sySel = document.getElementById('syllabiSchoolYear');
+
+    if (collegeSel) {
+        collegeSel.disabled = false;
+        collegeSel.removeAttribute('disabled');
+        collegeSel.classList.remove('reg-field-locked');
+    }
+    if (programSel) {
+        programSel.disabled = !(collegeSel && collegeSel.value);
+        if (!programSel.disabled) programSel.removeAttribute('disabled');
+        programSel.classList.remove('reg-field-locked');
+    }
+    if (semSel) {
+        semSel.disabled = !(programSel && programSel.value);
+        if (!semSel.disabled) semSel.removeAttribute('disabled');
+        semSel.classList.remove('reg-field-locked');
+    }
+    if (sySel) {
+        sySel.disabled = !(semSel && semSel.value);
+        if (!sySel.disabled) sySel.removeAttribute('disabled');
+        sySel.classList.remove('reg-field-locked');
+    }
 }
 
 function setVal(tr, name, value) {
@@ -6496,6 +6542,9 @@ window.submitForm = function () {
     const draftFlag = document.getElementById('saveAsDraft');
     if (draftFlag) draftFlag.value = '0';
     syncChecklistHiddenInputs();
+    if (typeof syncSyllabiContextHidden === 'function') {
+        syncSyllabiContextHidden();
+    }
     window.__regFormSubmitting = true;
     showSavingDocumentOverlay();
     document.getElementById("masterForm").submit();

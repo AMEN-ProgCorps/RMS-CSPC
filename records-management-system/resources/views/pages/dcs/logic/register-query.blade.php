@@ -182,6 +182,54 @@ class RegisterQueryHelper
         return str_contains($n, 'syllab') || str_contains($n, 'tos') || str_contains($n, 'rubric');
     }
 
+    /** Whether a doc-type/subtype row allows New→Revised / DCN lineage. */
+    public static function typeAllowsRevision(?object $typeRow): bool
+    {
+        if (! $typeRow) {
+            return true;
+        }
+
+        if (\Illuminate\Support\Facades\Schema::hasColumn('dcs_doc_types', 'allows_revision')
+            && property_exists($typeRow, 'allows_revision')
+            && $typeRow->allows_revision !== null) {
+            return (bool) $typeRow->allows_revision;
+        }
+
+        // Pre-migration fallback: syllabi-like names never revise.
+        return ! self::isSyllabiLikeName($typeRow->doc_type_name ?? null);
+    }
+
+    /**
+     * Effective allows_revision for a registration: prefer subtype, else parent type.
+     */
+    public static function effectiveTypeAllowsRevision(mixed $docTypeId, mixed $subTypeId = null): bool
+    {
+        $subId = $subTypeId !== null && $subTypeId !== '' ? (int) $subTypeId : 0;
+        $typeId = $docTypeId !== null && $docTypeId !== '' ? (int) $docTypeId : 0;
+        $id = $subId > 0 ? $subId : $typeId;
+        if ($id < 1) {
+            return true;
+        }
+
+        $cols = ['id', 'doc_type_name'];
+        if (\Illuminate\Support\Facades\Schema::hasColumn('dcs_doc_types', 'allows_revision')) {
+            $cols[] = 'allows_revision';
+        }
+        $row = DB::table('dcs_doc_types')->where('id', $id)->first($cols);
+
+        return self::typeAllowsRevision($row);
+    }
+
+    public static function supportsAllowsRevisionColumn(): bool
+    {
+        static $ok = null;
+        if ($ok !== null) {
+            return $ok;
+        }
+
+        return $ok = \Illuminate\Support\Facades\Schema::hasColumn('dcs_masterlist_registration', 'allows_revision');
+    }
+
     /** Parent doc-type IDs keyed by report/dashboard tab. */
     public static function parentTypeIdMap(): array
     {
@@ -340,6 +388,7 @@ class RegisterQueryHelper
             'stamping' => 'dcs_can_stamping',
             'database' => 'dcs_can_database',
             'manage_files' => 'dcs_can_manage_files',
+            'random_check' => 'dcs_can_random_check',
         ];
     }
 
@@ -459,6 +508,56 @@ class RegisterQueryHelper
     }
 
     /**
+     * True when the notice points at a specific office DRF/DCN the current user created.
+     * Office-wide links (/dcs/office/documents, indexes) return null (= not form-specific).
+     */
+    public static function officeIntakeFormOwnerId(?string $redirectUrl): ?int
+    {
+        $url = trim((string) $redirectUrl);
+        if ($url === '') {
+            return null;
+        }
+
+        $path = ltrim((string) (parse_url($url, PHP_URL_PATH) ?? $url), '/');
+        if (! preg_match('#^dcs/office/(drf|dcn)/(\d+)(?:/edit)?$#', $path, $matches)) {
+            return null;
+        }
+
+        $type = $matches[1];
+        $id = (int) $matches[2];
+        $record = $type === 'dcn'
+            ? OfficeIntakeHelper::findOfficeDcn($id)
+            : OfficeIntakeHelper::findOfficeDrf($id);
+
+        if (! $record) {
+            return 0;
+        }
+
+        return (int) ($record->created_by ?? 0);
+    }
+
+    /**
+     * Limited intake users only see form-specific notices for DRF/DCN they created
+     * (same rule as My DRF / My DCN). Shared office codes (e.g. RFOIU) must not
+     * surface a colleague's "Your DRF was registered" success notice.
+     */
+    public static function limitedUserOwnsOfficeIntakeNotice(?string $redirectUrl, ?int $userId = null): bool
+    {
+        $ownerId = self::officeIntakeFormOwnerId($redirectUrl);
+        if ($ownerId === null) {
+            // Not a form-specific link (documents list, /dcs, etc.).
+            return true;
+        }
+
+        $userId = $userId ?? (int) (auth()->id() ?? 0);
+        if ($userId < 1 || $ownerId < 1) {
+            return false;
+        }
+
+        return $ownerId === $userId;
+    }
+
+    /**
      * "Your DRF/DCN was registered" success notice for the submitting office only.
      * Document Controllers in the same RFOIU office must not see these.
      */
@@ -503,8 +602,13 @@ class RegisterQueryHelper
         $rows = collect($rows);
 
         if (self::isLimitedDcsUser()) {
+            $userId = (int) (auth()->id() ?? 0);
             $rows = $rows
                 ->filter(fn ($row) => self::isAllowedNotificationForLimitedDcs($row->redirect_url ?? null))
+                ->filter(fn ($row) => self::limitedUserOwnsOfficeIntakeNotice(
+                    $row->redirect_url ?? null,
+                    $userId
+                ))
                 ->values();
         } elseif (self::isFullDcsUser() || self::canBrowseAllOfficeIntake()) {
             // Same RFOIU office receives both RFIO-queue and submitter-success notices.
@@ -1696,11 +1800,23 @@ class RegisterQueryHelper
             $stack = array_merge([$g['parent']], $children);
             usort($stack, fn ($a, $b) => ($b['rev_no'] <=> $a['rev_no']) ?: ($b['request_id'] <=> $a['request_id']));
             $tip = $stack[0];
+            $stackAllowsRevision = (bool) ($tip['allows_revision'] ?? $g['allows_revision'] ?? true);
             foreach ($stack as &$member) {
                 $isTip = (int) $member['request_id'] === (int) $tip['request_id'];
-                $member['is_latest'] = $isTip;
-                $member['revision_status'] = $isTip ? 'latest' : 'obsolete';
-                $member['can_delete'] = $isTip;
+                if ($stackAllowsRevision) {
+                    $member['is_latest'] = $isTip;
+                    $member['revision_status'] = $isTip ? 'latest' : 'obsolete';
+                    $member['can_delete'] = $isTip;
+                } else {
+                    // Non-revisable: keep DB status (all latest siblings).
+                    $status = strtolower(trim((string) ($member['revision_status'] ?? 'latest')));
+                    if ($status === '' || $status === 'draft') {
+                        $status = $status === 'draft' ? 'draft' : 'latest';
+                    }
+                    $member['revision_status'] = $status;
+                    $member['is_latest'] = $status !== 'obsolete' && $status !== 'draft';
+                    $member['can_delete'] = $status !== 'obsolete';
+                }
             }
             unset($member);
 
@@ -1713,6 +1829,7 @@ class RegisterQueryHelper
             $g['revision_count'] = 1 + count($g['children']);
             $g['member_ids'] = array_values(array_unique($memberIds));
             $g['sort_id'] = $tip['request_id'];
+            $g['allows_revision'] = $stackAllowsRevision;
             $merged->push($g);
         }
 
@@ -1742,9 +1859,21 @@ class RegisterQueryHelper
                 continue;
             }
 
+            // Non-revisable stacks keep every registration as latest — never promote/obsolesce.
+            if (array_key_exists('allows_revision', $p) && ! $p['allows_revision']) {
+                continue;
+            }
+            if (array_key_exists('allows_revision', $g) && ! $g['allows_revision']) {
+                continue;
+            }
+
             $docTypeId = (int) ($p['doc_type_id'] ?? 0);
             $subTypeId = !empty($p['sub_type_id']) ? (int) $p['sub_type_id'] : null;
             $docNo = (string) $p['doc_no'];
+
+            if (! self::effectiveTypeAllowsRevision($docTypeId, $subTypeId)) {
+                continue;
+            }
 
             $familyNos = self::revisionFamilyDocNos($docNo, $docTypeId, $subTypeId, $visibleIds, true);
             if ($familyNos === []) {
@@ -1877,6 +2006,9 @@ class RegisterQueryHelper
         if (self::supportsRevisionStatus()) {
             $select[] = 'ml.revision_status';
         }
+        if (self::supportsAllowsRevisionColumn()) {
+            $select[] = 'ml.allows_revision';
+        }
         if (self::supportsDrafts()) {
             $select[] = 'dr.is_draft';
         }
@@ -1916,6 +2048,9 @@ class RegisterQueryHelper
             } elseif ($status === '') {
                 $status = 'latest';
             }
+            $allowsRevision = self::supportsAllowsRevisionColumn()
+                ? (bool) ($doc->allows_revision ?? true)
+                : self::effectiveTypeAllowsRevision($doc->doc_type_id ?? null, $doc->sub_type_id ?? null);
 
             return [
                 'request_id' => (int) $doc->id,
@@ -1926,6 +2061,7 @@ class RegisterQueryHelper
                 'rev_no' => (int) ($doc->revise_no ?? 0),
                 'doc_type' => $doc->doc_type_name ?? 'N/A',
                 'revision_status' => $status,
+                'allows_revision' => $allowsRevision,
                 'is_draft' => $isDraft,
                 'is_latest' => $status !== 'obsolete' && $status !== 'draft',
                 'edit_url' => route('dcs.register.edit', $doc->id),
@@ -1946,12 +2082,17 @@ class RegisterQueryHelper
 
         $groups = collect();
         foreach ($grouped as $family) {
-            $sorted = $family->sortByDesc('rev_no')->sortByDesc('request_id')->values();
+            $allowsRevision = (bool) ($family->first()['allows_revision'] ?? true);
+            // Non-revisable stacks: tip = newest request_id (all stay Latest Rev 0).
+            $sorted = $allowsRevision
+                ? $family->sortByDesc('rev_no')->sortByDesc('request_id')->values()
+                : $family->sortByDesc('request_id')->values();
 
             // Heal: tip must be the highest revise_no (e.g. Rev 10 beats Rev 7).
             // Never rewrite draft rows into latest/obsolete.
+            // Skip heal for non-revisable stacks (equal Rev 0 siblings all stay latest).
             $tipRow = $sorted->first();
-            if ($tipRow && empty($tipRow['is_draft']) && ($tipRow['doc_no'] ?? 'N/A') !== 'N/A') {
+            if ($allowsRevision && $tipRow && empty($tipRow['is_draft']) && ($tipRow['doc_no'] ?? 'N/A') !== 'N/A') {
                 $latestRows = $family->filter(fn ($r) => !empty($r['is_latest']));
                 $tipIsLatest = !empty($tipRow['is_latest']);
                 $needsHeal = !$tipIsLatest
@@ -1974,10 +2115,12 @@ class RegisterQueryHelper
                 }
             }
 
-            $parent = $sorted->first(fn ($r) => !empty($r['is_draft']) || !empty($r['is_latest'])) ?? $sorted->first();
+            $parent = $allowsRevision
+                ? ($sorted->first(fn ($r) => !empty($r['is_draft']) || !empty($r['is_latest'])) ?? $sorted->first())
+                : ($sorted->first() ?? $family->first());
             $children = $family
                 ->filter(fn ($r) => $r['request_id'] !== $parent['request_id'])
-                ->sortByDesc('rev_no')
+                ->sortByDesc($allowsRevision ? 'rev_no' : 'request_id')
                 ->values()
                 ->all();
 
@@ -1989,6 +2132,7 @@ class RegisterQueryHelper
                 'revision_count' => $family->count(),
                 'sort_id' => $parent['request_id'],
                 'member_ids' => $family->pluck('request_id')->all(),
+                'allows_revision' => $allowsRevision,
             ]);
         }
 
@@ -5333,8 +5477,14 @@ class RegisterQueryHelper
                         $subTypeId ? (int) $subTypeId : null
                     );
 
+                $allowsRevision = self::effectiveTypeAllowsRevision(
+                    $docTypeId,
+                    $subTypeId ? (int) $subTypeId : null
+                );
+
                 return [
                     'exists' => true,
+                    'allows_revision' => $allowsRevision,
                     'same_family' => $sameFamily,
                     'message' => 'Document found.',
                     'next_rev' => $latestRev + 1,
@@ -5436,6 +5586,22 @@ class RegisterQueryHelper
                 'taken' => true,
                 'revise_no' => $reviseNo,
                 'message' => 'Revision number cannot be negative.',
+            ];
+        }
+
+        // Non-revisable types stack many Rev 0 latest rows — revise_no is never "taken".
+        $allowsRevision = self::effectiveTypeAllowsRevision(
+            $docTypeId,
+            $subTypeId ? (int) $subTypeId : null
+        );
+        if (! $allowsRevision) {
+            return [
+                'taken' => false,
+                'allows_revision' => false,
+                'revise_no' => 0,
+                'taken_revs' => [],
+                'next_rev' => 0,
+                'message' => 'This document type always uses Rev 0 and may stack the same document number.',
             ];
         }
 
@@ -6085,13 +6251,18 @@ class RegisterQueryHelper
 
         $docTypesQ = DB::table('dcs_doc_types')->orderBy('id');
         SettingsRecycleHelper::applyNotDeleted($docTypesQ, 'dcs_doc_types');
+        $docTypeCols = ['id', 'parent_id', 'doc_type_name'];
+        if (\Illuminate\Support\Facades\Schema::hasColumn('dcs_doc_types', 'allows_revision')) {
+            $docTypeCols[] = 'allows_revision';
+        }
         $docTypes = $docTypesQ
-            ->get(['id', 'parent_id', 'doc_type_name'])
+            ->get($docTypeCols)
             ->map(fn ($d) => [
                 'doc_type_id' => $d->id,
                 'parent_id' => $d->parent_id,
                 'doc_type_name' => $d->doc_type_name,
                 'is_syllabi_like' => self::isSyllabiLikeName($d->doc_type_name),
+                'allows_revision' => self::typeAllowsRevision($d),
             ])
             ->values()
             ->all();

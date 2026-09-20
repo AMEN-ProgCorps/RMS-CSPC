@@ -912,6 +912,22 @@ function isSyllabiLikeSubType(subTypeId) {
     return !!(t && t.is_syllabi_like);
 }
 
+function typeAllowsRevision(docTypeId, subTypeId) {
+    const sid = subTypeId ? String(subTypeId) : '';
+    const tid = docTypeId ? String(docTypeId) : '';
+    const row = (allDocTypes || []).find(d => String(d.doc_type_id) === (sid || tid));
+    if (!row) return true;
+    if (typeof row.allows_revision === 'boolean') return row.allows_revision;
+    // Fallback before catalog ships allows_revision: syllabi-like never revises.
+    return !row.is_syllabi_like;
+}
+
+function currentTypeAllowsRevision() {
+    const docTypeId = document.getElementById('docType')?.value;
+    const subTypeId = document.getElementById('subType')?.value;
+    return typeAllowsRevision(docTypeId, subTypeId);
+}
+
 
 const ALLOWED_EXTENSIONS = ['pdf'];
 const MAX_FILE_SIZE = 200 * 1024 * 1024;
@@ -2275,7 +2291,29 @@ function applyRevisedModeLookupResult(data, hintEl, revField) {
 }
 
 function applyNewModeLookupResult(data, hintEl, revField) {
-    if (data.exists) {
+    if (data.exists && data.allows_revision === false) {
+        docNoDuplicate = false;
+        revNoDuplicate = false;
+        setSaveEnabled(true);
+        if (hintEl) {
+            hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Document number already used — this type stacks another Rev 0 registration (not a revision).';
+            hintEl.style.color = '#16a34a';
+            hintEl.dataset.valid = 'stackable';
+        }
+        if (revField) {
+            revField.value = '0';
+            revField.readOnly = true;
+            revField.style.background = '#f1f5f9';
+            revField.style.borderColor = '';
+            revField.classList.remove('reg-input-invalid');
+        }
+        const revHint = document.getElementById('revNoHint');
+        if (revHint) {
+            revHint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Rev 0 (this type stacks registrations; not a revision).';
+            revHint.style.color = '#16a34a';
+            revHint.dataset.valid = 'stackable';
+        }
+    } else if (data.exists) {
         docNoDuplicate = true;
         setSaveEnabled(false);
 
@@ -2533,7 +2571,22 @@ function updateRegistrationMode() {
     }
 
     const text = sel.options[sel.selectedIndex]?.text?.toLowerCase() || '';
-    hidden.value = (text.includes('revised') || text.includes('revision') || text.includes('revise')) ? 'revised' : 'new';
+    let mode = (text.includes('revised') || text.includes('revision') || text.includes('revise')) ? 'revised' : 'new';
+
+    // Non-revisable types cannot use Revised / DCN — force New + Rev 0.
+    if (mode === 'revised' && !currentTypeAllowsRevision()) {
+        const newOpt = [...sel.options].find(o => /new/i.test(o.text) && !/revis/i.test(o.text));
+        if (newOpt) {
+            sel.value = newOpt.value;
+            sel.dataset.lastValid = newOpt.value;
+        }
+        mode = 'new';
+        if (typeof showToast === 'function') {
+            showToast('This document type does not allow revisions. Using New Document (Rev 0).', 'info');
+        }
+    }
+
+    hidden.value = mode;
     applyRevisionMode();
 }
 
@@ -2683,6 +2736,23 @@ async function runRevNoCheck() {
         return;
     }
 
+    // Non-revisable / stackable types always use Rev 0 — never block on "rev taken".
+    if (typeof currentTypeAllowsRevision === 'function' && !currentTypeAllowsRevision()) {
+        revNoDuplicate = false;
+        revField.value = '0';
+        revField.readOnly = true;
+        revField.style.background = '#f1f5f9';
+        revField.style.borderColor = '';
+        revField.classList.remove('reg-input-invalid');
+        if (hint) {
+            hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Rev 0 (this type stacks registrations; not a revision).';
+            hint.style.color = '#16a34a';
+            hint.dataset.valid = 'stackable';
+        }
+        setSaveEnabled(true);
+        return;
+    }
+
     const reviseNo = revField.value === '' ? '0' : revField.value;
     const docTypeId = document.getElementById('docType')?.value || '';
     const subTypeId = document.getElementById('subType')?.value || '';
@@ -2697,6 +2767,23 @@ async function runRevNoCheck() {
 
         if (data.needs_doc_no || data.needs_doc_type) {
             clearRevNoHint();
+            return;
+        }
+
+        if (data.allows_revision === false) {
+            revNoDuplicate = false;
+            revField.value = '0';
+            revField.readOnly = true;
+            revField.style.background = '#f1f5f9';
+            revField.style.borderColor = '';
+            revField.classList.remove('reg-input-invalid');
+            if (hint) {
+                hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> ' +
+                    escapeHtml(data.message || 'Rev 0 is allowed for stacked registrations.');
+                hint.style.color = '#16a34a';
+                hint.dataset.valid = 'stackable';
+            }
+            setSaveEnabled(true);
             return;
         }
 
@@ -4651,6 +4738,29 @@ function validateChecklistState() {
     unlockChecklist();
     maybeAutofillDocNo();
     restoreOfficeIntakePrefillIfNeeded();
+
+    // Enforce New / Rev 0 when subtype does not allow revision.
+    if (!currentTypeAllowsRevision()) {
+        const modeEl = document.getElementById('registrationMode');
+        if (modeEl) modeEl.value = 'new';
+        const versionSelect = document.getElementById('versionType');
+        if (versionSelect) {
+            const newOpt = [...versionSelect.options].find(o => /new/i.test(o.text) && !/revis/i.test(o.text));
+            if (newOpt && String(versionSelect.value) !== String(newOpt.value)) {
+                versionSelect.value = newOpt.value;
+                versionSelect.dataset.lastValid = newOpt.value;
+            }
+        }
+        const revField = document.getElementById('masterlistRevisionNo');
+        if (revField) {
+            revField.value = '0';
+            revField.readOnly = true;
+            revField.style.background = '#f1f5f9';
+        }
+        if (typeof updateRegistrationMode === 'function') {
+            updateRegistrationMode();
+        }
+    }
 
     if (!isSyllabiLike) {
         resetMasterlistNoOfPagesField();

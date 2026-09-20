@@ -52,6 +52,7 @@
         html[data-dcs-sidebar-collapsed="1"] .rpt-page,
         html[data-dcs-sidebar-collapsed="1"] .db-page,
         html[data-dcs-sidebar-collapsed="1"] .mf-page,
+        html[data-dcs-sidebar-collapsed="1"] .rc-page,
         html[data-dcs-sidebar-collapsed="1"] .st-container,
         html[data-dcs-sidebar-collapsed="1"] .reg-container,
         html[data-dcs-sidebar-collapsed="1"] .upd-container,
@@ -113,6 +114,8 @@
         @vite(['resources/css/dcs/stamping.css'])
     @elseif(request()->routeIs('dcs.database.index'))
         @vite(['resources/css/dcs/database.css'])
+    @elseif(request()->routeIs('dcs.random-check'))
+        @vite(['resources/css/dcs/random-check.css'])
     @elseif(request()->routeIs('dcs.manage-files'))
         @vite(['resources/css/dcs/manage-files.css'])
     @endif

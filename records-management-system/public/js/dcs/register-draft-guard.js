@@ -134,6 +134,9 @@
         if (typeof window.__regDraftPrepareSubmit === 'function') {
             window.__regDraftPrepareSubmit();
         }
+        if (typeof syncSyllabiContextHidden === 'function') {
+            syncSyllabiContextHidden();
+        }
 
         formSubmitting = true;
         window.__regFormSubmitting = true;

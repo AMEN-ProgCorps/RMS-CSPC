@@ -772,6 +772,29 @@ class RegisterPersistHelper
         $mode = $request->input('registration_mode', 'new');
         $saveAsDraft = $request->boolean('save_as_draft');
 
+        $allowsRevision = self::effectiveAllowsRevision(
+            $request->input('doc_type_id'),
+            $request->input('sub_type_id')
+        );
+
+        // Non-revisable types: always New / Rev 0 / no DCN path.
+        if (! $allowsRevision) {
+            if ($mode === 'revised' && ! $saveAsDraft) {
+                return back()->withInput()
+                    ->with('error', 'This document type does not allow revisions or DCN. Register each copy as a New Document (Rev 0).');
+            }
+            $mode = 'new';
+            $request->merge([
+                'registration_mode' => 'new',
+                'masterlistRevisionNo' => 0,
+                'revised_from_doc_no' => null,
+            ]);
+            $newVersionId = self::newVersionTypeId();
+            if ($newVersionId) {
+                $request->merge(['version_id' => $newVersionId]);
+            }
+        }
+
         if ($mode === 'revised' && ! $saveAsDraft) {
             $subType = self::dcsDocType($request->input('sub_type_id'));
             $isSyllabi = self::isSyllabiLikeSubTypeRow($subType);
@@ -879,6 +902,7 @@ class RegisterPersistHelper
 
         $subType = self::dcsDocType($request->sub_type_id);
         $isSyllabi = self::isSyllabiLikeSubTypeRow($subType);
+        $allowsRevision = self::effectiveAllowsRevision($request->doc_type_id, $request->sub_type_id);
 
         if (! $saveAsDraft) {
             if ($redirect = self::validateSyllabiLikeRequestRows($request)) {
@@ -892,7 +916,7 @@ class RegisterPersistHelper
             return $redirect;
         }
 
-        if ($mode === 'new' && ! $saveAsDraft) {
+        if ($mode === 'new' && ! $saveAsDraft && $allowsRevision) {
             $docNo = $request->input('masterlistDocNo');
             $docTypeId = (int) $request->input('doc_type_id');
             $subTypeId = $request->input('sub_type_id');
@@ -972,7 +996,7 @@ class RegisterPersistHelper
                 }
             }
 
-            if (in_array(2, $checkedChecklists, true)) {
+            if (in_array(2, $checkedChecklists, true) && $allowsRevision) {
                 $dcnFile = null;
                 if ($request->hasFile('dcnFile')) {
                     $dcnFile = self::storeDcsScanUpload(
@@ -1073,6 +1097,10 @@ class RegisterPersistHelper
                     // so they stay out of the live unique index and inventory listings.
                     $masterlistRow['revision_status'] = $saveAsDraft ? 'obsolete' : 'latest';
                 }
+                self::applyAllowsRevisionToMasterlistRow($masterlistRow, $allowsRevision);
+                if (! $allowsRevision) {
+                    $masterlistRow['revise_no'] = 0;
+                }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistRow['originator_id'] = $originator['originator_id'];
                 }
@@ -1154,6 +1182,10 @@ class RegisterPersistHelper
                 self::applyMasterlistOriginalName($masterlistData, $request);
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
                     $masterlistData['revision_status'] = $saveAsDraft ? 'obsolete' : 'latest';
+                }
+                self::applyAllowsRevisionToMasterlistRow($masterlistData, $allowsRevision);
+                if (! $allowsRevision) {
+                    $masterlistData['revise_no'] = 0;
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
@@ -1302,33 +1334,43 @@ class RegisterPersistHelper
 
             $savedMl = DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first();
             if ($savedMl && ! $saveAsDraft) {
-                self::syncRevisionStatusForMasterlist((int) $savedMl->id);
+                $rowAllowsRevision = RegisterQueryHelper::supportsAllowsRevisionColumn()
+                    ? (bool) ($savedMl->allows_revision ?? true)
+                    : $allowsRevision;
 
-                // When a revision renumbers the document, mark the previous number's family obsolete.
-                if ($mode === 'revised') {
-                    $fromDocNo = trim((string) ($savedMl->revised_from_doc_no
-                        ?? $request->input('revised_from_doc_no', '')));
-                    $newDocNo = trim((string) ($savedMl->doc_no ?? ''));
-                    if ($fromDocNo !== '' && $newDocNo !== '' && strcasecmp($fromDocNo, $newDocNo) !== 0
-                        && RegisterQueryHelper::supportsRevisionStatus()) {
-                        $requestIds = RegisterQueryHelper::requestIdsWithSameDocType((object) [
-                            'doc_type_id' => $docTypeId,
-                            'sub_type_id' => $request->sub_type_id ? (int) $request->sub_type_id : null,
-                        ]);
-                        DB::table('dcs_masterlist_registration')
-                            ->where('doc_no', $fromDocNo)
-                            ->whereIn('request_id', $requestIds)
-                            ->whereIn('revision_status', ['latest', 'obsolete'])
-                            ->update(['revision_status' => 'obsolete', 'updated_at' => now()]);
+                if ($rowAllowsRevision) {
+                    self::syncRevisionStatusForMasterlist((int) $savedMl->id);
+
+                    // When a revision renumbers the document, mark the previous number's family obsolete.
+                    if ($mode === 'revised') {
+                        $fromDocNo = trim((string) ($savedMl->revised_from_doc_no
+                            ?? $request->input('revised_from_doc_no', '')));
+                        $newDocNo = trim((string) ($savedMl->doc_no ?? ''));
+                        if ($fromDocNo !== '' && $newDocNo !== '' && strcasecmp($fromDocNo, $newDocNo) !== 0
+                            && RegisterQueryHelper::supportsRevisionStatus()) {
+                            $requestIds = RegisterQueryHelper::requestIdsWithSameDocType((object) [
+                                'doc_type_id' => $docTypeId,
+                                'sub_type_id' => $request->sub_type_id ? (int) $request->sub_type_id : null,
+                            ]);
+                            DB::table('dcs_masterlist_registration')
+                                ->where('doc_no', $fromDocNo)
+                                ->whereIn('request_id', $requestIds)
+                                ->whereIn('revision_status', ['latest', 'obsolete'])
+                                ->update(['revision_status' => 'obsolete', 'updated_at' => now()]);
+                        }
                     }
-                }
 
-                // Re-assert tip = max revise_no across the whole renumber family.
-                self::promoteLatestForDoc(
-                    trim((string) $savedMl->doc_no),
-                    (int) $docTypeId,
-                    $request->sub_type_id ? (int) $request->sub_type_id : null
-                );
+                    // Re-assert tip = max revise_no across the whole renumber family.
+                    self::promoteLatestForDoc(
+                        trim((string) $savedMl->doc_no),
+                        (int) $docTypeId,
+                        $request->sub_type_id ? (int) $request->sub_type_id : null
+                    );
+                } elseif (RegisterQueryHelper::supportsRevisionStatus()) {
+                    DB::table('dcs_masterlist_registration')
+                        ->where('id', $savedMl->id)
+                        ->update(['revision_status' => 'latest', 'revise_no' => 0, 'updated_at' => now()]);
+                }
             }
 
             DB::commit();
@@ -1477,6 +1519,40 @@ class RegisterPersistHelper
         }
 
         return RegisterQueryHelper::isSyllabiLikeName($subType->doc_type_name ?? null);
+    }
+
+    /** True when the effective type/subtype does not allow Revised / DCN. */
+    public static function typeBlocksRevision(?object $typeRow): bool
+    {
+        return ! RegisterQueryHelper::typeAllowsRevision($typeRow);
+    }
+
+    public static function effectiveAllowsRevision(mixed $docTypeId, mixed $subTypeId = null): bool
+    {
+        return RegisterQueryHelper::effectiveTypeAllowsRevision($docTypeId, $subTypeId);
+    }
+
+    public static function newVersionTypeId(): ?int
+    {
+        static $id = null;
+        if ($id !== null) {
+            return $id;
+        }
+        $row = DB::table('dcs_version_type')
+            ->whereRaw("LOWER(version_name) LIKE '%new%'")
+            ->whereRaw("LOWER(version_name) NOT LIKE '%revis%'")
+            ->orderBy('id')
+            ->first();
+        $id = $row ? (int) $row->id : (int) (DB::table('dcs_version_type')->orderBy('id')->value('id') ?: 0);
+
+        return $id > 0 ? $id : null;
+    }
+
+    public static function applyAllowsRevisionToMasterlistRow(array &$row, bool $allowsRevision): void
+    {
+        if (RegisterQueryHelper::supportsAllowsRevisionColumn()) {
+            $row['allows_revision'] = $allowsRevision;
+        }
     }
 
     public static function findMatchingRegistrationRows(string $docNo, int $docTypeId, ?int $subTypeId): array
@@ -2067,12 +2143,29 @@ class RegisterPersistHelper
             return;
         }
 
+        // Non-revisable types stack many Rev 0 latest rows — never obsolesce siblings.
+        if (! RegisterQueryHelper::effectiveTypeAllowsRevision($docTypeId, $subTypeId)) {
+            return;
+        }
+
         $requestIds = RegisterQueryHelper::requestIdsWithSameDocType((object) [
             'doc_type_id' => $docTypeId,
             'sub_type_id' => $subTypeId,
         ]);
         if ($requestIds === []) {
             return;
+        }
+
+        // Also bail if any live family row is marked non-revisable (denormalized flag).
+        if (RegisterQueryHelper::supportsAllowsRevisionColumn()) {
+            $hasNonRevisable = DB::table('dcs_masterlist_registration')
+                ->whereIn('request_id', $requestIds)
+                ->where('doc_no', $docNo)
+                ->where('allows_revision', false)
+                ->exists();
+            if ($hasNonRevisable) {
+                return;
+            }
         }
 
         $familySeed = RegisterQueryHelper::revisionFamilyDocNos(

@@ -115,6 +115,9 @@
         </div>
     </section>
     <x-chatify.floating-widget />
+    @auth
+    <livewire:components.session-guard />
+    @endauth
     @stack('scripts')
 </body>
 </html>

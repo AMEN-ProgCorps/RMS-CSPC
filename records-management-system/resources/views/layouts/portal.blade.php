@@ -159,5 +159,8 @@
     @endauth
     <x-chatify.floating-widget />
     <livewire:components.scanner-modal />
+    @auth
+    <livewire:components.session-guard />
+    @endauth
 </body>
 </html>

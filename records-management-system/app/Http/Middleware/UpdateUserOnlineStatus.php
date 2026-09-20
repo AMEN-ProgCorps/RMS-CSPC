@@ -21,6 +21,8 @@ class UpdateUserOnlineStatus
     {
         $sysSettingsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
         $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $secLogsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+        $secStatusTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_security_status') ? 'sys_security_status' : 'security_status';
 
         // 1. Determine configured session inactivity / tab-close timeout (Default: 15 minutes)
         $timeoutMinutes = 15;
@@ -72,6 +74,15 @@ class UpdateUserOnlineStatus
 
             // A. Check if Admin modified account (Forced Logout)
             if ($details && $details->force_logout_at !== null) {
+                try {
+                    DB::table($secLogsTbl)->insert([
+                        'status' => 3, // Logout
+                        'account' => $user->id,
+                        'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
+                        'time' => $now,
+                    ]);
+                } catch (\Throwable) {}
+
                 DB::table($accDetailsTbl)
                     ->where('account_id', $user->id)
                     ->update([
@@ -90,6 +101,22 @@ class UpdateUserOnlineStatus
             if ($details && $details->last_online_time !== null) {
                 $lastOnline = \Carbon\Carbon::parse($details->last_online_time);
                 if ($lastOnline->diffInMinutes($now) >= $timeoutMinutes) {
+                    $statusId = 3;
+                    try {
+                        if (DB::table($secStatusTbl)->where('status_id', 8)->exists()) {
+                            $statusId = 8;
+                        }
+                    } catch (\Throwable) {}
+
+                    try {
+                        DB::table($secLogsTbl)->insert([
+                            'status' => $statusId, // Session Timeout (8) or Logout (3)
+                            'account' => $user->id,
+                            'user_ipaddr' => \App\Helpers\NetworkHelper::getClientIp(),
+                            'time' => $now,
+                        ]);
+                    } catch (\Throwable) {}
+
                     DB::table($accDetailsTbl)
                         ->where('account_id', $user->id)
                         ->update(['is_currently_online' => false]);

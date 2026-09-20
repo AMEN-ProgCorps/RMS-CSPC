@@ -42,11 +42,19 @@ new class extends Component {
         $user = Auth::user();
         if ($user) {
             $secLogsTbl = Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+            $secStatusTbl = Schema::hasTable('sys_security_status') ? 'sys_security_status' : 'security_status';
             $accDetailsTbl = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
+            $statusId = 3;
+            try {
+                if (DB::table($secStatusTbl)->where('status_id', 8)->exists()) {
+                    $statusId = 8;
+                }
+            } catch (\Throwable) {}
 
             try {
                 DB::table($secLogsTbl)->insert([
-                    'status' => 3, // Inactivity / Auto-logout
+                    'status' => $statusId, // Session Timeout (8) or Logout (3)
                     'account' => $user->id,
                     'user_ipaddr' => NetworkHelper::getClientIp(),
                     'time' => now(),

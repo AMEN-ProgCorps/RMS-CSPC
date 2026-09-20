@@ -203,6 +203,16 @@ class SessionInactivityTimeoutTest extends TestCase
             ->value('is_currently_online');
 
         $this->assertFalse((bool) $isOnline);
+
+        $secLogsTable = Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+        $log = DB::table($secLogsTable)
+            ->where('account', $this->user->id)
+            ->whereIn('status', [3, 8])
+            ->orderBy('time', 'desc')
+            ->first();
+
+        $this->assertNotNull($log);
+        $this->assertContains((int) $log->status, [3, 8]);
     }
 
     public function test_tab_closed_beacon_marks_user_offline(): void
@@ -242,5 +252,23 @@ class SessionInactivityTimeoutTest extends TestCase
             ->value('last_online_time');
 
         $this->assertTrue(Carbon::parse($updatedTime)->greaterThan($oldTime));
+    }
+
+    public function test_session_guard_logout_now_records_security_log(): void
+    {
+        $this->actingAs($this->user);
+
+        Volt::test('components.session-guard')
+            ->call('logoutNow');
+
+        $secLogsTable = Schema::hasTable('sys_security_logs') ? 'sys_security_logs' : 'security_logs';
+        $log = DB::table($secLogsTable)
+            ->where('account', $this->user->id)
+            ->whereIn('status', [3, 8])
+            ->orderBy('time', 'desc')
+            ->first();
+
+        $this->assertNotNull($log);
+        $this->assertContains((int) $log->status, [3, 8]);
     }
 }

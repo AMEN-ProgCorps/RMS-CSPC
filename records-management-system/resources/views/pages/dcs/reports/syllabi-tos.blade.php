@@ -13,7 +13,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $semesterId = '';
     public string $yearLevel = '';
     public string $courseType = '';
-    public string $deadline = '';
 
     public function saveRemark(int $programId, string $section, string $status): void
     {
@@ -28,7 +27,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             (int) $this->semesterId,
             $programId,
             $section,
-            $this->deadline !== '' ? $this->deadline : SyllabiMonitoringHelper::OVERALL_DEADLINE,
+            SyllabiMonitoringHelper::OVERALL_DEADLINE,
             $status
         );
     }
@@ -40,7 +39,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $semesterId = $this->semesterId !== '' ? (int) $this->semesterId : null;
         $yearLevel = $this->yearLevel !== '' ? $this->yearLevel : null;
         $courseType = $this->courseType !== '' ? $this->courseType : null;
-        $deadline = $this->deadline !== '' ? $this->deadline : null;
 
         if ($yearLevel && ! in_array($yearLevel, SyllabiMonitoringHelper::YEAR_LEVELS, true)) {
             $this->yearLevel = '';
@@ -51,23 +49,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $courseType = null;
         }
 
-        $deadlines = ($collegeId && $schoolYearId && $semesterId)
-            ? SyllabiMonitoringHelper::availableDeadlines($collegeId, $schoolYearId, $semesterId, $yearLevel, $courseType)
-            : [];
-
-        if ($deadline && ! in_array($deadline, $deadlines, true)) {
-            $this->deadline = '';
-            $deadline = null;
-        }
-
         return [
             'colleges' => DB::table('dcs_colleges')->orderBy('college_name')->get(['id', 'college_code', 'college_name']),
             'schoolYears' => DB::table('dcs_school_years')->orderBy('school_year', 'desc')->get(['id', 'school_year']),
             'semesters' => DB::table('dcs_semesters')->orderBy('id')->get(['id', 'semester_name']),
             'yearLevels' => SyllabiMonitoringHelper::YEAR_LEVELS,
             'courseTypes' => SyllabiMonitoringHelper::COURSE_TYPES,
-            'deadlines' => $deadlines,
-            'report' => SyllabiMonitoringHelper::build($collegeId, $schoolYearId, $semesterId, $deadline, $yearLevel, $courseType),
+            'report' => SyllabiMonitoringHelper::build($collegeId, $schoolYearId, $semesterId, null, $yearLevel, $courseType),
         ];
     }
 }; ?>
@@ -138,15 +126,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     @endforeach
                 </select>
             </div>
-            <div class="rpt-filter-group">
-                <label>Deadline (from syllabi)</label>
-                <select wire:model.live="deadline" @disabled(count($deadlines) === 0)>
-                    <option value="">All deadlines</option>
-                    @foreach($deadlines as $d)
-                        <option value="{{ $d }}">{{ \Carbon\Carbon::parse($d)->format('M d, Y') }}</option>
-                    @endforeach
-                </select>
-            </div>
         </div>
     </section>
 
@@ -154,7 +133,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <div
             class="rpt-preview-loading rpt-body-loading"
             wire:loading.flex
-            wire:target="collegeId,schoolYearId,semesterId,yearLevel,courseType,deadline,saveRemark"
+            wire:target="collegeId,schoolYearId,semesterId,yearLevel,courseType,saveRemark"
         >
             <div class="rpt-state-spinner" aria-hidden="true"></div>
             <h4>Loading report…</h4>
@@ -165,15 +144,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <section
             class="rpt-state-pick"
             wire:loading.class="is-dimmed"
-            wire:target="collegeId,schoolYearId,semesterId,yearLevel,courseType,deadline"
+            wire:target="collegeId,schoolYearId,semesterId,yearLevel,courseType"
         >
-            <p class="rpt-template-status">Select a college, academic year, and semester to load the monitoring table. Pick a syllabus deadline to filter that cohort and save remarks.</p>
+            <p class="rpt-template-status">Select a college, academic year, and semester to load the monitoring table.</p>
         </section>
     @else
         <section
             class="rpt-results"
             wire:loading.class="is-dimmed"
-            wire:target="collegeId,schoolYearId,semesterId,yearLevel,courseType,deadline,saveRemark"
+            wire:target="collegeId,schoolYearId,semesterId,yearLevel,courseType,saveRemark"
         >
             <div class="rpt-results-head">
                 <div class="rpt-results-meta">
@@ -197,13 +176,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             · {{ $report['meta']['course_type'] }}
                         @else
                             · All course types
-                        @endif
-                        @if($report['meta']['deadline'])
-                            · Deadline {{ $report['meta']['deadline'] }}
-                        @elseif(count($deadlines) === 0)
-                            · No syllabus deadlines registered yet
-                        @else
-                            · All deadlines
                         @endif
                     </span>
                 </div>
@@ -360,7 +332,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td x-show="openSyllabiDrf" x-cloak>{{ $row['drf_received'] !== '' ? $row['drf_received'] : '—' }}</td>
 
                                 {{-- Syllabi Remarks (always visible) --}}
-                                <td class="mon-remark-cell" wire:key="remark-syllabi-{{ $row['program_id'] }}-{{ $deadline ?: 'overall' }}">
+                                <td class="mon-remark-cell" wire:key="remark-syllabi-{{ $row['program_id'] }}-overall">
                                     <select
                                         class="mon-remark mon-remark-{{ $row['syllabi_status'] ?: 'empty' }}"
                                         wire:change="saveRemark({{ $row['program_id'] }}, 'syllabi', $event.target.value)"
@@ -417,7 +389,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td x-show="openTosDrf" x-cloak>{{ $row['tos_drf_received'] !== '' ? $row['tos_drf_received'] : '—' }}</td>
 
                                 {{-- TOS Remarks (always visible) --}}
-                                <td class="mon-remark-cell" wire:key="remark-tos-{{ $row['program_id'] }}-{{ $deadline ?: 'overall' }}">
+                                <td class="mon-remark-cell" wire:key="remark-tos-{{ $row['program_id'] }}-overall">
                                     <select
                                         class="mon-remark mon-remark-{{ $row['tos_status'] ?: 'empty' }}"
                                         wire:change="saveRemark({{ $row['program_id'] }}, 'tos', $event.target.value)"

@@ -67,6 +67,12 @@
       chatHeaderAvatar.dataset.avatarUrl = avatarUrl;
       chatHeaderAvatar.dataset.initials = initials;
       chatHeaderAvatar.style.display = 'flex';
+      chatHeaderAvatar.setAttribute('draggable', 'false');
+      const headerImg = chatHeaderAvatar.querySelector('img');
+      if (headerImg) {
+        headerImg.setAttribute('draggable', 'false');
+        headerImg.ondragstart = function() { return false; };
+      }
     }
 
     // ── Verified badge on the chat header (1-on-1 DM title) ──
@@ -4470,11 +4476,35 @@
     const dropOverlay       = document.getElementById('dropOverlay');
     const fileAttachInput   = document.getElementById('fileAttachmentInput');
 
+    // ── Global Drag-Start Guard: strictly block dragging header profiles & avatars ──
+    document.addEventListener('dragstart', function(e) {
+      const target = e.target;
+      if (target && (target.closest?.('#chatHeaderAvatar, .header-avatar, .header-left') || (target.classList && target.classList.contains('avatar-img')))) {
+        e.preventDefault();
+        return false;
+      }
+    }, false);
+
+    // ── Helper: distinguish real OS file drops from internal web element drags ──
+    function isFileDrag(e) {
+      if (!e || !e.dataTransfer) return false;
+      const types = e.dataTransfer.types;
+      if (!types) return false;
+      if (Array.isArray(types)) {
+        return types.includes('Files');
+      }
+      if (typeof types.contains === 'function') {
+        return types.contains('Files');
+      }
+      return Array.from(types).indexOf('Files') !== -1;
+    }
+
     // ── Drag counter (prevents overlay flicker on child-enter/leave) ───────────
     let dragCount = 0;
 
     chatBox.addEventListener('dragenter', function(e) {
       e.preventDefault();
+      if (!isFileDrag(e)) return;
       dragCount++;
       if (dropOverlay) dropOverlay.classList.add('visible');
     }, false);
@@ -4490,12 +4520,18 @@
 
     chatBox.addEventListener('dragover', function(e) {
       e.preventDefault();
+      if (!isFileDrag(e)) {
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+        return;
+      }
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     }, false);
 
     chatBox.addEventListener('drop', function(e) {
       e.preventDefault();
       dragCount = 0;
       if (dropOverlay) dropOverlay.classList.remove('visible');
+      if (!isFileDrag(e)) return;
       const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : [];
       if (files.length === 0) return;
 
@@ -4747,6 +4783,7 @@
       imageStagingDropzone.addEventListener('dragenter', function(e) {
         e.preventDefault();
         e.stopPropagation();
+        if (!isFileDrag(e)) return;
         stagingDragCount++;
         imageStagingDropzone.classList.add('drag-active');
       }, false);
@@ -4764,6 +4801,11 @@
       imageStagingDropzone.addEventListener('dragover', function(e) {
         e.preventDefault();
         e.stopPropagation();
+        if (!isFileDrag(e)) {
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+          return;
+        }
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
       }, false);
 
       imageStagingDropzone.addEventListener('drop', function(e) {
@@ -4771,6 +4813,7 @@
         e.stopPropagation();
         stagingDragCount = 0;
         imageStagingDropzone.classList.remove('drag-active');
+        if (!isFileDrag(e)) return;
         const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : [];
         if (files.length > 0) addImagesToStaging(files);
       }, false);
@@ -4779,10 +4822,14 @@
     // Also let the whole modal accept a drop anywhere over it, not just the
     // dropzone box itself, without triggering the underlying chat drop handler.
     if (imageStagingModal) {
-      imageStagingModal.addEventListener('dragover', function(e) { e.preventDefault(); }, false);
+      imageStagingModal.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        if (!isFileDrag(e) && e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+      }, false);
       imageStagingModal.addEventListener('drop', function(e) {
         e.preventDefault();
         e.stopPropagation();
+        if (!isFileDrag(e)) return;
         const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : [];
         if (files.length > 0) addImagesToStaging(files);
       }, false);

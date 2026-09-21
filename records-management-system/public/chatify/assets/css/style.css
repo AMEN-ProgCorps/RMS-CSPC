@@ -342,6 +342,13 @@
       display: block;
       background: transparent !important;
       background-color: transparent !important;
+      -webkit-user-drag: none;
+      -khtml-user-drag: none;
+      -moz-user-drag: none;
+      -o-user-drag: none;
+      user-drag: none;
+      user-select: none;
+      -webkit-user-select: none;
     }
 
     /* Remove blue/gray background circle fill when an avatar container has an <img> (profile image)
@@ -938,6 +945,8 @@
       min-width: 0;
       flex: 1 1 auto;
       overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
     }
 
     /* Name + live typing preview stacked vertically in the header,
@@ -1050,6 +1059,13 @@
       min-width: 32px;
       margin-right: 10px;
       overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-user-drag: none;
+      -khtml-user-drag: none;
+      -moz-user-drag: none;
+      -o-user-drag: none;
+      user-drag: none;
     }
     .header-avatar img.avatar-img {
       width: 100%;
@@ -1057,6 +1073,14 @@
       border-radius: 50%;
       object-fit: cover;
       display: block;
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-user-drag: none;
+      -khtml-user-drag: none;
+      -moz-user-drag: none;
+      -o-user-drag: none;
+      user-drag: none;
     }
 
     /* Desktop: nudge the header avatar right by 4px so its left edge lines

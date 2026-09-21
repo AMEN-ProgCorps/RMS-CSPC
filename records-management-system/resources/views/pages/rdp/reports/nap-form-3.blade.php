@@ -75,10 +75,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 'updated_at'       => now(),
             ]);
 
-            foreach ($this->selectedIds as $sId) {
+            $selectedInts = array_map('intval', $this->selectedIds);
+            $validRecordIds = DB::table('rdp_record')
+                ->whereIn('id', $selectedInts)
+                ->pluck('id')
+                ->all();
+
+            if (empty($validRecordIds)) {
+                $this->errorMessage = 'Please select at least one valid record to cluster.';
+                DB::rollBack();
+                return;
+            }
+
+            foreach ($validRecordIds as $recId) {
                 DB::table('rdp_grouped_record')->insert([
                     'group_head' => $mainPendingId,
-                    'record_id'  => (int)$sId,
+                    'record_id'  => (int)$recId,
                     'is_active'  => true,
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -152,7 +164,33 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     public function updatedSelectAll($value): void
     {
         if ($value) {
-            $allUnverifiedIds = DB::table('rdp_record')->pluck('id')->toArray();
+            $query = DB::table('rdp_record')
+                ->join('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
+                ->where('rdp_record.is_verified', false)
+                ->where('rdp_record.is_draft', false)
+                ->where('rdp_record.is_active', true);
+
+            if (!empty($this->officeFilter)) {
+                $query->where('rdp_record_series.recorded_at_office', $this->officeFilter);
+            }
+
+            $authPerms = auth()->user()?->permissions;
+            $isSadm = (bool)($authPerms?->is_sadm ?? false);
+            if (!$isSadm && !(bool)($authPerms?->can_rdp_view_others_form_3 ?? false)) {
+                $userOffice = auth()->user()?->details?->office_code ?? null;
+                if ($userOffice) {
+                    $query->where('rdp_record_series.recorded_at_office', $userOffice);
+                }
+            }
+
+            if (!empty($this->search)) {
+                $query->where(function ($q) {
+                    $q->where('rdp_record_series.series_title', 'ilike', '%' . $this->search . '%')
+                      ->orWhere('rdp_record_series.remarks', 'ilike', '%' . $this->search . '%');
+                });
+            }
+
+            $allUnverifiedIds = $query->pluck('rdp_record.id')->toArray();
             $this->selectedIds = array_map('strval', $allUnverifiedIds);
         } else {
             $this->selectedIds = [];
@@ -391,7 +429,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 'office.office_name as recorded_office_name',
             ]);
 
-        $query->where('rdp_record.is_verified', false);
+        $query->where('rdp_record.is_verified', false)
+              ->where('rdp_record.is_draft', false)
+              ->where('rdp_record.is_active', true);
 
         if (!empty($this->officeFilter)) {
             $query->where('rdp_record_series.recorded_at_office', $this->officeFilter);
@@ -465,7 +505,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         if (!empty($this->selectedIds)) {
             $selectedInts = array_map('intval', $this->selectedIds);
             foreach ($treeOrdered as $item) {
-                if (in_array((int)$item->id, $selectedInts, true)) {
+                $checkId = !empty($item->record_id) ? (int)$item->record_id : (int)$item->id;
+                if (in_array($checkId, $selectedInts, true)) {
                     if (!$canPrintOthers && $userOfficeForPrint && $item->recorded_at_office !== $userOfficeForPrint) {
                         continue;
                     }
@@ -790,7 +831,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             $isPermSeries = (bool)($item->effective_is_permanent) || 
                                             (strtolower(trim($item->effective_total ?? '')) === 'permanent') ||
                                             (strtolower(trim($item->effective_active ?? '')) === 'permanent' && strtolower(trim($item->effective_storage ?? '')) === 'permanent');
-                            $itemIdStr = (string)($item->record_id ?? $item->id);
+                            $itemIdStr = (string)($item->record_id ?? '');
                             $currentOfficeName = $item->recorded_office_name ?? $item->recorded_at_office ?? 'Unknown Office';
                         @endphp
                         @if($currentOfficeName !== $prevOfficeName)
@@ -801,9 +842,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             </tr>
                             @php $prevOfficeName = $currentOfficeName; @endphp
                         @endif
-                        <tr style="{{ in_array($itemIdStr, $selectedIds) ? 'background: #eff6ff;' : '' }}">
+                        <tr style="{{ ($itemIdStr !== '' && in_array($itemIdStr, $selectedIds)) ? 'background: #eff6ff;' : '' }}">
                             <td style="text-align: center;">
-                                <input type="checkbox" wire:model.live="selectedIds" value="{{ $item->record_id ?? $item->id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
+                                @if(!empty($item->record_id))
+                                    <input type="checkbox" wire:model.live="selectedIds" value="{{ $item->record_id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
+                                @else
+                                    <span style="color: #cbd5e1; font-size: 11px;">—</span>
+                                @endif
                             </td>
                             <td style="text-align: center; color: #94a3b8; font-style: italic;">
                                 —

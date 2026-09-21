@@ -75,10 +75,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 'updated_at'       => now(),
             ]);
 
-            foreach ($this->selectedIds as $sId) {
+            $selectedInts = array_map('intval', $this->selectedIds);
+            $validRecordIds = DB::table('rdp_record')
+                ->whereIn('id', $selectedInts)
+                ->pluck('id')
+                ->all();
+
+            if (empty($validRecordIds)) {
+                $this->errorMessage = 'Please select at least one valid record to cluster.';
+                DB::rollBack();
+                return;
+            }
+
+            foreach ($validRecordIds as $recId) {
                 DB::table('rdp_grouped_record')->insert([
                     'group_head' => $mainPendingId,
-                    'record_id'  => (int)$sId,
+                    'record_id'  => (int)$recId,
                     'is_active'  => true,
                     'created_at' => now(),
                     'updated_at' => now(),
@@ -163,7 +175,33 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     public function updatedSelectAll($value): void
     {
         if ($value) {
-            $allIds = DB::table('rdp_record')->pluck('id')->toArray();
+            $query = DB::table('rdp_record')
+                ->join('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
+                ->where('rdp_record.is_draft', false)
+                ->where('rdp_record.is_active', true);
+
+            if (!empty($this->officeFilter)) {
+                $query->where('rdp_record_series.recorded_at_office', $this->officeFilter);
+            }
+
+            $authPerms = auth()->user()?->permissions;
+            $isSadm = (bool)($authPerms?->is_sadm ?? false);
+            if (!$isSadm && !(bool)($authPerms?->can_rdp_view_others_form_1 ?? false)) {
+                $userOffice = auth()->user()?->details?->office_code ?? null;
+                if ($userOffice) {
+                    $query->where('rdp_record_series.recorded_at_office', $userOffice);
+                }
+            }
+
+            if (!empty($this->search)) {
+                $query->where(function ($q) {
+                    $q->where('rdp_record_series.series_title', 'ilike', '%' . $this->search . '%')
+                      ->orWhere('rdp_record_series.remarks', 'ilike', '%' . $this->search . '%')
+                      ->orWhere('rdp_record.description', 'ilike', '%' . $this->search . '%');
+                });
+            }
+
+            $allIds = $query->pluck('rdp_record.id')->toArray();
             $this->selectedIds = array_map('strval', $allIds);
         } else {
             $this->selectedIds = [];
@@ -195,27 +233,55 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->leftJoin('rdp_record', 'rdp_record_series.id', '=', 'rdp_record.record_series_id')
             ->leftJoin('rdp_recorded_value', 'rdp_record.records_medium', '=', 'rdp_recorded_value.id')
-            ->leftJoin('rdp_utility_medium', 'rdp_record.utility_value', '=', 'rdp_utility_medium.id')
-            ->leftJoin('rdp_period_covered', 'rdp_record.id', '=', 'rdp_period_covered.period_owner')
             ->select([
                 'rdp_record_series.*',
                 'rdp_retention_period.active_period',
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
                 'parent.series_title as parent_title',
+                'rdp_record.id as rdp_rec_id',
+                'rdp_record.utility_value',
                 'rdp_record.description as rec_description',
                 'rdp_record.volume as rec_volume',
                 'rdp_record.records_location as rec_location',
                 'rdp_record.frequence_use as rec_freq',
                 'rdp_record.time_value as rec_time_value',
                 'rdp_recorded_value.medium_name as rec_medium',
-                'rdp_utility_medium.utility_name as rec_utility',
-                'rdp_period_covered.start_at as rec_start_at',
-                'rdp_period_covered.ends_at as rec_ends_at',
             ]);
 
         $record = $query->where('rdp_record_series.id', $id)->first();
         if ($record) {
+            // Load periods
+            if (!empty($record->rdp_rec_id)) {
+                $pRows = DB::table('rdp_period_covered')
+                    ->where('period_owner', $record->rdp_rec_id)
+                    ->orderBy('start_at', 'asc')
+                    ->get();
+                $pList = [];
+                foreach ($pRows as $p) {
+                    $start = !empty($p->start_at) ? Carbon::parse($p->start_at)->format('Y') : '';
+                    $end = !empty($p->ends_at) ? Carbon::parse($p->ends_at)->format('Y') : 'Present';
+                    $str = trim($start . ' - ' . $end, ' -');
+                    if ($str) $pList[] = $str;
+                }
+                $record->rec_period_covered = !empty($pList) ? implode(', ', $pList) : '—';
+            } else {
+                $record->rec_period_covered = '—';
+            }
+
+            // Load utilities
+            if (!empty($record->utility_value)) {
+                $uRows = DB::table('rdp_utility_manager')
+                    ->join('rdp_utility_medium', 'rdp_utility_manager.utility_medium', '=', 'rdp_utility_medium.id')
+                    ->where('rdp_utility_manager.record_holder', $record->utility_value)
+                    ->where('rdp_utility_manager.is_active', true)
+                    ->pluck('rdp_utility_medium.utility_name')
+                    ->all();
+                $uMap = ['Administrative' => 'Adm', 'Archival' => 'Arc', 'Fiscal' => 'F', 'Legal' => 'L'];
+                $uAbbrs = array_map(fn($n) => $uMap[$n] ?? $n, $uRows);
+                $record->rec_utility = !empty($uAbbrs) ? implode(', ', $uAbbrs) : null;
+            }
+
             $allFetchedMap = DB::table('rdp_record_series')
                 ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
                 ->select(['rdp_record_series.*', 'rdp_retention_period.active_period', 'rdp_retention_period.storage_period', 'rdp_retention_period.total_period'])
@@ -256,20 +322,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         $record = DB::table('rdp_record_series')
             ->leftJoin('rdp_record', 'rdp_record_series.id', '=', 'rdp_record.record_series_id')
             ->leftJoin('rdp_recorded_value', 'rdp_record.records_medium', '=', 'rdp_recorded_value.id')
-            ->leftJoin('rdp_utility_medium', 'rdp_record.utility_value', '=', 'rdp_utility_medium.id')
-            ->leftJoin('rdp_period_covered', 'rdp_record.id', '=', 'rdp_period_covered.period_owner')
             ->select([
                 'rdp_record_series.*',
                 'rdp_record.id as rdp_rec_id',
+                'rdp_record.utility_value',
                 'rdp_record.description as rec_description',
                 'rdp_record.volume as rec_volume',
                 'rdp_record.records_location as rec_location',
                 'rdp_record.frequence_use as rec_freq',
                 'rdp_record.time_value as rec_time_value',
                 'rdp_recorded_value.medium_name as rec_medium',
-                'rdp_utility_medium.utility_name as rec_utility',
-                'rdp_period_covered.start_at as rec_start_at',
-                'rdp_period_covered.ends_at as rec_ends_at',
             ])
             ->where('rdp_record_series.id', $id)
             ->first();
@@ -281,6 +343,37 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             if (!$isSadm && $isOtherOffice && !(bool)($perms->can_rdp_edit_others_form_1 ?? false)) {
                 $this->errorMessage = 'You do not have clearance to edit records from another office on NAP Form 1.';
                 return;
+            }
+
+            // Load utilities
+            $recUtility = null;
+            if (!empty($record->utility_value)) {
+                $uRows = DB::table('rdp_utility_manager')
+                    ->join('rdp_utility_medium', 'rdp_utility_manager.utility_medium', '=', 'rdp_utility_medium.id')
+                    ->where('rdp_utility_manager.record_holder', $record->utility_value)
+                    ->where('rdp_utility_manager.is_active', true)
+                    ->pluck('rdp_utility_medium.utility_name')
+                    ->all();
+                $uMap = ['Administrative' => 'Adm', 'Archival' => 'Arc', 'Fiscal' => 'F', 'Legal' => 'L'];
+                $uAbbrs = array_map(fn($n) => $uMap[$n] ?? $n, $uRows);
+                $recUtility = !empty($uAbbrs) ? implode(', ', $uAbbrs) : null;
+            }
+
+            // Load period covered
+            $pCovered = null;
+            if (!empty($record->rdp_rec_id)) {
+                $pRows = DB::table('rdp_period_covered')
+                    ->where('period_owner', $record->rdp_rec_id)
+                    ->orderBy('start_at', 'asc')
+                    ->get();
+                $pList = [];
+                foreach ($pRows as $p) {
+                    $start = !empty($p->start_at) ? Carbon::parse($p->start_at)->format('Y') : '';
+                    $end = !empty($p->ends_at) ? Carbon::parse($p->ends_at)->format('Y') : 'Present';
+                    $str = trim($start . ' - ' . $end, ' -');
+                    if ($str) $pList[] = $str;
+                }
+                $pCovered = !empty($pList) ? implode(', ', $pList) : null;
             }
 
             $this->editingSeriesId = $record->id;
@@ -295,13 +388,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $this->editFreqUse = $record->rec_freq ?? 'Monthly';
             $this->editDuplication = $record->rec_medium ?? 'Hardcopy';
             $this->editTimeValue = $record->rec_time_value ?? ($record->is_retention_period_permanent ? 'P' : 'T');
-            $this->editUtilityValue = $record->rec_utility ?? ($record->is_retention_period_permanent ? 'Arc' : 'Adm');
-
-            if ($record->rec_start_at && $record->rec_ends_at) {
-                $this->editPeriodCovered = Carbon::parse($record->rec_start_at)->format('Y') . ' - ' . Carbon::parse($record->rec_ends_at)->format('Y');
-            } else {
-                $this->editPeriodCovered = '2020 - Present';
-            }
+            $this->editUtilityValue = $recUtility ?? ($record->is_retention_period_permanent ? 'Arc' : 'Adm');
+            $this->editPeriodCovered = $pCovered ?: '2020 - Present';
 
             $this->showEditModal = true;
         }
@@ -462,13 +550,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->leftJoin('rdp_recorded_value', 'rdp_record.records_medium', '=', 'rdp_recorded_value.id')
-            ->leftJoin('rdp_utility_medium', 'rdp_record.utility_value', '=', 'rdp_utility_medium.id')
-            ->leftJoin('rdp_period_covered', 'rdp_record.id', '=', 'rdp_period_covered.period_owner')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->where('rdp_record.is_draft', false)
+            ->where('rdp_record.is_active', true)
             ->select([
                 'rdp_record_series.*',
                 'rdp_record_series_type.shorted_type',
                 'rdp_record.id as record_id',
+                'rdp_record.utility_value',
                 'rdp_retention_period.active_period',
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
@@ -479,9 +568,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 'rdp_record.frequence_use as rec_freq',
                 'rdp_record.time_value as rec_time_value',
                 'rdp_recorded_value.medium_name as rec_medium',
-                'rdp_utility_medium.utility_name as rec_utility',
-                'rdp_period_covered.start_at as rec_start_at',
-                'rdp_period_covered.ends_at as rec_ends_at',
                 'office.office_name as recorded_office_name',
             ]);
 
@@ -510,6 +596,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         }
 
         $allFetched = $query->orderByRaw('rdp_record_series.recorded_at_office ASC NULLS LAST, rdp_record_series.item_number ASC NULLS LAST, rdp_record_series.series_title ASC')->get();
+
+        $recordIds = $allFetched->pluck('record_id')->filter()->all();
+        $periods = empty($recordIds) ? collect() : DB::table('rdp_period_covered')
+            ->whereIn('period_owner', $recordIds)
+            ->orderBy('start_at', 'asc')
+            ->get()
+            ->groupBy('period_owner');
+
+        $recordHolders = $allFetched->pluck('utility_value')->filter()->all();
+        $utilities = empty($recordHolders) ? collect() : DB::table('rdp_utility_manager')
+            ->join('rdp_utility_medium', 'rdp_utility_manager.utility_medium', '=', 'rdp_utility_medium.id')
+            ->whereIn('rdp_utility_manager.record_holder', $recordHolders)
+            ->where('rdp_utility_manager.is_active', true)
+            ->select('rdp_utility_manager.record_holder', 'rdp_utility_medium.utility_name')
+            ->get()
+            ->groupBy('record_holder');
 
         $allRecords = $allFetched->all();
         $existingIds = array_column($allRecords, 'id');
@@ -582,10 +684,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $item->display_description = $item->rec_description ?? '';
 
             // Period Covered formatting
-            if (!empty($item->rec_start_at) || !empty($item->rec_ends_at)) {
-                $start = !empty($item->rec_start_at) ? Carbon::parse($item->rec_start_at)->format('Y') : '';
-                $end = !empty($item->rec_ends_at) ? Carbon::parse($item->rec_ends_at)->format('Y') : 'Present';
-                $item->display_period_covered = trim($start . ' - ' . $end, ' -');
+            if (!empty($item->record_id) && isset($periods[$item->record_id])) {
+                $pList = [];
+                foreach ($periods[$item->record_id] as $pRow) {
+                    $start = !empty($pRow->start_at) ? Carbon::parse($pRow->start_at)->format('Y') : '';
+                    $end = !empty($pRow->ends_at) ? Carbon::parse($pRow->ends_at)->format('Y') : 'Present';
+                    $str = trim($start . ' - ' . $end, ' -');
+                    if ($str) {
+                        $pList[] = $str;
+                    }
+                }
+                $item->display_period_covered = !empty($pList) ? implode(', ', array_unique($pList)) : '—';
             } else {
                 $item->display_period_covered = '—';
             }
@@ -598,7 +707,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             
             $isPerm = (bool)($item->effective_is_permanent) || strtolower(trim($item->effective_total ?? '')) === 'permanent';
             $item->display_time_value = !empty($item->rec_time_value) ? $item->rec_time_value : ($isPerm ? 'P' : 'T');
-            $item->display_utility = !empty($item->rec_utility) ? $item->rec_utility : ($isPerm ? 'Arc' : 'Adm');
+
+            $uMap = ['Administrative' => 'Adm', 'Archival' => 'Arc', 'Fiscal' => 'F', 'Legal' => 'L'];
+            if (!empty($item->utility_value) && isset($utilities[$item->utility_value])) {
+                $uNames = $utilities[$item->utility_value]->pluck('utility_name');
+                $abbrs = $uNames->map(fn($n) => $uMap[$n] ?? $n)->unique()->values()->all();
+                $item->display_utility = !empty($abbrs) ? implode(', ', $abbrs) : ($isPerm ? 'Arc' : 'Adm');
+            } else {
+                $item->display_utility = $isPerm ? 'Arc' : 'Adm';
+            }
         }
 
         // Apply retention filter if selected
@@ -621,7 +738,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         if (!empty($this->selectedIds)) {
             $selectedInts = array_map('intval', $this->selectedIds);
             foreach ($treeOrdered as $item) {
-                if (in_array((int)$item->id, $selectedInts, true)) {
+                $checkId = !empty($item->record_id) ? (int)$item->record_id : (int)$item->id;
+                if (in_array($checkId, $selectedInts, true)) {
                     if (!$canPrintOthers && $userOfficeForPrint && $item->recorded_at_office !== $userOfficeForPrint) {
                         continue; // skip other-office items
                     }
@@ -978,7 +1096,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                             $isPermSeries = (bool)($item->effective_is_permanent) || 
                                             (strtolower(trim($item->effective_total ?? '')) === 'permanent') ||
                                             (strtolower(trim($item->effective_active ?? '')) === 'permanent' && strtolower(trim($item->effective_storage ?? '')) === 'permanent');
-                            $itemIdStr = (string)($item->record_id ?? $item->id);
+                            $itemIdStr = (string)($item->record_id ?? '');
                             $currentOfficeName = $item->recorded_office_name ?? $item->recorded_at_office ?? 'Unknown Office';
                         @endphp
                         @if($currentOfficeName !== $prevOfficeName)
@@ -989,9 +1107,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                             </tr>
                             @php $prevOfficeName = $currentOfficeName; @endphp
                         @endif
-                        <tr style="{{ in_array($itemIdStr, $selectedIds) ? 'background: #eff6ff;' : '' }}">
+                        <tr style="{{ ($itemIdStr !== '' && in_array($itemIdStr, $selectedIds)) ? 'background: #eff6ff;' : '' }}">
                             <td style="text-align: center;">
-                                <input type="checkbox" wire:model.live="selectedIds" value="{{ $item->record_id ?? $item->id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
+                                @if(!empty($item->record_id))
+                                    <input type="checkbox" wire:model.live="selectedIds" value="{{ $item->record_id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb;">
+                                @else
+                                    <span style="color: #cbd5e1; font-size: 11px;">—</span>
+                                @endif
                             </td>
                             <td style="text-align: center; font-weight: 700; color: #475569;">
                                 {{ $item->display_item_no }}

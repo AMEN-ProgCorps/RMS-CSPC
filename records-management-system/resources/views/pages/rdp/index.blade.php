@@ -173,18 +173,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
                     'created_at'                    => now(),
                     'updated_at'                    => now(),
                 ]);
-
-                if ($isLeaf) {
-                    DB::table('rdp_record')->insert([
-                        'record_series_id' => $currentParentId,
-                        'volume'           => '0.5 cu. m.',
-                        'records_location' => 'Records Office',
-                        'frequence_use'    => 'Monthly',
-                        'time_value'       => 'T',
-                        'created_at'       => now(),
-                        'updated_at'       => now(),
-                    ]);
-                }
             }
         }
 
@@ -268,16 +256,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
         $seriesQuery = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
-            ->leftJoin('rdp_record', 'rdp_record_series.id', '=', 'rdp_record.record_series_id')
             ->select([
                 'rdp_record_series.*',
                 'rdp_retention_period.active_period',
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
                 'parent.series_title as parent_title',
-                'rdp_record.volume as rec_volume',
-                'rdp_record.records_location as rec_location',
-                'rdp_record.frequence_use as rec_freq',
             ]);
 
         if (!empty($this->search)) {
@@ -1000,7 +984,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Landing Page
                                 </td>
                             @endif
                             <td style="font-size: 12.5px; color: #475569;">
-                                {{ $series->remarks ?: ($series->rec_location ?: 'Records Office') }}
+                                {{ $series->remarks ?: '—' }}
                             </td>
                             <td style="text-align: right; white-space: nowrap;">
                                 <a href="{{ route('rdp.add-records.inventory-and-appraisal') }}" class="nap-btn nap-btn-secondary" style="padding: 5px 10px; font-size: 12px;">

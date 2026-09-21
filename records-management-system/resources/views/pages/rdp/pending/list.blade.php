@@ -132,27 +132,65 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 $items = DB::table('rdp_grouped_record')
                     ->join('rdp_record', 'rdp_grouped_record.record_id', '=', 'rdp_record.id')
                     ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
-                    ->leftJoin('rdp_period_covered', 'rdp_record.id', '=', 'rdp_period_covered.period_owner')
                     ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
                     ->leftJoin('rdp_recorded_value', 'rdp_record.records_medium', '=', 'rdp_recorded_value.id')
-                    ->leftJoin('rdp_utility_medium', 'rdp_record.utility_value', '=', 'rdp_utility_medium.id')
                     ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
                     ->where('rdp_grouped_record.group_head', $clusterId)
                     ->select([
                         'rdp_record.*',
                         'rdp_record_series.series_title',
                         'rdp_record_series.item_number',
+                        'rdp_record_series.remarks',
                         'rdp_retention_period.active_period',
                         'rdp_retention_period.storage_period',
                         'rdp_retention_period.total_period',
-                        'rdp_period_covered.start_at',
-                        'rdp_period_covered.ends_at',
                         'rdp_recorded_value.medium_name',
-                        'rdp_utility_medium.utility_name',
                         'parent.series_title as parent_title'
                     ])
                     ->get()
                     ->toArray();
+
+                $recIds = array_column($items, 'id');
+                $periods = empty($recIds) ? collect() : DB::table('rdp_period_covered')
+                    ->whereIn('period_owner', $recIds)
+                    ->orderBy('start_at', 'asc')
+                    ->get()
+                    ->groupBy('period_owner');
+
+                $holders = array_filter(array_column($items, 'utility_value'));
+                $utilities = empty($holders) ? collect() : DB::table('rdp_utility_manager')
+                    ->join('rdp_utility_medium', 'rdp_utility_manager.utility_medium', '=', 'rdp_utility_medium.id')
+                    ->whereIn('rdp_utility_manager.record_holder', $holders)
+                    ->where('rdp_utility_manager.is_active', true)
+                    ->select('rdp_utility_manager.record_holder', 'rdp_utility_medium.utility_name')
+                    ->get()
+                    ->groupBy('record_holder');
+
+                $uMap = ['Administrative' => 'Adm', 'Archival' => 'Arc', 'Fiscal' => 'F', 'Legal' => 'L'];
+                foreach ($items as $it) {
+                    if (isset($periods[$it->id])) {
+                        $pList = [];
+                        foreach ($periods[$it->id] as $pRow) {
+                            $start = !empty($pRow->start_at) ? Carbon::parse($pRow->start_at)->format('Y') : '';
+                            $end = !empty($pRow->ends_at) ? Carbon::parse($pRow->ends_at)->format('Y') : 'Present';
+                            $str = trim($start . ' - ' . $end, ' -');
+                            if ($str) {
+                                $pList[] = $str;
+                            }
+                        }
+                        $it->period_covered = !empty($pList) ? implode(', ', array_unique($pList)) : '—';
+                    } else {
+                        $it->period_covered = '—';
+                    }
+
+                    if (!empty($it->utility_value) && isset($utilities[$it->utility_value])) {
+                        $uNames = $utilities[$it->utility_value]->pluck('utility_name');
+                        $abbrs = $uNames->map(fn($n) => $uMap[$n] ?? $n)->unique()->values()->all();
+                        $it->utility_name_display = !empty($abbrs) ? implode(', ', $abbrs) : ($it->time_value === 'P' ? 'Arc' : 'Adm');
+                    } else {
+                        $it->utility_name_display = ($it->time_value === 'P' ? 'Arc' : 'Adm');
+                    }
+                }
             }
         }
 
@@ -1155,7 +1193,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                         <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->frequence_use ?? '' }}</td>
                                         <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->duplication ?? '' }}</td>
                                         <td style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold;">{{ $pi->time_value ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold;">{{ $pi->utility_value ?? $pi->utility_name ?? '' }}</td>
+                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold;">{{ $pi->utility_name_display ?? ($pi->time_value === 'P' ? 'Arc' : 'Adm') }}</td>
                                         
                                         @if($isPerm)
                                             <td colspan="3" style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold; color: #dc2626;">PERMANENT</td>

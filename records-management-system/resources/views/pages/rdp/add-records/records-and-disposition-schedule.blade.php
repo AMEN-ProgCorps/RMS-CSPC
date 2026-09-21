@@ -255,36 +255,6 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
                 }
             }
 
-            // Create centralized rdp_main_pending_id & cluster entry
-            $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
-            $mainPendingId = DB::table($mainPendingTbl)->insertGetId([
-                'status'     => 'UNUSED',
-                'is_active'  => true,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-
-            DB::table('rdp_pending_record_series')->insert([
-                'cluster_id'   => $mainPendingId,
-                'cluster_name' => 'Schedule Draft Submission — ' . $parentTitle,
-                'status_id'    => 1, // Pending Verification
-                'office'       => $userOfficeCode,
-                'created_by'   => $user->id,
-                'is_active'    => true,
-                'created_at'   => now(),
-                'updated_at'   => now(),
-            ]);
-
-            if ($lastCreatedSeriesId) {
-                DB::table('rdp_grouped_record_series')->insert([
-                    'group_head'       => $mainPendingId,
-                    'record_series_id' => $lastCreatedSeriesId,
-                    'is_active'        => true,
-                    'created_at'       => now(),
-                    'updated_at'       => now(),
-                ]);
-            }
-
             DB::commit();
 
             $this->successMessage = "Record Series schedule saved as draft successfully!";
@@ -393,9 +363,39 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
                 }
             }
 
+            // Create centralized rdp_main_pending_id & cluster entry for evaluation
+            $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
+            $mainPendingId = DB::table($mainPendingTbl)->insertGetId([
+                'status'     => 'UNUSED',
+                'is_active'  => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            DB::table('rdp_pending_record_series')->insert([
+                'cluster_id'   => $mainPendingId,
+                'cluster_name' => 'Schedule Submission — ' . $parentTitle,
+                'status_id'    => 1, // Pending Verification
+                'office'       => $userOfficeCode,
+                'created_by'   => $user->id,
+                'is_active'    => true,
+                'created_at'   => now(),
+                'updated_at'   => now(),
+            ]);
+
+            if ($currentParentId) {
+                DB::table('rdp_grouped_record_series')->insert([
+                    'group_head'       => $mainPendingId,
+                    'record_series_id' => $currentParentId,
+                    'is_active'        => true,
+                    'created_at'       => now(),
+                    'updated_at'       => now(),
+                ]);
+            }
+
             DB::commit();
 
-            $this->successMessage = "Record Series hierarchy saved successfully!";
+            $this->successMessage = "Record Series schedule submitted for verification successfully!";
             $this->clearForm();
 
         } catch (\Exception $e) {

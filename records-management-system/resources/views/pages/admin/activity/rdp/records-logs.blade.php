@@ -42,23 +42,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - RDP Records Logs')] clas
     {
         $query = DB::table('rdp_record')
             ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
-            ->leftJoin('rdp_volume_value', DB::raw('"rdp_record"."volume"::bigint'), '=', 'rdp_volume_value.volume_id')
             ->leftJoin('rdp_time_value', 'rdp_record.time_value', '=', 'rdp_time_value.char_value')
-            ->leftJoin('rdp_utility_medium', 'rdp_record.utility_value', '=', 'rdp_utility_medium.id')
             ->select([
                 'rdp_record.*',
                 'rdp_record_series.series_title',
                 'rdp_record_series.remarks',
-                'rdp_volume_value.value_standard as unit_name',
-                'rdp_time_value.value_time_description',
-                'rdp_utility_medium.value_description as utility_name',
+                'rdp_time_value.description as time_description',
             ]);
 
         if (!empty($this->search)) {
             $query->where(function ($q) {
                 $q->where('rdp_record_series.series_title', 'like', '%' . $this->search . '%')
                   ->orWhere('rdp_record_series.remarks', 'like', '%' . $this->search . '%')
-                  ->orWhere('rdp_volume_value.value_standard', 'like', '%' . $this->search . '%');
+                  ->orWhere('rdp_record.volume', 'like', '%' . $this->search . '%');
             });
         }
 
@@ -71,8 +67,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - RDP Records Logs')] clas
         $temporaryRecords = DB::table('rdp_record')->where('time_value', 'T')->count();
         $totalSeriesCount = DB::table('rdp_record_series')->count();
 
+        $records = $query->orderBy('rdp_record.created_at', 'desc')->paginate(15);
+
+        $recordHolders = collect($records->items())->pluck('utility_value')->filter()->all();
+        $utilities = empty($recordHolders) ? collect() : DB::table('rdp_utility_manager')
+            ->join('rdp_utility_medium', 'rdp_utility_manager.utility_medium', '=', 'rdp_utility_medium.id')
+            ->whereIn('rdp_utility_manager.record_holder', $recordHolders)
+            ->where('rdp_utility_manager.is_active', true)
+            ->select('rdp_utility_manager.record_holder', 'rdp_utility_medium.utility_name')
+            ->get()
+            ->groupBy('record_holder');
+
+        foreach ($records->items() as $rec) {
+            if (!empty($rec->utility_value) && isset($utilities[$rec->utility_value])) {
+                $rec->utility_name = $utilities[$rec->utility_value]->pluck('utility_name')->implode(', ');
+            } else {
+                $rec->utility_name = '—';
+            }
+        }
+
         return [
-            'records'          => $query->orderBy('rdp_record.created_at', 'desc')->paginate(15),
+            'records'          => $records,
             'totalRecords'     => $totalRecords,
             'permanentRecords' => $permanentRecords,
             'temporaryRecords' => $temporaryRecords,
@@ -175,7 +190,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - RDP Records Logs')] clas
                             {{ $rec->series_title ?? 'N/A' }}
                         </td>
                         <td style="padding: 12px 16px; color: #2563eb; font-weight: 600;">
-                            {{ $rec->val_amount }} {{ $rec->unit_name ?? 'Units' }}
+                            {{ $rec->volume ?: '—' }}
                         </td>
                         <td style="padding: 12px 16px;">
                             @if($rec->time_value === 'P')
@@ -185,7 +200,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - RDP Records Logs')] clas
                             @endif
                         </td>
                         <td style="padding: 12px 16px; font-weight: 600; color: #475569;">
-                            {{ $rec->utility_name ?? 'Archival' }}
+                            {{ $rec->utility_name ?? '—' }}
                         </td>
                         <td style="padding: 12px 16px; color: #64748b;">
                             {{ Str::limit($rec->remarks ?? '--', 40) }}

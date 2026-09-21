@@ -94,7 +94,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                     'rdp_pending_status.status_name',
                     'office.office_name',
                     DB::raw("CONCAT(account_details.first_name, ' ', account_details.last_name) as submitter_name"),
-                    DB::raw("'NAP Form 2' as form_label")
+                    DB::raw("'NAP Form 2' as form_label"),
+                    DB::raw("'nap2' as form_code")
                 ])
                 ->first();
 
@@ -131,7 +132,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                     'rdp_pending_status.status_name',
                     'office.office_name',
                     DB::raw("CONCAT(account_details.first_name, ' ', account_details.last_name) as submitter_name"),
-                    DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'NAP Form 3' ELSE 'NAP Form 1' END as form_label")
+                    DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'NAP Form 3' ELSE 'NAP Form 1' END as form_label"),
+                    DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'nap3' ELSE 'nap1' END as form_code")
                 ])
                 ->first();
 
@@ -139,8 +141,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                 $items = DB::table('rdp_grouped_record')
                     ->join('rdp_record', 'rdp_grouped_record.record_id', '=', 'rdp_record.id')
                     ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
+                    ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+                    ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
                     ->where('rdp_grouped_record.group_head', $clusterId)
-                    ->select(['rdp_record.*', 'rdp_record_series.series_title'])
+                    ->select([
+                        'rdp_record.*',
+                        'rdp_record_series.series_title',
+                        'rdp_record_series.remarks',
+                        'rdp_retention_period.active_period',
+                        'rdp_retention_period.storage_period',
+                        'rdp_retention_period.total_period',
+                        'parent.series_title as parent_title'
+                    ])
                     ->get()
                     ->toArray();
             }

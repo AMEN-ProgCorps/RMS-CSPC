@@ -257,6 +257,29 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
                 zoom: clamp(0.72, calc(100vw / 1920), 1);
             }
         }
+
+        .portal-server-indicator {
+            font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.9);
+            background: rgba(0, 0, 0, 0.28);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            padding: 5px 18px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: -6px;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+        }
+        .portal-server-indicator .server-label-highlight {
+            font-weight: 700;
+            color: #FFD166;
+            letter-spacing: 0.02em;
+        }
     </style>
 @endpush
 
@@ -279,6 +302,11 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
             <img class="ico" src="{{ asset('images/cspc.png') }}" alt="CSPC">
         </div>
         <span>Welcome, {{ $userNameDisplay }}</span>
+        @if(\App\Services\ServerManagementService::isMultiServerActive())
+        <div class="portal-server-indicator">
+            your currently at <span class="server-label-highlight">{{ \App\Services\ServerManagementService::getServerLabel() }}</span>
+        </div>
+        @endif
     </div>
     <div class="systems-container {{ $containerClass }}">
         @foreach($desktopItems as $item)

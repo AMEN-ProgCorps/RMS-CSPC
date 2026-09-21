@@ -442,6 +442,16 @@ section{
                 flex-direction: column;
                 gap: 2px;
             }
+                .nav .account-container .account-label .account-server-label {
+                    font-family: 'Inter', Roboto, sans-serif;
+                    font-weight: 700;
+                    font-size: 13px;
+                    line-height: 120%;
+                    color: #043899;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 6px;
+                }
                 .nav .account-container .account-label .account-email {
                     font-family: Roboto, sans-serif;
                     font-weight: 400;
@@ -1246,6 +1256,10 @@ section{
 
 [data-theme="dark"] .account-container {
     border-top: 1px solid #1e293b !important;
+}
+
+[data-theme="dark"] .nav .account-container .account-label .account-server-label {
+    color: #60a5fa !important;
 }
 
 [data-theme="dark"] .account-name-container .name {

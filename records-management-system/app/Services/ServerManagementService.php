@@ -705,7 +705,30 @@ class ServerManagementService
      */
     public function isMultiServerEnabled(): bool
     {
-        return $this->getSystemSetting('multi_server_enabled') === 'true';
+        return static::isMultiServerActive();
+    }
+
+    /**
+     * Static check if Multi-Server Mode is active.
+     */
+    public static function isMultiServerActive(): bool
+    {
+        $envMulti = env('MULTI_SERVER_ENABLED');
+        if ($envMulti !== null) {
+            return filter_var($envMulti, FILTER_VALIDATE_BOOLEAN);
+        }
+
+        try {
+            $tbl = Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+            if (Schema::hasTable($tbl)) {
+                $val = DB::table($tbl)->where('key', 'multi_server_enabled')->value('value');
+                return $val === 'true' || $val === '1';
+            }
+        } catch (\Throwable $e) {
+            // DB fallback
+        }
+
+        return false;
     }
 
     /**
@@ -769,5 +792,113 @@ class ServerManagementService
         } catch (\Throwable $e) {
             Log::error("[Cluster] Failed to write setting {$key}: " . $e->getMessage());
         }
+    }
+
+    /**
+     * Automatically detect the node or VM instance name.
+     */
+    public static function detectNodeName(): string
+    {
+        // 1. Try Google Cloud VM Metadata Server
+        if (function_exists('curl_init')) {
+            try {
+                $ch = curl_init('http://metadata.google.internal/computeMetadata/v1/instance/name');
+                curl_setopt($ch, CURLOPT_HTTPHEADER, ['Metadata-Flavor: Google']);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($ch, CURLOPT_TIMEOUT_MS, 300);
+                curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, 200);
+                $gcpName = curl_exec($ch);
+                $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                if ($code === 200 && !empty($gcpName) && is_string($gcpName)) {
+                    return trim($gcpName);
+                }
+            } catch (\Throwable $e) {
+                // Not on GCP or metadata unreachable
+            }
+        }
+
+        // 2. Check system hostname
+        $host = gethostname();
+        if (!empty($host) && $host !== 'localhost') {
+            return $host;
+        }
+
+        // 3. Fallback to cluster role or Server 1
+        $clusterRole = env('CLUSTER_ROLE');
+        if (!empty($clusterRole)) {
+            return ucfirst($clusterRole) . ' Node';
+        }
+
+        return 'Server 1';
+    }
+
+    /**
+     * Check if the current label is configured as 'auto'.
+     */
+    public static function isAutoLabel(): bool
+    {
+        $envLabel = env('SERVER_LABEL');
+        if (!empty($envLabel)) {
+            return strtolower(trim($envLabel)) === 'auto';
+        }
+
+        try {
+            $tbl = Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+            if (Schema::hasTable($tbl)) {
+                $val = DB::table($tbl)->where('key', 'server_label')->value('value');
+                if ($val !== null) {
+                    return strtolower(trim($val)) === 'auto' || empty(trim($val));
+                }
+            }
+        } catch (\Throwable $e) {
+            // DB fallback
+        }
+
+        return true;
+    }
+
+    /**
+     * Get human-readable server node label.
+     */
+    public static function getServerLabel(): string
+    {
+        $envLabel = env('SERVER_LABEL');
+        if (!empty($envLabel)) {
+            if (strtolower(trim($envLabel)) === 'auto') {
+                return static::detectNodeName();
+            }
+            return $envLabel;
+        }
+
+        try {
+            $tbl = Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+            if (Schema::hasTable($tbl)) {
+                $dbLabel = DB::table($tbl)->where('key', 'server_label')->value('value');
+                if (!empty($dbLabel)) {
+                    if (strtolower(trim($dbLabel)) === 'auto') {
+                        return static::detectNodeName();
+                    }
+                    return $dbLabel;
+                }
+            }
+        } catch (\Throwable $e) {
+            // DB fallback
+        }
+
+        $appServer = env('APP_SERVER_NAME');
+        if (!empty($appServer)) {
+            return $appServer;
+        }
+
+        // Default to auto detection (GCP VM instance name or hostname)
+        return static::detectNodeName();
+    }
+
+    /**
+     * Set human-readable server node label.
+     */
+    public function setServerLabel(string $label): void
+    {
+        $this->setSystemSetting('server_label', trim($label));
     }
 }

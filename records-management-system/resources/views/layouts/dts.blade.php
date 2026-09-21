@@ -107,6 +107,9 @@
                 </div>
                 <div class="account-container">
                     <div class="account-label">
+                        @if(\App\Services\ServerManagementService::isMultiServerActive())
+                            <span class="account-server-label">{{ \App\Services\ServerManagementService::getServerLabel() }}</span>
+                        @endif
                         <span class="account-email">{{ auth()->user()?->details?->email }}</span>
                     </div>
                 </div>

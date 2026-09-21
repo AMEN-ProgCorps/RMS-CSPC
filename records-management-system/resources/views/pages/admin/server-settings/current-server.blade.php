@@ -11,6 +11,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
     public array $gitInfo = [];
     public bool $isMultiServer = false;
     public string $clusterRole = 'root';
+    public string $serverLabel = '';
+    public bool $isAutoLabel = false;
 
     public string $successMessage = '';
     public string $errorMessage = '';
@@ -33,6 +35,25 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         $this->gitInfo = $service->getGitInfo();
         $this->isMultiServer = $service->isMultiServerEnabled();
         $this->clusterRole = $service->getSystemSetting('cluster_role', 'root');
+        $this->serverLabel = $service->getServerLabel();
+        $this->isAutoLabel = ServerManagementService::isAutoLabel();
+    }
+
+    public function updateServerLabel(ServerManagementService $service): void
+    {
+        $service->setServerLabel($this->serverLabel);
+        $this->successMessage = 'Server label updated to: ' . $service->getServerLabel();
+        $this->refreshData($service);
+    }
+
+    public function setAutoLabel(ServerManagementService $service): void
+    {
+        $service->setServerLabel('auto');
+        $detected = ServerManagementService::detectNodeName();
+        $this->serverLabel = $detected;
+        $this->isAutoLabel = true;
+        $this->successMessage = "Server label set to automatic detection (currently resolved to '{$detected}').";
+        $this->refreshData($service);
     }
 
     public function runGitPull(ServerManagementService $service): void
@@ -181,6 +202,41 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
                 <i class="fa-solid fa-rotate" wire:loading.remove wire:target="refreshData"></i>
                 <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="refreshData"></i>
                 <span>Refresh Metrics</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Node Display Label Card -->
+    <div style="background: #ffffff; padding: 18px 24px; border-radius: 14px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.02);">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 36px; height: 36px; border-radius: 8px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 16px;">
+                <i class="fa-solid fa-tag"></i>
+            </div>
+            <div>
+                <div style="font-size: 13px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                    <span>Node Display Label:</span>
+                    <strong style="color: #2563eb;">{{ $serverLabel }}</strong>
+                    @if ($isAutoLabel)
+                        <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; background: #eff6ff; color: #1d4ed8; padding: 2px 7px; border-radius: 4px; border: 1px solid #bfdbfe;">
+                            <i class="fa-solid fa-wand-magic-sparkles" style="margin-right: 3px;"></i> Auto-detected
+                        </span>
+                    @endif
+                </div>
+                <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">
+                    Visible when Multi-Server is enabled: appears on the Portal (<em>"your currently at {{ $serverLabel }}"</em>) and in subsystem sidebars.
+                </p>
+            </div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <form wire:submit.prevent="updateServerLabel" style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" wire:model="serverLabel" placeholder="e.g. Server 1 or auto" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; font-weight: 700; width: 180px;">
+                <button type="submit" style="background: #0f172a; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer;">
+                    Save Custom
+                </button>
+            </form>
+            <button type="button" wire:click="setAutoLabel" title="Set to auto (detects GCP VM instance name or system hostname)" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 8px 14px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                <i class="fa-solid fa-wand-magic-sparkles" style="color: #2563eb;"></i>
+                <span>Use Auto</span>
             </button>
         </div>
     </div>

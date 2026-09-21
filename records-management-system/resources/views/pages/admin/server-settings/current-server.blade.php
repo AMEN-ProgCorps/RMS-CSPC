@@ -80,16 +80,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         $this->successMessage = "Custom server label saved: '{$this->serverLabel}'.";
     }
 
-    public function toggleMultiServerTesting(ServerManagementService $service): void
-    {
-        $current = $service->isMultiServerEnabled();
-        $newVal = $current ? 'false' : 'true';
-        $service->setSystemSetting('multi_server_enabled', $newVal);
-        $this->refreshData($service);
-        $this->successMessage = $current 
-            ? 'Multi-Server mode disabled (server indicators are now hidden).'
-            : 'Multi-Server mode ENABLED (server indicators are now visible on the Portal and subsystem sidebars!).';
-    }
+
 
     public function runGitPull(ServerManagementService $service): void
     {
@@ -337,13 +328,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
                     Multi-Server Indicator Visibility:
                 </span>
                 <span style="color: {{ $isMultiServer ? '#047857' : '#64748b' }};">
-                    {{ $isMultiServer ? 'VISIBLE on Portal and subsystem sidebars' : 'HIDDEN (Cluster mode is inactive)' }}
+                    {{ $isMultiServer ? 'VISIBLE on Portal & Subsystem Sidebars (Multi-Server is Active)' : 'HIDDEN (Cluster mode is currently Standalone)' }}
                 </span>
             </div>
-            <button type="button" wire:click="toggleMultiServerTesting" wire:loading.attr="disabled" style="background: none; border: 1px solid {{ $isMultiServer ? '#059669' : '#94a3b8' }}; color: {{ $isMultiServer ? '#059669' : '#475569' }}; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer;">
-                <i class="fa-solid fa-eye" style="margin-right: 4px;"></i>
-                {{ $isMultiServer ? 'Hide Indicators (Standalone)' : 'Preview Indicators (Force ON)' }}
-            </button>
+            <a href="{{ route('admin.server-settings.multi-server') }}" wire:navigate style="color: #2563eb; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11px;">
+                <span>Configure in Multi-Server</span>
+                <i class="fa-solid fa-arrow-right" style="font-size: 10px;"></i>
+            </a>
         </div>
     </div>
 

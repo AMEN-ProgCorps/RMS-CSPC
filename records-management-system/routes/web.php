@@ -448,10 +448,17 @@ Route::middleware(['auth'])
         Volt::route('/admin/backup', 'pages.admin.backup.index')->name('admin.backup.index');
         Volt::route('/admin/recycle-bin', 'pages.admin.recycle-bin')->name('admin.recycle-bin');
 
-        // Server Settings & High-Availability Clustering
-        Volt::route('/server-settings/current-server', 'pages.admin.server-settings.current-server')->name('admin.server-settings.current');
-        Volt::route('/server-settings/adds-on-servers', 'pages.admin.server-settings.adds-on-servers')->name('admin.server-settings.addons');
-        Volt::route('/server-settings/site-diagnostic', 'pages.admin.server-settings.site-diagnostic')->name('admin.server-settings.diagnostic');
+        // Server Settings & High-Availability Clustering (/admin/server-settings/*)
+        Volt::route('/admin/server-settings/current-server', 'pages.admin.server-settings.current-server')->name('admin.server-settings.current');
+        Volt::route('/admin/server-settings/multi-server', 'pages.admin.server-settings.multi-server')->name('admin.server-settings.multi-server');
+        Volt::route('/admin/server-settings/site-diagnostic', 'pages.admin.server-settings.site-diagnostic')->name('admin.server-settings.diagnostic');
+
+        // Backward compatibility redirects
+        Route::redirect('/server-settings/current-server', '/admin/server-settings/current-server');
+        Route::redirect('/server-settings/adds-on-servers', '/admin/server-settings/multi-server');
+        Route::redirect('/server-settings/multi-server', '/admin/server-settings/multi-server');
+        Route::redirect('/server-settings/site-diagnostic', '/admin/server-settings/site-diagnostic');
+        Route::redirect('/admin/server-settings/adds-on-servers', '/admin/server-settings/multi-server')->name('admin.server-settings.addons');
     });
 
     // RDP — Records Disposition Program (requires can_access_rdp or is_sadm)

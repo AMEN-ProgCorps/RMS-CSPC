@@ -5,7 +5,7 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.admin')] #[Title('Admin Console - Adds-on Servers')] class extends Component {
+new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class extends Component {
     public bool $isMultiServer = false;
     public string $clusterRole = 'root';
     public string $backupVmUrl = '';
@@ -15,6 +15,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Adds-on Servers')] class
     public array $dbCheck = [];
     public array $vmCheck = [];
     public bool $canEnable = false;
+
+    // Database Configuration modal state
+    public bool $showDbModal = false;
+    public bool $showBackupVmModal = false;
+    public ?array $testVmResult = null;
+    public bool $isTestingVm = false;
+    public string $dbUrlInput = '';
+    public string $dbHost = '';
+    public string $dbPort = '5432';
+    public string $dbName = 'rms';
+    public string $dbUser = '';
+    public string $dbPassword = '';
+    public string $dbSslMode = 'require';
+    public ?array $testDbResult = null;
+    public bool $isTestingDb = false;
 
     // Feedback
     public string $successMessage = '';
@@ -33,6 +48,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Adds-on Servers')] class
         $this->backupVmUrl = $service->getSystemSetting('backup_vm_url', '');
         $this->clusterToken = $service->getClusterSecretToken();
 
+        $this->dbHost = config('database.connections.pgsql.host') ?: env('DB_HOST', '');
+        $this->dbPort = (string) (config('database.connections.pgsql.port') ?: env('DB_PORT', '5432'));
+        $this->dbName = config('database.connections.pgsql.database') ?: env('DB_DATABASE', 'rms');
+        $this->dbUser = config('database.connections.pgsql.username') ?: env('DB_USERNAME', 'adminrms');
+        $this->dbSslMode = config('database.connections.pgsql.sslmode') ?: env('DB_SSLMODE', 'prefer');
+
         $this->runPrerequisiteChecks($service);
     }
 
@@ -44,6 +65,137 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Adds-on Servers')] class
         $this->canEnable = ($this->dbCheck['valid'] && $this->vmCheck['valid']);
     }
 
+    public function openDbModal(): void
+    {
+        $this->showDbModal = true;
+        $this->testDbResult = null;
+    }
+
+    public function closeDbModal(): void
+    {
+        $this->showDbModal = false;
+        $this->testDbResult = null;
+    }
+
+    public function parseDbUrl(): void
+    {
+        $url = trim($this->dbUrlInput);
+        if (empty($url)) {
+            return;
+        }
+
+        $parsed = parse_url($url);
+        if (!$parsed || !isset($parsed['host'])) {
+            $this->errorMessage = 'Invalid database URL format. Expected: postgresql://user:password@host:port/database';
+            return;
+        }
+
+        $this->dbHost = $parsed['host'] ?? '';
+        $this->dbPort = isset($parsed['port']) ? (string) $parsed['port'] : '5432';
+        $this->dbUser = isset($parsed['user']) ? urldecode($parsed['user']) : '';
+        $this->dbPassword = isset($parsed['pass']) ? urldecode($parsed['pass']) : '';
+        $this->dbName = isset($parsed['path']) ? ltrim($parsed['path'], '/') : 'rms';
+
+        if (isset($parsed['query'])) {
+            parse_str($parsed['query'], $query);
+            if (isset($query['sslmode'])) {
+                $this->dbSslMode = $query['sslmode'];
+            }
+        }
+
+        $this->successMessage = 'Database URL parsed. Click "Test Connection" to probe connectivity, then "Apply to .env".';
+    }
+
+    public function testDatabaseConnection(ServerManagementService $service): void
+    {
+        $this->isTestingDb = true;
+        $this->testDbResult = $service->testCustomDatabaseConnection([
+            'host' => $this->dbHost,
+            'port' => $this->dbPort,
+            'database' => $this->dbName,
+            'username' => $this->dbUser,
+            'password' => $this->dbPassword,
+            'sslmode' => $this->dbSslMode,
+        ]);
+        $this->isTestingDb = false;
+    }
+
+    public function applyDatabaseConfig(ServerManagementService $service): void
+    {
+        $res = $service->applyDatabaseToEnv([
+            'host' => $this->dbHost,
+            'port' => $this->dbPort,
+            'database' => $this->dbName,
+            'username' => $this->dbUser,
+            'password' => $this->dbPassword,
+            'sslmode' => $this->dbSslMode,
+        ]);
+
+        if ($res['success']) {
+            $this->successMessage = $res['message'];
+            $this->testDbResult = null;
+            $this->runPrerequisiteChecks($service);
+        } else {
+            $this->errorMessage = $res['message'];
+        }
+    }
+
+    public function revertToLocalDb(ServerManagementService $service): void
+    {
+        $res = $service->revertDatabaseToLocal();
+        if ($res['success']) {
+            $this->dbHost = 'db';
+            $this->dbPort = '5432';
+            $this->dbName = 'rms';
+            $this->dbUser = 'adminrms';
+            $this->dbPassword = 'admin';
+            $this->dbSslMode = 'prefer';
+            $this->testDbResult = null;
+            $this->successMessage = 'Database configuration reverted to local Docker container (db).';
+            $this->runPrerequisiteChecks($service);
+        } else {
+            $this->errorMessage = $res['message'];
+        }
+    }
+
+    public function runMigrations(ServerManagementService $service): void
+    {
+        $this->isBusy = true;
+        $this->modalTitle = 'Database Schema Migrations';
+        $res = $service->runDatabaseMigrations();
+        $this->consoleOutput = ($res['message'] ?? '') . "\n\n" . ($res['output'] ?? '');
+        $this->showOutputModal = true;
+        $this->isBusy = false;
+
+        if ($res['success']) {
+            $this->successMessage = $res['message'];
+        } else {
+            $this->errorMessage = $res['message'];
+        }
+
+        $this->runPrerequisiteChecks($service);
+    }
+
+    public function openBackupVmModal(): void
+    {
+        $this->showBackupVmModal = true;
+        $this->testVmResult = null;
+    }
+
+    public function closeBackupVmModal(): void
+    {
+        $this->showBackupVmModal = false;
+        $this->testVmResult = null;
+    }
+
+    public function testBackupVmConnection(ServerManagementService $service): void
+    {
+        $this->isTestingVm = true;
+        $cleanUrl = rtrim(trim($this->backupVmUrl), '/');
+        $this->testVmResult = $service->validateBackupVm($cleanUrl, trim($this->clusterToken));
+        $this->isTestingVm = false;
+    }
+
     public function saveClusterConfig(ServerManagementService $service): void
     {
         $cleanUrl = rtrim(trim($this->backupVmUrl), '/');
@@ -51,7 +203,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Adds-on Servers')] class
         $service->setSystemSetting('cluster_secret_token', trim($this->clusterToken));
 
         $this->backupVmUrl = $cleanUrl;
-        $this->successMessage = 'Cluster configuration saved.';
+        $this->successMessage = 'Cluster configuration saved and Backup VM node verified.';
+        $this->showBackupVmModal = false;
+        $this->testVmResult = null;
 
         $this->runPrerequisiteChecks($service);
     }
@@ -177,7 +331,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Adds-on Servers')] class
             </div>
             <div>
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <h1 style="font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.02em;">Adds-on Server & Multi-VM Clustering</h1>
+                    <h1 style="font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.02em;">Multi-Server Clustering</h1>
                     <span style="font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; text-transform: uppercase; background: {{ $isMultiServer ? '#dcfce7' : '#fef3c7' }}; color: {{ $isMultiServer ? '#15803d' : '#b45309' }}; border: 1px solid {{ $isMultiServer ? '#86efac' : '#fde68a' }};">
                         {{ $isMultiServer ? 'Cluster Active' : 'Standalone Root' }}
                     </span>
@@ -277,6 +431,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Adds-on Servers')] class
                         Round-trip query latency: <strong>{{ $dbCheck['latency_ms'] }} ms</strong>
                     </div>
                 @endif
+                <div style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed {{ $dbCheck['valid'] ? '#bbf7d0' : '#fed7aa' }}; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 11px; color: #64748b;">
+                        {{ $dbCheck['valid'] ? 'External database active' : 'Action required' }}
+                    </span>
+                    <button type="button" wire:click="openDbModal" style="background: #2563eb; color: #ffffff; border: none; padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2);">
+                        <i class="fa-solid fa-gear"></i>
+                        <span>Configure Database</span>
+                    </button>
+                </div>
             </div>
 
             <!-- Condition 2: 1 Backup VM -->
@@ -294,62 +457,37 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Adds-on Servers')] class
                     Address: <code style="background: #ffffff; padding: 2px 6px; border-radius: 4px; border: 1px solid #cbd5e1; font-weight: 700;">{{ $backupVmUrl ?: 'Not configured' }}</code>
                 </div>
                 <div style="font-size: 12px; color: {{ $vmCheck['valid'] ? '#059669' : '#b45309' }};">
-                    {{ $vmCheck['message'] ?? 'Enter Backup VM Tailscale address below.' }}
+                    {{ $vmCheck['message'] ?? 'Configure second VM settings below.' }}
                 </div>
                 @if ($vmCheck['valid'] && !empty($vmCheck['latency_ms']))
                     <div style="font-size: 11px; color: #64748b; margin-top: 6px;">
                         Mesh ping latency: <strong>{{ $vmCheck['latency_ms'] }} ms</strong>
                     </div>
                 @endif
+                <div style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed {{ $vmCheck['valid'] ? '#bbf7d0' : '#fed7aa' }}; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 11px; color: #64748b;">
+                        {{ $vmCheck['valid'] ? 'Backup node connected' : 'Action required' }}
+                    </span>
+                    <button type="button" wire:click="openBackupVmModal" style="background: #7c3aed; color: #ffffff; border: none; padding: 6px 14px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 3px rgba(124, 58, 237, 0.2);">
+                        <i class="fa-solid fa-gear"></i>
+                        <span>Configure Backup VM</span>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Backup VM Configuration Form & Remote Update -->
+    <!-- Active Cluster VM Nodes Display -->
     <div style="background: #ffffff; padding: 24px; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
-        <div style="margin-bottom: 18px;">
-            <h3 style="font-size: 16px; font-weight: 800; color: #0f172a; margin: 0;">Backup VM Node Settings</h3>
-            <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">Connect your second VM over Tailscale private mesh network</p>
-        </div>
-
-        <form wire:submit.prevent="saveClusterConfig" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 20px;">
-            <div>
-                <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
-                    Backup VM Tailscale Address / Origin URL:
-                </label>
-                <input type="text" wire:model="backupVmUrl" placeholder="http://100.x.y.z:80" style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px;">
-                <p style="font-size: 11px; color: #64748b; margin: 4px 0 0 0;">Use the private Tailscale IP of your second VM.</p>
-            </div>
-
-            <div>
-                <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
-                    Cluster Secret Token:
-                </label>
-                <div style="display: flex; gap: 8px;">
-                    <input type="text" wire:model="clusterToken" style="flex: 1; padding: 10px 14px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px; font-family: monospace;">
-                    <button type="button" wire:click="generateNewToken" title="Generate New Key" style="background: #f1f5f9; border: 1px solid #cbd5e1; padding: 0 12px; border-radius: 8px; color: #475569; cursor: pointer;">
-                        <i class="fa-solid fa-key"></i>
-                    </button>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="width: 40px; height: 40px; border-radius: 10px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
+                    <i class="fa-solid fa-network-wired"></i>
                 </div>
-                <p style="font-size: 11px; color: #64748b; margin: 4px 0 0 0;">Shared token to authenticate node-to-node communication.</p>
-            </div>
-
-            <div style="grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 10px;">
-                <button type="submit" style="background: #0f172a; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer;">
-                    <i class="fa-solid fa-floppy-disk" style="margin-right: 6px;"></i> Save Node Configuration
-                </button>
-            </div>
-        </form>
-
-        <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 20px 0;">
-
-        <!-- Remote Management & Code Sync -->
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
-            <div>
-                <h4 style="font-size: 14px; font-weight: 800; color: #0f172a; margin: 0;">Remote Code Synchronization</h4>
-                <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">
-                    Execute git pull and clear application cache on the Backup VM remotely so both nodes run the exact same version.
-                </p>
+                <div>
+                    <h3 style="font-size: 16px; font-weight: 800; color: #0f172a; margin: 0;">Cluster VM Nodes</h3>
+                    <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">Overview of virtual machines participating in this cluster</p>
+                </div>
             </div>
 
             <button type="button" wire:click="triggerRemoteUpdate" wire:loading.attr="disabled" @disabled(!$vmCheck['valid']) style="background: #2563eb; color: white; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: {{ $vmCheck['valid'] ? 'pointer' : 'not-allowed' }}; opacity: {{ $vmCheck['valid'] ? '1' : '0.5' }}; display: inline-flex; align-items: center; gap: 8px;">
@@ -357,6 +495,61 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Adds-on Servers')] class
                 <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="triggerRemoteUpdate"></i>
                 <span>Synchronize & Pull on Backup VM</span>
             </button>
+        </div>
+
+        <!-- Node Cards Grid -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px;">
+            <!-- Node 1: Primary Root VM (This Server) -->
+            <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <span style="font-size: 14px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                            <span style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+                            Primary Node (Root VM)
+                        </span>
+                        <span style="font-size: 10px; font-weight: 800; text-transform: uppercase; padding: 2px 8px; border-radius: 6px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe;">
+                            This Server
+                        </span>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: #475569;">
+                        <div>Role: <strong style="color: #0f172a;">Primary Origin / Cluster Controller</strong></div>
+                        <div>Status: <strong style="color: #10b981;">Online & Serving</strong></div>
+                        <div>Local DB Containers: <strong style="{{ $isMultiServer ? 'color: #64748b;' : 'color: #2563eb;' }}">{{ $isMultiServer ? 'Stopped (Memory Saved: ~250MB)' : 'Active (Standby for shutdown)' }}</strong></div>
+                    </div>
+                </div>
+                <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end;">
+                    <a href="{{ route('admin.server-settings.current') }}" wire:navigate style="font-size: 11px; font-weight: 700; color: #2563eb; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                        <span>Manage Root Metrics</span>
+                        <i class="fa-solid fa-arrow-right" style="font-size: 10px;"></i>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Node 2: Secondary Backup VM (Remote Machine) -->
+            <div style="background: #f8fafc; border: 1px solid {{ $vmCheck['valid'] ? '#86efac' : '#e2e8f0' }}; border-radius: 12px; padding: 18px; display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <span style="font-size: 14px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                            <span style="width: 10px; height: 10px; border-radius: 50%; background: {{ $vmCheck['valid'] ? '#10b981' : '#94a3b8' }}; display: inline-block;"></span>
+                            Secondary Node (Backup VM)
+                        </span>
+                        <span style="font-size: 10px; font-weight: 800; text-transform: uppercase; padding: 2px 8px; border-radius: 6px; background: {{ $vmCheck['valid'] ? '#ecfdf5' : '#f1f5f9' }}; color: {{ $vmCheck['valid'] ? '#059669' : '#64748b' }}; border: 1px solid {{ $vmCheck['valid'] ? '#a7f3d0' : '#cbd5e1' }};">
+                            {{ $vmCheck['valid'] ? 'Verified' : 'Pending' }}
+                        </span>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: #475569;">
+                        <div>Address: <code style="background: #ffffff; padding: 2px 6px; border-radius: 4px; border: 1px solid #cbd5e1; font-weight: 700;">{{ $backupVmUrl ?: 'Not configured' }}</code></div>
+                        <div>Status: <strong style="{{ $vmCheck['valid'] ? 'color: #10b981;' : 'color: #b45309;' }}">{{ $vmCheck['valid'] ? 'Online (' . ($vmCheck['latency_ms'] ?? '0') . ' ms)' : 'Unreachable' }}</strong></div>
+                        <div>Mesh Connection: <span>{{ $vmCheck['valid'] ? 'Private Tailscale mesh active' : 'Click Configure Node to connect' }}</span></div>
+                    </div>
+                </div>
+                <div style="margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end;">
+                    <button type="button" wire:click="openBackupVmModal" style="background: none; border: none; font-size: 11px; font-weight: 700; color: #7c3aed; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 0;">
+                        <i class="fa-solid fa-gear"></i>
+                        <span>Configure Backup VM</span>
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -375,6 +568,242 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Adds-on Servers')] class
             </ul>
         </div>
     </div>
+
+    <!-- Database Setup Modal (Requirement 1) -->
+    @if ($showDbModal)
+        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px;">
+            <div style="background: #ffffff; border-radius: 16px; max-width: 720px; width: 100%; border: 1px solid #cbd5e1; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.4); overflow: hidden; display: flex; flex-direction: column; max-height: 90vh;">
+                <!-- Modal Header -->
+                <div style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div style="width: 34px; height: 34px; border-radius: 8px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 15px;">
+                            <i class="fa-solid fa-database"></i>
+                        </div>
+                        <div>
+                            <h4 style="margin: 0; font-size: 15px; font-weight: 800; color: #0f172a;">Requirement 1: External SQL Database Setup</h4>
+                            <p style="margin: 2px 0 0 0; font-size: 11px; color: #64748b;">Configure centralized Neon Postgres or cloud database connection</p>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="closeDbModal" style="background: none; border: none; font-size: 22px; color: #64748b; cursor: pointer; line-height: 1;">&times;</button>
+                </div>
+
+                <!-- Modal Body (Scrollable) -->
+                <div style="padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px;">
+                    <!-- Quick-Paste Connection String -->
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px;">
+                        <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
+                            <i class="fa-solid fa-bolt" style="color: #f59e0b; margin-right: 4px;"></i> Quick-Paste Connection String (Neon / Supabase / AWS):
+                        </label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" 
+                                   wire:model="dbUrlInput" 
+                                   placeholder="postgresql://neondb_owner:password@ep-xxxx-pooler.c-4.us-east-2.aws.neon.tech/rms?sslmode=require" 
+                                   style="flex: 1; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px; font-family: monospace;">
+                            <button type="button" wire:click="parseDbUrl" style="background: #2563eb; color: white; border: none; padding: 0 14px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-arrow-down-short-wide"></i>
+                                <span>Auto-Fill</span>
+                            </button>
+                        </div>
+                        <p style="font-size: 11px; color: #64748b; margin: 4px 0 0 0;">
+                            Paste your Neon connection URI to auto-populate the host, user, password, and port fields below.
+                        </p>
+                    </div>
+
+                    <!-- Database Fields Form -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Database Host:</label>
+                            <input type="text" wire:model="dbHost" placeholder="e.g. ep-xxxx-pooler.aws.neon.tech" style="width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px;">
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Database Port:</label>
+                            <input type="text" wire:model="dbPort" placeholder="5432" style="width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px;">
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Database Name:</label>
+                            <input type="text" wire:model="dbName" placeholder="rms" style="width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px;">
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Username:</label>
+                            <input type="text" wire:model="dbUser" placeholder="neondb_owner" style="width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px;">
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">Password:</label>
+                            <input type="password" wire:model="dbPassword" placeholder="••••••••••••" style="width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px;">
+                        </div>
+                        <div>
+                            <label style="display: block; font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 4px;">SSL Mode:</label>
+                            <select wire:model="dbSslMode" style="width: 100%; padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px; background: white;">
+                                <option value="require">require (Recommended for Neon)</option>
+                                <option value="prefer">prefer</option>
+                                <option value="disable">disable (Local container only)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Test Result Alert -->
+                    @if ($testDbResult)
+                        <div style="font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; background: {{ $testDbResult['success'] ? '#ecfdf5' : '#fef2f2' }}; color: {{ $testDbResult['success'] ? '#047857' : '#b91c1c' }}; border: 1px solid {{ $testDbResult['success'] ? '#a7f3d0' : '#fecaca' }};">
+                            <i class="fa-solid {{ $testDbResult['success'] ? 'fa-circle-check' : 'fa-circle-xmark' }}" style="font-size: 14px;"></i>
+                            <span>{{ $testDbResult['message'] }}</span>
+                        </div>
+                    @endif
+
+                    <!-- Auxiliary Tools: Migration & Revert -->
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <span style="font-size: 12px; color: #64748b;">
+                            Database tools:
+                        </span>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            @if ($dbCheck['valid'])
+                                <button type="button" wire:click="revertToLocalDb" wire:confirm="Are you sure you want to revert to the local Docker database container (db)?" style="background: #ffffff; border: 1px solid #cbd5e1; color: #475569; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                    <i class="fa-solid fa-rotate-left"></i>
+                                    <span>Revert to Local DB</span>
+                                </button>
+                            @endif
+                            <button type="button" wire:click="runMigrations" wire:loading.attr="disabled" title="Run php artisan migrate on the connected database" style="background: #ffffff; border: 1px solid #cbd5e1; color: #1e293b; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                <i class="fa-solid fa-table-list"></i>
+                                <span>Run Schema Migrations</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal Footer -->
+                <div style="padding: 14px 20px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; flex-wrap: wrap; gap: 10px;">
+                    <button type="button" 
+                            wire:click="testDatabaseConnection" 
+                            wire:loading.attr="disabled" 
+                            style="background: #ffffff; border: 1px solid #cbd5e1; color: #1e293b; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-plug" wire:loading.remove wire:target="testDatabaseConnection"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="testDatabaseConnection"></i>
+                        <span>Test Connection</span>
+                    </button>
+
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <button type="button" wire:click="closeDbModal" style="background: #ffffff; border: 1px solid #cbd5e1; color: #64748b; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer;">
+                            Cancel
+                        </button>
+                        <button type="button" 
+                                wire:click="applyDatabaseConfig" 
+                                wire:loading.attr="disabled" 
+                                style="background: #0f172a; color: white; border: none; padding: 8px 18px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(15, 23, 42, 0.15);">
+                            <i class="fa-solid fa-floppy-disk"></i>
+                            <span>Apply to .env & Connect</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- Backup VM Setup Modal (Requirement 2) -->
+    @if ($showBackupVmModal)
+        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px;">
+            <div style="background: #ffffff; border-radius: 16px; max-width: 680px; width: 100%; border: 1px solid #cbd5e1; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.4); overflow: hidden; display: flex; flex-direction: column; max-height: 90vh;">
+                <!-- Modal Header -->
+                <div style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div style="width: 34px; height: 34px; border-radius: 8px; background: #f5f3ff; color: #7c3aed; display: flex; align-items: center; justify-content: center; font-size: 15px;">
+                            <i class="fa-solid fa-server"></i>
+                        </div>
+                        <div>
+                            <h4 style="margin: 0; font-size: 15px; font-weight: 800; color: #0f172a;">Requirement 2: Backup VM Node Setup</h4>
+                            <p style="margin: 2px 0 0 0; font-size: 11px; color: #64748b;">Configure private Tailscale mesh address & authentication token</p>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="closeBackupVmModal" style="background: none; border: none; font-size: 22px; color: #64748b; cursor: pointer; line-height: 1;">&times;</button>
+                </div>
+
+                <!-- Modal Body (Scrollable) -->
+                <div style="padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px;">
+                    <!-- Backup VM Address Field -->
+                    <div>
+                        <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
+                            <i class="fa-solid fa-network-wired" style="color: #7c3aed; margin-right: 4px;"></i> Backup VM Tailscale Address / Origin URL:
+                        </label>
+                        <input type="text" 
+                               wire:model="backupVmUrl" 
+                               placeholder="http://100.x.y.z:80 (or http://backup-vm:80)" 
+                               style="width: 100%; padding: 10px 14px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px; font-family: monospace;">
+                        <p style="font-size: 11px; color: #64748b; margin: 4px 0 0 0;">
+                            Enter the private Tailscale IP (starts with <code>100.</code>) or MagicDNS domain name of your secondary virtual machine.
+                        </p>
+                    </div>
+
+                    <!-- Cluster Secret Token Field -->
+                    <div>
+                        <label style="display: block; font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 6px;">
+                            <i class="fa-solid fa-key" style="color: #f59e0b; margin-right: 4px;"></i> Cluster Secret Token:
+                        </label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="text" 
+                                   wire:model="clusterToken" 
+                                   placeholder="Shared secret token..." 
+                                   style="flex: 1; padding: 10px 14px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 12px; font-family: monospace;">
+                            <button type="button" 
+                                    wire:click="generateNewToken" 
+                                    title="Generate New Secret Token" 
+                                    style="background: #f1f5f9; border: 1px solid #cbd5e1; padding: 0 14px; border-radius: 8px; color: #475569; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-dice"></i>
+                                <span>Generate</span>
+                            </button>
+                        </div>
+                        <p style="font-size: 11px; color: #64748b; margin: 4px 0 0 0;">
+                            Both the Root VM and Backup VM must have this identical token configured to authenticate cluster requests and health checks.
+                        </p>
+                    </div>
+
+                    <!-- Test Result Alert -->
+                    @if ($testVmResult)
+                        <div style="font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; background: {{ $testVmResult['valid'] ? '#ecfdf5' : '#fef2f2' }}; color: {{ $testVmResult['valid'] ? '#047857' : '#b91c1c' }}; border: 1px solid {{ $testVmResult['valid'] ? '#a7f3d0' : '#fecaca' }};">
+                            <i class="fa-solid {{ $testVmResult['valid'] ? 'fa-circle-check' : 'fa-circle-xmark' }}" style="font-size: 14px;"></i>
+                            <span>{{ $testVmResult['message'] }}</span>
+                        </div>
+                    @endif
+
+                    <!-- Step-by-Step Setup Instructions -->
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px;">
+                        <h5 style="margin: 0 0 8px 0; font-size: 12px; font-weight: 800; color: #1e293b;">
+                            <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-right: 4px;"></i> How to configure the Backup VM:
+                        </h5>
+                        <ol style="margin: 0; padding-left: 18px; font-size: 11px; color: #475569; line-height: 1.6;">
+                            <li><strong>Install Tailscale:</strong> Run <code>curl -fsSL https://tailscale.com/install.sh | sh && tailscale up</code> on your second VM.</li>
+                            <li><strong>Clone Repository:</strong> Clone the RMS repository onto the second VM and prepare the <code>.env</code> file.</li>
+                            <li><strong>Match Credentials:</strong> Set the identical <code>CLUSTER_SECRET_TOKEN</code> and Neon Postgres <code>DB_*</code> variables in the second VM's <code>.env</code>.</li>
+                            <li><strong>Start Services:</strong> Run <code>docker compose up -d app caddy</code> on the Backup VM (no local database required).</li>
+                            <li><strong>Verify:</strong> Click <strong>Test Connection</strong> below to verify the Root VM can ping the Backup node.</li>
+                        </ol>
+                    </div>
+                </div>
+
+                <!-- Modal Footer -->
+                <div style="padding: 14px 20px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; flex-wrap: wrap; gap: 10px;">
+                    <button type="button" 
+                            wire:click="testBackupVmConnection" 
+                            wire:loading.attr="disabled" 
+                            style="background: #ffffff; border: 1px solid #cbd5e1; color: #1e293b; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-network-wired" wire:loading.remove wire:target="testBackupVmConnection"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="testBackupVmConnection"></i>
+                        <span>Test Connection</span>
+                    </button>
+
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <button type="button" wire:click="closeBackupVmModal" style="background: #ffffff; border: 1px solid #cbd5e1; color: #64748b; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer;">
+                            Cancel
+                        </button>
+                        <button type="button" 
+                                wire:click="saveClusterConfig" 
+                                wire:loading.attr="disabled" 
+                                style="background: #7c3aed; color: white; border: none; padding: 8px 18px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(124, 58, 237, 0.25);">
+                            <i class="fa-solid fa-floppy-disk"></i>
+                            <span>Save & Verify Node</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 
     <!-- Output Modal -->
     @if ($showOutputModal)

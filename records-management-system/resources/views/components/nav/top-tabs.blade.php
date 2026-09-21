@@ -664,9 +664,9 @@
                     'active' => request()->routeIs('admin.server-settings.current'),
                 ],
                 [
-                    'label' => 'Adds-on Servers',
-                    'url' => route('admin.server-settings.addons'),
-                    'active' => request()->routeIs('admin.server-settings.addons'),
+                    'label' => 'Multi-Server',
+                    'url' => route('admin.server-settings.multi-server'),
+                    'active' => request()->routeIs('admin.server-settings.multi-server') || request()->routeIs('admin.server-settings.addons'),
                 ],
                 [
                     'label' => 'Site Diagnostic',

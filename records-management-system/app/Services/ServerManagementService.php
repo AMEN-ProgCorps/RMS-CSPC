@@ -585,6 +585,157 @@ class ServerManagementService
     }
 
     /**
+     * Test connection to a PostgreSQL database with provided credentials without saving.
+     */
+    public function testCustomDatabaseConnection(array $config): array
+    {
+        try {
+            $host = trim($config['host'] ?? '');
+            $port = (int) ($config['port'] ?? 5432);
+            $database = trim($config['database'] ?? '');
+            $username = trim($config['username'] ?? '');
+            $password = $config['password'] ?? '';
+            $sslmode = trim($config['sslmode'] ?? 'require');
+
+            if (empty($host) || empty($database) || empty($username)) {
+                return [
+                    'success' => false,
+                    'latency_ms' => null,
+                    'message' => 'Host, Database, and Username are required.',
+                ];
+            }
+
+            config(['database.connections._test_probe' => [
+                'driver' => 'pgsql',
+                'host' => $host,
+                'port' => $port,
+                'database' => $database,
+                'username' => $username,
+                'password' => $password,
+                'sslmode' => $sslmode,
+                'charset' => 'utf8',
+                'prefix' => '',
+                'search_path' => 'public',
+            ]]);
+
+            DB::purge('_test_probe');
+            $start = microtime(true);
+            DB::connection('_test_probe')->select('SELECT 1 as ping');
+            $latencyMs = round((microtime(true) - $start) * 1000, 2);
+
+            $tables = DB::connection('_test_probe')->select("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' LIMIT 5");
+            $tableCount = count($tables);
+
+            return [
+                'success' => true,
+                'latency_ms' => $latencyMs,
+                'table_count' => $tableCount,
+                'message' => "Successfully connected to {$host} ({$latencyMs} ms). " . ($tableCount === 0 ? 'Note: Database is currently empty. Remember to run migrations after applying.' : "Found {$tableCount}+ tables."),
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'success' => false,
+                'latency_ms' => null,
+                'message' => 'Connection failed: ' . $e->getMessage(),
+            ];
+        } finally {
+            DB::disconnect('_test_probe');
+        }
+    }
+
+    /**
+     * Safely write database credentials to .env file and clear config cache.
+     */
+    public function applyDatabaseToEnv(array $config): array
+    {
+        $host = trim($config['host'] ?? 'db');
+        // Prevent setting sslmode=require on local db container
+        $sslMode = in_array($host, ['db', '127.0.0.1', 'localhost']) ? 'prefer' : trim($config['sslmode'] ?? 'prefer');
+
+        $keys = [
+            'DB_CONNECTION' => 'pgsql',
+            'DB_HOST' => $host,
+            'DB_PORT' => trim($config['port'] ?? '5432'),
+            'DB_DATABASE' => trim($config['database'] ?? 'rms'),
+            'DB_USERNAME' => trim($config['username'] ?? 'adminrms'),
+            'DB_PASSWORD' => $config['password'] ?? '',
+            'DB_SSLMODE' => $sslMode,
+        ];
+
+        $targetFiles = [base_path('.env'), base_path('.env.docker')];
+        $updated = false;
+
+        foreach ($targetFiles as $envPath) {
+            if (!file_exists($envPath)) {
+                continue;
+            }
+
+            $content = file_get_contents($envPath);
+            foreach ($keys as $key => $val) {
+                if (preg_match("/^{$key}=.*/m", $content)) {
+                    $content = preg_replace("/^{$key}=.*/m", "{$key}={$val}", $content);
+                } else {
+                    $content .= "\n{$key}={$val}";
+                }
+            }
+            file_put_contents($envPath, $content);
+            $updated = true;
+        }
+
+        if (!$updated) {
+            return ['success' => false, 'message' => '.env file not found.'];
+        }
+
+        try {
+            \Illuminate\Support\Facades\Artisan::call('config:clear');
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        return [
+            'success' => true,
+            'message' => 'Database settings successfully applied to .env! Config cache cleared.',
+        ];
+    }
+
+    /**
+     * Revert database settings in .env to the local Docker container.
+     */
+    public function revertDatabaseToLocal(): array
+    {
+        return $this->applyDatabaseToEnv([
+            'host' => 'db',
+            'port' => '5432',
+            'database' => 'rms',
+            'username' => 'adminrms',
+            'password' => 'admin',
+            'sslmode' => 'prefer',
+        ]);
+    }
+
+    /**
+     * Run database migrations (useful when switching to a fresh Neon database).
+     */
+    public function runDatabaseMigrations(): array
+    {
+        try {
+            \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
+            $output = \Illuminate\Support\Facades\Artisan::output();
+            return [
+                'success' => true,
+                'message' => 'Database migrations executed successfully.',
+                'output' => $output,
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'success' => false,
+                'message' => 'Migration failed: ' . $e->getMessage(),
+                'output' => $e->getTraceAsString(),
+            ];
+        }
+    }
+
+    /**
      * Validate backup VM node reachability over Tailscale / network.
      */
     public function validateBackupVm(?string $backupVmUrl = null, ?string $token = null): array

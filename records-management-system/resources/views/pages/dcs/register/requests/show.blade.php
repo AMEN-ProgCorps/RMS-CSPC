@@ -118,7 +118,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                         </p>
                         <button type="button" class="ofi-notify-print-btn" id="ofiRequestNotifyPrintBtn">
                             <i class="fa-regular fa-bell"></i>
-                            <span id="ofiRequestNotifyPrintLabel">{{ $printNotified ? 'Resend print &amp; sign notice' : 'Notify client to print &amp; sign' }}</span>
+                            <span id="ofiRequestNotifyPrintLabel">{{ $printNotified ? 'Resend print & sign notice' : 'Notify client to print & sign' }}</span>
                         </button>
                         <p class="ofi-receive-meta" id="ofiRequestNotifyMeta" @if(! $printNotified) hidden @endif>
                             @if($printNotified)

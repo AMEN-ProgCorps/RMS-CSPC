@@ -35,3 +35,6 @@ Thumbs.db
 /storage/app/*.json
 /storage/app/private/*.json
 google-drive-service-account.json
+
+# Docker local env (may contain OAuth secrets)
+.env.docker

@@ -191,6 +191,25 @@ class DcsNotificationService
     }
 
     /**
+     * RFIO approved the electronic submission — tell the office to print, sign, and bring the hard copy.
+     */
+    public static function notifyOfficeIntakeReadyForPrintSign(
+        string $targetOfficeCode,
+        string $type,
+        int $intakeId,
+        string $title = ''
+    ): bool {
+        $type = strtolower($type);
+        $formLabel = $type === 'dcn' ? 'Document Change Notice' : 'Document Request Form';
+        $label = trim($title) !== '' ? " \"{$title}\"" : '';
+        $message = "Your {$formLabel}{$label} has been reviewed and is correct. "
+            . 'You can now print and sign the request, then bring the signed hard copy to the Records Office for further processing.';
+        $url = '/dcs/office/' . ($type === 'dcn' ? 'dcn' : 'drf') . '/' . $intakeId;
+
+        return static::createNotification($targetOfficeCode, $message, $url);
+    }
+
+    /**
      * Remove RFIO office-intake submit notifications for a DRF/DCN once it is registered
      * or returned/resubmitted. Keeps ?registered=1 success notices.
      */

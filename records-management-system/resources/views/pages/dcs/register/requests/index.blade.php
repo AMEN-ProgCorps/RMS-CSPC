@@ -39,12 +39,6 @@ new #[Layout('layouts.dcs')] #[Title('Request — CSPC DCS')] class extends Comp
 }; ?>
 
 <div class="upd-container main-content ofi-request-page">
-    <div class="dcs-loading-overlay is-page" wire:loading.flex>
-        <div class="dcs-loading-spinner" aria-hidden="true"></div>
-        <h4>Loading requests…</h4>
-        <p>Fetching records and preparing the list.</p>
-    </div>
-
     <div class="upd-header">
         <div>
             <div class="upd-breadcrumb">Document Control System / Document Registration / <span>Request</span></div>
@@ -92,7 +86,12 @@ new #[Layout('layouts.dcs')] #[Title('Request — CSPC DCS')] class extends Comp
         </div>
     </div>
 
-    <div class="upd-table-card ofi-request-card" style="position:relative;">
+    <div class="upd-table-card ofi-request-card" style="position:relative;" wire:loading.class="is-loading">
+        <div class="dcs-loading-overlay" wire:loading.flex>
+            <div class="dcs-loading-spinner" aria-hidden="true"></div>
+            <h4>Loading requests…</h4>
+            <p>Fetching records and preparing the list.</p>
+        </div>
         <div class="upd-table-scroll">
             <table class="upd-table ofi-request-table">
                 <thead>

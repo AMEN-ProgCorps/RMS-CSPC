@@ -1528,6 +1528,25 @@
     background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 55%, #2563eb 100%) !important;
 }
 
+[data-theme="dark"] .reg-modal-header--danger {
+    background: #450a0a !important;
+    border-bottom-color: #7f1d1d !important;
+}
+
+[data-theme="dark"] .reg-modal-header--danger i {
+    color: #f87171 !important;
+}
+
+[data-theme="dark"] .reg-dist-delete-lead,
+[data-theme="dark"] .reg-dist-delete-lead strong {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .reg-modal-footer .reg-btn-danger {
+    background: #dc2626 !important;
+    color: #fff !important;
+}
+
 [data-theme="dark"] .reg-draft-lead {
     color: #f8fafc !important;
 }

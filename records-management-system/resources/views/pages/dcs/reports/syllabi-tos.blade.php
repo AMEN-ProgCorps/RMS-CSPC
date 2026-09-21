@@ -12,6 +12,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $schoolYearId = '';
     public string $semesterId = '';
     public string $yearLevel = '';
+    public string $courseType = '';
     public string $deadline = '';
 
     public function saveRemark(int $programId, string $section, string $status): void
@@ -38,15 +39,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $schoolYearId = $this->schoolYearId !== '' ? (int) $this->schoolYearId : null;
         $semesterId = $this->semesterId !== '' ? (int) $this->semesterId : null;
         $yearLevel = $this->yearLevel !== '' ? $this->yearLevel : null;
+        $courseType = $this->courseType !== '' ? $this->courseType : null;
         $deadline = $this->deadline !== '' ? $this->deadline : null;
 
         if ($yearLevel && ! in_array($yearLevel, SyllabiMonitoringHelper::YEAR_LEVELS, true)) {
             $this->yearLevel = '';
             $yearLevel = null;
         }
+        if ($courseType && ! in_array($courseType, SyllabiMonitoringHelper::COURSE_TYPES, true)) {
+            $this->courseType = '';
+            $courseType = null;
+        }
 
         $deadlines = ($collegeId && $schoolYearId && $semesterId)
-            ? SyllabiMonitoringHelper::availableDeadlines($collegeId, $schoolYearId, $semesterId, $yearLevel)
+            ? SyllabiMonitoringHelper::availableDeadlines($collegeId, $schoolYearId, $semesterId, $yearLevel, $courseType)
             : [];
 
         if ($deadline && ! in_array($deadline, $deadlines, true)) {
@@ -59,8 +65,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'schoolYears' => DB::table('dcs_school_years')->orderBy('school_year', 'desc')->get(['id', 'school_year']),
             'semesters' => DB::table('dcs_semesters')->orderBy('id')->get(['id', 'semester_name']),
             'yearLevels' => SyllabiMonitoringHelper::YEAR_LEVELS,
+            'courseTypes' => SyllabiMonitoringHelper::COURSE_TYPES,
             'deadlines' => $deadlines,
-            'report' => SyllabiMonitoringHelper::build($collegeId, $schoolYearId, $semesterId, $deadline, $yearLevel),
+            'report' => SyllabiMonitoringHelper::build($collegeId, $schoolYearId, $semesterId, $deadline, $yearLevel, $courseType),
         ];
     }
 }; ?>
@@ -123,6 +130,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </select>
             </div>
             <div class="rpt-filter-group">
+                <label>Course Type</label>
+                <select wire:model.live="courseType">
+                    <option value="">All course types</option>
+                    @foreach($courseTypes as $type)
+                        <option value="{{ $type }}">{{ $type }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="rpt-filter-group">
                 <label>Deadline (from syllabi)</label>
                 <select wire:model.live="deadline" @disabled(count($deadlines) === 0)>
                     <option value="">All deadlines</option>
@@ -138,7 +154,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <div
             class="rpt-preview-loading rpt-body-loading"
             wire:loading.flex
-            wire:target="collegeId,schoolYearId,semesterId,yearLevel,deadline,saveRemark"
+            wire:target="collegeId,schoolYearId,semesterId,yearLevel,courseType,deadline,saveRemark"
         >
             <div class="rpt-state-spinner" aria-hidden="true"></div>
             <h4>Loading report…</h4>
@@ -149,7 +165,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <section
             class="rpt-state-pick"
             wire:loading.class="is-dimmed"
-            wire:target="collegeId,schoolYearId,semesterId,yearLevel,deadline"
+            wire:target="collegeId,schoolYearId,semesterId,yearLevel,courseType,deadline"
         >
             <p class="rpt-template-status">Select a college, academic year, and semester to load the monitoring table. Pick a syllabus deadline to filter that cohort and save remarks.</p>
         </section>
@@ -157,7 +173,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <section
             class="rpt-results"
             wire:loading.class="is-dimmed"
-            wire:target="collegeId,schoolYearId,semesterId,yearLevel,deadline,saveRemark"
+            wire:target="collegeId,schoolYearId,semesterId,yearLevel,courseType,deadline,saveRemark"
         >
             <div class="rpt-results-head">
                 <div class="rpt-results-meta">
@@ -166,6 +182,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         @if(!empty($report['meta']['year_level']))
                             · {{ $report['meta']['year_level'] }}
                         @endif
+                        @if(!empty($report['meta']['course_type']))
+                            · {{ $report['meta']['course_type'] }}
+                        @endif
                     </h3>
                     <span class="rpt-results-count">
                         {{ count($report['rows']) }} programs
@@ -173,6 +192,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             · {{ $report['meta']['year_level'] }}
                         @else
                             · All year levels
+                        @endif
+                        @if(!empty($report['meta']['course_type']))
+                            · {{ $report['meta']['course_type'] }}
+                        @else
+                            · All course types
                         @endif
                         @if($report['meta']['deadline'])
                             · Deadline {{ $report['meta']['deadline'] }}

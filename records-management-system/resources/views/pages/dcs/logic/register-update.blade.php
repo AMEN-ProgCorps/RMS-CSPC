@@ -47,7 +47,7 @@ class RegisterUpdateHelper
         ], RegisterPersistHelper::scanFileRules()));
 
         if (! $saveAsDraft) {
-            if ($redirect = RegisterPersistHelper::validateSyllabiLikeRequestRows($request)) {
+            if ($redirect = RegisterPersistHelper::validateSyllabiLikeRequestRows($request, $id)) {
                 return $redirect;
             }
         }

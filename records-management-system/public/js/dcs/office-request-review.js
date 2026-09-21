@@ -12,11 +12,15 @@
     const unlockReason = document.getElementById('ofiRequestUnlockReason');
     const unlockBtn = document.getElementById('ofiRequestUnlockBtn');
     const unlockMeta = document.getElementById('ofiRequestUnlockMeta');
+    const notifyBtn = document.getElementById('ofiRequestNotifyPrintBtn');
+    const notifyLabel = document.getElementById('ofiRequestNotifyPrintLabel');
+    const notifyMeta = document.getElementById('ofiRequestNotifyMeta');
     const proceed = document.getElementById('ofiRequestProceed');
 
     let busy = false;
     let registerUrl = root.getAttribute('data-register-url') || '';
     let canRegister = root.getAttribute('data-can-register') === '1';
+    let printNotified = root.getAttribute('data-print-notified') === '1';
 
     function csrfToken() {
         return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
@@ -53,6 +57,25 @@
     function syncUnlock(received) {
         if (!unlockBlock) return;
         unlockBlock.hidden = !!received;
+    }
+
+    function lockUnlockAfterPrintNotify() {
+        printNotified = true;
+        root.setAttribute('data-print-notified', '1');
+        if (unlockReason) unlockReason.disabled = true;
+        if (unlockBtn) {
+            unlockBtn.disabled = true;
+            unlockBtn.title = 'Not available after notifying the office that the form is correct.';
+            const icon = unlockBtn.querySelector('i');
+            if (icon) {
+                icon.classList.remove('fa-unlock');
+                icon.classList.add('fa-lock');
+            }
+        }
+        if (unlockMeta) {
+            unlockMeta.textContent = 'Locked — office was already notified that this submission is correct.';
+            unlockMeta.hidden = false;
+        }
     }
 
     async function markReceived() {
@@ -124,6 +147,10 @@
 
     async function unlockEdit() {
         if (busy) return;
+        if (printNotified) {
+            alert('Enable edit is not available after notifying the office that this submission is correct.');
+            return;
+        }
         const reason = (unlockReason?.value || '').trim();
         if (reason.length < 3) {
             alert('Please enter a reason (at least 3 characters) before enabling edit.');
@@ -163,7 +190,56 @@
             alert(err.message || 'Could not enable edit.');
         } finally {
             busy = false;
-            if (unlockBtn) unlockBtn.disabled = false;
+            if (unlockBtn && !printNotified) unlockBtn.disabled = false;
+        }
+    }
+
+    async function notifyPrintReady() {
+        if (busy) return;
+        if (printNotified) {
+            const ok = window.confirm('Resend the print & sign notification to the submitting office?');
+            if (!ok) return;
+        }
+        busy = true;
+        if (notifyBtn) notifyBtn.disabled = true;
+        try {
+            const response = await fetch(
+                '/dcs/api/office-intake/' + encodeURIComponent(type) + '/' + encodeURIComponent(id) + '/notify-print-ready',
+                {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': csrfToken(),
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({}),
+                }
+            );
+            if (!response.ok) {
+                let message = 'Could not notify the office.';
+                try {
+                    const err = await response.json();
+                    message = err.message || err.error || message;
+                } catch (_) { /* ignore */ }
+                throw new Error(message);
+            }
+            const data = await response.json();
+            lockUnlockAfterPrintNotify();
+            if (notifyLabel) notifyLabel.textContent = 'Resend print & sign notice';
+            if (notifyMeta) {
+                let text = 'Client notified';
+                if (data.printNotifiedAt) text += ' on ' + data.printNotifiedAt;
+                if (data.printNotifiedBy) text += ' by ' + data.printNotifiedBy;
+                notifyMeta.textContent = text;
+                notifyMeta.hidden = false;
+            }
+        } catch (err) {
+            alert(err.message || 'Could not notify the office.');
+        } finally {
+            busy = false;
+            if (notifyBtn) notifyBtn.disabled = false;
         }
     }
 
@@ -203,6 +279,7 @@
         else clearReceived();
     });
     unlockBtn?.addEventListener('click', unlockEdit);
+    notifyBtn?.addEventListener('click', notifyPrintReady);
     proceed?.addEventListener('click', proceedToRegistration);
 
     syncProceed(root.getAttribute('data-received') === '1');

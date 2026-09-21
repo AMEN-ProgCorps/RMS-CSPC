@@ -665,6 +665,17 @@ class DcsAccessControlTest extends TestCase
             $success->redirect_url,
             $success->content
         ));
+
+        $printReady = (object) [
+            'redirect_url' => '/dcs/office/drf/12',
+            'content' => 'Your Document Request Form "Quality Manual" has been reviewed and is correct. You can now print and sign the request, then bring the signed hard copy to the Records Office for further processing.',
+        ];
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isOfficeIntakeSubmitterSuccessNotice(
+            $printReady->redirect_url,
+            $printReady->content
+        ));
+        $filteredPrint = \App\Helpers\RegisterQueryHelper::filterBellNotifications(collect([$printReady]));
+        $this->assertCount(0, $filteredPrint);
     }
 
     public function test_sadm_non_rfio_can_access_full_dcs(): void

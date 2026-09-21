@@ -70,6 +70,11 @@ body {
     transition: left var(--dcs-ease, 0.3s cubic-bezier(0.4, 0, 0.2, 1));
 }
 
+/* Keep Register pages clear of the top-tabs bar (reinforces top-tabs.css). */
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
+    top: calc(var(--dcs-header-height, var(--nav-top, 70px)) + 58px);
+}
+
 .reg-container::-webkit-scrollbar {
     width: 6px;
 }
@@ -1190,6 +1195,15 @@ body {
     grid-template-columns: repeat(4, 1fr);
     gap: 16px;
     margin-bottom: 16px;
+}
+
+#syllabiContextHint.is-error {
+    color: #b42318;
+    font-size: 0.875rem;
+}
+#syllabiContextHint.is-ok {
+    color: #027a48;
+    font-size: 0.875rem;
 }
 
 .reg-grid-3,
@@ -2708,6 +2722,53 @@ select.reg-field-locked:disabled {
     background: var(--reg-accent-dark);
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(13, 42, 122, 0.25);
+}
+
+.reg-btn-danger {
+    background: #dc2626;
+    color: #fff;
+}
+
+.reg-btn-danger:hover {
+    background: #b91c1c;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.28);
+}
+
+.reg-btn-danger:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.reg-modal--dist-delete {
+    max-width: 420px;
+}
+
+.reg-modal-header--danger {
+    background: #fef2f2;
+    border-bottom-color: #fecaca;
+}
+
+.reg-modal-header--danger i {
+    color: #dc2626;
+}
+
+.reg-dist-delete-lead {
+    margin: 0 0 8px;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: var(--reg-text, #0f172a);
+}
+
+.reg-dist-delete-lead strong {
+    color: #0f172a;
+    font-weight: 700;
+}
+
+.reg-dist-delete-hint {
+    margin: 0;
 }
 
 .reg-btn-draft {

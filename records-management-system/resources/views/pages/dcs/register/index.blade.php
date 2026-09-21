@@ -190,8 +190,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
             <div class="reg-card-body">
 
-                <!-- ═══ CONTEXT: College / Program / Semester / School Year ═══ -->
-                <div class="reg-grid-4">
+                <!-- ═══ CONTEXT: College / Program / Semester / Course Type / Year Level / School Year ═══ -->
+                <div class="reg-grid-3 reg-grid-syllabi-context">
                     <div class="reg-field">
                         <label>College</label>
                         <select id="syllabiCollege" name="college_id">
@@ -211,12 +211,34 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </select>
                     </div>
                     <div class="reg-field">
+                        <label>Course Type</label>
+                        <select id="syllabiCourseType" name="course_type" disabled>
+                            <option value="" selected disabled>Select course type</option>
+                            <option value="GE Courses">GE Courses</option>
+                            <option value="PE Courses">PE Courses</option>
+                            <option value="NSTP">NSTP</option>
+                            <option value="Major">Major</option>
+                        </select>
+                    </div>
+                    <div class="reg-field">
+                        <label>Year Level</label>
+                        <select id="syllabiYearLevel" name="year_level" disabled>
+                            <option value="" selected disabled>Select year level</option>
+                            <option value="1st Year">1st Year</option>
+                            <option value="2nd Year">2nd Year</option>
+                            <option value="3rd Year">3rd Year</option>
+                            <option value="4th Year">4th Year</option>
+                            <option value="5th Year">5th Year</option>
+                        </select>
+                    </div>
+                    <div class="reg-field">
                         <label>School Year</label>
                         <select id="syllabiSchoolYear" name="school_year_id" disabled>
                             <option value="" selected disabled>Select school year</option>
                         </select>
                     </div>
                 </div>
+                <div id="syllabiContextHint" class="reg-field-hint" style="display:none; margin: -4px 0 12px;" role="status" aria-live="polite"></div>
 
                 <!-- ═══ DOCUMENT INFO ═══ -->
                 <div class="reg-field" style="margin-bottom: 16px;">
@@ -4689,11 +4711,28 @@ function resetSyllabiSection() {
     const collegeSel = document.getElementById('syllabiCollege');
     const programSel = document.getElementById('syllabiProgram');
     const semSel = document.getElementById('syllabiSemester');
+    const courseTypeSel = document.getElementById('syllabiCourseType');
+    const yearLevelSel = document.getElementById('syllabiYearLevel');
     const sySel = document.getElementById('syllabiSchoolYear');
     if (collegeSel) collegeSel.selectedIndex = 0;
     if (programSel) { programSel.innerHTML = '<option value="" selected disabled>Select program</option>'; programSel.disabled = true; }
     if (semSel) { semSel.selectedIndex = 0; semSel.disabled = true; }
+    if (courseTypeSel) { courseTypeSel.selectedIndex = 0; courseTypeSel.disabled = true; }
+    if (yearLevelSel) { yearLevelSel.selectedIndex = 0; yearLevelSel.disabled = true; }
     if (sySel) { sySel.selectedIndex = 0; sySel.disabled = true; }
+
+    if (typeof setSyllabiContextHint === 'function') {
+        setSyllabiContextHint('', false);
+    } else {
+        const hint = document.getElementById('syllabiContextHint');
+        if (hint) {
+            hint.style.display = 'none';
+            hint.textContent = '';
+            hint.classList.remove('is-error', 'is-ok');
+        }
+    }
+
+    if (typeof updateSyllabiTotals === 'function') updateSyllabiTotals();
 }
 
 // ══════════════════════════════════════════════
@@ -5623,8 +5662,15 @@ function collectMissingFields() {
         checkText("Syllabi", "syllabiCollege", "College");
         checkText("Syllabi", "syllabiProgram", "Program");
         checkText("Syllabi", "syllabiSemester", "Semester");
+        checkText("Syllabi", "syllabiCourseType", "Course Type");
+        checkText("Syllabi", "syllabiYearLevel", "Year Level");
         checkText("Syllabi", "syllabiSchoolYear", "School Year");
         checkText("Syllabi", "syllabiDocTitle", "Document Title");
+
+        const contextHint = document.getElementById('syllabiContextHint');
+        if (contextHint && contextHint.classList.contains('is-error') && contextHint.textContent.trim()) {
+            missing.push("Syllabi: " + contextHint.textContent.trim());
+        }
 
         const syllabiRows = document.querySelectorAll("#syllabiTableBody tr[data-is-first='true']");
         if (syllabiRows.length === 0) {
@@ -6070,6 +6116,8 @@ function buildSyllabiInfoReview(reviewContent) {
         { label: "College", value: getSelectText("syllabiCollege") },
         { label: "Program", value: getSelectText("syllabiProgram") },
         { label: "Semester", value: getSelectText("syllabiSemester") },
+        { label: "Course Type", value: getSelectText("syllabiCourseType") },
+        { label: "Year Level", value: getSelectText("syllabiYearLevel") },
         { label: "School Year", value: getSelectText("syllabiSchoolYear") },
         { label: "Document Title", value: getInputVal("syllabiDocTitle") },
     ]);
@@ -6642,17 +6690,84 @@ function syllabiContextComplete() {
     return document.getElementById('syllabiCollege')?.value
         && document.getElementById('syllabiProgram')?.value
         && document.getElementById('syllabiSemester')?.value
+        && document.getElementById('syllabiCourseType')?.value
+        && document.getElementById('syllabiYearLevel')?.value
         && document.getElementById('syllabiSchoolYear')?.value;
+}
+
+function setSyllabiContextHint(message, isError) {
+    const hint = document.getElementById('syllabiContextHint');
+    if (!hint) return;
+    if (!message) {
+        hint.style.display = 'none';
+        hint.textContent = '';
+        hint.classList.remove('is-error', 'is-ok');
+        return;
+    }
+    hint.style.display = 'block';
+    hint.textContent = message;
+    hint.classList.toggle('is-error', !!isError);
+    hint.classList.toggle('is-ok', !isError);
+}
+
+async function checkSyllabiContextTaken() {
+    if (!syllabiContextComplete()) {
+        setSyllabiContextHint('', false);
+        return false;
+    }
+
+    const params = new URLSearchParams({
+        college_id: document.getElementById('syllabiCollege').value,
+        program_id: document.getElementById('syllabiProgram').value,
+        semester_id: document.getElementById('syllabiSemester').value,
+        school_year_id: document.getElementById('syllabiSchoolYear').value,
+        course_type: document.getElementById('syllabiCourseType').value,
+        year_level: document.getElementById('syllabiYearLevel').value,
+    });
+    const subType = document.getElementById('subType')?.value;
+    if (subType) params.set('sub_type_id', subType);
+    if (window.__excludeSyllabiRequestId) {
+        params.set('exclude_request_id', String(window.__excludeSyllabiRequestId));
+    }
+
+    try {
+        const data = await fetch('/dcs/register/check-syllabi-context?' + params.toString(), {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        }).then((r) => r.json());
+
+        if (data.taken) {
+            setSyllabiContextHint(data.message || 'This semester and school year are already registered.', true);
+            clearSyllabiCourseRows();
+            return true;
+        }
+
+        setSyllabiContextHint('', false);
+        return false;
+    } catch (err) {
+        console.error('Failed to check syllabi context:', err);
+        setSyllabiContextHint('', false);
+        return false;
+    }
 }
 
 async function autoPopulateSyllabiCourses() {
     if (!syllabiContextComplete()) return;
 
+    const taken = await checkSyllabiContextTaken();
+    if (taken) return;
+
     const programId  = document.getElementById('syllabiProgram').value;
     const semesterId = document.getElementById('syllabiSemester').value;
+    const courseType = document.getElementById('syllabiCourseType')?.value || '';
+    const yearLevel  = document.getElementById('syllabiYearLevel')?.value || '';
 
     try {
-        const courses = ((window.__registerCatalog || {}).coursesByProgramSemester || {})[programId + ':' + semesterId] || [];
+        let courses = ((window.__registerCatalog || {}).coursesByProgramSemester || {})[programId + ':' + semesterId] || [];
+        courses = courses.filter((c) => {
+            const typeOk = !courseType || String(c.course_type || '') === courseType;
+            const yearOk = !yearLevel || String(c.year_level || '') === yearLevel;
+            return typeOk && yearOk;
+        });
         const tbody = document.getElementById('syllabiTableBody');
         if (!tbody) return;
 
@@ -6705,7 +6820,7 @@ function showSyllabiEmptyCatalogHint() {
     const tbody = document.getElementById('syllabiTableBody');
     if (!tbody) return;
     tbody.querySelectorAll('tr[data-uid]').forEach(tr => removeSyllabiFacultyPicker(tr.dataset.uid));
-    tbody.innerHTML = '<tr class="syllabi-empty-hint"><td colspan="15">No courses in Settings for this program and semester. Add them under Settings → Course Names, or click Add Course.</td></tr>';
+    tbody.innerHTML = '<tr class="syllabi-empty-hint"><td colspan="15">No courses in Settings for this program, semester, course type, and year level. Add them under Settings → Course Names, or click Add Course.</td></tr>';
     syllabiGroupCounter = 0;
     if (typeof updateSyllabiTotals === 'function') updateSyllabiTotals();
 }
@@ -6732,6 +6847,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const collegeSel = document.getElementById("syllabiCollege");
     const programSel = document.getElementById("syllabiProgram");
     const semSel = document.getElementById("syllabiSemester");
+    const courseTypeSel = document.getElementById("syllabiCourseType");
+    const yearLevelSel = document.getElementById("syllabiYearLevel");
     const sySel = document.getElementById("syllabiSchoolYear");
     const titleInput = document.getElementById("syllabiDocTitle");
 
@@ -6740,16 +6857,23 @@ document.addEventListener("DOMContentLoaded", () => {
         titleInput.addEventListener("input", () => { syllabiTitleManuallyEdited = true; });
     }
 
+    function resetDownstreamFrom(level) {
+        if (level <= 1 && programSel) {
+            programSel.innerHTML = '<option value="" selected disabled>Select program</option>';
+            programSel.disabled = true;
+        }
+        if (level <= 2 && semSel) { semSel.value = ""; semSel.disabled = true; }
+        if (level <= 3 && courseTypeSel) { courseTypeSel.value = ""; courseTypeSel.disabled = true; }
+        if (level <= 4 && yearLevelSel) { yearLevelSel.value = ""; yearLevelSel.disabled = true; }
+        if (level <= 5 && sySel) { sySel.value = ""; sySel.disabled = true; }
+        updateSyllabiTitle();
+        clearSyllabiCourseRows();
+        setSyllabiContextHint('', false);
+    }
+
     if (collegeSel) {
         collegeSel.addEventListener("change", async function () {
-            if (programSel) {
-                programSel.innerHTML = '<option value="" selected disabled>Select program</option>';
-                programSel.disabled = true;
-            }
-            if (semSel) { semSel.value = ""; semSel.disabled = true; }
-            if (sySel) { sySel.value = ""; sySel.disabled = true; }
-            updateSyllabiTitle();
-            clearSyllabiCourseRows();
+            resetDownstreamFrom(1);
             allFaculties = [];
             window.__facultiesCacheKey = null;
 
@@ -6773,21 +6897,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (programSel) {
         programSel.addEventListener("change", function () {
-            semSel.value = "";
-            semSel.disabled = !this.value;
-            sySel.value = "";
-            sySel.disabled = true;
-            updateSyllabiTitle();
-            clearSyllabiCourseRows(); 
+            resetDownstreamFrom(2);
+            if (semSel) semSel.disabled = !this.value;
         });
     }
 
     if (semSel) {
         semSel.addEventListener("change", function () {
-            sySel.value = "";
-            sySel.disabled = !this.value;
-            updateSyllabiTitle();
-            clearSyllabiCourseRows(); 
+            resetDownstreamFrom(3);
+            if (courseTypeSel) courseTypeSel.disabled = !this.value;
+        });
+    }
+
+    if (courseTypeSel) {
+        courseTypeSel.addEventListener("change", function () {
+            resetDownstreamFrom(4);
+            if (yearLevelSel) yearLevelSel.disabled = !this.value;
+        });
+    }
+
+    if (yearLevelSel) {
+        yearLevelSel.addEventListener("change", function () {
+            resetDownstreamFrom(5);
+            if (sySel) sySel.disabled = !this.value;
         });
     }
 

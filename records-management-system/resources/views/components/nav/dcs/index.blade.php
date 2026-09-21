@@ -100,8 +100,8 @@
         @if($isFullDcs)
             @php $canReviewIntake = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake(); @endphp
             @if($canRegister)
-                @if($enableTopTabs && ! $canReviewIntake)
-                    <li class="nav-item {{ request()->is('dcs/register*') ? 'active' : '' }}">
+                @if($enableTopTabs)
+                    <li class="nav-item {{ request()->is('dcs/register*') || request()->routeIs('dcs.requests.*') ? 'active' : '' }}">
                         <a href="{{ route('dcs.register.create', absolute: false) }}">
                             <i class="fa-regular fa-pen-to-square"></i>
                             <span>Document Registration</span>

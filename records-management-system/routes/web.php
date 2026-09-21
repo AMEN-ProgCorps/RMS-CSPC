@@ -722,6 +722,10 @@ Route::middleware(['auth'])
                 return response()->json(OfficeIntakeHelper::unlockForEdit($type, $id, $reason));
             })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.unlock-edit');
 
+            Route::post('/api/office-intake/{type}/{id}/notify-print-ready', function (string $type, int $id) {
+                return response()->json(OfficeIntakeHelper::notifyReadyForPrintSign($type, $id));
+            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.notify-print-ready');
+
             Route::middleware(['dcs.full'])->group(function () {
                 Route::get('/api/documents/{id}/checklist/{type}', function (int $id, string $type) {
                     return response()->json(RegisterQueryHelper::documentChecklistPreview($id, $type));
@@ -746,6 +750,8 @@ Route::middleware(['auth'])
                         ->name('register.checkDocNo');
                     Route::get('/register/check-revno', fn (Request $request) => response()->json(RegisterQueryHelper::checkRevNo($request)))
                         ->name('register.checkRevNo');
+                    Route::get('/register/check-syllabi-context', fn (Request $request) => response()->json(RegisterQueryHelper::checkSyllabiContext($request)))
+                        ->name('register.checkSyllabiContext');
                     Route::post('/register/extract-scan', fn (Request $request) => response()->json(RegisterScanService::extract($request)))
                         ->name('register.extractScan');
                     Route::get('/register/distribution-office-groups', fn () => response()->json([

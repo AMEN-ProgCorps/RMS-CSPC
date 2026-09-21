@@ -1652,7 +1652,7 @@ class RegisterPersistHelper
             . '", not the selected Document Type.';
     }
 
-    public static function validateSyllabiLikeRequestRows(Request $request): ?RedirectResponse
+    public static function validateSyllabiLikeRequestRows(Request $request, ?int $exceptRequestId = null): ?RedirectResponse
     {
         $subType = self::dcsDocType($request->sub_type_id);
         $isSyllabi = self::isSyllabiLikeSubTypeRow($subType);
@@ -1708,17 +1708,106 @@ class RegisterPersistHelper
         }
 
         $request->validate([
-            'college_id' => 'nullable|integer|exists:dcs_colleges,id',
-            'program_id' => 'nullable|integer|exists:dcs_programs,id',
-            'semester_id' => 'nullable|integer|exists:dcs_semesters,id',
-            'school_year_id' => 'nullable|integer|exists:dcs_school_years,id',
+            'college_id' => 'required|integer|exists:dcs_colleges,id',
+            'program_id' => 'required|integer|exists:dcs_programs,id',
+            'semester_id' => 'required|integer|exists:dcs_semesters,id',
+            'school_year_id' => 'required|integer|exists:dcs_school_years,id',
+            'course_type' => 'required|string|max:50|in:GE Courses,PE Courses,NSTP,Major',
+            'year_level' => 'required|string|max:50|in:1st Year,2nd Year,3rd Year,4th Year,5th Year',
             'syllabiDocNo' => 'nullable|string',
             'syllabiDocTitle' => 'nullable|string',
             'syllabiEffectivityDate' => 'nullable|date',
             'syllabiDeadline' => 'nullable|date',
         ]);
 
+        $duplicate = self::findSyllabiContextDuplicate(
+            (int) $request->input('college_id'),
+            (int) $request->input('program_id'),
+            (int) $request->input('semester_id'),
+            (int) $request->input('school_year_id'),
+            trim((string) $request->input('course_type')),
+            trim((string) $request->input('year_level')),
+            $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null,
+            $exceptRequestId
+        );
+
+        if ($duplicate) {
+            $label = RegisterQueryHelper::isSyllabiLikeName($subType->doc_type_name ?? null)
+                ? trim((string) ($subType->doc_type_name ?? 'Syllabi'))
+                : 'Syllabi';
+            $sy = DB::table('dcs_school_years')->where('id', (int) $request->input('school_year_id'))->value('school_year');
+            $sem = DB::table('dcs_semesters')->where('id', (int) $request->input('semester_id'))->value('semester_name');
+            $courseType = trim((string) $request->input('course_type'));
+            $yearLevel = trim((string) $request->input('year_level'));
+
+            return back()->withInput()->with(
+                'error',
+                "{$label} for {$courseType}, {$yearLevel}, {$sem}, S/Y {$sy} is already registered. "
+                . 'Only one registration is allowed per semester and school year for this course type and year level.'
+            );
+        }
+
         return null;
+    }
+
+    /**
+     * Syllabi / TOS-like registrations are once per college + program + semester
+     * + school year + course type + year level (+ document sub-type).
+     */
+    public static function findSyllabiContextDuplicate(
+        int $collegeId,
+        int $programId,
+        int $semesterId,
+        int $schoolYearId,
+        string $courseType,
+        string $yearLevel,
+        ?int $subTypeId = null,
+        ?int $exceptRequestId = null
+    ): ?object {
+        if ($collegeId < 1 || $programId < 1 || $semesterId < 1 || $schoolYearId < 1) {
+            return null;
+        }
+        if ($courseType === '' || $yearLevel === '') {
+            return null;
+        }
+        if (! Schema::hasTable('dcs_syllabi')) {
+            return null;
+        }
+
+        $query = DB::table('dcs_syllabi as s')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 's.request_id')
+            ->where('s.college_id', $collegeId)
+            ->where('s.program_id', $programId)
+            ->where('s.semester_id', $semesterId)
+            ->where('s.school_year_id', $schoolYearId);
+
+        if ($subTypeId) {
+            $query->where('dr.sub_type_id', $subTypeId);
+        }
+
+        if ($exceptRequestId) {
+            $query->where('s.request_id', '!=', $exceptRequestId);
+        }
+
+        if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
+            $query->whereNull('dr.deleted_at');
+        }
+
+        if (Schema::hasColumn('dcs_program_courses', 'course_type')
+            || Schema::hasColumn('dcs_program_courses', 'year_level')) {
+            $query->join('dcs_program_courses as pc', 'pc.id', '=', 's.course_id');
+            if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
+                $query->where('pc.course_type', $courseType);
+            }
+            if (Schema::hasColumn('dcs_program_courses', 'year_level')) {
+                $query->where('pc.year_level', $yearLevel);
+            }
+        }
+
+        return $query
+            ->orderByDesc('s.request_id')
+            ->select(['s.request_id', 's.college_id', 's.program_id', 's.semester_id', 's.school_year_id'])
+            ->first();
     }
 
     /**
@@ -1920,6 +2009,12 @@ class RegisterPersistHelper
         $i = 0;
         $now = now();
         $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
+        $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
+        $hasCourseType = Schema::hasColumn('dcs_program_courses', 'course_type');
+        $yearLevel = $hasYearLevel ? trim((string) ($request->input('year_level') ?? '')) : '';
+        $courseType = $hasCourseType ? trim((string) ($request->input('course_type') ?? '')) : '';
+        $yearLevel = $yearLevel !== '' ? $yearLevel : null;
+        $courseType = $courseType !== '' ? $courseType : null;
 
         while ($i < $total) {
             $courseName = $courseNames[$i];
@@ -1935,11 +2030,17 @@ class RegisterPersistHelper
                 continue;
             }
 
-            $course = DB::table('dcs_program_courses')
+            $courseQuery = DB::table('dcs_program_courses')
                 ->where('program_id', $request->program_id)
                 ->where('semester_id', $request->semester_id)
-                ->where('course_name', $courseName)
-                ->first();
+                ->where('course_name', $courseName);
+            if ($hasYearLevel && $yearLevel !== null) {
+                $courseQuery->where('year_level', $yearLevel);
+            }
+            if ($hasCourseType && $courseType !== null) {
+                $courseQuery->where('course_type', $courseType);
+            }
+            $course = $courseQuery->first();
 
             $courseCode = trim((string) ($courseCodes[$i] ?? ''));
             $courseCode = $courseCode !== '' ? $courseCode : null;
@@ -1948,7 +2049,9 @@ class RegisterPersistHelper
                     (int) $request->program_id,
                     (int) $request->semester_id,
                     $courseCode,
-                    $course?->id
+                    $course?->id,
+                    $yearLevel,
+                    $courseType
                 )
                 : false;
 
@@ -1960,6 +2063,12 @@ class RegisterPersistHelper
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
+                if ($hasYearLevel && $yearLevel !== null) {
+                    $insert['year_level'] = $yearLevel;
+                }
+                if ($hasCourseType && $courseType !== null) {
+                    $insert['course_type'] = $courseType;
+                }
                 if ($hasCourseCode) {
                     $insert['course_code'] = $codeInUse ? null : $courseCode;
                 }
@@ -2048,14 +2157,26 @@ class RegisterPersistHelper
         }
     }
 
-    private static function programCourseCodeTaken(int $programId, int $semesterId, string $courseCode, ?int $exceptId = null): bool
-    {
+    private static function programCourseCodeTaken(
+        int $programId,
+        int $semesterId,
+        string $courseCode,
+        ?int $exceptId = null,
+        ?string $yearLevel = null,
+        ?string $courseType = null
+    ): bool {
         $query = DB::table('dcs_program_courses')
             ->where('program_id', $programId)
             ->where('semester_id', $semesterId)
             ->where('course_code', $courseCode);
         if ($exceptId) {
             $query->where('id', '!=', $exceptId);
+        }
+        if ($yearLevel !== null && Schema::hasColumn('dcs_program_courses', 'year_level')) {
+            $query->where('year_level', $yearLevel);
+        }
+        if ($courseType !== null && Schema::hasColumn('dcs_program_courses', 'course_type')) {
+            $query->where('course_type', $courseType);
         }
 
         return $query->exists();

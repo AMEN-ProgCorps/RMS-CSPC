@@ -5,7 +5,8 @@
     top: var(--dcs-header-height);
     left: var(--dcs-sidebar);
     right: 0;
-    z-index: 40;
+    /* Above fixed page shells (often z-index:1); below sidebar (999) and modals */
+    z-index: 90;
     /* Use pad-x only — --dcs-page-pad is two values and would zero out left padding. */
     padding: 10px var(--dcs-page-pad-x) 0;
     box-sizing: border-box;

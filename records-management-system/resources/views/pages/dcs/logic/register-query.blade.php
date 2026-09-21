@@ -558,7 +558,7 @@ class RegisterQueryHelper
     }
 
     /**
-     * "Your DRF/DCN was registered" success notice for the submitting office only.
+     * Client-office intake notices (print/sign, correction return, registered success).
      * Document Controllers in the same RFOIU office must not see these.
      */
     public static function isOfficeIntakeSubmitterSuccessNotice(?string $redirectUrl, ?string $content = null): bool
@@ -585,9 +585,17 @@ class RegisterQueryHelper
             return false;
         }
 
-        return (str_starts_with($content, 'Your Document Request Form')
-                || str_starts_with($content, 'Your Document Change Notice'))
-            && str_contains($content, 'registered');
+        // Print & sign / correction / registered — all addressed to the submitting office.
+        if (
+            str_starts_with($content, 'Your Document Request Form')
+            || str_starts_with($content, 'Your Document Change Notice')
+            || str_starts_with($content, 'RFIO returned your ')
+            || str_starts_with($content, 'I have reviewed your request')
+        ) {
+            return true;
+        }
+
+        return str_contains($content, 'You can now print and sign');
     }
 
     /**
@@ -5673,6 +5681,58 @@ class RegisterQueryHelper
         ];
     }
 
+    /**
+     * Live check: syllabi/TOS context already registered for this semester + school year?
+     */
+    public static function checkSyllabiContext(Request $request): array
+    {
+        $collegeId = (int) $request->input('college_id', 0);
+        $programId = (int) $request->input('program_id', 0);
+        $semesterId = (int) $request->input('semester_id', 0);
+        $schoolYearId = (int) $request->input('school_year_id', 0);
+        $courseType = trim((string) $request->input('course_type', ''));
+        $yearLevel = trim((string) $request->input('year_level', ''));
+        $subTypeId = $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null;
+        $excludeRequestId = (int) $request->input('exclude_request_id', 0);
+
+        if ($collegeId < 1 || $programId < 1 || $semesterId < 1 || $schoolYearId < 1
+            || $courseType === '' || $yearLevel === '') {
+            return [
+                'taken' => false,
+                'incomplete' => true,
+                'message' => 'Select college, program, semester, course type, year level, and school year first.',
+            ];
+        }
+
+        $duplicate = RegisterPersistHelper::findSyllabiContextDuplicate(
+            $collegeId,
+            $programId,
+            $semesterId,
+            $schoolYearId,
+            $courseType,
+            $yearLevel,
+            $subTypeId,
+            $excludeRequestId > 0 ? $excludeRequestId : null
+        );
+
+        if (! $duplicate) {
+            return [
+                'taken' => false,
+                'message' => 'This semester and school year are available for registration.',
+            ];
+        }
+
+        $sy = DB::table('dcs_school_years')->where('id', $schoolYearId)->value('school_year');
+        $sem = DB::table('dcs_semesters')->where('id', $semesterId)->value('semester_name');
+
+        return [
+            'taken' => true,
+            'request_id' => (int) ($duplicate->request_id ?? 0),
+            'message' => "Already registered for {$courseType}, {$yearLevel}, {$sem}, S/Y {$sy}. "
+                . 'Only one registration is allowed per semester and school year for this course type and year level.',
+        ];
+    }
+
     public static function editPayload(int $id): array
     {
         $docRequest = self::findDocumentRequest($id);
@@ -5830,6 +5890,12 @@ class RegisterQueryHelper
         if (Schema::hasColumn('dcs_program_courses', 'course_code')) {
             $syllabiSelect[] = 'pc.course_code';
         }
+        if (Schema::hasColumn('dcs_program_courses', 'year_level')) {
+            $syllabiSelect[] = 'pc.year_level';
+        }
+        if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
+            $syllabiSelect[] = 'pc.course_type';
+        }
 
         $syllabi = DB::table('dcs_syllabi as s')
             ->leftJoin('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
@@ -5873,6 +5939,8 @@ class RegisterQueryHelper
             return [
                 'course_name' => $syl->course_name ?? '',
                 'course_code' => $syl->course_code ?? '',
+                'year_level' => $syl->year_level ?? '',
+                'course_type' => $syl->course_type ?? '',
                 'availability' => self::pgBool($syl->is_available),
                 'no_pages' => $syl->no_pages,
                 'copies' => $copies,
@@ -6302,6 +6370,9 @@ class RegisterQueryHelper
         if (Schema::hasColumn('dcs_program_courses', 'year_level')) {
             $courseColumns[] = 'year_level';
         }
+        if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
+            $courseColumns[] = 'course_type';
+        }
 
         $coursesByProgramSemester = [];
         $coursesQ = DB::table('dcs_program_courses');
@@ -6314,6 +6385,14 @@ class RegisterQueryHelper
                 WHEN '5th Year' THEN 5
                 ELSE 99 END");
         }
+        if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
+            $coursesQ->orderByRaw("CASE course_type
+                WHEN 'GE Courses' THEN 1
+                WHEN 'PE Courses' THEN 2
+                WHEN 'NSTP' THEN 3
+                WHEN 'Major' THEN 4
+                ELSE 99 END");
+        }
         $coursesQ->orderBy('course_name');
         SettingsRecycleHelper::applyNotDeleted($coursesQ, 'dcs_program_courses');
         foreach ($coursesQ->get($courseColumns) as $c) {
@@ -6322,6 +6401,7 @@ class RegisterQueryHelper
                 'course_name' => $c->course_name,
                 'course_code' => $c->course_code ?? '',
                 'year_level' => $c->year_level ?? '',
+                'course_type' => $c->course_type ?? '',
                 // Faculty is chosen during Syllabi / TOS-Rubrics registration (college-scoped).
                 'faculties' => [],
             ];

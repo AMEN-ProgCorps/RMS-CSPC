@@ -263,22 +263,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
     <div style="background: #ffffff; padding: 20px 24px; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 2px 6px rgba(0,0,0,0.02); display: flex; flex-direction: column; gap: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
             <div style="display: flex; align-items: center; gap: 12px;">
-                <div style="width: 42px; height: 42px; border-radius: 10px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                <div style="width: 42px; height: 42px; border-radius: 10px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
                     <i class="fa-solid fa-tag"></i>
                 </div>
                 <div>
-                    <div style="font-size: 14px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                    <div style="font-size: 14px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                         <span>Node Display Label:</span>
-                        <span style="font-size: 16px; color: #2563eb; background: #eff6ff; padding: 2px 10px; border-radius: 6px; border: 1px solid #bfdbfe;">
+                        <span style="font-size: 14px; font-weight: 800; color: #2563eb; background: #eff6ff; padding: 3px 10px; border-radius: 6px; border: 1px solid #bfdbfe; display: inline-flex; align-items: center;">
                             {{ $serverLabel }}
                         </span>
                         @if ($isAutoLabel)
-                            <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; background: #ecfdf5; color: #059669; padding: 3px 8px; border-radius: 6px; border: 1px solid #a7f3d0;">
-                                <i class="fa-solid fa-wand-magic-sparkles" style="margin-right: 4px;"></i> Dynamic Auto-Detect
+                            <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; background: #ecfdf5; color: #059669; padding: 3px 8px; border-radius: 6px; border: 1px solid #a7f3d0; display: inline-flex; align-items: center; gap: 5px;">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> Dynamic Auto-Detect
                             </span>
                         @else
-                            <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; background: #f8fafc; color: #475569; padding: 3px 8px; border-radius: 6px; border: 1px solid #cbd5e1;">
-                                <i class="fa-solid fa-pen" style="margin-right: 4px;"></i> Custom Nickname
+                            <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; background: #f8fafc; color: #475569; padding: 3px 8px; border-radius: 6px; border: 1px solid #cbd5e1; display: inline-flex; align-items: center; gap: 5px;">
+                                <i class="fa-solid fa-pen"></i> Custom Nickname
                             </span>
                         @endif
                     </div>
@@ -289,39 +289,39 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
             </div>
 
             <!-- Controls: Auto vs Custom -->
-            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                 <!-- Auto-Detect Toggle Button -->
                 <button type="button" 
                         wire:click="toggleAutoDetect" 
                         wire:loading.attr="disabled" 
                         title="{{ $isAutoLabel ? 'Auto-Detect is ENABLED (Custom label is locked). Click to disable and unlock custom editing.' : 'Auto-Detect is DISABLED. Click to enable Auto-Detect and lock custom label.' }}"
-                        style="background: {{ $isAutoLabel ? '#2563eb' : '#f8fafc' }}; color: {{ $isAutoLabel ? '#ffffff' : '#334155' }}; border: 1px solid {{ $isAutoLabel ? '#1d4ed8' : '#cbd5e1' }}; padding: 9px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: {{ $isAutoLabel ? '0 2px 6px rgba(37, 99, 235, 0.25)' : 'none' }}; transition: all 0.2s;">
+                        style="height: 38px; box-sizing: border-box; background: {{ $isAutoLabel ? '#2563eb' : '#f8fafc' }}; color: {{ $isAutoLabel ? '#ffffff' : '#334155' }}; border: 1px solid {{ $isAutoLabel ? '#1d4ed8' : '#cbd5e1' }}; padding: 0 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: {{ $isAutoLabel ? '0 2px 6px rgba(37, 99, 235, 0.25)' : 'none' }}; transition: all 0.2s;">
                     <i class="fa-solid {{ $isAutoLabel ? 'fa-wand-magic-sparkles' : 'fa-power-off' }}" style="font-size: 13px;"></i>
                     <span>{{ $isAutoLabel ? 'Auto-Detect: Enabled' : 'Auto-Detect: Disabled' }}</span>
                 </button>
 
                 <!-- Custom Label Form (Locked when Auto-Detect is enabled) -->
-                <form wire:submit.prevent="saveCustomLabel" style="display: flex; gap: 8px; align-items: center;">
+                <form wire:submit.prevent="saveCustomLabel" style="display: flex; gap: 8px; align-items: center; margin: 0; padding: 0;">
                     <input type="text" 
                            wire:model="customLabelInput" 
                            {{ $isAutoLabel ? 'disabled' : '' }}
                            placeholder="{{ $isAutoLabel ? 'Locked (Auto Enabled)' : 'Enter custom label...' }}" 
                            title="{{ $isAutoLabel ? 'Custom label is locked because Auto-Detect is enabled. Click Auto-Detect button to unlock.' : 'Enter custom nickname' }}"
-                           style="padding: 8px 12px; border-radius: 8px; border: 1px solid {{ $isAutoLabel ? '#e2e8f0' : '#cbd5e1' }}; font-size: 13px; font-weight: 600; width: 170px; background: {{ $isAutoLabel ? '#f1f5f9' : '#ffffff' }}; color: {{ $isAutoLabel ? '#94a3b8' : '#0f172a' }}; cursor: {{ $isAutoLabel ? 'not-allowed' : 'text' }}; transition: all 0.2s;">
+                           style="height: 38px; box-sizing: border-box; padding: 0 12px; border-radius: 8px; border: 1px solid {{ $isAutoLabel ? '#e2e8f0' : '#cbd5e1' }}; font-size: 13px; font-weight: 600; width: 170px; background: {{ $isAutoLabel ? '#f1f5f9' : '#ffffff' }}; color: {{ $isAutoLabel ? '#94a3b8' : '#0f172a' }}; cursor: {{ $isAutoLabel ? 'not-allowed' : 'text' }}; transition: all 0.2s;">
                     
                     @if ($isAutoLabel)
                         <button type="button" 
                                 disabled 
                                 title="Custom label is locked while Auto-Detect is enabled"
-                                style="background: #f1f5f9; color: #94a3b8; border: 1px solid #e2e8f0; padding: 9px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: not-allowed; display: inline-flex; align-items: center; gap: 6px;">
-                            <i class="fa-solid fa-lock" style="font-size: 11px;"></i>
+                                style="height: 38px; box-sizing: border-box; background: #f1f5f9; color: #94a3b8; border: 1px solid #e2e8f0; padding: 0 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: not-allowed; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
+                            <i class="fa-solid fa-lock" style="font-size: 12px;"></i>
                             <span>Save Custom</span>
                         </button>
                     @else
                         <button type="submit" 
                                 wire:loading.attr="disabled" 
-                                style="background: #0f172a; color: white; border: none; padding: 9px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(15, 23, 42, 0.15);">
-                            <i class="fa-solid fa-check"></i>
+                                style="height: 38px; box-sizing: border-box; background: #0f172a; color: white; border: 1px solid #0f172a; padding: 0 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; box-shadow: 0 2px 6px rgba(15, 23, 42, 0.15); transition: all 0.2s;">
+                            <i class="fa-solid fa-check" style="font-size: 12px;"></i>
                             <span>Save Custom</span>
                         </button>
                     @endif

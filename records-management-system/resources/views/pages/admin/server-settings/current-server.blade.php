@@ -13,6 +13,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
     public string $clusterRole = 'root';
     public string $serverLabel = '';
     public bool $isAutoLabel = false;
+    public string $customLabelInput = '';
 
     public string $successMessage = '';
     public string $errorMessage = '';
@@ -37,23 +38,57 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
         $this->clusterRole = $service->getSystemSetting('cluster_role', 'root');
         $this->serverLabel = $service->getServerLabel();
         $this->isAutoLabel = ServerManagementService::isAutoLabel();
+        if (!$this->isAutoLabel) {
+            $this->customLabelInput = $this->serverLabel;
+        } else {
+            $this->customLabelInput = '';
+        }
     }
 
-    public function updateServerLabel(ServerManagementService $service): void
+    public function toggleAutoDetect(ServerManagementService $service): void
     {
-        $service->setServerLabel($this->serverLabel);
-        $this->successMessage = 'Server label updated to: ' . $service->getServerLabel();
-        $this->refreshData($service);
+        if ($this->isAutoLabel) {
+            // Disable Auto-Detect -> Unlock custom nickname editing
+            $fallback = trim($this->customLabelInput) ?: $this->serverLabel;
+            $service->setServerLabel($fallback);
+            $this->refreshData($service);
+            $this->isAutoLabel = false;
+            $this->customLabelInput = $fallback;
+            $this->successMessage = "Auto-Detect disabled. Custom label is now unlocked for manual editing.";
+        } else {
+            // Enable Auto-Detect -> Lock custom nickname to auto-detected node
+            $service->setServerLabel('auto');
+            $this->refreshData($service);
+            $this->successMessage = "Auto-Detect enabled. Custom label is now locked to auto-detected '{$this->serverLabel}'.";
+        }
     }
 
-    public function setAutoLabel(ServerManagementService $service): void
+    public function saveCustomLabel(ServerManagementService $service): void
     {
-        $service->setServerLabel('auto');
-        $detected = ServerManagementService::detectNodeName();
-        $this->serverLabel = $detected;
-        $this->isAutoLabel = true;
-        $this->successMessage = "Server label set to automatic detection (currently resolved to '{$detected}').";
+        if ($this->isAutoLabel) {
+            return;
+        }
+
+        $label = trim($this->customLabelInput);
+        if (empty($label) || strtolower($label) === 'auto') {
+            $this->toggleAutoDetect($service);
+            return;
+        }
+
+        $service->setServerLabel($label);
         $this->refreshData($service);
+        $this->successMessage = "Custom server label saved: '{$this->serverLabel}'.";
+    }
+
+    public function toggleMultiServerTesting(ServerManagementService $service): void
+    {
+        $current = $service->isMultiServerEnabled();
+        $newVal = $current ? 'false' : 'true';
+        $service->setSystemSetting('multi_server_enabled', $newVal);
+        $this->refreshData($service);
+        $this->successMessage = $current 
+            ? 'Multi-Server mode disabled (server indicators are now hidden).'
+            : 'Multi-Server mode ENABLED (server indicators are now visible on the Portal and subsystem sidebars!).';
     }
 
     public function runGitPull(ServerManagementService $service): void
@@ -137,6 +172,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
             border-color: #1e293b !important;
         }
 
+        [data-theme="dark"] input[disabled] {
+            background-color: #1e293b !important;
+            border-color: #334155 !important;
+            color: #64748b !important;
+        }
+
+        [data-theme="dark"] input:not([disabled]) {
+            background-color: #0b1120 !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] button[disabled] {
+            background-color: #1e293b !important;
+            border-color: #334155 !important;
+            color: #64748b !important;
+        }
+
         [data-theme="dark"] h1[style*="color: #0f172a"],
         [data-theme="dark"] h2[style*="color: #0f172a"],
         [data-theme="dark"] h3[style*="color: #0f172a"],
@@ -207,36 +260,89 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
     </div>
 
     <!-- Node Display Label Card -->
-    <div style="background: #ffffff; padding: 18px 24px; border-radius: 14px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.02);">
-        <div style="display: flex; align-items: center; gap: 12px;">
-            <div style="width: 36px; height: 36px; border-radius: 8px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 16px;">
-                <i class="fa-solid fa-tag"></i>
-            </div>
-            <div>
-                <div style="font-size: 13px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px;">
-                    <span>Node Display Label:</span>
-                    <strong style="color: #2563eb;">{{ $serverLabel }}</strong>
-                    @if ($isAutoLabel)
-                        <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; background: #eff6ff; color: #1d4ed8; padding: 2px 7px; border-radius: 4px; border: 1px solid #bfdbfe;">
-                            <i class="fa-solid fa-wand-magic-sparkles" style="margin-right: 3px;"></i> Auto-detected
-                        </span>
-                    @endif
+    <div style="background: #ffffff; padding: 20px 24px; border-radius: 14px; border: 1px solid #e2e8f0; box-shadow: 0 2px 6px rgba(0,0,0,0.02); display: flex; flex-direction: column; gap: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="width: 42px; height: 42px; border-radius: 10px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                    <i class="fa-solid fa-tag"></i>
                 </div>
-                <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">
-                    Visible when Multi-Server is enabled: appears on the Portal (<em>"your currently at {{ $serverLabel }}"</em>) and in subsystem sidebars.
-                </p>
+                <div>
+                    <div style="font-size: 14px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                        <span>Node Display Label:</span>
+                        <span style="font-size: 16px; color: #2563eb; background: #eff6ff; padding: 2px 10px; border-radius: 6px; border: 1px solid #bfdbfe;">
+                            {{ $serverLabel }}
+                        </span>
+                        @if ($isAutoLabel)
+                            <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; background: #ecfdf5; color: #059669; padding: 3px 8px; border-radius: 6px; border: 1px solid #a7f3d0;">
+                                <i class="fa-solid fa-wand-magic-sparkles" style="margin-right: 4px;"></i> Dynamic Auto-Detect
+                            </span>
+                        @else
+                            <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; background: #f8fafc; color: #475569; padding: 3px 8px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                                <i class="fa-solid fa-pen" style="margin-right: 4px;"></i> Custom Nickname
+                            </span>
+                        @endif
+                    </div>
+                    <p style="font-size: 12px; color: #64748b; margin: 4px 0 0 0;">
+                        Auto-detects GCP VM instance name (or system hostname). Shown on the Portal as <em>"your currently at {{ $serverLabel }}"</em> and in all subsystem sidebars.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Controls: Auto vs Custom -->
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <!-- Auto-Detect Toggle Button -->
+                <button type="button" 
+                        wire:click="toggleAutoDetect" 
+                        wire:loading.attr="disabled" 
+                        title="{{ $isAutoLabel ? 'Auto-Detect is ENABLED (Custom label is locked). Click to disable and unlock custom editing.' : 'Auto-Detect is DISABLED. Click to enable Auto-Detect and lock custom label.' }}"
+                        style="background: {{ $isAutoLabel ? '#2563eb' : '#f8fafc' }}; color: {{ $isAutoLabel ? '#ffffff' : '#334155' }}; border: 1px solid {{ $isAutoLabel ? '#1d4ed8' : '#cbd5e1' }}; padding: 9px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: {{ $isAutoLabel ? '0 2px 6px rgba(37, 99, 235, 0.25)' : 'none' }}; transition: all 0.2s;">
+                    <i class="fa-solid {{ $isAutoLabel ? 'fa-wand-magic-sparkles' : 'fa-power-off' }}" style="font-size: 13px;"></i>
+                    <span>{{ $isAutoLabel ? 'Auto-Detect: Enabled' : 'Auto-Detect: Disabled' }}</span>
+                </button>
+
+                <!-- Custom Label Form (Locked when Auto-Detect is enabled) -->
+                <form wire:submit.prevent="saveCustomLabel" style="display: flex; gap: 8px; align-items: center;">
+                    <input type="text" 
+                           wire:model="customLabelInput" 
+                           {{ $isAutoLabel ? 'disabled' : '' }}
+                           placeholder="{{ $isAutoLabel ? 'Locked (Auto Enabled)' : 'Enter custom label...' }}" 
+                           title="{{ $isAutoLabel ? 'Custom label is locked because Auto-Detect is enabled. Click Auto-Detect button to unlock.' : 'Enter custom nickname' }}"
+                           style="padding: 8px 12px; border-radius: 8px; border: 1px solid {{ $isAutoLabel ? '#e2e8f0' : '#cbd5e1' }}; font-size: 13px; font-weight: 600; width: 170px; background: {{ $isAutoLabel ? '#f1f5f9' : '#ffffff' }}; color: {{ $isAutoLabel ? '#94a3b8' : '#0f172a' }}; cursor: {{ $isAutoLabel ? 'not-allowed' : 'text' }}; transition: all 0.2s;">
+                    
+                    @if ($isAutoLabel)
+                        <button type="button" 
+                                disabled 
+                                title="Custom label is locked while Auto-Detect is enabled"
+                                style="background: #f1f5f9; color: #94a3b8; border: 1px solid #e2e8f0; padding: 9px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: not-allowed; display: inline-flex; align-items: center; gap: 6px;">
+                            <i class="fa-solid fa-lock" style="font-size: 11px;"></i>
+                            <span>Save Custom</span>
+                        </button>
+                    @else
+                        <button type="submit" 
+                                wire:loading.attr="disabled" 
+                                style="background: #0f172a; color: white; border: none; padding: 9px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(15, 23, 42, 0.15);">
+                            <i class="fa-solid fa-check"></i>
+                            <span>Save Custom</span>
+                        </button>
+                    @endif
+                </form>
             </div>
         </div>
-        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-            <form wire:submit.prevent="updateServerLabel" style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" wire:model="serverLabel" placeholder="e.g. Server 1 or auto" style="padding: 8px 12px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 13px; font-weight: 700; width: 180px;">
-                <button type="submit" style="background: #0f172a; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer;">
-                    Save Custom
-                </button>
-            </form>
-            <button type="button" wire:click="setAutoLabel" title="Set to auto (detects GCP VM instance name or system hostname)" style="background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 8px 14px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                <i class="fa-solid fa-wand-magic-sparkles" style="color: #2563eb;"></i>
-                <span>Use Auto</span>
+
+        <!-- Visibility Bar -->
+        <div style="padding: 10px 14px; border-radius: 8px; font-size: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; background: {{ $isMultiServer ? '#ecfdf5' : '#f8fafc' }}; border: 1px solid {{ $isMultiServer ? '#a7f3d0' : '#e2e8f0' }};">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: {{ $isMultiServer ? '#10b981' : '#94a3b8' }};"></span>
+                <span style="font-weight: 700; color: {{ $isMultiServer ? '#065f46' : '#475569' }};">
+                    Multi-Server Indicator Visibility:
+                </span>
+                <span style="color: {{ $isMultiServer ? '#047857' : '#64748b' }};">
+                    {{ $isMultiServer ? 'VISIBLE on Portal and subsystem sidebars' : 'HIDDEN (Cluster mode is inactive)' }}
+                </span>
+            </div>
+            <button type="button" wire:click="toggleMultiServerTesting" wire:loading.attr="disabled" style="background: none; border: 1px solid {{ $isMultiServer ? '#059669' : '#94a3b8' }}; color: {{ $isMultiServer ? '#059669' : '#475569' }}; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer;">
+                <i class="fa-solid fa-eye" style="margin-right: 4px;"></i>
+                {{ $isMultiServer ? 'Hide Indicators (Standalone)' : 'Preview Indicators (Force ON)' }}
             </button>
         </div>
     </div>

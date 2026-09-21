@@ -381,6 +381,41 @@ class ServerManagementService
     }
 
     /**
+     * Find repository root path (handling Docker mount vs local).
+     */
+    public function getGitRepoPath(): string
+    {
+        $candidates = [
+            '/var/www/repo',       // Docker mounted parent repo
+            dirname(base_path()),  // Parent repo on host (RMS-CSPC)
+            base_path(),           // Local app root
+        ];
+
+        foreach ($candidates as $dir) {
+            if (is_dir($dir . '/.git') || file_exists($dir . '/.git')) {
+                return $dir;
+            }
+        }
+
+        return base_path();
+    }
+
+    /**
+     * Ensure git is installed and safe.directory is configured.
+     */
+    protected function ensureGitReady(): void
+    {
+        if (function_exists('shell_exec')) {
+            $hasGit = @shell_exec('which git 2>&1');
+            if (empty(trim($hasGit)) || str_contains($hasGit, 'not found')) {
+                // Try apk or apt-get silently
+                @shell_exec('apk add --no-cache git 2>&1 || (apt-get update -qq && apt-get install -y -qq git 2>&1)');
+            }
+            @shell_exec('git config --global --add safe.directory "*" 2>&1');
+        }
+    }
+
+    /**
      * Get Git repository info.
      */
     public function getGitInfo(): array
@@ -392,10 +427,14 @@ class ServerManagementService
         $date = '';
 
         if (function_exists('shell_exec')) {
+            $this->ensureGitReady();
+            $repoPath = $this->getGitRepoPath();
             $nullRedirect = (PHP_OS_FAMILY === 'Windows') ? '2>NUL' : '2>/dev/null';
-            $commit = trim(@shell_exec("git rev-parse --short HEAD {$nullRedirect}") ?: 'dev');
-            $branch = trim(@shell_exec("git rev-parse --abbrev-ref HEAD {$nullRedirect}") ?: 'main');
-            $log = trim(@shell_exec("git log -1 --pretty=format:\"%s|%an|%cr\" {$nullRedirect}") ?: '');
+            $gitCmd = 'git -C ' . escapeshellarg($repoPath);
+
+            $commit = trim(@shell_exec("{$gitCmd} rev-parse --short HEAD {$nullRedirect}") ?: 'dev');
+            $branch = trim(@shell_exec("{$gitCmd} rev-parse --abbrev-ref HEAD {$nullRedirect}") ?: 'main');
+            $log = trim(@shell_exec("{$gitCmd} log -1 --pretty=format:\"%s|%an|%cr\" {$nullRedirect}") ?: '');
             if ($log) {
                 $parts = explode('|', $log);
                 $message = $parts[0] ?? '';
@@ -422,10 +461,15 @@ class ServerManagementService
             return ['success' => false, 'output' => 'shell_exec function is disabled on this server.'];
         }
 
+        $this->ensureGitReady();
+        $repoPath = $this->getGitRepoPath();
         $gitInfo = $this->getGitInfo();
-        $branch = $gitInfo['branch'] !== 'unknown' ? $gitInfo['branch'] : 'version-2-alpha';
+        $branch = $gitInfo['branch'] !== 'unknown' ? $gitInfo['branch'] : 'New-Changes';
 
-        $cmd = "git fetch origin {$branch} 2>&1 && git pull origin {$branch} 2>&1";
+        $envPrefix = (PHP_OS_FAMILY === 'Windows') ? '' : 'GIT_TERMINAL_PROMPT=0 GIT_MERGE_AUTOEDIT=no ';
+        $gitCmd = "{$envPrefix}git -c gc.auto=0 -c maintenance.auto=0 -c fetch.autoMaintenance=0 -C " . escapeshellarg($repoPath);
+
+        $cmd = "{$gitCmd} fetch origin {$branch} 2>&1 && {$gitCmd} pull --no-edit origin {$branch} 2>&1";
         $output = @shell_exec($cmd);
 
         $success = ($output !== null && !str_contains(strtolower($output), 'fatal:'));
@@ -817,16 +861,27 @@ class ServerManagementService
             }
         }
 
-        // 2. Check system hostname
+        // 2. Check host environment variable passed into container (e.g. from docker-compose)
+        $hostEnv = env('HOST_HOSTNAME');
+        if (!empty($hostEnv) && $hostEnv !== 'localhost') {
+            return trim($hostEnv);
+        }
+
+        // 3. Check system hostname
         $host = gethostname();
-        if (!empty($host) && $host !== 'localhost') {
+        if (!empty($host) && $host !== 'localhost' && !preg_match('/^[0-9a-f]{12}$/i', $host)) {
             return $host;
         }
 
-        // 3. Fallback to cluster role or Server 1
+        // 4. Fallback to cluster role or Server 1
         $clusterRole = env('CLUSTER_ROLE');
         if (!empty($clusterRole)) {
             return ucfirst($clusterRole) . ' Node';
+        }
+
+        // If in docker with container id hash, return a friendly host label
+        if (!empty($host) && $host !== 'localhost') {
+            return 'Server-Node-' . substr($host, 0, 6);
         }
 
         return 'Server 1';

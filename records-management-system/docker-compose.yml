@@ -11,6 +11,8 @@ services:
       - "${HTTP_PORT:-80}:80"
     env_file:
       - .env.docker
+    environment:
+      - HOST_HOSTNAME=${COMPUTERNAME:-${HOSTNAME:-}}
     volumes:
       # Bind-mount source — changes reflect instantly without rebuilding
       - .:/var/www/html
@@ -20,6 +22,8 @@ services:
       - laravel_views:/var/www/html/storage/framework/views
       # Docker socket for container state monitoring and memory stabilization
       - /var/run/docker.sock:/var/run/docker.sock
+      # Mount parent repository root for clean Git operations and rolling updates
+      - ..:/var/www/repo
     depends_on:
       db:
         condition: service_healthy

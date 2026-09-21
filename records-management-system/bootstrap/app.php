@@ -14,6 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustProxies(at: '*');
         $middleware->validateCsrfTokens(except: [
             'api/session/*',
+            'api/cluster/*',
         ]);
         $middleware->web(append: [
             \App\Http\Middleware\UpdateUserOnlineStatus::class,

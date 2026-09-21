@@ -654,6 +654,27 @@
                 ],
             ];
         }
+        // 9. Server Settings Section
+        elseif (request()->routeIs('admin.server-settings.*')) {
+            $sectionTitle = 'Server Settings';
+            $tabs = [
+                [
+                    'label' => 'Current Server',
+                    'url' => route('admin.server-settings.current'),
+                    'active' => request()->routeIs('admin.server-settings.current'),
+                ],
+                [
+                    'label' => 'Adds-on Servers',
+                    'url' => route('admin.server-settings.addons'),
+                    'active' => request()->routeIs('admin.server-settings.addons'),
+                ],
+                [
+                    'label' => 'Site Diagnostic',
+                    'url' => route('admin.server-settings.diagnostic'),
+                    'active' => request()->routeIs('admin.server-settings.diagnostic'),
+                ],
+            ];
+        }
     }
 @endphp
 

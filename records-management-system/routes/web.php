@@ -447,6 +447,11 @@ Route::middleware(['auth'])
         Volt::route('/admin/settings', 'pages.admin.settings.index')->name('admin.settings.index');
         Volt::route('/admin/backup', 'pages.admin.backup.index')->name('admin.backup.index');
         Volt::route('/admin/recycle-bin', 'pages.admin.recycle-bin')->name('admin.recycle-bin');
+
+        // Server Settings & High-Availability Clustering
+        Volt::route('/server-settings/current-server', 'pages.admin.server-settings.current-server')->name('admin.server-settings.current');
+        Volt::route('/server-settings/adds-on-servers', 'pages.admin.server-settings.adds-on-servers')->name('admin.server-settings.addons');
+        Volt::route('/server-settings/site-diagnostic', 'pages.admin.server-settings.site-diagnostic')->name('admin.server-settings.diagnostic');
     });
 
     // RDP — Records Disposition Program (requires can_access_rdp or is_sadm)
@@ -861,6 +866,12 @@ Route::get('/logout', function () {
 
     return redirect()->route('login');
 })->name('logout');
+
+// Cluster Inter-Node API (token-authenticated)
+Route::prefix('api/cluster')->group(function () {
+    Route::get('/node-status', [\App\Http\Controllers\ClusterApiController::class, 'nodeStatus'])->name('api.cluster.status');
+    Route::post('/remote-update', [\App\Http\Controllers\ClusterApiController::class, 'remoteUpdate'])->name('api.cluster.update');
+});
 
 // Global Fallback — Redirects any unmatched URL/404 directly to portal page
 Route::fallback(function () {

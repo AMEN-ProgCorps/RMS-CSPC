@@ -18,9 +18,12 @@ services:
       - vendor:/var/www/html/vendor
       # Compiled Blade views — avoids WSL bind-mount touch()/utime failures
       - laravel_views:/var/www/html/storage/framework/views
+      # Docker socket for container state monitoring and memory stabilization
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       db:
         condition: service_healthy
+        required: false
     networks:
       - rms_net
 

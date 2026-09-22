@@ -1842,6 +1842,11 @@ class OfficeIntakeHelper
         $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
         abort_unless($record, 404);
         abort_if(self::isIntakeRegistered($type, $id), 422, 'This submission is already registered and cannot be returned for edit.');
+        abort_if(
+            ! empty($record->rfio_print_notified_at),
+            422,
+            'This submission was already marked correct and the office was notified to print and sign. Enable edit is no longer available.'
+        );
 
         if (! Schema::hasColumn($table, 'edit_unlocked_at')) {
             abort(422, 'Edit unlock is not available yet. Please run migrations.');
@@ -1876,6 +1881,73 @@ class OfficeIntakeHelper
             'type' => $type,
             'id' => $id,
         ], self::intakeEditState($record));
+    }
+
+    /**
+     * RFIO confirms the electronic submission is correct — notify the office to print, sign, and bring the hard copy.
+     *
+     * @return array<string, mixed>
+     */
+    public static function notifyReadyForPrintSign(string $type, int $id): array
+    {
+        abort_unless(RegisterQueryHelper::canBrowseAllOfficeIntake(), 403);
+
+        $type = strtolower($type);
+        abort_unless(in_array($type, ['drf', 'dcn'], true), 404);
+        $table = $type === 'dcn' ? 'dcs_document_change_notice' : 'dcs_document_request_form';
+        $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
+        abort_unless($record, 404);
+        abort_if(self::isIntakeRegistered($type, $id), 422, 'This submission is already registered.');
+
+        $title = trim((string) ($type === 'dcn' ? ($record->document_title ?? '') : ($record->doc_title ?? '')));
+        $officeCodes = self::intakeOfficeCodes($type, $id, $record);
+        abort_if($officeCodes === [], 422, 'No submitting office found to notify.');
+
+        $sent = 0;
+        foreach ($officeCodes as $officeCode) {
+            if (DcsNotificationService::notifyOfficeIntakeReadyForPrintSign($officeCode, $type, $id, $title)) {
+                $sent++;
+            }
+        }
+
+        abort_if($sent < 1, 422, 'Could not send notification to the submitting office.');
+
+        $now = now();
+        $userId = (int) auth()->id();
+        if (Schema::hasColumn($table, 'rfio_print_notified_at')) {
+            DB::table($table)->where('id', $id)->update([
+                'rfio_print_notified_at' => $now,
+                'rfio_print_notified_by' => $userId > 0 ? $userId : null,
+                'updated_at' => $now,
+            ]);
+        }
+
+        $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
+
+        return array_merge([
+            'ok' => true,
+            'type' => $type,
+            'id' => $id,
+            'notifiedOffices' => $officeCodes,
+        ], self::intakePrintNotifiedState($record));
+    }
+
+    /**
+     * @return array{printNotified: bool, printNotifiedAt: string|null, printNotifiedBy: string|null}
+     */
+    public static function intakePrintNotifiedState(object $record): array
+    {
+        $at = $record->rfio_print_notified_at ?? null;
+        $byId = (int) ($record->rfio_print_notified_by ?? 0);
+        $notified = ! empty($at);
+
+        return [
+            'printNotified' => $notified,
+            'printNotifiedAt' => $notified
+                ? \Carbon\Carbon::parse($at)->timezone('Asia/Manila')->format('M d, Y g:i A')
+                : null,
+            'printNotifiedBy' => $notified && $byId > 0 ? self::displayNameForUser($byId) : null,
+        ];
     }
 
     /** @return list<string> */
@@ -1924,13 +1996,29 @@ class OfficeIntakeHelper
 
         $rfio = strtoupper(trim((string) RegisterQueryHelper::rfioNotificationOfficeCode()));
 
-        return collect($officeCodes)
+        $codes = collect($officeCodes)
             ->map(fn ($code) => strtoupper(trim((string) $code)))
             ->filter()
             ->unique()
-            ->reject(fn ($code) => $rfio !== '' && strcasecmp($code, $rfio) === 0)
-            ->values()
+            ->values();
+
+        $rfioCodes = collect(RegisterQueryHelper::rfioOfficeCodes())
+            ->map(fn ($code) => strtoupper(trim((string) $code)))
+            ->filter()
             ->all();
+        if ($rfio !== '') {
+            $rfioCodes[] = $rfio;
+        }
+        $rfioCodes = array_values(array_unique($rfioCodes));
+
+        // Prefer non-RFIO client offices. If the submitter is in RFIO/RFOIU (same office
+        // as Document Controllers), still notify that office — limited-DCS staff see it;
+        // full Document Controllers have client notices filtered from their bell.
+        $withoutRfio = $codes
+            ->reject(fn ($code) => in_array(strtoupper(trim((string) $code)), $rfioCodes, true))
+            ->values();
+
+        return $withoutRfio->isNotEmpty() ? $withoutRfio->all() : $codes->all();
     }
 
     /** @return array{office: string, submitter: string, submittedAt: string} */
@@ -2059,6 +2147,7 @@ class OfficeIntakeHelper
         $canRegister = $canManage && RegisterQueryHelper::canAccessDcsModule('register');
         $registered = self::isIntakeRegistered('dcn', $id);
         $editState = self::intakeEditState($dcn);
+        $printState = self::intakePrintNotifiedState($dcn);
         if ($registered) {
             DcsNotificationService::dismissOfficeIntakeNotifications('dcn', $id);
         }
@@ -2078,7 +2167,7 @@ class OfficeIntakeHelper
             ])->render(),
             'registerPrefill' => self::registerPrefillForDcn($dcn, $id, $docNo, $docTitle),
             'registered' => $registered,
-        ], self::intakeHandoffMeta('dcn', $id, $received, $canManage, $canRegister, $registered, $editState));
+        ], self::intakeHandoffMeta('dcn', $id, $received, $canManage, $canRegister, $registered, $editState, $printState));
     }
 
     /** @return array<string, mixed>|null */
@@ -2098,6 +2187,7 @@ class OfficeIntakeHelper
         $canRegister = $canManage && RegisterQueryHelper::canAccessDcsModule('register');
         $registered = self::isIntakeRegistered('drf', $id);
         $editState = self::intakeEditState($drf);
+        $printState = self::intakePrintNotifiedState($drf);
         if ($registered) {
             DcsNotificationService::dismissOfficeIntakeNotifications('drf', $id);
         }
@@ -2116,7 +2206,7 @@ class OfficeIntakeHelper
             ])->render(),
             'registerPrefill' => self::registerPrefillForDrf($drf, $id),
             'registered' => $registered,
-        ], self::intakeHandoffMeta('drf', $id, $received, $canManage, $canRegister, $registered, $editState));
+        ], self::intakeHandoffMeta('drf', $id, $received, $canManage, $canRegister, $registered, $editState, $printState));
     }
 
     /**
@@ -2140,6 +2230,7 @@ class OfficeIntakeHelper
     /**
      * @param  array{received: bool, receivedAt: string|null, receivedBy: string|null}  $received
      * @param  array{editUnlocked: bool, editUnlockReason: string|null, editUnlockedAt: string|null}  $editState
+     * @param  array{printNotified: bool, printNotifiedAt: string|null, printNotifiedBy: string|null}  $printState
      * @return array<string, mixed>
      */
     private static function intakeHandoffMeta(
@@ -2149,7 +2240,8 @@ class OfficeIntakeHelper
         bool $canManage,
         bool $canRegister,
         bool $registered = false,
-        array $editState = []
+        array $editState = [],
+        array $printState = []
     ): array {
         $registerType = $type === 'dcn' ? 'revised' : 'new';
         $registerUrl = ($canRegister && ! $registered)
@@ -2164,6 +2256,7 @@ class OfficeIntakeHelper
             'canConfirmReceived' => $canManage && ! $registered,
             'canRegister' => $canRegister && ! $registered,
             'canUnlockEdit' => $canManage && ! $registered,
+            'canNotifyPrintReady' => $canManage && ! $registered,
             'received' => $received['received'],
             'receivedAt' => $received['receivedAt'],
             'receivedBy' => $received['receivedBy'],
@@ -2173,6 +2266,9 @@ class OfficeIntakeHelper
             'editUnlocked' => (bool) ($editState['editUnlocked'] ?? false),
             'editUnlockReason' => $editState['editUnlockReason'] ?? null,
             'editUnlockedAt' => $editState['editUnlockedAt'] ?? null,
+            'printNotified' => (bool) ($printState['printNotified'] ?? false),
+            'printNotifiedAt' => $printState['printNotifiedAt'] ?? null,
+            'printNotifiedBy' => $printState['printNotifiedBy'] ?? null,
         ];
     }
 
@@ -2792,5 +2888,143 @@ class OfficeIntakeHelper
         }
 
         return $rows;
+    }
+
+    /**
+     * Documents for Random Check (by office + optional parent type group).
+     *
+     * @param  bool  $distributionOnly  When true, always scope by Document Distribution
+     *                                  (used by Random Check office audits).
+     * @return list<array{
+     *     masterlist_id: int,
+     *     doc_no: string,
+     *     rev_no: int,
+     *     doc_title: string,
+     *     effectivity_date: string|null,
+     *     effectivity_date_raw: string|null,
+     *     doc_type_key: string,
+     *     doc_type_label: string
+     * }>
+     */
+    public static function listDocumentsForCheck(
+        ?int $officeId = null,
+        string $groupKey = 'all',
+        bool $distributionOnly = false
+    ): array {
+        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
+        if (! $officeId) {
+            return [];
+        }
+
+        $groupKey = trim($groupKey);
+        if ($groupKey === '' || $groupKey === 'all') {
+            $rows = [];
+            $seen = [];
+            foreach (array_keys(self::documentGroupDefs()) as $key) {
+                foreach (self::listDocumentsForCheckGroup((int) $officeId, $key, $distributionOnly) as $row) {
+                    $id = (int) $row['masterlist_id'];
+                    if (isset($seen[$id])) {
+                        continue;
+                    }
+                    $seen[$id] = true;
+                    $rows[] = $row;
+                }
+            }
+
+            return $rows;
+        }
+
+        if (! isset(self::documentGroupDefs()[$groupKey])) {
+            return [];
+        }
+
+        return self::listDocumentsForCheckGroup((int) $officeId, $groupKey, $distributionOnly);
+    }
+
+    /**
+     * Type counts for an office (distribution recipients when $distributionOnly).
+     *
+     * @return list<array{key: string, label: string, count: int}>
+     */
+    public static function officeDocumentGroupsForCheck(?int $officeId = null, bool $distributionOnly = true): array
+    {
+        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
+        $groups = [];
+        foreach (self::documentGroupDefs() as $key => $label) {
+            $count = $officeId
+                ? count(self::listDocumentsForCheckGroup((int) $officeId, $key, $distributionOnly))
+                : 0;
+            $groups[] = [
+                'key' => $key,
+                'label' => $label,
+                'count' => $count,
+            ];
+        }
+
+        return $groups;
+    }
+
+    /**
+     * @return list<array{
+     *     masterlist_id: int,
+     *     doc_no: string,
+     *     rev_no: int,
+     *     doc_title: string,
+     *     effectivity_date: string|null,
+     *     effectivity_date_raw: string|null,
+     *     doc_type_key: string,
+     *     doc_type_label: string
+     * }>
+     */
+    protected static function listDocumentsForCheckGroup(
+        int $officeId,
+        string $groupKey,
+        bool $distributionOnly = false
+    ): array {
+        $label = self::documentGroupLabel($groupKey);
+        $scope = $distributionOnly ? 'distribution' : self::documentGroupScope($groupKey);
+        $query = self::applyMasterlistGroupFilter(
+            self::officeMasterlistQuery($officeId, $scope),
+            $groupKey
+        );
+
+        $records = $query
+            ->orderByRaw("CASE WHEN COALESCE(TRIM(ml.doc_no), '') = '' THEN 1 ELSE 0 END")
+            ->orderBy('ml.doc_no')
+            ->orderBy('ml.id')
+            ->get([
+                'ml.id',
+                'ml.doc_no',
+                'ml.revise_no',
+                'ml.doc_title',
+                'ml.effectivity_date',
+            ]);
+
+        $rows = [];
+        foreach ($records as $ml) {
+            $raw = $ml->effectivity_date ?? null;
+            $rows[] = [
+                'masterlist_id' => (int) $ml->id,
+                'doc_no' => (string) ($ml->doc_no ?? ''),
+                'rev_no' => (int) ($ml->revise_no ?? 0),
+                'doc_title' => (string) ($ml->doc_title ?? ''),
+                'effectivity_date' => $raw
+                    ? \Carbon\Carbon::parse($raw)->format('M d, Y')
+                    : null,
+                'effectivity_date_raw' => $raw
+                    ? \Carbon\Carbon::parse($raw)->format('Y-m-d')
+                    : null,
+                'doc_type_key' => $groupKey,
+                'doc_type_label' => $label,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /** @deprecated Use listDocumentsForCheck() */
+    public static function listDistributedDocumentsForCheck(?int $officeId = null): array
+    {
+        return self::listDocumentsForCheck($officeId, 'all', true);
     }
 }

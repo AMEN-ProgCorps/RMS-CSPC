@@ -317,6 +317,145 @@ function setupIconModeInteractions() {
     });
 }
 
+function isDcsSidebarCollapsed() {
+    const toggle = document.getElementById('dcs-sidebar-collapsed');
+    if (toggle?.checked) return true;
+    return document.documentElement.getAttribute('data-dcs-sidebar-collapsed') === '1';
+}
+
+function closeDcsDropdownFloat() {
+    document.querySelectorAll('.side-nav .dropdown-float').forEach((el) => el.remove());
+    document.querySelectorAll('.side-nav .nav-item.expanded-overlay').forEach((el) => {
+        el.classList.remove('expanded-overlay');
+    });
+}
+
+function showDcsDropdownFloat(navItem) {
+    if (!navItem || !isDcsSidebarCollapsed()) return;
+
+    const existing = navItem.querySelector(':scope > .dropdown-float');
+    if (existing) return;
+
+    closeDcsDropdownFloat();
+
+    const sub = navItem.querySelector('.sub-dropdown');
+    if (!sub) return;
+
+    const links = sub.querySelectorAll('a');
+    if (!links.length) return;
+
+    const summary = navItem.querySelector('summary');
+    const titleEl = summary?.querySelector('span:not(.tooltip)');
+    const titleText = titleEl?.textContent?.trim() || 'Menu';
+    const iconEl = summary?.querySelector('i:not(.arrow)');
+
+    const float = document.createElement('div');
+    float.className = 'dropdown-float';
+    float.setAttribute('role', 'menu');
+
+    const header = document.createElement('div');
+    header.className = 'dropdown-float-header';
+    if (iconEl) {
+        const icon = document.createElement('i');
+        icon.className = iconEl.className;
+        icon.setAttribute('aria-hidden', 'true');
+        header.appendChild(icon);
+    }
+    const title = document.createElement('span');
+    title.textContent = titleText;
+    header.appendChild(title);
+    float.appendChild(header);
+
+    links.forEach((link) => {
+        const clone = link.cloneNode(true);
+        clone.setAttribute('role', 'menuitem');
+        float.appendChild(clone);
+    });
+
+    navItem.classList.add('expanded-overlay');
+    navItem.appendChild(float);
+
+    const anchor = summary || navItem;
+    const rect = anchor.getBoundingClientRect();
+    float.style.top = `${Math.max(8, rect.top)}px`;
+    float.style.left = `${rect.right + 8}px`;
+
+    const floatRect = float.getBoundingClientRect();
+    if (floatRect.bottom > window.innerHeight - 8) {
+        float.style.top = `${Math.max(8, window.innerHeight - floatRect.height - 8)}px`;
+    }
+}
+
+function setupDcsCollapsedNav() {
+    const sideNav = document.getElementById('sideNav');
+    if (!sideNav) return;
+
+    let closeTimer = null;
+
+    const cancelClose = () => {
+        if (closeTimer) {
+            clearTimeout(closeTimer);
+            closeTimer = null;
+        }
+    };
+
+    const scheduleClose = () => {
+        cancelClose();
+        closeTimer = setTimeout(() => {
+            closeDcsDropdownFloat();
+        }, 160);
+    };
+
+    sideNav.querySelectorAll('.nav-item.dropdown').forEach((navItem) => {
+        if (navItem.dataset.dcsFloatBound === 'true') return;
+        navItem.dataset.dcsFloatBound = 'true';
+
+        const summary = navItem.querySelector('summary');
+
+        navItem.addEventListener('mouseenter', () => {
+            if (!isDcsSidebarCollapsed()) return;
+            cancelClose();
+            showDcsDropdownFloat(navItem);
+        });
+
+        navItem.addEventListener('mouseleave', () => {
+            if (!isDcsSidebarCollapsed()) return;
+            scheduleClose();
+        });
+
+        if (summary) {
+            summary.addEventListener('click', (e) => {
+                if (!isDcsSidebarCollapsed()) return;
+                e.preventDefault();
+                cancelClose();
+                const open = navItem.querySelector(':scope > .dropdown-float');
+                if (open) {
+                    closeDcsDropdownFloat();
+                } else {
+                    showDcsDropdownFloat(navItem);
+                }
+            });
+        }
+    });
+
+    if (!window.__dcsCollapsedNavGlobalsBound) {
+        window.__dcsCollapsedNavGlobalsBound = true;
+
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.side-nav .nav-item.dropdown')) {
+                closeDcsDropdownFloat();
+            }
+        });
+
+        document.getElementById('dcs-sidebar-collapsed')?.addEventListener('change', () => {
+            closeDcsDropdownFloat();
+        });
+    }
+}
+
+window.closeDcsDropdownFloat = closeDcsDropdownFloat;
+window.setupDcsCollapsedNav = setupDcsCollapsedNav;
+
 function initializeSidebarState() {
     const navigation = document.getElementById('navigation');
     const navMainIcon = document.getElementById('nav-main-icon');
@@ -363,11 +502,13 @@ function initializeSidebarState() {
 document.addEventListener('DOMContentLoaded', () => {
     initializeNavTooltips();
     setupIconModeInteractions();
+    setupDcsCollapsedNav();
     initializeSidebarState();
 });
 document.addEventListener('livewire:navigated', () => {
     initializeNavTooltips();
     setupIconModeInteractions();
+    setupDcsCollapsedNav();
     initializeSidebarState();
     applyStoredRmsTheme();
 });
@@ -760,6 +901,7 @@ document.addEventListener('keydown', (e) => {
 });
 window.addEventListener('resize', () => {
     closeNavFlyout();
+    closeDcsDropdownFloat();
     const navigation = document.getElementById('navigation');
     if (navigation && window.innerWidth < 1024 && navigation.classList.contains('imup')) {
         initializeSidebarState();

@@ -1762,6 +1762,30 @@ body.ofi-modal-open {
     cursor: not-allowed;
 }
 
+.ofi-notify-print-btn {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    border: 1px solid #1d4ed8;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: #1e40af;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.ofi-notify-print-btn:hover:not(:disabled) {
+    background: #dbeafe;
+}
+
+.ofi-notify-print-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
 .ofi-modal-loading {
     display: flex;
     align-items: center;

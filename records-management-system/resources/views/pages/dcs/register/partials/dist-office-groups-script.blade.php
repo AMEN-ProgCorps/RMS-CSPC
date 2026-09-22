@@ -180,6 +180,8 @@
         return (window.__distOfficeGroups || []).find((g) => Number(g.id) === Number(id)) || null;
     }
 
+    let pendingDeleteGroupId = null;
+
     window.applyDistOfficeGroup = function (groupId) {
         const group = findGroup(groupId);
         if (!group || !Array.isArray(group.offices) || !group.offices.length) {
@@ -308,10 +310,42 @@
         }
     };
 
-    window.deleteDistOfficeGroup = async function (groupId) {
+    window.deleteDistOfficeGroup = function (groupId) {
         const group = findGroup(groupId);
         if (!group) return;
-        if (!confirm('Delete saved group "' + group.name + '"?')) return;
+        pendingDeleteGroupId = Number(groupId);
+        const nameEl = document.getElementById('distOfficeGroupDeleteName');
+        const err = document.getElementById('distOfficeGroupDeleteError');
+        if (nameEl) nameEl.textContent = '"' + group.name + '"';
+        if (err) { err.style.display = 'none'; err.textContent = ''; }
+        const modal = document.getElementById('distOfficeGroupDeleteModal');
+        if (modal) {
+            modal.classList.add('is-open');
+            modal.setAttribute('aria-hidden', 'false');
+            setTimeout(() => document.getElementById('distOfficeGroupDeleteConfirmBtn')?.focus(), 0);
+        }
+    };
+
+    window.closeDeleteDistOfficeGroupModal = function () {
+        pendingDeleteGroupId = null;
+        const modal = document.getElementById('distOfficeGroupDeleteModal');
+        if (modal) {
+            modal.classList.remove('is-open');
+            modal.setAttribute('aria-hidden', 'true');
+        }
+    };
+
+    window.confirmDeleteDistOfficeGroup = async function () {
+        const groupId = pendingDeleteGroupId;
+        if (!groupId) return;
+        const err = document.getElementById('distOfficeGroupDeleteError');
+        const showErr = (msg) => {
+            if (!err) { alert(msg); return; }
+            err.style.display = 'block';
+            err.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> ' + escapeHtml(msg);
+        };
+        const btn = document.getElementById('distOfficeGroupDeleteConfirmBtn');
+        if (btn) btn.disabled = true;
         try {
             const res = await fetch(GROUP_DESTROY_URL + '/' + encodeURIComponent(groupId), {
                 method: 'DELETE',
@@ -322,14 +356,17 @@
             });
             const data = await res.json().catch(() => ({}));
             if (!data.ok) {
-                alert(data.message || 'Could not delete group.');
+                showErr(data.message || 'Could not delete group.');
                 return;
             }
             window.__distOfficeGroups = data.groups || [];
             renderDistOfficeGroupChips();
+            closeDeleteDistOfficeGroupModal();
         } catch (e) {
-            alert('Could not delete group.');
+            showErr('Could not delete group.');
             console.error(e);
+        } finally {
+            if (btn) btn.disabled = false;
         }
     };
 
@@ -394,6 +431,18 @@
             if (e.key === 'Enter') {
                 e.preventDefault();
                 submitSaveDistOfficeGroup(false);
+            }
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            const deleteModal = document.getElementById('distOfficeGroupDeleteModal');
+            if (deleteModal?.classList.contains('is-open')) {
+                closeDeleteDistOfficeGroupModal();
+                return;
+            }
+            const saveModal = document.getElementById('distOfficeGroupModal');
+            if (saveModal?.classList.contains('is-open')) {
+                closeSaveDistOfficeGroupModal();
             }
         });
     });

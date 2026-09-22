@@ -55,6 +55,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
     $p = $payload;
     $isReceived = ! empty($p['received']);
     $canProceed = $isReceived && ! empty($p['canRegister']) && ! empty($p['registerUrl']);
+    $printNotified = ! empty($p['printNotified']);
 @endphp
 
 <div class="ofi-page ofi-request-review-page">
@@ -101,14 +102,36 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                 data-can-register="{{ !empty($p['canRegister']) ? '1' : '0' }}"
                 data-received="{{ $isReceived ? '1' : '0' }}"
                 data-edit-unlocked="{{ !empty($p['editUnlocked']) ? '1' : '0' }}"
+                data-print-notified="{{ $printNotified ? '1' : '0' }}"
             >
                 <div class="ofi-request-actions-head">
                     <h2>RFIO actions</h2>
-                    <p>Confirm you have the signed hard copy before registration. Return for correction if the office needs to fix the form.</p>
+                    <p>Notify the office when the form is correct, confirm you have the signed hard copy, then proceed to registration.</p>
+                </div>
+
+                <div class="ofi-request-step" id="ofiRequestNotifyBlock">
+                    <div class="ofi-request-step-num" aria-hidden="true">1</div>
+                    <div class="ofi-request-step-body">
+                        <p class="ofi-request-step-label">Notify office — ready to print &amp; sign</p>
+                        <p class="ofi-request-step-hint">
+                            Tell the submitting office the request looks correct so they can print, sign, and bring the hard copy to the Records Office.
+                        </p>
+                        <button type="button" class="ofi-notify-print-btn" id="ofiRequestNotifyPrintBtn">
+                            <i class="fa-regular fa-bell"></i>
+                            <span id="ofiRequestNotifyPrintLabel">{{ $printNotified ? 'Resend print & sign notice' : 'Notify client to print & sign' }}</span>
+                        </button>
+                        <p class="ofi-receive-meta" id="ofiRequestNotifyMeta" @if(! $printNotified) hidden @endif>
+                            @if($printNotified)
+                                Client notified
+                                @if(!empty($p['printNotifiedAt'])) on {{ $p['printNotifiedAt'] }} @endif
+                                @if(!empty($p['printNotifiedBy'])) by {{ $p['printNotifiedBy'] }} @endif
+                            @endif
+                        </p>
+                    </div>
                 </div>
 
                 <div class="ofi-request-step">
-                    <div class="ofi-request-step-num" aria-hidden="true">1</div>
+                    <div class="ofi-request-step-num" aria-hidden="true">2</div>
                     <div class="ofi-request-step-body">
                         <label class="ofi-receive-check">
                             <input type="checkbox" id="ofiRequestReceived" @checked($isReceived)>
@@ -125,7 +148,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                 </div>
 
                 <div class="ofi-request-step ofi-unlock-block" id="ofiRequestUnlockBlock" @if($isReceived) hidden @endif>
-                    <div class="ofi-request-step-num" aria-hidden="true">2</div>
+                    <div class="ofi-request-step-num" aria-hidden="true">3</div>
                     <div class="ofi-request-step-body">
                         <label class="ofi-unlock-label" for="ofiRequestUnlockReason">Return for correction</label>
                         <textarea
@@ -134,13 +157,18 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                             rows="3"
                             maxlength="1000"
                             placeholder="Describe what is wrong so the office can fix it…"
+                            @disabled($printNotified)
                         >{{ $p['editUnlockReason'] ?? '' }}</textarea>
-                        <button type="button" class="ofi-unlock-btn" id="ofiRequestUnlockBtn">
-                            <i class="fa-solid fa-unlock"></i>
+                        <button type="button" class="ofi-unlock-btn" id="ofiRequestUnlockBtn"
+                            @disabled($printNotified)
+                            title="{{ $printNotified ? 'Not available after notifying the office that the form is correct.' : '' }}">
+                            <i class="fa-solid fa-{{ $printNotified ? 'lock' : 'unlock' }}"></i>
                             Enable edit for office
                         </button>
-                        <p class="ofi-receive-meta" id="ofiRequestUnlockMeta" @if(empty($p['editUnlocked'])) hidden @endif>
-                            @if(!empty($p['editUnlocked']))
+                        <p class="ofi-receive-meta" id="ofiRequestUnlockMeta" @if(empty($p['editUnlocked']) && ! $printNotified) hidden @endif>
+                            @if($printNotified)
+                                Locked — office was already notified that this submission is correct.
+                            @elseif(!empty($p['editUnlocked']))
                                 Office can edit and resubmit this form.
                             @endif
                         </p>
@@ -148,7 +176,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                 </div>
 
                 <div class="ofi-request-step is-final">
-                    <div class="ofi-request-step-num" aria-hidden="true">{{ $isReceived ? '2' : '3' }}</div>
+                    <div class="ofi-request-step-num" aria-hidden="true">{{ $isReceived ? '3' : '4' }}</div>
                     <div class="ofi-request-step-body">
                         <p class="ofi-request-step-label">Proceed to registration</p>
                         <button type="button" class="ofi-receive-proceed" id="ofiRequestProceed"

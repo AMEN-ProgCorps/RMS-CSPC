@@ -78,4 +78,38 @@ class ServerSettingsBellTest extends TestCase
             ->call('closeBackupVmModal')
             ->assertSet('showBackupVmModal', false);
     }
+
+    public function test_multi_server_test_database_connection(): void
+    {
+        $user = User::whereHas('permissions', fn($q) => $q->where('is_sadm', true))->first() ?: User::first();
+
+        $component = \Livewire\Livewire::actingAs($user)
+            ->test('pages.admin.server-settings.multi-server')
+            ->set('dbUrlInput', 'postgresql://neondb_owner:npg_2Bz6toJZrLEs@ep-muddy-art-axd0zi2q-pooler.c-4.us-east-2.aws.neon.tech/rms?sslmode=require')
+            ->call('parseDbUrl')
+            ->call('testDatabaseConnection');
+
+        $result = $component->get('testDbResult');
+        $this->assertTrue($result['success'] ?? false);
+    }
+
+    public function test_multi_server_apply_and_revert_database_config(): void
+    {
+        $user = User::whereHas('permissions', fn($q) => $q->where('is_sadm', true))->first() ?: User::first();
+
+        $component = \Livewire\Livewire::actingAs($user)
+            ->test('pages.admin.server-settings.multi-server')
+            ->set('dbUrlInput', 'postgresql://neondb_owner:npg_2Bz6toJZrLEs@ep-muddy-art-axd0zi2q-pooler.c-4.us-east-2.aws.neon.tech/rms?sslmode=require')
+            ->call('applyDatabaseConfig');
+
+        $check = $component->get('dbCheck');
+        $this->assertTrue($check['valid'] ?? false);
+        $this->assertEquals('ep-muddy-art-axd0zi2q-pooler.c-4.us-east-2.aws.neon.tech', $check['host'] ?? '');
+
+        // Now revert to local container
+        $component->call('revertToLocalDb');
+        $revertCheck = $component->get('dbCheck');
+        $this->assertFalse($revertCheck['valid'] ?? true);
+        $this->assertEquals('db', $revertCheck['host'] ?? '');
+    }
 }

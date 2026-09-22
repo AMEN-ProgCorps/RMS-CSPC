@@ -555,10 +555,20 @@ class ServerManagementService
             ];
         }
 
-        // Test connectivity and measure latency
+        // Test connectivity and measure latency via direct PDO probe
         try {
+            $port = (int) (config('database.connections.pgsql.port') ?: env('DB_PORT', 5432));
+            $user = config('database.connections.pgsql.username') ?: env('DB_USERNAME', 'adminrms');
+            $pass = config('database.connections.pgsql.password') ?: env('DB_PASSWORD', '');
+            $ssl = in_array($host, ['db', '127.0.0.1', 'localhost']) ? 'prefer' : (config('database.connections.pgsql.sslmode') ?: env('DB_SSLMODE', 'require'));
+
+            $dsn = "pgsql:host={$host};port={$port};dbname={$database};sslmode={$ssl}";
             $start = microtime(true);
-            DB::connection('pgsql')->select('SELECT 1 as ping');
+            $pdo = new \PDO($dsn, $user, $pass, [
+                \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+                \PDO::ATTR_TIMEOUT => 4,
+            ]);
+            $pdo->query('SELECT 1 as ping');
             $latencyMs = round((microtime(true) - $start) * 1000, 2);
 
             $isPooler = str_contains($host, '-pooler');
@@ -595,7 +605,7 @@ class ServerManagementService
             $database = trim($config['database'] ?? '');
             $username = trim($config['username'] ?? '');
             $password = $config['password'] ?? '';
-            $sslmode = trim($config['sslmode'] ?? 'require');
+            $sslmode = in_array($host, ['db', '127.0.0.1', 'localhost']) ? 'prefer' : trim($config['sslmode'] ?? 'require');
 
             if (empty($host) || empty($database) || empty($username)) {
                 return [
@@ -605,25 +615,17 @@ class ServerManagementService
                 ];
             }
 
-            config(['database.connections._test_probe' => [
-                'driver' => 'pgsql',
-                'host' => $host,
-                'port' => $port,
-                'database' => $database,
-                'username' => $username,
-                'password' => $password,
-                'sslmode' => $sslmode,
-                'charset' => 'utf8',
-                'prefix' => '',
-                'search_path' => 'public',
-            ]]);
-
-            DB::purge('_test_probe');
+            $dsn = "pgsql:host={$host};port={$port};dbname={$database};sslmode={$sslmode}";
             $start = microtime(true);
-            DB::connection('_test_probe')->select('SELECT 1 as ping');
+            $pdo = new \PDO($dsn, $username, $password, [
+                \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
+                \PDO::ATTR_TIMEOUT => 5,
+            ]);
+            $pdo->query('SELECT 1');
             $latencyMs = round((microtime(true) - $start) * 1000, 2);
 
-            $tables = DB::connection('_test_probe')->select("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' LIMIT 5");
+            $stmt = $pdo->query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' LIMIT 5");
+            $tables = $stmt->fetchAll(\PDO::FETCH_COLUMN);
             $tableCount = count($tables);
 
             return [
@@ -638,8 +640,6 @@ class ServerManagementService
                 'latency_ms' => null,
                 'message' => 'Connection failed: ' . $e->getMessage(),
             ];
-        } finally {
-            DB::disconnect('_test_probe');
         }
     }
 
@@ -685,6 +685,24 @@ class ServerManagementService
         if (!$updated) {
             return ['success' => false, 'message' => '.env file not found.'];
         }
+
+        // Overload current PHP process environment
+        foreach ($keys as $key => $val) {
+            $_ENV[$key] = $val;
+            $_SERVER[$key] = $val;
+            putenv("{$key}={$val}");
+        }
+
+        // Dynamically update Laravel in-memory database configuration
+        config([
+            'database.connections.pgsql.host' => $host,
+            'database.connections.pgsql.port' => (int) $keys['DB_PORT'],
+            'database.connections.pgsql.database' => $keys['DB_DATABASE'],
+            'database.connections.pgsql.username' => $keys['DB_USERNAME'],
+            'database.connections.pgsql.password' => $keys['DB_PASSWORD'],
+            'database.connections.pgsql.sslmode' => $sslMode,
+        ]);
+        \Illuminate\Support\Facades\DB::purge('pgsql');
 
         try {
             \Illuminate\Support\Facades\Artisan::call('config:clear');

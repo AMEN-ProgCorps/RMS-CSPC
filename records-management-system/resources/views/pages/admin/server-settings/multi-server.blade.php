@@ -52,6 +52,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         $this->dbPort = (string) (config('database.connections.pgsql.port') ?: env('DB_PORT', '5432'));
         $this->dbName = config('database.connections.pgsql.database') ?: env('DB_DATABASE', 'rms');
         $this->dbUser = config('database.connections.pgsql.username') ?: env('DB_USERNAME', 'adminrms');
+        $this->dbPassword = (string) (config('database.connections.pgsql.password') ?: env('DB_PASSWORD', 'admin'));
         $this->dbSslMode = config('database.connections.pgsql.sslmode') ?: env('DB_SSLMODE', 'prefer');
 
         $this->runPrerequisiteChecks($service);
@@ -69,12 +70,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
     {
         $this->showDbModal = true;
         $this->testDbResult = null;
+        $this->errorMessage = '';
+        if (empty($this->dbPassword)) {
+            $this->dbPassword = (string) (config('database.connections.pgsql.password') ?: env('DB_PASSWORD', 'admin'));
+        }
     }
 
     public function closeDbModal(): void
     {
         $this->showDbModal = false;
         $this->testDbResult = null;
+        $this->errorMessage = '';
     }
 
     public function parseDbUrl(): void
@@ -103,11 +109,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
             }
         }
 
+        $this->testDbResult = null;
+        $this->errorMessage = '';
         $this->successMessage = 'Database URL parsed. Click "Test Connection" to probe connectivity, then "Apply to .env".';
     }
 
     public function testDatabaseConnection(ServerManagementService $service): void
     {
+        if (!empty(trim($this->dbUrlInput))) {
+            $this->parseDbUrl();
+        }
+
         $this->isTestingDb = true;
         $this->testDbResult = $service->testCustomDatabaseConnection([
             'host' => $this->dbHost,
@@ -122,6 +134,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
 
     public function applyDatabaseConfig(ServerManagementService $service): void
     {
+        if (!empty(trim($this->dbUrlInput))) {
+            $this->parseDbUrl();
+        }
+
         $res = $service->applyDatabaseToEnv([
             'host' => $this->dbHost,
             'port' => $this->dbPort,
@@ -134,6 +150,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
         if ($res['success']) {
             $this->successMessage = $res['message'];
             $this->testDbResult = null;
+            $this->showDbModal = false;
             $this->runPrerequisiteChecks($service);
         } else {
             $this->errorMessage = $res['message'];
@@ -150,7 +167,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Multi-Server')] class ex
             $this->dbUser = 'adminrms';
             $this->dbPassword = 'admin';
             $this->dbSslMode = 'prefer';
+            $this->dbUrlInput = '';
             $this->testDbResult = null;
+            $this->showDbModal = false;
             $this->successMessage = 'Database configuration reverted to local Docker container (db).';
             $this->runPrerequisiteChecks($service);
         } else {

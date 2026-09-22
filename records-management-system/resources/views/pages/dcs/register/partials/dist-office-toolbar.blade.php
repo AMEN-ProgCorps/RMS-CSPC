@@ -47,3 +47,32 @@
     </div>
 </div>
 </template>
+
+<template x-teleport="body">
+<div class="reg-modal-overlay" id="distOfficeGroupDeleteModal" aria-hidden="true" onclick="if(event.target===this)closeDeleteDistOfficeGroupModal()">
+    <div class="reg-modal reg-modal--dist-delete" role="dialog" aria-modal="true" aria-labelledby="distOfficeGroupDeleteTitle">
+        <div class="reg-modal-header reg-modal-header--danger">
+            <i class="fa-solid fa-trash-can"></i>
+            <h3 id="distOfficeGroupDeleteTitle">Delete saved group</h3>
+            <button type="button" class="reg-modal-close" onclick="closeDeleteDistOfficeGroupModal()" aria-label="Close">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="reg-modal-body">
+            <p class="reg-dist-delete-lead">
+                Remove <strong id="distOfficeGroupDeleteName">this group</strong> from your saved distribution lists?
+            </p>
+            <p class="reg-field-hint reg-dist-delete-hint">
+                The offices currently on this form stay as they are. Only the reusable group is deleted.
+            </p>
+            <div id="distOfficeGroupDeleteError" class="reg-file-error" style="display:none;"></div>
+        </div>
+        <div class="reg-modal-footer">
+            <button type="button" class="reg-btn reg-btn-cancel" onclick="closeDeleteDistOfficeGroupModal()">Cancel</button>
+            <button type="button" class="reg-btn reg-btn-danger" id="distOfficeGroupDeleteConfirmBtn" onclick="confirmDeleteDistOfficeGroup()">
+                <i class="fa-solid fa-trash-can"></i> Delete group
+            </button>
+        </div>
+    </div>
+</div>
+</template>

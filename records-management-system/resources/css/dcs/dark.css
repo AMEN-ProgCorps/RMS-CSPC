@@ -221,12 +221,15 @@
 [data-theme="dark"] .reg-container,
 [data-theme="dark"] .db-page,
 [data-theme="dark"] .mf-page,
+[data-theme="dark"] .rc-page,
+[data-theme="dark"] .ofi-page,
 [data-theme="dark"] .st-container,
 [data-theme="dark"] .rpt-page,
 [data-theme="dark"] .upd-container,
 [data-theme="dark"] .hst-container,
 [data-theme="dark"] .drr-container,
 [data-theme="dark"] .rb-container {
+    background: #0b0f19 !important;
     background-color: #0b0f19 !important;
     color: #f8fafc !important;
 }
@@ -1528,6 +1531,25 @@
     background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 55%, #2563eb 100%) !important;
 }
 
+[data-theme="dark"] .reg-modal-header--danger {
+    background: #450a0a !important;
+    border-bottom-color: #7f1d1d !important;
+}
+
+[data-theme="dark"] .reg-modal-header--danger i {
+    color: #f87171 !important;
+}
+
+[data-theme="dark"] .reg-dist-delete-lead,
+[data-theme="dark"] .reg-dist-delete-lead strong {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .reg-modal-footer .reg-btn-danger {
+    background: #dc2626 !important;
+    color: #fff !important;
+}
+
 [data-theme="dark"] .reg-draft-lead {
     color: #f8fafc !important;
 }
@@ -2354,5 +2376,385 @@
 
 [data-theme="dark"] .dash-queue-chip.is-obsolete strong {
     color: #fecaca !important;
+}
+
+/* ── Request (RFIO) + office intake shell ── */
+[data-theme="dark"] .ofi-request-page.upd-container,
+[data-theme="dark"] .ofi-request-review-page {
+    background: #0b0f19 !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .ofi-request-review-page {
+    background:
+        radial-gradient(ellipse 80% 50% at 10% -10%, rgba(37, 99, 235, 0.12), transparent 55%),
+        linear-gradient(180deg, #0b0f19 0%, #0f172a 100%) !important;
+}
+
+[data-theme="dark"] .ofi-request-kicker,
+[data-theme="dark"] .ofi-request-hero p,
+[data-theme="dark"] .ofi-request-stat-label,
+[data-theme="dark"] .ofi-request-review-heading p,
+[data-theme="dark"] .ofi-request-actions-head p,
+[data-theme="dark"] .ofi-request-step-hint,
+[data-theme="dark"] .ofi-request-preview-hint,
+[data-theme="dark"] .ofi-request-empty {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .ofi-request-hero h1,
+[data-theme="dark"] .ofi-request-review-heading h1,
+[data-theme="dark"] .ofi-request-step-label,
+[data-theme="dark"] .ofi-request-stat strong,
+[data-theme="dark"] .ofi-request-title-link,
+[data-theme="dark"] .ofi-request-actions-head h2 {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .ofi-request-stat,
+[data-theme="dark"] .ofi-request-back,
+[data-theme="dark"] .ofi-request-review-heading,
+[data-theme="dark"] .ofi-request-preview-panel,
+[data-theme="dark"] .ofi-request-actions,
+[data-theme="dark"] .ofi-request-card.upd-table-card {
+    background: #131c2e !important;
+    border-color: #1e293b !important;
+    color: #f8fafc !important;
+    box-shadow: none !important;
+}
+
+[data-theme="dark"] .ofi-request-back:hover {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .ofi-request-filter {
+    background: #0b0f19 !important;
+    border-color: #334155 !important;
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .ofi-request-filter span {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .ofi-request-filter.is-active {
+    background: rgba(37, 99, 235, 0.22) !important;
+    border-color: #3b82f6 !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .ofi-request-filter.is-active span {
+    background: rgba(37, 99, 235, 0.35) !important;
+    color: #dbeafe !important;
+}
+
+[data-theme="dark"] .ofi-request-review-btn,
+[data-theme="dark"] .ofi-notify-print-btn,
+[data-theme="dark"] .ofi-unlock-btn {
+    background: #0b0f19 !important;
+    border-color: #3b82f6 !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .ofi-request-review-btn:hover,
+[data-theme="dark"] .ofi-notify-print-btn:hover:not(:disabled),
+[data-theme="dark"] .ofi-unlock-btn:hover:not(:disabled) {
+    background: rgba(37, 99, 235, 0.18) !important;
+}
+
+[data-theme="dark"] .ofi-unlock-btn:disabled,
+[data-theme="dark"] .ofi-notify-print-btn:disabled,
+[data-theme="dark"] .ofi-receive-proceed:disabled {
+    opacity: 0.55 !important;
+}
+
+[data-theme="dark"] .ofi-request-preview-bar {
+    background: linear-gradient(180deg, #131c2e, #0f172a) !important;
+    border-bottom-color: #1e293b !important;
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .ofi-request-preview-bar i {
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .ofi-request-preview-wrap,
+[data-theme="dark"] .ofi-request-preview {
+    background: #1e293b !important;
+}
+
+[data-theme="dark"] .ofi-request-step {
+    background: #0b0f19 !important;
+    border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .ofi-request-step.is-final {
+    background: linear-gradient(180deg, #0f172a, #111827) !important;
+    border-color: #1e3a8a !important;
+}
+
+[data-theme="dark"] .ofi-request-step-num {
+    background: #1d4ed8 !important;
+}
+
+[data-theme="dark"] .ofi-unlock-reason,
+[data-theme="dark"] .ofi-request-actions textarea {
+    background: #0b0f19 !important;
+    border-color: #334155 !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .ofi-unlock-label,
+[data-theme="dark"] .ofi-receive-check {
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .ofi-type-pill.is-drf {
+    background: rgba(37, 99, 235, 0.2) !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .ofi-type-pill.is-dcn {
+    background: rgba(217, 119, 6, 0.2) !important;
+    color: #fdba74 !important;
+}
+
+[data-theme="dark"] .ofi-status-pill.is-received {
+    background: rgba(22, 163, 74, 0.2) !important;
+    color: #86efac !important;
+}
+
+[data-theme="dark"] .ofi-status-pill.is-pending {
+    background: rgba(217, 119, 6, 0.2) !important;
+    color: #fdba74 !important;
+}
+
+[data-theme="dark"] .ofi-request-stat.is-drf strong { color: #93c5fd !important; }
+[data-theme="dark"] .ofi-request-stat.is-dcn strong { color: #fdba74 !important; }
+[data-theme="dark"] .ofi-request-stat.is-received strong { color: #86efac !important; }
+[data-theme="dark"] .ofi-request-stat.is-awaiting strong { color: #fbbf24 !important; }
+
+/* ── Random Check ── */
+[data-theme="dark"] .rc-page {
+    background-color: #0b0f19 !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .rc-header-left h1,
+[data-theme="dark"] .rc-office-selected-main strong,
+[data-theme="dark"] .rc-panel-head,
+[data-theme="dark"] .rc-table th,
+[data-theme="dark"] .rc-table td {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .rc-subtitle,
+[data-theme="dark"] .rc-breadcrumb,
+[data-theme="dark"] .rc-office-selected-label,
+[data-theme="dark"] .rc-dropdown-empty,
+[data-theme="dark"] .rc-panel-sub {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .rc-breadcrumb span {
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .rc-count-badge {
+    background: rgba(37, 99, 235, 0.22) !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .rc-loading {
+    background: rgba(15, 23, 42, 0.92) !important;
+}
+
+[data-theme="dark"] .rc-loading h4 {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .rc-loading p {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .rc-search-wrap input,
+[data-theme="dark"] .rc-office-clear,
+[data-theme="dark"] .rc-type-btn:not(.active),
+[data-theme="dark"] .rc-dropdown,
+[data-theme="dark"] .rc-panel,
+[data-theme="dark"] .rc-side-panel {
+    background: #0b0f19 !important;
+    background-color: #0b0f19 !important;
+    border-color: #334155 !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .rc-search-wrap > i {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .rc-dropdown button {
+    color: #e2e8f0 !important;
+    border-bottom-color: #1e293b !important;
+}
+
+[data-theme="dark"] .rc-dropdown button:hover,
+[data-theme="dark"] .rc-dropdown button:focus {
+    background: rgba(37, 99, 235, 0.18) !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .rc-dropdown-code {
+    background: #131c2e !important;
+    border-color: #334155 !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .rc-office-selected {
+    background: rgba(37, 99, 235, 0.16) !important;
+    border-color: #1e40af !important;
+}
+
+[data-theme="dark"] .rc-office-clear:hover,
+[data-theme="dark"] .rc-type-btn:hover:not(:disabled):not(.active) {
+    background: #131c2e !important;
+    border-color: #475569 !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .rc-type-btn.active {
+    background: #2563eb !important;
+    border-color: #2563eb !important;
+    color: #fff !important;
+}
+
+[data-theme="dark"] .rc-type-btn.is-empty:not(.active) {
+    background: #0b0f19 !important;
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .rc-type-count {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .rc-type-btn.active .rc-type-count {
+    background: rgba(255, 255, 255, 0.22) !important;
+    color: #fff !important;
+}
+
+[data-theme="dark"] .rc-panel-head,
+[data-theme="dark"] .rc-table thead,
+[data-theme="dark"] .rc-table thead th {
+    background: #131c2e !important;
+    border-color: #1e293b !important;
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .rc-table tbody tr,
+[data-theme="dark"] .rc-table tbody td {
+    background: #0b0f19 !important;
+    border-color: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .rc-table tbody tr:nth-child(even) td {
+    background: #0f172a !important;
+}
+
+[data-theme="dark"] .rc-table tbody tr:hover td {
+    background: rgba(37, 99, 235, 0.12) !important;
+}
+
+[data-theme="dark"] .rc-empty,
+[data-theme="dark"] .rc-side-empty,
+[data-theme="dark"] .rc-side-item,
+[data-theme="dark"] .rc-field-select,
+[data-theme="dark"] .rc-field-textarea {
+    background: #131c2e !important;
+    border-color: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .rc-empty i,
+[data-theme="dark"] .rc-empty p,
+[data-theme="dark"] .rc-side-item span,
+[data-theme="dark"] .rc-table .col-item,
+[data-theme="dark"] .rc-table .col-date {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .rc-empty h3,
+[data-theme="dark"] .rc-side-item strong,
+[data-theme="dark"] .rc-doc-no {
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .rc-side-item:hover,
+[data-theme="dark"] .rc-side-item.is-active {
+    background: rgba(37, 99, 235, 0.18) !important;
+}
+
+[data-theme="dark"] .rc-rev {
+    background: #1e293b !important;
+    color: #cbd5e1 !important;
+}
+
+[data-theme="dark"] .rc-banner-info {
+    background: rgba(37, 99, 235, 0.16) !important;
+    border-color: #1e40af !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .rc-page select,
+[data-theme="dark"] .rc-page input:not([type="file"]):not([type="checkbox"]):not([type="radio"]) {
+    background: #0b0f19 !important;
+    color: #f8fafc !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .rc-page select option {
+    background: #131c2e !important;
+    color: #f8fafc !important;
+}
+
+/* ── Document Review extras (hardcoded light chrome) ── */
+[data-theme="dark"] .drr-container .drr-list-block,
+[data-theme="dark"] .drr-container .drr-table-card,
+[data-theme="dark"] .drr-container .drr-panel,
+[data-theme="dark"] .drr-container .drr-doc,
+[data-theme="dark"] .drr-container .drr-empty {
+    background: #131c2e !important;
+    border-color: #1e293b !important;
+    color: #f8fafc !important;
+}
+
+[data-theme="dark"] .drr-container .drr-search-input,
+[data-theme="dark"] .drr-container .drr-filter-select,
+[data-theme="dark"] .drr-container .drr-btn-clear,
+[data-theme="dark"] .drr-container .drr-btn-ghost,
+[data-theme="dark"] .drr-container .drr-pg {
+    background: #0b0f19 !important;
+    border-color: #334155 !important;
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .drr-container .drr-table thead,
+[data-theme="dark"] .drr-container .drr-table thead th {
+    background: #1e293b !important;
+    color: #cbd5e1 !important;
+    border-color: #334155 !important;
+}
+
+[data-theme="dark"] .drr-container .drr-table tbody td {
+    border-color: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .drr-container .drr-table tbody tr:hover td {
+    background: rgba(37, 99, 235, 0.12) !important;
 }
 

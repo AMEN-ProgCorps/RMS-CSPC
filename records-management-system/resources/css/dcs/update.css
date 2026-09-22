@@ -24,6 +24,10 @@ body {
     transition: left 0.3s cubic-bezier(0.4,0,0.2,1);
 }
 
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .upd-container {
+    top: calc(var(--dcs-header-height, 70px) + 58px);
+}
+
 .upd-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; }
 .upd-title { font-size: var(--dcs-title-size); font-weight: 800; color: var(--upd-text); letter-spacing: -0.02em; }
 

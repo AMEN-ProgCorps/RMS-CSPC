@@ -405,12 +405,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
             $groups = collect();
             foreach ($grouped as $rows) {
-                $sorted = $rows->sortByDesc('rev_no')->values();
-                $parent = $rows->first(fn ($r) => strtolower((string) $r['status']) === 'latest')
-                    ?? $sorted->first();
+                $allowsRevision = (bool) ($rows->first()['allows_revision'] ?? true);
+                $sorted = $allowsRevision
+                    ? $rows->sortByDesc('rev_no')->values()
+                    : $rows->sortByDesc('request_id')->values();
+                $parent = $allowsRevision
+                    ? ($rows->first(fn ($r) => strtolower((string) $r['status']) === 'latest') ?? $sorted->first())
+                    : $sorted->first();
                 $children = $rows
                     ->filter(fn ($r) => $r['request_id'] !== $parent['request_id'])
-                    ->sortByDesc('rev_no')
+                    ->sortByDesc($allowsRevision ? 'rev_no' : 'request_id')
                     ->values();
 
                 $groups->push([
@@ -422,6 +426,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     'has_revisions' => $children->isNotEmpty(),
                     'revision_count' => $rows->count(),
                     'obsolete_count' => $children->count(),
+                    'allows_revision' => $allowsRevision,
+                    'stack_label' => $allowsRevision ? 'older revisions' : 'more registrations',
                 ]);
             }
 
@@ -476,12 +482,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 $groups = $groups
                     ->filter(fn ($g) => strtolower((string) ($g['parent']['status'] ?? '')) === 'latest')
                     ->map(function ($g) {
-                        // Keep renumbered prior doc nos as obsolete children; hide same-number prior revs.
-                        $parentNo = strtolower(trim((string) ($g['doc_no'] ?? '')));
-                        $g['children'] = collect($g['children'] ?? [])
-                            ->filter(fn ($c) => strtolower(trim((string) ($c['doc_no'] ?? ''))) !== $parentNo)
-                            ->values()
-                            ->all();
+                        $allowsRevision = (bool) ($g['allows_revision'] ?? true);
+                        if ($allowsRevision) {
+                            // Keep renumbered prior doc nos as obsolete children; hide same-number prior revs.
+                            $parentNo = strtolower(trim((string) ($g['doc_no'] ?? '')));
+                            $g['children'] = collect($g['children'] ?? [])
+                                ->filter(fn ($c) => strtolower(trim((string) ($c['doc_no'] ?? ''))) !== $parentNo)
+                                ->values()
+                                ->all();
+                        }
+                        // Non-revisable: keep same-doc_no sibling registrations under the tip.
                         $g['has_revisions'] = !empty($g['children']);
                         $g['obsolete_count'] = count($g['children']);
                         $g['revision_count'] = 1 + count($g['children']);
@@ -659,6 +669,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'originator' => $ml?->originator_name,
             'pages' => $ml?->no_pages,
             'status' => $status,
+            'allows_revision' => RegisterQueryHelper::supportsAllowsRevisionColumn()
+                ? (bool) ($ml->allows_revision ?? true)
+                : RegisterQueryHelper::effectiveTypeAllowsRevision($doc->doc_type_id, $doc->sub_type_id),
             'is_deleted' => $isDeleted,
             'deleted_at' => $isDeleted ? Carbon::parse($doc->deleted_at)->format('M d, Y h:i A') : null,
             'revised_from_doc_no' => $ml->revised_from_doc_no ?? null,
@@ -809,13 +822,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             usort($stack, fn ($a, $b) => ((int) ($b['rev_no'] ?? 0)) <=> ((int) ($a['rev_no'] ?? 0))
                 ?: ((int) ($b['request_id'] ?? 0)) <=> ((int) ($a['request_id'] ?? 0)));
             $tip = $stack[0];
+            $stackAllowsRevision = (bool) ($tip['allows_revision'] ?? $g['allows_revision'] ?? true);
             foreach ($stack as &$member) {
                 $isTip = (int) ($member['request_id'] ?? 0) === (int) ($tip['request_id'] ?? 0);
-                if ($isTip && empty($member['is_deleted'])) {
-                    $member['status'] = 'Latest';
-                } elseif (!$isTip && empty($member['is_deleted'])) {
-                    $member['status'] = 'Obsolete';
+                if ($stackAllowsRevision) {
+                    if ($isTip && empty($member['is_deleted'])) {
+                        $member['status'] = 'Latest';
+                    } elseif (!$isTip && empty($member['is_deleted'])) {
+                        $member['status'] = 'Obsolete';
+                    }
                 }
+                // Non-revisable: preserve DB status labels (typically all Latest).
             }
             unset($member);
 
@@ -828,6 +845,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $g['has_revisions'] = ! empty($g['children']);
             $g['revision_count'] = 1 + count($g['children']);
             $g['obsolete_count'] = count($g['children']);
+            $g['allows_revision'] = $stackAllowsRevision;
+            $g['stack_label'] = $stackAllowsRevision ? 'older revisions' : 'more registrations';
             $merged->push($g);
         }
 
@@ -1440,7 +1459,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <tr class="db-parent-row @if(!empty($r['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}']" @if(!empty($r['is_deleted'])) title="Moved to Recycle Bin{{ !empty($r['deleted_at']) ? ' on ' . $r['deleted_at'] : '' }}" @endif>
                             <td>
                                 @if(!empty($group['children']))
-                                    <span class="db-expand-btn" :class="{ expanded: expandedRevs['{{ $revKey }}'] }" x-on:click.stop="toggleRev('{{ $revKey }}')" title="Show older revisions" x-text="expandedRevs['{{ $revKey }}'] ? '▼' : '▶'"></span>
+                                    <span class="db-expand-btn" :class="{ expanded: expandedRevs['{{ $revKey }}'] }" x-on:click.stop="toggleRev('{{ $revKey }}')" title="Show {{ $group['stack_label'] ?? 'older revisions' }}" x-text="expandedRevs['{{ $revKey }}'] ? '▼' : '▶'"></span>
                                 @endif
                                 {{ $itemNo }}
                             </td>

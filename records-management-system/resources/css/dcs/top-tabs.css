@@ -5,7 +5,8 @@
     top: var(--dcs-header-height);
     left: var(--dcs-sidebar);
     right: 0;
-    z-index: 40;
+    /* Above fixed page shells (often z-index:1); below sidebar (999) and modals */
+    z-index: 90;
     /* Use pad-x only — --dcs-page-pad is two values and would zero out left padding. */
     padding: 10px var(--dcs-page-pad-x) 0;
     box-sizing: border-box;
@@ -90,6 +91,7 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .dashboard-main,
 body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .rpt-page,
 body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .db-page,
 body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .mf-page,
+body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .rc-page,
 body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .st-container,
 body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container,
 body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .upd-container,
@@ -125,6 +127,7 @@ body:has(#dcs-sidebar-collapsed:checked) .dcs-top-tabs-host {
     body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .rpt-page,
     body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .db-page,
     body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .mf-page,
+    body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .rc-page,
     body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .st-container,
     body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container,
     body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .upd-container,

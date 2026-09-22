@@ -8,6 +8,7 @@
     $canStamping = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('stamping');
     $canDatabase = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('database');
     $canManageFiles = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('manage_files');
+    $canRandomCheck = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('random_check');
     $canSettings = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('settings');
     $canRecycleBin = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('recycle_bin');
 @endphp
@@ -99,8 +100,8 @@
         @if($isFullDcs)
             @php $canReviewIntake = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake(); @endphp
             @if($canRegister)
-                @if($enableTopTabs && ! $canReviewIntake)
-                    <li class="nav-item {{ request()->is('dcs/register*') ? 'active' : '' }}">
+                @if($enableTopTabs)
+                    <li class="nav-item {{ request()->is('dcs/register*') || request()->routeIs('dcs.requests.*') ? 'active' : '' }}">
                         <a href="{{ route('dcs.register.create', absolute: false) }}">
                             <i class="fa-regular fa-pen-to-square"></i>
                             <span>Document Registration</span>
@@ -201,6 +202,16 @@
                         <i class="fa-solid fa-database"></i>
                         <span>Database</span>
                         <span class="tooltip">Database</span>
+                    </a>
+                </li>
+            @endif
+
+            @if($canRandomCheck)
+                <li class="nav-item {{ request()->routeIs('dcs.random-check') ? 'active' : '' }}">
+                    <a href="{{ route('dcs.random-check', absolute: false) }}">
+                        <i class="fa-solid fa-clipboard-check"></i>
+                        <span>Random Check</span>
+                        <span class="tooltip">Random Check</span>
                     </a>
                 </li>
             @endif

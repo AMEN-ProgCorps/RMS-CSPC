@@ -91,7 +91,8 @@ body:has(#dcs-nav-open:checked) .nav-backdrop {
     overflow: hidden;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav,
+html[data-dcs-sidebar-collapsed="1"] .side-nav {
     overflow: visible;
 }
 
@@ -475,7 +476,8 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-divider {
     border-radius: 1px;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .tooltip {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .tooltip,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .tooltip {
     display: block;
     position: absolute;
     left: calc(100% + 10px);
@@ -483,18 +485,17 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .tooltip {
     transform: translateY(-50%);
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item:hover .tooltip {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item:hover .tooltip,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item:hover .tooltip {
     opacity: 1;
     visibility: visible;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown:hover .tooltip,
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown:focus-within .tooltip {
-    opacity: 0;
-    visibility: hidden;
-}
-
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.expanded-overlay .tooltip {
+/* Prefer the flyout menu over the tooltip for dropdown items. */
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown.expanded-overlay .tooltip,
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown:has(.dropdown-float) .tooltip,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item.dropdown.expanded-overlay .tooltip,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item.dropdown:has(.dropdown-float) .tooltip {
     opacity: 0 !important;
     visibility: hidden !important;
 }
@@ -518,6 +519,7 @@ body:has(#dcs-sidebar-collapsed:checked) .dashboard-main,
 body:has(#dcs-sidebar-collapsed:checked) .rpt-page,
 body:has(#dcs-sidebar-collapsed:checked) .db-page,
 body:has(#dcs-sidebar-collapsed:checked) .mf-page,
+body:has(#dcs-sidebar-collapsed:checked) .rc-page,
 body:has(#dcs-sidebar-collapsed:checked) .st-container,
 body:has(#dcs-sidebar-collapsed:checked) .reg-container,
 body:has(#dcs-sidebar-collapsed:checked) .upd-container,
@@ -534,6 +536,7 @@ body:has(#dcs-sidebar-collapsed:checked) .settings-main {
     .rpt-page,
     .db-page,
     .mf-page,
+    .rc-page,
     .st-container,
     .reg-container,
     .upd-container,
@@ -546,6 +549,7 @@ body:has(#dcs-sidebar-collapsed:checked) .settings-main {
     body:has(#dcs-sidebar-collapsed:checked) .rpt-page,
     body:has(#dcs-sidebar-collapsed:checked) .db-page,
     body:has(#dcs-sidebar-collapsed:checked) .mf-page,
+    body:has(#dcs-sidebar-collapsed:checked) .rc-page,
     body:has(#dcs-sidebar-collapsed:checked) .st-container,
     body:has(#dcs-sidebar-collapsed:checked) .reg-container,
     body:has(#dcs-sidebar-collapsed:checked) .upd-container,
@@ -612,18 +616,23 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .collapse-indicator {
     display: none;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-links {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-links,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-links {
     padding: 8px;
     overflow: visible;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item {
     overflow: visible;
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item > a,
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown > span,
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown summary {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown summary,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item > a,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item.dropdown > span,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item.dropdown summary {
     justify-content: flex-start;
     padding: 10px 12px;
     overflow: visible;
@@ -667,38 +676,32 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .arrow {
     display: none !important;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .sub-dropdown {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .sub-dropdown,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .sub-dropdown {
     display: none;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown:hover .sub-dropdown,
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown:focus-within .sub-dropdown {
-    display: block;
-    position: absolute;
-    left: calc(100% + 6px);
-    top: 0;
-    max-height: none;
-    opacity: 1;
-    overflow: visible;
-    min-width: 200px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 6px;
-    z-index: 10000;
-    box-shadow: 0 8px 32px rgba(15, 23, 42, 0.12), 0 2px 8px rgba(15, 23, 42, 0.06);
+/* Inline CSS hover flyout is unreliable inside closed <details>; JS .dropdown-float is used instead. */
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown:hover > .sub-dropdown,
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown:focus-within > .sub-dropdown,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item.dropdown:hover > .sub-dropdown,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item.dropdown:focus-within > .sub-dropdown {
+    display: none;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .sub-dropdown li a {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .sub-dropdown li a,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .sub-dropdown li a {
     padding: 10px 14px;
 }
 
 /* ─── Expanded sub-dropdown overlay (collapsed desktop) ─── */
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown.expanded-overlay {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown.expanded-overlay,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .nav-item.dropdown.expanded-overlay {
     position: static;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .dropdown-float {
     position: fixed;
     background: var(--surface);
     border: 1px solid var(--border);
@@ -716,7 +719,8 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float {
     to   { opacity: 1; transform: translateX(0) scale(1); }
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float-header {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float-header,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .dropdown-float-header {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -730,12 +734,14 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float-header {
     margin-bottom: 4px;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float-header i {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float-header i,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .dropdown-float-header i {
     font-size: 0.75rem;
     opacity: 0.7;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .dropdown-float a {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -749,34 +755,41 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a {
     margin: 2px 0;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .dropdown-float a:hover {
     background: #EEF2FF;
     color: #D97706;
     font-weight: 700;
     padding-left: 18px;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .dropdown-float a.active-sub {
     color: #D97706;
     font-weight: 700;
     background: #EEF2FF;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub .sub-dot {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub .sub-dot,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .dropdown-float a.active-sub .sub-dot {
     background: #D97706;
     box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.18);
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover,
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub:hover {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a.active-sub:hover,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .dropdown-float a:hover,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .dropdown-float a.active-sub:hover {
     color: #D97706;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover .sub-dot {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover .sub-dot,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .dropdown-float a:hover .sub-dot {
     background: #D97706;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float .sub-dot {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float .sub-dot,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .dropdown-float .sub-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
@@ -785,7 +798,8 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float .sub-dot {
     transition: all 0.15s ease;
 }
 
-body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover .sub-dot {
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dropdown-float a:hover .sub-dot,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .dropdown-float a:hover .sub-dot {
     background: var(--accent);
     transform: scale(1.3);
 }

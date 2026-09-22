@@ -14,6 +14,7 @@ new #[Layout('layouts.dcs')] class extends Component {
     public ?int $parentId = null;
 
     public string $docTypeName = '';
+    public bool $docTypeAllowsRevision = true;
     public string $originatorName = '';
     public string $facultyName = '';
     public string $collegeId = '';
@@ -28,6 +29,7 @@ new #[Layout('layouts.dcs')] class extends Component {
     public string $courseName = '';
     public string $courseCode = '';
     public string $courseYearLevel = '';
+    public string $courseType = '';
     /** @var list<array{code: string, name: string}> */
     public array $courseRows = [
         ['code' => '', 'name' => ''],
@@ -48,11 +50,12 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->parentId = null;
         $this->modalKind = '';
         $this->reset([
-            'docTypeName', 'originatorName',
+            'docTypeName', 'docTypeAllowsRevision', 'originatorName',
             'facultyName', 'collegeId', 'collegeName', 'officeId', 'programName', 'programCode',
-            'semesterName', 'schoolYear', 'programId', 'semesterId', 'courseName', 'courseCode', 'courseYearLevel',
+            'semesterName', 'schoolYear', 'programId', 'semesterId', 'courseName', 'courseCode', 'courseYearLevel', 'courseType',
             'deleteTitle', 'deleteMessage',
         ]);
+        $this->docTypeAllowsRevision = true;
         $this->courseRows = [['code' => '', 'name' => '']];
         $this->csvFile = null;
         $this->resetValidation();
@@ -63,11 +66,17 @@ new #[Layout('layouts.dcs')] class extends Component {
     {
         $this->resetFormFor('docType', $id);
         $this->parentId = $parentId;
+        $this->docTypeAllowsRevision = true;
         if ($id) {
             $row = DB::table('dcs_doc_types')->where('id', $id)->first();
             abort_unless($row, 404);
             $this->docTypeName = $row->doc_type_name;
             $this->parentId = $row->parent_id ? (int) $row->parent_id : null;
+            if (Schema::hasColumn('dcs_doc_types', 'allows_revision')) {
+                $this->docTypeAllowsRevision = (bool) ($row->allows_revision ?? true);
+            } else {
+                $this->docTypeAllowsRevision = ! \App\Helpers\RegisterQueryHelper::isSyllabiLikeName($row->doc_type_name ?? null);
+            }
         }
     }
 
@@ -164,6 +173,7 @@ new #[Layout('layouts.dcs')] class extends Component {
             $this->programId = (string) $row->program_id;
             $this->semesterId = (string) $row->semester_id;
             $this->courseYearLevel = $row->year_level ?? '';
+            $this->courseType = $row->course_type ?? '';
             $this->courseName = $row->course_name;
             $this->courseCode = $row->course_code ?? '';
         }
@@ -268,17 +278,111 @@ new #[Layout('layouts.dcs')] class extends Component {
             return;
         }
 
+        $payload = ['doc_type_name' => $this->docTypeName];
+        $allowsRevision = null;
+        if (Schema::hasColumn('dcs_doc_types', 'allows_revision')) {
+            $allowsRevision = (bool) $this->docTypeAllowsRevision;
+            $payload['allows_revision'] = $allowsRevision;
+        }
+
         if ($this->editingId) {
-            DB::table('dcs_doc_types')->where('id', $this->editingId)->update(['doc_type_name' => $this->docTypeName]);
+            try {
+                DB::transaction(function () use ($payload, $parentId, $allowsRevision) {
+                    DB::table('dcs_doc_types')->where('id', $this->editingId)->update($payload);
+
+                    // Keep denormalized masterlist flag in sync for this type/subtype.
+                    if ($allowsRevision === null
+                        || ! Schema::hasColumn('dcs_masterlist_registration', 'allows_revision')) {
+                        return;
+                    }
+
+                    $typeId = (int) $this->editingId;
+                    $requestIds = DB::table('dcs_document_requests')
+                        ->where(function ($q) use ($typeId, $parentId) {
+                            if ($parentId) {
+                                $q->where('sub_type_id', $typeId);
+                            } else {
+                                $q->where('doc_type_id', $typeId)->whereNull('sub_type_id');
+                            }
+                        })
+                        ->pluck('id');
+
+                    if ($requestIds->isEmpty()) {
+                        return;
+                    }
+
+                    // Non-revisable stacks may share (doc_no, revise_no, doc_type_id) as many
+                    // "latest" rows. Enabling revision requires one latest tip per key first.
+                    if ($allowsRevision
+                        && Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
+                        $this->collapseStackedLatestMasterlists($requestIds->all());
+                    }
+
+                    DB::table('dcs_masterlist_registration')
+                        ->whereIn('request_id', $requestIds)
+                        ->update(['allows_revision' => $allowsRevision]);
+                });
+            } catch (\Throwable $e) {
+                report($e);
+                $this->fail(
+                    'Could not update Allows revision / DCN. '
+                    . 'Existing stacked registrations for this type conflict with revision uniqueness. '
+                    . 'Details were logged.'
+                );
+
+                return;
+            }
+
             $this->done('Updated successfully.');
             return;
         }
 
-        DB::table('dcs_doc_types')->insert([
-            'doc_type_name' => $this->docTypeName,
+        DB::table('dcs_doc_types')->insert(array_merge($payload, [
             'parent_id' => $parentId,
-        ]);
+        ]));
         $this->done($parentId ? 'Sub-type added.' : 'Document type added.');
+    }
+
+    /**
+     * When turning on allows_revision, stacked non-revisable "latest" rows that share
+     * (doc_no, revise_no, doc_type_id) would violate dcs_ml_doc_no_revise_type_active_unique.
+     * Keep the newest row as latest; mark older siblings obsolete.
+     *
+     * @param  list<int|string>  $requestIds
+     */
+    private function collapseStackedLatestMasterlists(array $requestIds): void
+    {
+        $rows = DB::table('dcs_masterlist_registration')
+            ->whereIn('request_id', $requestIds)
+            ->where('revision_status', 'latest')
+            ->whereNotNull('doc_no')
+            ->where('doc_no', '!=', '')
+            ->orderByDesc('id')
+            ->get(['id', 'doc_no', 'revise_no', 'doc_type_id']);
+
+        $seen = [];
+        $obsoleteIds = [];
+        foreach ($rows as $row) {
+            $key = trim((string) $row->doc_no)
+                . '|' . (int) $row->revise_no
+                . '|' . (int) $row->doc_type_id;
+            if (isset($seen[$key])) {
+                $obsoleteIds[] = (int) $row->id;
+                continue;
+            }
+            $seen[$key] = true;
+        }
+
+        if ($obsoleteIds === []) {
+            return;
+        }
+
+        DB::table('dcs_masterlist_registration')
+            ->whereIn('id', $obsoleteIds)
+            ->update([
+                'revision_status' => 'obsolete',
+                'updated_at' => now(),
+            ]);
     }
 
     private function saveOriginator(): void
@@ -647,16 +751,17 @@ new #[Layout('layouts.dcs')] class extends Component {
     {
         $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
         $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
+        $hasCourseType = Schema::hasColumn('dcs_program_courses', 'course_type');
 
         if ($this->editingId) {
-            $this->saveSingleProgramCourse($hasCourseCode, $hasYearLevel);
+            $this->saveSingleProgramCourse($hasCourseCode, $hasYearLevel, $hasCourseType);
             return;
         }
 
-        $this->saveBulkProgramCourses($hasCourseCode, $hasYearLevel);
+        $this->saveBulkProgramCourses($hasCourseCode, $hasYearLevel, $hasCourseType);
     }
 
-    private function saveSingleProgramCourse(bool $hasCourseCode, bool $hasYearLevel): void
+    private function saveSingleProgramCourse(bool $hasCourseCode, bool $hasYearLevel, bool $hasCourseType): void
     {
         $rules = [
             'programId' => 'required|integer|exists:dcs_programs,id',
@@ -666,20 +771,24 @@ new #[Layout('layouts.dcs')] class extends Component {
         if ($hasYearLevel) {
             $rules['courseYearLevel'] = 'required|string|max:50|in:1st Year,2nd Year,3rd Year,4th Year,5th Year';
         }
+        if ($hasCourseType) {
+            $rules['courseType'] = 'required|string|max:50|in:GE Courses,PE Courses,NSTP,Major';
+        }
         if ($hasCourseCode) {
             $rules['courseCode'] = 'required|string|max:50';
         }
         $this->validate($rules);
 
         $yearLevel = $hasYearLevel ? $this->courseYearLevel : null;
+        $courseType = $hasCourseType ? $this->courseType : null;
 
-        if ($this->programCourseNameTaken((int) $this->programId, (int) $this->semesterId, $this->courseName, $yearLevel, $hasYearLevel, (int) $this->editingId)) {
-            $this->fail('This course is already listed for the selected program, semester, and year level.');
+        if ($this->programCourseNameTaken((int) $this->programId, (int) $this->semesterId, $this->courseName, $yearLevel, $hasYearLevel, $courseType, $hasCourseType, (int) $this->editingId)) {
+            $this->fail('This course is already listed for the selected program, semester, year level, and course type.');
             return;
         }
 
-        if ($hasCourseCode && $this->programCourseCodeTaken((int) $this->programId, (int) $this->semesterId, $this->courseCode, $yearLevel, $hasYearLevel, (int) $this->editingId)) {
-            $this->fail('This course code is already used for the selected program, semester, and year level.');
+        if ($hasCourseCode && $this->programCourseCodeTaken((int) $this->programId, (int) $this->semesterId, $this->courseCode, $yearLevel, $hasYearLevel, $courseType, $hasCourseType, (int) $this->editingId)) {
+            $this->fail('This course code is already used for the selected program, semester, year level, and course type.');
             return;
         }
 
@@ -691,6 +800,9 @@ new #[Layout('layouts.dcs')] class extends Component {
         if ($hasYearLevel) {
             $payload['year_level'] = $yearLevel;
         }
+        if ($hasCourseType) {
+            $payload['course_type'] = $courseType;
+        }
         if ($hasCourseCode) {
             $payload['course_code'] = $this->courseCode;
         }
@@ -699,7 +811,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->done('Course updated.');
     }
 
-    private function saveBulkProgramCourses(bool $hasCourseCode, bool $hasYearLevel): void
+    private function saveBulkProgramCourses(bool $hasCourseCode, bool $hasYearLevel, bool $hasCourseType): void
     {
         $rules = [
             'programId' => 'required|integer|exists:dcs_programs,id',
@@ -711,9 +823,13 @@ new #[Layout('layouts.dcs')] class extends Component {
         if ($hasYearLevel) {
             $rules['courseYearLevel'] = 'required|string|max:50|in:1st Year,2nd Year,3rd Year,4th Year,5th Year';
         }
+        if ($hasCourseType) {
+            $rules['courseType'] = 'required|string|max:50|in:GE Courses,PE Courses,NSTP,Major';
+        }
         $this->validate($rules);
 
         $yearLevel = $hasYearLevel ? $this->courseYearLevel : null;
+        $courseType = $hasCourseType ? $this->courseType : null;
         $programId = (int) $this->programId;
         $semesterId = (int) $this->semesterId;
 
@@ -769,11 +885,11 @@ new #[Layout('layouts.dcs')] class extends Component {
         }
 
         foreach ($entries as $entry) {
-            if ($this->programCourseNameTaken($programId, $semesterId, $entry['name'], $yearLevel, $hasYearLevel)) {
-                $this->addError("courseRows.{$entry['index']}.name", 'Already listed for this program, semester, and year level.');
+            if ($this->programCourseNameTaken($programId, $semesterId, $entry['name'], $yearLevel, $hasYearLevel, $courseType, $hasCourseType)) {
+                $this->addError("courseRows.{$entry['index']}.name", 'Already listed for this program, semester, year level, and course type.');
             }
-            if ($hasCourseCode && $this->programCourseCodeTaken($programId, $semesterId, $entry['code'], $yearLevel, $hasYearLevel)) {
-                $this->addError("courseRows.{$entry['index']}.code", 'Code already used for this program, semester, and year level.');
+            if ($hasCourseCode && $this->programCourseCodeTaken($programId, $semesterId, $entry['code'], $yearLevel, $hasYearLevel, $courseType, $hasCourseType)) {
+                $this->addError("courseRows.{$entry['index']}.code", 'Code already used for this program, semester, year level, and course type.');
             }
         }
 
@@ -792,6 +908,9 @@ new #[Layout('layouts.dcs')] class extends Component {
             ];
             if ($hasYearLevel) {
                 $payload['year_level'] = $yearLevel;
+            }
+            if ($hasCourseType) {
+                $payload['course_type'] = $courseType;
             }
             if ($hasCourseCode) {
                 $payload['course_code'] = $entry['code'];
@@ -820,6 +939,8 @@ new #[Layout('layouts.dcs')] class extends Component {
         string $courseName,
         ?string $yearLevel,
         bool $hasYearLevel,
+        ?string $courseType = null,
+        bool $hasCourseType = false,
         ?int $exceptId = null
     ): bool {
         $q = DB::table('dcs_program_courses')
@@ -827,6 +948,7 @@ new #[Layout('layouts.dcs')] class extends Component {
             ->where('semester_id', $semesterId)
             ->where('course_name', $courseName)
             ->when($hasYearLevel, fn ($query) => $query->where('year_level', $yearLevel))
+            ->when($hasCourseType, fn ($query) => $query->where('course_type', $courseType))
             ->when($exceptId, fn ($query) => $query->where('id', '!=', $exceptId));
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($q, 'dcs_program_courses');
 
@@ -839,6 +961,8 @@ new #[Layout('layouts.dcs')] class extends Component {
         string $courseCode,
         ?string $yearLevel,
         bool $hasYearLevel,
+        ?string $courseType = null,
+        bool $hasCourseType = false,
         ?int $exceptId = null
     ): bool {
         $q = DB::table('dcs_program_courses')
@@ -846,6 +970,7 @@ new #[Layout('layouts.dcs')] class extends Component {
             ->where('semester_id', $semesterId)
             ->where('course_code', $courseCode)
             ->when($hasYearLevel, fn ($query) => $query->where('year_level', $yearLevel))
+            ->when($hasCourseType, fn ($query) => $query->where('course_type', $courseType))
             ->when($exceptId, fn ($query) => $query->where('id', '!=', $exceptId));
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($q, 'dcs_program_courses');
 
@@ -1018,11 +1143,15 @@ new #[Layout('layouts.dcs')] class extends Component {
     {
         $docTypeParentsQ = DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('doc_type_name');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($docTypeParentsQ, 'dcs_doc_types');
-        $docTypeParents = $docTypeParentsQ->get(['id', 'doc_type_name', 'parent_id']);
+        $docTypeParentCols = ['id', 'doc_type_name', 'parent_id'];
+        if (Schema::hasColumn('dcs_doc_types', 'allows_revision')) {
+            $docTypeParentCols[] = 'allows_revision';
+        }
+        $docTypeParents = $docTypeParentsQ->get($docTypeParentCols);
 
         $docTypeSubsQ = DB::table('dcs_doc_types')->whereNotNull('parent_id')->orderBy('doc_type_name');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($docTypeSubsQ, 'dcs_doc_types');
-        $docTypeSubs = $docTypeSubsQ->get(['id', 'doc_type_name', 'parent_id'])
+        $docTypeSubs = $docTypeSubsQ->get($docTypeParentCols)
             ->groupBy(fn ($row) => (string) $row->parent_id);
 
         $collegesQ = DB::table('dcs_colleges as c')
@@ -1062,9 +1191,13 @@ new #[Layout('layouts.dcs')] class extends Component {
 
         $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
         $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
+        $hasCourseType = Schema::hasColumn('dcs_program_courses', 'course_type');
         $courseCols = ['pc.id', 'pc.program_id', 'pc.semester_id', 'pc.course_name', 'p.program_name', 'c.id as college_id', 'c.college_name', 'c.college_code', 's.semester_name'];
         if ($hasYearLevel) {
             $courseCols[] = 'pc.year_level';
+        }
+        if ($hasCourseType) {
+            $courseCols[] = 'pc.course_type';
         }
         if ($hasCourseCode) {
             $courseCols[] = 'pc.course_code';
@@ -1077,6 +1210,9 @@ new #[Layout('layouts.dcs')] class extends Component {
             ->orderBy('pc.program_id')->orderBy('pc.semester_id');
         if ($hasYearLevel) {
             $programCoursesQ->orderBy('pc.year_level');
+        }
+        if ($hasCourseType) {
+            $programCoursesQ->orderBy('pc.course_type');
         }
         $programCoursesQ->orderBy('pc.course_name');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($programCoursesQ, 'dcs_program_courses', 'pc');
@@ -1485,7 +1621,7 @@ new #[Layout('layouts.dcs')] class extends Component {
     <section class="tab-panel" x-show="tab === 'coursenames'" x-cloak>
         <div x-data="{ collegeFilter: 'all' }">
         <div class="panel-toolbar">
-            <span class="panel-subtitle">Curriculum course list per program, semester, and year level — used to auto-fill Syllabi/TOS-Rubrics registration. Faculty is assigned during registration.</span>
+            <span class="panel-subtitle">Curriculum course list per program, semester, year level, and course type — used to auto-fill Syllabi/TOS-Rubrics registration. Faculty is assigned during registration.</span>
             <button type="button" class="btn-primary" wire:click="openProgramCourse()"><i class="fa-solid fa-plus"></i> Add Course</button>
         </div>
         @if($colleges->isNotEmpty())
@@ -1507,7 +1643,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         @endif
         <div class="table-wrap">
             <table class="settings-table">
-                <thead><tr><th>College</th><th>Program</th><th>Semester</th><th>Year Level</th><th>Course Code</th><th>Course Name</th><th style="width:140px;">Actions</th></tr></thead>
+                <thead><tr><th>College</th><th>Program</th><th>Semester</th><th>Year Level</th><th>Course Type</th><th>Course Code</th><th>Course Name</th><th style="width:140px;">Actions</th></tr></thead>
                 <tbody>
                     @forelse($programCourses as $course)
                         @php $courseCollegeKey = !empty($course->college_id) ? (string) $course->college_id : 'none'; @endphp
@@ -1520,6 +1656,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <td data-label="Program">{{ $course->program_name ?? '—' }}</td>
                             <td data-label="Semester">{{ $course->semester_name ?? '—' }}</td>
                             <td data-label="Year Level">{{ $course->year_level ?? '—' }}</td>
+                            <td data-label="Course Type">{{ $course->course_type ?? '—' }}</td>
                             <td data-label="Code">{{ $course->course_code ?: '—' }}</td>
                             <td data-label="Course Name">{{ $course->course_name }}</td>
                             <td>
@@ -1530,7 +1667,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="7" class="empty-cell">No courses yet.</td></tr>
+                        <tr><td colspan="8" class="empty-cell">No courses yet.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -1596,6 +1733,15 @@ new #[Layout('layouts.dcs')] class extends Component {
                         <input type="text" class="st-input @error('docTypeName') error @enderror" wire:model="docTypeName" placeholder="e.g. Internal, Syllabi">
                         @error('docTypeName') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
+                    @if(\Illuminate\Support\Facades\Schema::hasColumn('dcs_doc_types', 'allows_revision'))
+                        <div class="st-field">
+                            <label class="st-check-label" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                                <input type="checkbox" wire:model="docTypeAllowsRevision" style="width:auto;">
+                                <span>Allows revision / DCN</span>
+                            </label>
+                            <div class="st-faculty-hint">When off, registrations stay Rev 0 and the same document number can be stacked without marking older copies Obsolete.</div>
+                        </div>
+                    @endif
                 @elseif($modalKind === 'originator')
                     <div class="st-field">
                         <label class="st-label">Originator Name</label>
@@ -1700,6 +1846,17 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <option value="5th Year">5th Year</option>
                         </select>
                         @error('courseYearLevel') <div class="field-error">{{ $message }}</div> @enderror
+                    </div>
+                    <div class="st-field">
+                        <label class="st-label">Course Type</label>
+                        <select class="st-input @error('courseType') error @enderror" wire:model="courseType">
+                            <option value="">Select course type</option>
+                            <option value="GE Courses">GE Courses</option>
+                            <option value="PE Courses">PE Courses</option>
+                            <option value="NSTP">NSTP</option>
+                            <option value="Major">Major</option>
+                        </select>
+                        @error('courseType') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
 
                     @if($editingId)

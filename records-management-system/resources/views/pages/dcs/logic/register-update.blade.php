@@ -47,7 +47,7 @@ class RegisterUpdateHelper
         ], RegisterPersistHelper::scanFileRules()));
 
         if (! $saveAsDraft) {
-            if ($redirect = RegisterPersistHelper::validateSyllabiLikeRequestRows($request)) {
+            if ($redirect = RegisterPersistHelper::validateSyllabiLikeRequestRows($request, $id)) {
                 return $redirect;
             }
         }
@@ -89,7 +89,11 @@ class RegisterUpdateHelper
         }
 
         $docNo = $request->input('masterlistDocNo');
-        if ($docNo && ! $saveAsDraft) {
+        $allowsRevision = RegisterPersistHelper::effectiveAllowsRevision(
+            $docRequest->doc_type_id,
+            $resolvedSubTypeId
+        );
+        if ($docNo && ! $saveAsDraft && $allowsRevision) {
             $result = RegisterPersistHelper::findMatchingRegistrationRows(
                 $docNo,
                 (int) $docRequest->doc_type_id,
@@ -108,6 +112,8 @@ class RegisterUpdateHelper
                         ->with('error', 'Revision ' . $reviseNo . ' for document "' . $docNo . '" already exists.');
                 }
             }
+        } else if (! $allowsRevision) {
+            $request->merge(['masterlistRevisionNo' => 0]);
         }
 
         $requestId = $id;
@@ -366,6 +372,10 @@ class RegisterUpdateHelper
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
                     $masterlistData['revision_status'] = $saveAsDraft ? 'obsolete' : 'latest';
                 }
+                RegisterPersistHelper::applyAllowsRevisionToMasterlistRow($masterlistData, $allowsRevision);
+                if (! $allowsRevision) {
+                    $masterlistData['revise_no'] = 0;
+                }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
                     $newDocNo = trim((string) ($request->masterlistDocNo ?? ''));
                     $dcnFrom = RegisterQueryHelper::primaryDcnRevisionDocNo($requestId);
@@ -481,6 +491,10 @@ class RegisterUpdateHelper
                 }
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
                     $masterlistData['revision_status'] = $saveAsDraft ? 'obsolete' : 'latest';
+                }
+                RegisterPersistHelper::applyAllowsRevisionToMasterlistRow($masterlistData, $allowsRevision);
+                if (! $allowsRevision) {
+                    $masterlistData['revise_no'] = 0;
                 }
                 if ($masterlist) {
                     DB::table('dcs_masterlist_registration')->where('id', $masterlist->id)->update($masterlistData);

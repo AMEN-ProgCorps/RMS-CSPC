@@ -39,6 +39,7 @@ class DcsAccessControlTest extends TestCase
             'dcs_can_stamping',
             'dcs_can_database',
             'dcs_can_manage_files',
+            'dcs_can_random_check',
         ];
     }
 
@@ -595,6 +596,44 @@ class DcsAccessControlTest extends TestCase
             'created_at' => now(),
         ]);
 
+        // Colleague's success notice (same office) — limited user must not see it.
+        $otherDrfId = 0;
+        $otherNotifId = null;
+        if (Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
+            $ownDrfId = DB::table('dcs_document_request_form')->insertGetId([
+                'doc_title' => 'Own Limited DRF ' . $this->limitedRoleId,
+                'drf_date' => now()->toDateString(),
+                'created_by' => $this->limitedUserId,
+                'is_office_intake' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $otherDrfId = DB::table('dcs_document_request_form')->insertGetId([
+                'doc_title' => 'College of Health Sciences Syllabi Other',
+                'drf_date' => now()->toDateString(),
+                'created_by' => $this->rfioUserId,
+                'is_office_intake' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            DB::table($notifContent)->where('id', $intakeContentId)->update([
+                'redirect_url' => '/dcs/office/drf/' . $ownDrfId . '?registered=1',
+            ]);
+
+            $otherContentId = DB::table($notifContent)->insertGetId([
+                'system' => $subsystemId,
+                'content' => 'Your Document Request Form "College of Health Sciences Syllabi Other" was registered as CSPC-F-COL.13.',
+                'redirect_url' => '/dcs/office/drf/' . $otherDrfId . '?registered=1',
+                'created_at' => now(),
+            ]);
+            $otherNotifId = DB::table($notifTbl)->insertGetId([
+                'office' => $officeCode,
+                'contents' => $otherContentId,
+                'created_at' => now(),
+            ]);
+        }
+
         $component = \Livewire\Volt\Volt::test('components.notification.notifications');
         if ($component === null) {
             $this->markTestSkipped('Volt notification component unavailable.');
@@ -604,6 +643,13 @@ class DcsAccessControlTest extends TestCase
         $this->assertNotContains($registerNotifId, $ids);
         $this->assertNotContains($rfioQueueNotifId, $ids);
         $this->assertContains($intakeNotifId, $ids);
+        if ($otherNotifId !== null) {
+            $this->assertNotContains($otherNotifId, $ids);
+            $this->assertFalse(\App\Helpers\RegisterQueryHelper::limitedUserOwnsOfficeIntakeNotice(
+                '/dcs/office/drf/' . $otherDrfId . '?registered=1',
+                $this->limitedUserId
+            ));
+        }
 
         // Document Controllers must not see submitter-success notices (same office or otherwise).
         $this->actingAs(User::find($this->rfioUserId));
@@ -619,6 +665,17 @@ class DcsAccessControlTest extends TestCase
             $success->redirect_url,
             $success->content
         ));
+
+        $printReady = (object) [
+            'redirect_url' => '/dcs/office/drf/12',
+            'content' => 'Your Document Request Form "Quality Manual" has been reviewed and is correct. You can now print and sign the request, then bring the signed hard copy to the Records Office for further processing.',
+        ];
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isOfficeIntakeSubmitterSuccessNotice(
+            $printReady->redirect_url,
+            $printReady->content
+        ));
+        $filteredPrint = \App\Helpers\RegisterQueryHelper::filterBellNotifications(collect([$printReady]));
+        $this->assertCount(0, $filteredPrint);
     }
 
     public function test_sadm_non_rfio_can_access_full_dcs(): void

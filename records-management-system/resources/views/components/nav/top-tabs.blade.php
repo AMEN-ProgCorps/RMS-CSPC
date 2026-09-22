@@ -426,6 +426,17 @@
                 ],
             ];
         }
+        // 6a. Random Check
+        elseif (request()->routeIs('dcs.random-check')) {
+            $sectionTitle = 'Random Check';
+            $tabs = [
+                [
+                    'label' => 'Random Check',
+                    'url' => route('dcs.random-check'),
+                    'active' => request()->routeIs('dcs.random-check'),
+                ],
+            ];
+        }
         // 6b. Manage Files (Drive registry debug)
         elseif (request()->routeIs('dcs.manage-files')) {
             $sectionTitle = 'Manage Files';

@@ -665,7 +665,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <div class="reg-field">
                                 <label>Distribution Form Date</label>
                                 <div class="reg-dual">
-                                    <input type="date" id="distributionFormDate" name="distributionFormDate" oninput="calcDistributionTimeSpent()">
+                                    <input type="date" id="distributionFormDate" name="distributionFormDate" oninput="calcDistributionTimeSpent(); if (window.DCSScanNamePreview) DCSScanNamePreview.update();">
                                     <input type="time" id="distributionFormTime" name="distributionFormTime" oninput="calcDistributionTimeSpent()">
                                 </div>
                             </div>
@@ -701,10 +701,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                 </div>
                 <div class="reg-split-right">
-                    <div class="reg-field">
+                    <div class="reg-field" id="distOfficeSelectField">
                         <label>Select office(s) for distribution</label>
+                        <p class="reg-field-hint" id="distOfficesLockedHint" hidden style="margin:0 0 8px;color:#64748b;">
+                            Distribution offices come from the submitted DRF and cannot be added or removed here. You can still reorder them, set copies, and save this list as a group.
+                        </p>
                         <div class="reg-cluster-chips" id="distClusterChips"></div>
-                        <div class="reg-search">
+                        <div class="reg-search" id="distOfficeSearchWrap">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <circle cx="11" cy="11" r="8"/>
                                 <path d="M21 21l-4.35-4.35"/>
@@ -768,6 +771,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                     <i class="fa-regular fa-floppy-disk"></i> Save Draft
                 </button>
+                <span id="regAutosaveStatus" class="reg-autosave-status" aria-live="polite" hidden></span>
                 <button type="button" id="btnSaveDocument" class="reg-btn reg-btn-save" onclick="confirmSave()">
                     <i class="fa-solid fa-floppy-disk"></i> Save Document
                 </button>
@@ -1312,6 +1316,9 @@ function filterItems(list, labelKey, query) {
 }
 
 function seedOfficeRow(tbodyId, totalId, officeId, officeName, copies) {
+    if (tbodyId === 'distBody' && typeof isDistOfficesLockedFromDrf === 'function' && isDistOfficesLockedFromDrf()) {
+        return;
+    }
     if (tbodyId === 'retrievalBody') {
         seedRetrievalOfficeRow(tbodyId, totalId, officeId, officeName, copies, 'pending');
         return;
@@ -1832,45 +1839,101 @@ function applyOfficeIntakeChecklistAndFields(prefill) {
     }
 
     const distOffices = Array.isArray(prefill.distributeOffices) ? prefill.distributeOffices : [];
-    distOffices.forEach((o) => {
-        let officeId = o.office_id || o.id || null;
-        let officeName = o.office_name || o.name || '';
-        if (!officeId) {
-            const code = (o.office_code || o.code || '').trim();
-            const match =
-                (typeof findOfficeByLabelOrCode === 'function'
-                    ? findOfficeByLabelOrCode(code || officeName, allOffices || [])
-                    : null) ||
-                (allOffices || []).find(
-                    (x) =>
-                        (code &&
-                            String(x.office_code || '').toLowerCase() === code.toLowerCase()) ||
-                        (officeName &&
-                            String(x.office_name || '').toLowerCase() === officeName.toLowerCase())
-                );
-            if (match) {
-                officeId = match.office_id ?? match.id;
-                officeName = match.office_name || officeName;
+    window.__seedingDrfDistOffices = true;
+    try {
+        distOffices.forEach((o) => {
+            let officeId = o.office_id || o.id || null;
+            let officeName = o.office_name || o.name || '';
+            if (!officeId) {
+                const code = (o.office_code || o.code || '').trim();
+                const match =
+                    (typeof findOfficeByLabelOrCode === 'function'
+                        ? findOfficeByLabelOrCode(code || officeName, allOffices || [])
+                        : null) ||
+                    (allOffices || []).find(
+                        (x) =>
+                            (code &&
+                                String(x.office_code || '').toLowerCase() === code.toLowerCase()) ||
+                            (officeName &&
+                                String(x.office_name || '').toLowerCase() === officeName.toLowerCase())
+                    );
+                if (match) {
+                    officeId = match.office_id ?? match.id;
+                    officeName = match.office_name || officeName;
+                }
             }
-        }
-        if (officeId && typeof window.addOffice === 'function') {
-            const distBody = document.getElementById('distBody');
-            const already =
-                distBody &&
-                [...distBody.querySelectorAll('input[name="distOfficeId[]"]')].some(
-                    (inp) => String(inp.value) === String(officeId)
-                );
-            if (!already) {
-                window.addOffice(
-                    officeId,
-                    officeName || String(officeId),
-                    'distBody',
-                    'totalDistCopies',
-                    'distResults'
-                );
+            if (officeId && typeof window.addOffice === 'function') {
+                const distBody = document.getElementById('distBody');
+                const already =
+                    distBody &&
+                    [...distBody.querySelectorAll('input[name="distOffice[]"]')].some(
+                        (inp) => String(inp.value) === String(officeId)
+                    );
+                if (!already) {
+                    window.addOffice(
+                        officeId,
+                        officeName || String(officeId),
+                        'distBody',
+                        'totalDistCopies',
+                        'distResults'
+                    );
+                }
             }
-        }
+        });
+    } finally {
+        window.__seedingDrfDistOffices = false;
+    }
+
+    if (prefill.lockDistributeOffices && distOffices.length > 0) {
+        lockDistOfficesFromDrfIntake();
+    }
+}
+
+/** Lock distribution office add/remove when registering from a DRF that already selected offices.
+ *  Reorder (select / drag / up-down) and Save group remain available. */
+function lockDistOfficesFromDrfIntake() {
+    window.__distOfficesLockedFromDrf = true;
+    const field = document.getElementById('distOfficeSelectField');
+    if (field) field.classList.add('is-drf-dist-locked');
+
+    const hint = document.getElementById('distOfficesLockedHint');
+    if (hint) {
+        hint.hidden = false;
+        hint.textContent = 'Distribution offices come from the submitted DRF and cannot be added or removed here. You can still reorder them, set copies, and save this list as a group.';
+    }
+
+    const search = document.getElementById('distSearch');
+    if (search) {
+        search.disabled = true;
+        search.placeholder = 'Offices locked from DRF';
+        search.value = '';
+    }
+    const searchWrap = document.getElementById('distOfficeSearchWrap');
+    if (searchWrap) searchWrap.style.display = 'none';
+
+    const chips = document.getElementById('distClusterChips');
+    if (chips) chips.style.display = 'none';
+
+    // Keep toolbar (select / reorder / save group). Hide only "apply saved group" chips
+    // so locked DRF offices cannot be replaced by another group.
+    const groups = document.getElementById('distOfficeGroups');
+    if (groups) groups.style.display = 'none';
+
+    document.querySelectorAll('#distBody tr.reg-office-added').forEach((tr) => {
+        tr.dataset.fromDrf = '1';
+        tr.draggable = true;
+        const removeBtn = tr.querySelector('.btn-remove');
+        if (removeBtn) removeBtn.remove();
+        // Keep drag handle + checkboxes for multi-select reorder
+        const check = tr.querySelector('.dist-office-check');
+        if (check) check.disabled = false;
     });
+    const selectAll = document.getElementById('distSelectAllHeader');
+    if (selectAll) selectAll.disabled = false;
+}
+
+function isDistOfficesLockedFromDrf() {
+    return !!window.__distOfficesLockedFromDrf && !window.__seedingDrfDistOffices;
 }
 
 function restoreOfficeIntakePrefillIfNeeded() {
@@ -2466,11 +2529,18 @@ function maybeAutofillDocNo() {
     clearDocNoAvailabilityHint();
 }
 
-/** Checklist 4 = Document Retrieval — only for revised documents. */
+/** Checklist 4 = Document Retrieval — only for revised documents.
+ *  Checklist 2 = DCN — only when the selected type/subtype allows revision.
+ */
 function filterChecklistsForMode(checklists) {
-    const list = Array.isArray(checklists) ? checklists : [];
-    if (isRevisedMode()) return list;
-    return list.filter(c => parseInt(c.checklist_id, 10) !== 4);
+    let list = Array.isArray(checklists) ? checklists : [];
+    if (!isRevisedMode()) {
+        list = list.filter(c => parseInt(c.checklist_id, 10) !== 4);
+    }
+    if (typeof currentTypeAllowsRevision === 'function' && !currentTypeAllowsRevision()) {
+        list = list.filter(c => parseInt(c.checklist_id, 10) !== 2);
+    }
+    return list;
 }
 
 /** External / Forms / Logbooks (parent types with no sub-type). */
@@ -2493,10 +2563,15 @@ function isLeafExternalFormsLogbookDocType() {
  */
 function filterChecklistsForDocType(checklists) {
     let list = filterChecklistsForMode(checklists);
+    // Non-revisable types never get DCN (already filtered in filterChecklistsForMode).
     if (!isLeafExternalFormsLogbookDocType()) return list;
     const allowed = isRevisedMode()
         ? new Set([1, 2, 3, 4, 5])
         : new Set([1, 3, 5]);
+    // If type cannot revise, drop DCN even in "revised" leaf set.
+    if (typeof currentTypeAllowsRevision === 'function' && !currentTypeAllowsRevision()) {
+        allowed.delete(2);
+    }
     list = list.filter(c => allowed.has(parseInt(c.checklist_id, 10)));
     if (isRevisedMode()) {
         // Revised leaf order: DCN → DRF → Masterlist → Retrieval → Distribution
@@ -2506,6 +2581,78 @@ function filterChecklistsForDocType(checklists) {
         );
     }
     return list;
+}
+
+/** Disable Revised version options and strip DCN UI when type disallows revision. */
+function syncNonRevisableTypeUi() {
+    const allows = typeof currentTypeAllowsRevision === 'function' ? currentTypeAllowsRevision() : true;
+    const versionSelect = document.getElementById('versionType');
+    if (versionSelect) {
+        [...versionSelect.options].forEach(o => {
+            if (!String(o.value || '').trim()) return;
+            const isRev = /revis/i.test(o.text || '');
+            o.disabled = isRev && !allows;
+            if (isRev && !allows) {
+                o.title = 'This document type does not allow revisions or DCN.';
+            } else {
+                o.removeAttribute('title');
+            }
+        });
+    }
+
+    if (allows) {
+        return;
+    }
+
+    // Force New + Rev 0 and hide any open DCN section.
+    const modeEl = document.getElementById('registrationMode');
+    if (modeEl) modeEl.value = 'new';
+    if (versionSelect) {
+        const newOpt = [...versionSelect.options].find(o => /new/i.test(o.text) && !/revis/i.test(o.text));
+        if (newOpt && String(versionSelect.value) !== String(newOpt.value)) {
+            versionSelect.value = newOpt.value;
+            versionSelect.dataset.lastValid = newOpt.value;
+        }
+    }
+    const revField = document.getElementById('masterlistRevisionNo');
+    if (revField) {
+        revField.value = '0';
+        revField.readOnly = true;
+        revField.style.background = '#f1f5f9';
+    }
+
+    document.querySelectorAll('#dynamicCheckboxes input[name="checklists[]"][value="2"]').forEach(cb => {
+        cb.checked = false;
+        cb.dataset.lastChecked = 'false';
+        const label = cb.closest('label');
+        if (label) label.remove();
+    });
+    const dcnSection = document.getElementById('section-2');
+    if (dcnSection) dcnSection.style.display = 'none';
+    if (typeof toggleSection === 'function') {
+        try { toggleSection(2, false); } catch (e) { /* ignore */ }
+    }
+
+    if (window.__lastVersionChecklists && window.__lastVersionChecklists.length) {
+        const container = document.getElementById('dynamicCheckboxes');
+        const wasEnabled = !!container?.querySelector('input[type="checkbox"]:not([disabled])');
+        const checkedIds = [...(container?.querySelectorAll('input[name="checklists[]"]:checked') || [])]
+            .map(cb => parseInt(cb.value, 10))
+            .filter(id => id !== 2);
+        renderChecklists(window.__lastVersionChecklists, !wasEnabled);
+        container?.querySelectorAll('input[name="checklists[]"]').forEach(cb => {
+            const id = parseInt(cb.value, 10);
+            const on = checkedIds.includes(id) || id === 3;
+            cb.checked = on;
+            cb.dataset.lastChecked = on ? 'true' : 'false';
+            if (typeof toggleSection === 'function') {
+                toggleSection(id, on);
+            }
+        });
+        if (typeof lockMasterlistChecklistOn === 'function' && wasEnabled) {
+            lockMasterlistChecklistOn();
+        }
+    }
 }
 
 function clearRetrievalSection() {
@@ -4673,6 +4820,7 @@ function handleDocTypeChange() {
         maybeAutofillDocNo();
         restoreOfficeIntakePrefillIfNeeded();
     }
+    syncNonRevisableTypeUi();
     window.DCSScanNamePreview?.update();
 }
 
@@ -4778,24 +4926,9 @@ function validateChecklistState() {
     maybeAutofillDocNo();
     restoreOfficeIntakePrefillIfNeeded();
 
-    // Enforce New / Rev 0 when subtype does not allow revision.
+    // Enforce New / Rev 0 when subtype does not allow revision; hide DCN.
+    syncNonRevisableTypeUi();
     if (!currentTypeAllowsRevision()) {
-        const modeEl = document.getElementById('registrationMode');
-        if (modeEl) modeEl.value = 'new';
-        const versionSelect = document.getElementById('versionType');
-        if (versionSelect) {
-            const newOpt = [...versionSelect.options].find(o => /new/i.test(o.text) && !/revis/i.test(o.text));
-            if (newOpt && String(versionSelect.value) !== String(newOpt.value)) {
-                versionSelect.value = newOpt.value;
-                versionSelect.dataset.lastValid = newOpt.value;
-            }
-        }
-        const revField = document.getElementById('masterlistRevisionNo');
-        if (revField) {
-            revField.value = '0';
-            revField.readOnly = true;
-            revField.style.background = '#f1f5f9';
-        }
         if (typeof updateRegistrationMode === 'function') {
             updateRegistrationMode();
         }
@@ -5028,6 +5161,7 @@ function unlockChecklist() {
     showFormActions();
     enableApproval();
     setTimeout(initFileInputs, 100);
+    syncNonRevisableTypeUi();
 
     const saveBtn = document.getElementById("btnSaveDocument");
     if (saveBtn) saveBtn.style.display = ""; 
@@ -5036,9 +5170,13 @@ function unlockChecklist() {
 /** Default checklist set for leaf parent types External / Forms / Logbooks. */
 function suggestedChecklistIdsForCurrentDocType() {
     if (!isLeafExternalFormsLogbookDocType()) return null;
-    if (isRevisedMode()) {
+    if (isRevisedMode() && currentTypeAllowsRevision()) {
         // DCN + Masterlist + Retrieval + Distribution (DRF stays visible but unchecked)
         return new Set([2, 3, 4, 5]);
+    }
+    if (isRevisedMode()) {
+        // Non-revisable should not reach revised mode; fall back without DCN.
+        return new Set([3, 4, 5]);
     }
     return new Set([3, 5]); // Masterlist + Distribution
 }
@@ -5328,6 +5466,9 @@ function isClusterFullySelected(clusterCode) {
 }
 
 function addOfficesByCluster(clusterCode) {
+    if (typeof isDistOfficesLockedFromDrf === 'function' && isDistOfficesLockedFromDrf()) {
+        return;
+    }
     clusterOffices(clusterCode).forEach((o) => {
         addOffice(o.office_id, o.office_name, 'distBody', 'totalDistCopies', 'distResults');
     });
@@ -5335,6 +5476,9 @@ function addOfficesByCluster(clusterCode) {
 }
 
 function removeOfficesByCluster(clusterCode) {
+    if (typeof isDistOfficesLockedFromDrf === 'function' && isDistOfficesLockedFromDrf()) {
+        return;
+    }
     const tbody = document.getElementById('distBody');
     if (!tbody) return;
 
@@ -7930,6 +8074,12 @@ window.handleSearch = function (input, resultsId, bodyId, totalId) {
 };
 
 window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
+    if (bodyId === 'distBody' && typeof isDistOfficesLockedFromDrf === 'function' && isDistOfficesLockedFromDrf()) {
+        if (typeof showToast === 'function') {
+            showToast('Distribution offices from the DRF cannot be changed.', 'warning');
+        }
+        return;
+    }
     const tbody = document.getElementById(bodyId);
     const dropdown = document.getElementById(resultsId);
     if (!tbody) return;
@@ -8010,6 +8160,12 @@ window.addOffice = function (officeId, officeName, bodyId, totalId, resultsId) {
 
 window.removeOffice = function (btn, totalId, bodyId) {
     if (bodyId === 'retrievalBody') {
+        return;
+    }
+    if (bodyId === 'distBody' && typeof isDistOfficesLockedFromDrf === 'function' && isDistOfficesLockedFromDrf()) {
+        if (typeof showToast === 'function') {
+            showToast('Distribution offices from the DRF cannot be removed.', 'warning');
+        }
         return;
     }
     const tr = btn.closest("tr");

@@ -105,9 +105,13 @@ new #[Layout('layouts.dcs')] #[Title('Revision History — CSPC DCS')] class ext
                         </div>
                         <div class="hst-card-meta">
                             <time class="hst-date">{{ $rev['created_label'] }}</time>
-                            @if($rev['is_latest'])
+                            @if($rev['is_latest'] && \App\Helpers\RegisterQueryHelper::canEditDocument((int) $rev['id']))
                                 <a href="{{ route('dcs.register.edit', $rev['id']) }}" class="hst-btn-edit" @click.stop>
                                     <i class="fa-solid fa-pen-to-square"></i> Edit
+                                </a>
+                            @elseif($rev['is_latest'])
+                                <a href="{{ route('dcs.register.update') }}" class="hst-btn-edit" @click.stop title="Request edit from Update Documents">
+                                    <i class="fa-solid fa-lock"></i> Request edit
                                 </a>
                             @endif
                         </div>

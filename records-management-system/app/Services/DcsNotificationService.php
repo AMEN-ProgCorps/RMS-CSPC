@@ -301,6 +301,65 @@ class DcsNotificationService
         static::createNotification($officeCode, $message, $url);
     }
 
+    public static function notifyEditRequestPending(string $documentLabel, string $requesterName, string $reason): bool
+    {
+        $officeCode = \App\Helpers\RegisterQueryHelper::rfioNotificationOfficeCode();
+        $message = trim($requesterName) !== ''
+            ? "{$requesterName} requested edit access for {$documentLabel}: {$reason}"
+            : "Edit access requested for {$documentLabel}: {$reason}";
+
+        return static::createNotification($officeCode, $message, '/dcs/edit-requests');
+    }
+
+    public static function notifyEditRequestDecision(
+        int $requesterAccountId,
+        string $documentLabel,
+        bool $approved,
+        ?string $note = null,
+        ?int $requestId = null
+    ): bool {
+        $officeCode = static::officeCodeForAccount($requesterAccountId);
+        if ($officeCode === null) {
+            $officeCode = \App\Helpers\RegisterQueryHelper::rfioNotificationOfficeCode();
+        }
+
+        $forQs = $requesterAccountId > 0 ? ('?edit_for=' . $requesterAccountId) : '';
+
+        if ($approved) {
+            $message = "Your edit request for {$documentLabel} was approved. You can edit the document now.";
+            $url = $requestId && $requestId > 0
+                ? '/dcs/register/' . $requestId . '/edit' . $forQs
+                : '/dcs/register/update' . $forQs;
+        } else {
+            $notePart = trim((string) $note) !== '' ? ': ' . trim((string) $note) : '.';
+            $message = "Your edit request for {$documentLabel} was denied{$notePart}";
+            $url = '/dcs/register/update' . $forQs;
+        }
+
+        return static::createNotification($officeCode, $message, $url);
+    }
+
+    public static function officeCodeForAccount(int $accountId): ?string
+    {
+        if ($accountId < 1) {
+            return null;
+        }
+
+        $accDetails = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details')
+            ? 'sys_account_details'
+            : 'account_details';
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
+        $code = DB::table($accDetails . ' as ad')
+            ->join($officeTbl . ' as o', 'o.id', '=', 'ad.office_id')
+            ->where('ad.account_id', $accountId)
+            ->value('o.office_code');
+
+        $code = trim((string) $code);
+
+        return $code !== '' ? $code : null;
+    }
+
     /** @param  array<int|string|null>  $officeIds
      * @return list<string>
      */

@@ -693,6 +693,9 @@ Route::middleware(['auth'])
             // Document lookup for office DCN (and full Register) — available to all DCS users
             Route::get('/api/documents/search', fn (Request $request) => RegisterQueryHelper::searchDocuments($request));
             Route::get('/api/documents/revisions', fn (Request $request) => RegisterQueryHelper::documentRevisions($request));
+            Route::get('/api/office/revisable-documents', function (Request $request) {
+                return response()->json(OfficeIntakeHelper::searchRevisableDocuments($request));
+            })->name('api.office.revisable-documents');
             Route::get('/api/offices', fn () => response()->json(
                 collect(RegisterQueryHelper::jsCatalog()['offices'] ?? [])->values()
             ));
@@ -791,6 +794,7 @@ Route::middleware(['auth'])
 
                 Route::middleware(['dcs.module:recycle_bin'])->group(function () {
                     Volt::route('/recycle-bin', 'pages.dcs.recycle-bin.index')->name('recycle-bin');
+                    Volt::route('/edit-requests', 'pages.dcs.edit-requests.index')->name('edit-requests');
                 });
 
                 Route::middleware(['dcs.module:reports'])->group(function () {

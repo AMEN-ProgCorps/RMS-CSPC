@@ -95,6 +95,10 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
             <div class="ofi-alert ok">{{ session('success') }}</div>
         @endif
 
+        @if(session('error'))
+            <div class="ofi-alert err">{{ session('error') }}</div>
+        @endif
+
         @if(($canEdit ?? false) && ($editReason ?? '') !== '')
             <div class="ofi-alert err">
                 <strong>RFIO asked for corrections:</strong> {{ $editReason }}

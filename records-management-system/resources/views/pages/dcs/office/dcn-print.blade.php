@@ -234,17 +234,44 @@
             line-height: 1;
         }
         .r1-b3 { height: 0.13in; }
-        .r1-b4 {
-            height: 0.20in;
+        /*
+         * Title fills to the right table edge; wraps at last completed word;
+         * continuation hangs under the value (not under "Title:").
+         */
+        .r1-title-area {
+            flex: 1 1 auto;
+            min-height: 0.38in;
             display: flex;
-            align-items: flex-end;
-            padding-left: 1.38in;
-            padding-right: 0.1in;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 0 0.08in 0.06in 1.38in;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 10pt;
-            line-height: 1;
+            line-height: 1.25;
         }
-        .r1-b5 { height: 0.18in; }
+        .r1-title-hang {
+            width: 100%;
+            /* width of "Title:" + gap at 10pt */
+            padding-left: 0.48in;
+            text-indent: -0.48in;
+            max-height: 0.32in;
+            overflow: hidden;
+            word-break: normal;
+            overflow-wrap: break-word;
+            white-space: normal;
+        }
+        .r1-title-hang .lbl-10 {
+            display: inline;
+            margin-right: 0;
+            text-decoration: none;
+        }
+        .r1-title-hang .r1-title-val {
+            font-weight: 400;
+            font-size: 10pt;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+            text-decoration-thickness: 1px;
+        }
         .fline {
             display: inline-flex;
             flex-direction: column;
@@ -265,7 +292,6 @@
             width: 100%;
         }
         .fline.docno { width: 1.86in; flex: 0 0 1.86in; }
-        .fline.title { width: 3.32in; flex: 0 0 3.32in; }
         .lbl-11 {
             font-size: 11pt;
             line-height: 1;
@@ -309,7 +335,7 @@
         }
         .r2-write.is-first { border-bottom: none; }
 
-        /* Row 3: 0.18 × 5 = 0.90in */
+        /* Row 3: 0.18 × 5 = 0.90in — justification hangs after the label */
         .r3 { height: 0.90in; }
         .r3-inner {
             height: 0.90in;
@@ -326,12 +352,31 @@
             padding-left: 0.08in;
             padding-right: 0.12in;
         }
-        .r3-write {
-            flex: 1;
-            height: 0.18in;
-            border-bottom: none;
+        .r3-just-area {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            align-items: flex-start;
+            padding: 0 0.12in 0.04in 0.08in;
+            font-size: 11pt;
+            line-height: 0.18in;
             overflow: hidden;
-            padding: 0 2px;
+        }
+        .r3-just-label {
+            flex: 0 0 auto;
+            white-space: nowrap;
+            margin-right: 4px;
+            font-weight: 400;
+        }
+        .r3-just-body {
+            flex: 1 1 auto;
+            min-width: 0;
+            font-weight: 400;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            overflow: hidden;
+            max-height: 0.72in;
         }
 
         /* Row 4: 0.18 × 5 = 0.90in */
@@ -358,6 +403,7 @@
             max-width: 1.52in;
             margin-right: 0;
             overflow: hidden;
+            font-weight: 400;
         }
         .fline.sig {
             width: 3.15in;
@@ -367,8 +413,8 @@
         .fline.sig.is-reviewed .val {
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11pt;
-            font-weight: 700;
-            text-transform: uppercase;
+            font-weight: 400;
+            text-transform: none;
             line-height: 1;
         }
         /* Invisible spacer so 2nd reviewer lines up under the 1st value */
@@ -412,39 +458,48 @@
             font-weight: 400;
         }
 
-        /* Row 5 body: 0.18 × 9 = 1.62in — one centered line per approval */
-        .r5-body { height: 1.62in; padding: 0; }
+        /* Row 5 body: full-height columns; filled rows centered as a group (1 row → middle) */
+        .r5-body { height: 1.62in; padding: 0; vertical-align: top; }
         .approvals-body {
             width: 100%;
             height: 1.62in;
             border-collapse: collapse;
             table-layout: fixed;
         }
-        .approvals-body td {
+        .approvals-body > tbody > tr > td {
             border: none;
             border-right: 1px solid #000;
-            border-bottom: 1px solid #000;
-            height: 0.18in;
-            max-height: 0.18in;
+            height: 1.62in;
+            max-height: 1.62in;
             vertical-align: middle;
             text-align: center;
-            padding: 0 2px;
+            padding: 0 4px;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 10pt;
             font-weight: 400;
-            line-height: 1.1;
-            overflow: hidden;
-            white-space: nowrap;
-            text-overflow: ellipsis;
         }
-        .approvals-body td:last-child { border-right: none; }
-        .approvals-body tr:last-child td { border-bottom: none; }
+        .approvals-body > tbody > tr > td:last-child { border-right: none; }
         .approvals-body col.c1 { width: 1.85in; }
         .approvals-body col.c2 { width: 2.25in; }
         .approvals-body col.c3 { width: 1.00in; }
         .approvals-body col.c4 { width: 1.29in; }
-        .approvals-body tr.appr-blank td {
+        .appr-col-stack {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            min-height: 0.18in;
+        }
+        .appr-col-stack .appr-cell {
+            display: block;
+            width: 100%;
             height: 0.18in;
+            line-height: 0.18in;
+            text-align: center;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
         }
 
         /* Footer: line left 0.69 / right 0.72; bottom margin 0.46 */
@@ -548,15 +603,6 @@
             $toLines = array_pad([$changeTo], 7, '');
         }
     }
-
-    $justLines = array_pad([''], 3, '');
-    if ($justification !== '') {
-        $parts = preg_split('/\R/u', $justification) ?: [$justification];
-        $justLines = array_pad(array_slice($parts, 0, 3), 3, '');
-        if (count($parts) === 1) {
-            $justLines = array_pad([$justification], 3, '');
-        }
-    }
 @endphp
 @php
     $isReviewer = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake();
@@ -616,14 +662,11 @@
                         </div>
                     </div>
                     <div class="r1-band r1-b3"></div>
-                    <div class="r1-band r1-b4">
-                        <span class="lbl-10">Title:</span>
-                        <div class="fline title">
-                            <div class="val">{{ $docTitle }}</div>
-                            <div class="rule"></div>
+                    <div class="r1-title-area">
+                        <div class="r1-title-hang">
+                            <span class="lbl-10">Title:</span><span class="r1-title-val"> {{ $docTitle }}</span>
                         </div>
                     </div>
-                    <div class="r1-band r1-b5"></div>
                 </div>
             </td>
         </tr>
@@ -660,15 +703,15 @@
             </td>
         </tr>
 
-        {{-- Row 3: Justification (5 × 0.18) --}}
+        {{-- Row 3: Justification (5 × 0.18) — text starts after the label --}}
         <tr class="r3">
             <td>
                 <div class="r3-inner">
                     <div class="r3-band"></div>
-                    <div class="r3-band">Justification of Change:</div>
-                    <div class="r3-band"><div class="r3-write">{{ $justLines[0] ?? '' }}</div></div>
-                    <div class="r3-band"><div class="r3-write">{{ $justLines[1] ?? '' }}</div></div>
-                    <div class="r3-band"><div class="r3-write">{{ $justLines[2] ?? '' }}</div></div>
+                    <div class="r3-just-area">
+                        <span class="r3-just-label">Justification of Change:</span>
+                        <div class="r3-just-body">{{ $justification }}</div>
+                    </div>
                 </div>
             </td>
         </tr>
@@ -729,42 +772,78 @@
             </td>
         </tr>
 
-        {{-- Row 5 body: up to 9 × 0.18in, text centered --}}
+        {{-- Row 5 body: column lines full height; filled values centered (1 row → middle) --}}
         <tr>
             <td class="r5-body">
                 @php
                     $approvalRows = \App\Helpers\OfficeIntakeHelper::loadDcnApprovals((int) $dcn->id);
-                    $approvalSlots = 9;
-                    while (count($approvalRows) < $approvalSlots) {
-                        $approvalRows[] = ['position' => '', 'name' => '', 'date' => null];
+                    $filledApprovals = [];
+                    foreach ($approvalRows as $appr) {
+                        $pos = trim((string) ($appr['position'] ?? ''));
+                        $nm = trim((string) ($appr['name'] ?? ''));
+                        $dt = '';
+                        if (! empty($appr['date'])) {
+                            try {
+                                $dt = \Carbon\Carbon::parse($appr['date'])->format('M d, Y');
+                            } catch (\Throwable) {
+                                $dt = (string) $appr['date'];
+                            }
+                        }
+                        if ($pos === '' && $nm === '' && $dt === '') {
+                            continue;
+                        }
+                        $filledApprovals[] = [
+                            'position' => $pos,
+                            'name' => $nm,
+                            'date' => $dt,
+                        ];
+                        if (count($filledApprovals) >= 9) {
+                            break;
+                        }
                     }
-                    $approvalRows = array_slice($approvalRows, 0, $approvalSlots);
                 @endphp
                 <table class="approvals-body">
                     <colgroup>
                         <col class="c1"><col class="c2"><col class="c3"><col class="c4">
                     </colgroup>
-                    @foreach($approvalRows as $appr)
-                        @php
-                            $pos = trim((string) ($appr['position'] ?? ''));
-                            $nm = trim((string) ($appr['name'] ?? ''));
-                            $dt = '';
-                            if (! empty($appr['date'])) {
-                                try {
-                                    $dt = \Carbon\Carbon::parse($appr['date'])->format('M d, Y');
-                                } catch (\Throwable) {
-                                    $dt = (string) $appr['date'];
-                                }
-                            }
-                            $isBlank = $pos === '' && $nm === '' && $dt === '';
-                        @endphp
-                        <tr @class(['appr-blank' => $isBlank])>
-                            <td>{{ $pos }}</td>
-                            <td>{{ $nm }}</td>
-                            <td></td>
-                            <td>{{ $dt }}</td>
-                        </tr>
-                    @endforeach
+                    <tr>
+                        <td>
+                            <div class="appr-col-stack">
+                                @forelse($filledApprovals as $appr)
+                                    <span class="appr-cell">{{ $appr['position'] }}</span>
+                                @empty
+                                    <span class="appr-cell">&nbsp;</span>
+                                @endforelse
+                            </div>
+                        </td>
+                        <td>
+                            <div class="appr-col-stack">
+                                @forelse($filledApprovals as $appr)
+                                    <span class="appr-cell">{{ $appr['name'] }}</span>
+                                @empty
+                                    <span class="appr-cell">&nbsp;</span>
+                                @endforelse
+                            </div>
+                        </td>
+                        <td>
+                            <div class="appr-col-stack">
+                                @forelse($filledApprovals as $appr)
+                                    <span class="appr-cell">&nbsp;</span>
+                                @empty
+                                    <span class="appr-cell">&nbsp;</span>
+                                @endforelse
+                            </div>
+                        </td>
+                        <td>
+                            <div class="appr-col-stack">
+                                @forelse($filledApprovals as $appr)
+                                    <span class="appr-cell">{{ $appr['date'] }}</span>
+                                @empty
+                                    <span class="appr-cell">&nbsp;</span>
+                                @endforelse
+                            </div>
+                        </td>
+                    </tr>
                 </table>
             </td>
         </tr>

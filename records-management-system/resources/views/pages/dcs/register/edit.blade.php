@@ -34,6 +34,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 @php
     $reviseNo = (int) (($masterlist->revise_no ?? 0));
     $allowsRetrieval = $reviseNo > 0;
+    $canEditDocument = (bool) ($can_edit ?? false);
+    $readOnly = (bool) ($read_only ?? ! $canEditDocument);
 @endphp
 <script>
 window.APP_CONFIG = {
@@ -53,13 +55,15 @@ window.__existingSyllabiGroups = @json($syllabiGroupsSeed);
 window.__syllabiEditLocked = false;
 window.__allowsRetrieval = @json($allowsRetrieval);
 window.__registerCatalog = @json($catalog);
+window.__editReadOnly = @json($readOnly);
+window.__canEditDocument = @json($canEditDocument);
 window.__timeSpentNonWorkingDates = @json(\App\Helpers\CalendarHelper::nonWorkingDatesForTimeSpent());
 window.__timeSpentNonWorkingDateSet = Object.create(null);
 (window.__timeSpentNonWorkingDates || []).forEach(function (iso) {
     window.__timeSpentNonWorkingDateSet[iso] = true;
 });
 </script>
-<div class="reg-container main-content" id="dcsEditRoot" wire:ignore
+<div class="reg-container main-content {{ $readOnly ? 'is-readonly-edit' : '' }}" id="dcsEditRoot" wire:ignore
     x-data="{
         syllabiStep: 1,
         reviewOpen: false,
@@ -75,18 +79,32 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
         <!-- Header -->
         <div class="reg-header">
             <div>
-                <div class="reg-breadcrumb">Document Control System / Update / <span>Edit</span></div>
+                <div class="reg-breadcrumb">Document Control System / Update / <span>{{ $readOnly ? 'View' : 'Edit' }}</span></div>
                 <div style="display:flex; align-items:center; gap:12px;">
                     <div class="reg-title">{{ trim((string) ($masterlist->doc_no ?? '')) !== '' ? $masterlist->doc_no : 'Document #' . $docRequest->id }}</div>
-                    <span class="edit-badge"><i class="fa-solid fa-pen"></i> Editing</span>
+                    @if($readOnly)
+                        <span class="edit-badge" style="background:#e2e8f0;color:#334155;"><i class="fa-solid fa-eye"></i> View only</span>
+                    @else
+                        <span class="edit-badge"><i class="fa-solid fa-pen"></i> Editing</span>
+                    @endif
                 </div>
+                @if($readOnly)
+                    <p style="margin:8px 0 0;color:#64748b;font-size:0.92rem;">
+                        Fields are locked. Generate the distribution template if needed, then return to Update Documents.
+                        @if(RegisterQueryHelper::hasPendingEditRequest($docRequest))
+                            An edit request is waiting for HEAD Admin approval.
+                        @else
+                            To change this document, request an edit from Update Documents.
+                        @endif
+                    </p>
+                @endif
             </div>
             <a href="{{ route('dcs.register.update') }}" class="reg-btn reg-btn-cancel">
                 <i class="fa-solid fa-arrow-left"></i> Back to List
             </a>
         </div>
 
-        <form id="masterForm" method="POST" action="{{ route('dcs.register.updateDoc', $docRequest->id) }}" enctype="multipart/form-data">
+        <form id="masterForm" method="POST" action="{{ route('dcs.register.updateDoc', $docRequest->id) }}" enctype="multipart/form-data" class="{{ $readOnly ? 'is-readonly' : '' }}">
             <input type="hidden" id="requestId" value="{{ $docRequest->id }}">
             <input type="hidden" id="saveAsDraft" name="save_as_draft" value="0">
             <input type="hidden" name="has_existing_masterlist_scan" value="{{ !empty($masterlist?->scanned_masterlist) ? '1' : '0' }}">
@@ -826,7 +844,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                 <div class="reg-field">
                                     <label>Distribution Form Date</label>
                                     <div class="reg-dual">
-                                        <input type="date" id="distributionFormDate" name="distributionFormDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($distribution->doc_distribution_date_file ?? '') }}" oninput="calcDistributionTimeSpent()">
+                                        <input type="date" id="distributionFormDate" name="distributionFormDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($distribution->doc_distribution_date_file ?? '') }}" oninput="calcDistributionTimeSpent(); if (window.DCSScanNamePreview) DCSScanNamePreview.update();">
                                         <input type="time" id="distributionFormTime" name="distributionFormTime" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($distribution->doc_distribution_time_file ?? '') }}" oninput="calcDistributionTimeSpent()">
                                     </div>
                                 </div>
@@ -952,23 +970,28 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
             <div class="reg-actions" id="formActions" style="display: flex;">
                 <div class="reg-actions-left">
                     <a href="{{ route('dcs.register.update') }}" class="reg-btn reg-btn-cancel">
-                        <i class="fa-solid fa-xmark"></i> Cancel
+                        <i class="fa-solid fa-arrow-left"></i> {{ $readOnly ? 'Back to Update Documents' : 'Cancel' }}
                     </a>
                 </div>
                 <div class="reg-actions-right">
+                    @unless($readOnly)
                     <p id="regNoChangesHint" class="reg-no-changes-hint" hidden>
                         <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                         No changes detected — edit a field to enable Update Document.
                     </p>
+                    @endunless
                     <button type="button" id="btnGenerateDistribution" class="reg-btn reg-btn-generate" onclick="generateDistributionTemplate()">
                         <i class="fa-solid fa-file-lines"></i> Generate
                     </button>
+                    @unless($readOnly)
                     <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                         <i class="fa-regular fa-floppy-disk"></i> Save Draft
                     </button>
+                    <span id="regAutosaveStatus" class="reg-autosave-status" aria-live="polite" hidden></span>
                     <button type="button" id="btnUpdateDocument" class="reg-btn reg-btn-save" onclick="confirmSave()">
                         <i class="fa-solid fa-floppy-disk"></i> Update Document
                     </button>
+                    @endunless
                 </div>
             </div>
         </form>
@@ -1643,6 +1666,26 @@ document.addEventListener("DOMContentLoaded", async function () {
     const form = document.getElementById("masterForm");
     if (form) form.setAttribute("autocomplete", "off");
 
+    if (window.__editReadOnly) {
+        const keepEnabled = new Set(['btnGenerateDistribution']);
+        form?.querySelectorAll('input, select, textarea, button').forEach((el) => {
+            if (!el || el.type === 'hidden') return;
+            if (keepEnabled.has(el.id)) return;
+            if (el.classList.contains('reg-office-see-more') || el.id === 'distSeeMore' || el.id === 'retrievalSeeMore') return;
+            el.disabled = true;
+            el.setAttribute('aria-disabled', 'true');
+        });
+        // Source-unit / office widgets and checklist toggles
+        form?.querySelectorAll('.reg-su-remove, .reg-chip-remove, .reg-office-remove, .reg-add-office, .reg-check, [data-office-picker], .su-dropdown, .originator-dropdown').forEach((el) => {
+            el.style.pointerEvents = 'none';
+            el.setAttribute('aria-disabled', 'true');
+            if (el.tagName === 'BUTTON' || el.tagName === 'INPUT') el.disabled = true;
+        });
+        form?.addEventListener('submit', (e) => e.preventDefault());
+        window.__regDraftShouldAutosaveOnLeave = () => false;
+        window.__regDraftCanSave = () => false;
+    }
+
     try {
         const catalog = window.__registerCatalog || {};
         const offices = catalog.offices || [];
@@ -2106,9 +2149,16 @@ function allowsDocumentRetrieval() {
 }
 
 function filterChecklistsForMode(checklists) {
-    const list = Array.isArray(checklists) ? checklists : [];
-    if (allowsDocumentRetrieval()) return list;
-    return list.filter(c => parseInt(c.checklist_id, 10) !== 4);
+    let list = Array.isArray(checklists) ? checklists : [];
+    if (!allowsDocumentRetrieval()) {
+        list = list.filter(c => parseInt(c.checklist_id, 10) !== 4);
+    }
+    const docTypeId = document.getElementById('docType')?.value;
+    const subTypeId = document.getElementById('subType')?.value;
+    if (typeof typeAllowsRevision === 'function' && !typeAllowsRevision(docTypeId, subTypeId)) {
+        list = list.filter(c => parseInt(c.checklist_id, 10) !== 2);
+    }
+    return list;
 }
 
 function renderChecklists(checklists, disabled) {

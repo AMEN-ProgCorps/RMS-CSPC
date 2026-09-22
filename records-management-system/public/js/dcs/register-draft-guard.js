@@ -1,10 +1,13 @@
 /**
- * Draft confirmation modal + leave autosave for DCS Register / Edit.
+ * Draft confirmation modal + leave autosave + periodic autosave for DCS Register / Edit.
+ * Periodic autosave protects against brownouts / sudden power loss once enough
+ * masterlist fields are filled (same rules as manual Save Draft).
+ *
  * Expects page hooks:
- *   window.__regDraftCanSave() -> boolean (enough data to save a draft)
- *   window.__regDraftHasProgress() -> boolean (user typed something worth keeping)
- *   window.__regDraftShouldAutosaveOnLeave() -> boolean (create page, or editing a draft)
- *   window.__regDraftPrepareSubmit() -> void (approval defaults, checklist sync, etc.)
+ *   window.__regDraftCanSave() -> boolean
+ *   window.__regDraftHasProgress() -> boolean
+ *   window.__regDraftShouldAutosaveOnLeave() -> boolean
+ *   window.__regDraftPrepareSubmit() -> void
  *   window.__regDraftShowErrors(message) -> void (optional)
  */
 (function () {
@@ -12,6 +15,10 @@
 
     let pendingLeaveUrl = null;
     let formSubmitting = false;
+    let autosaveInFlight = false;
+    let lastAutosaveSnapshot = '';
+    let autosaveTimer = null;
+    const AUTOSAVE_INTERVAL_MS = 45000;
 
     function formEl() {
         return document.getElementById('masterForm');
@@ -19,6 +26,13 @@
 
     function draftFlag() {
         return document.getElementById('saveAsDraft');
+    }
+
+    function csrfToken() {
+        const meta = document.querySelector('meta[name="csrf-token"]');
+        if (meta?.content) return meta.content;
+        const input = formEl()?.querySelector('input[name="_token"]');
+        return input ? String(input.value || '') : '';
     }
 
     function ensureLeaveField() {
@@ -90,7 +104,6 @@
         closeOverlay('regLeaveDraftModal');
         openOverlay('regDraftNoticeModal');
         if (typeof window.__regDraftShowErrors === 'function') {
-            // Still run page-side highlighting without native alerts.
             window.__regDraftHighlightErrors = true;
             try { window.__regDraftShowErrors(text); } finally { window.__regDraftHighlightErrors = false; }
         }
@@ -116,12 +129,26 @@
         overlay.classList.add('is-visible');
     }
 
+    function setAutosaveStatus(text, state) {
+        const el = document.getElementById('regAutosaveStatus');
+        if (!el) return;
+        if (!text) {
+            el.hidden = true;
+            el.textContent = '';
+            el.removeAttribute('data-state');
+            return;
+        }
+        el.hidden = false;
+        el.textContent = text;
+        el.setAttribute('data-state', state || 'ok');
+    }
+
     function submitAsDraft(leaveUrl) {
         const form = formEl();
         if (!form || formSubmitting) return false;
 
         if (!call('__regDraftCanSave', false)) {
-            showDraftError('Select Version Type and Document Type, and fill Document No plus at least one other masterlist field before saving a draft.');
+            showDraftError('To save a draft, enter Document No plus at least one other masterlist field (for example Title, Effectivity Date, Pages, Keywords, Originator, or Source Unit).');
             return false;
         }
 
@@ -147,7 +174,7 @@
 
     window.openDraftConfirmModal = function () {
         if (!call('__regDraftCanSave', false)) {
-            showDraftError('Select Version Type and Document Type, and fill Document No plus at least one other masterlist field before saving a draft.');
+            showDraftError('To save a draft, enter Document No plus at least one other masterlist field (for example Title, Effectivity Date, Pages, Keywords, Originator, or Source Unit).');
             return;
         }
         closeOverlay('regLeaveDraftModal');
@@ -239,22 +266,46 @@
         const showSave = wantsDraft && canSave;
         const saveBtn = document.getElementById('btnLeaveSaveDraft');
         const hint = document.getElementById('regLeaveDraftHint');
+        const lead = document.querySelector('#regLeaveDraftModal .reg-draft-lead');
         if (saveBtn) {
             saveBtn.style.display = showSave ? '' : 'none';
             saveBtn.disabled = !showSave;
             saveBtn.style.opacity = showSave ? '' : '0.45';
             saveBtn.style.pointerEvents = showSave ? '' : 'none';
         }
+        if (lead) {
+            if (showSave) {
+                lead.textContent = 'Your draft details are ready — you can leave safely.';
+            } else {
+                lead.textContent = 'You entered data that isn’t saved yet.';
+            }
+        }
         if (hint) {
             if (showSave) {
-                hint.textContent = 'Save it as a draft so you can continue later from Document Registration → Drafts.';
+                hint.innerHTML = 'Required draft fields are filled, so auto-draft is active. You can move to other pages anytime — your work is kept and you can continue from <strong>Document Registration → Drafts</strong>. You can also click <strong>Save Draft</strong> before leaving.';
             } else if (wantsDraft) {
-                hint.textContent = 'Not enough details yet to save a draft (need Version Type, Document Type, Document No, and at least one other masterlist field). Leaving now will discard what you entered.';
+                hint.innerHTML = 'A draft needs <strong>Document No</strong> plus at least one other masterlist field (Title, Effectivity Date, Pages, Keywords, Originator, or Source Unit). Once those are filled, auto-draft turns on and you can freely open other pages. Until then, leaving now will discard what you entered — or stay and click <strong>Save Draft</strong> when ready.';
             } else {
                 hint.textContent = 'Leaving now will discard unsaved changes on this page.';
             }
         }
         openOverlay('regLeaveDraftModal');
+    }
+
+    function navigateAfterDraftSave(dest) {
+        formSubmitting = true;
+        window.__regFormSubmitting = true;
+        let safe;
+        try {
+            const parsed = new URL(String(dest), window.location.origin);
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+            if (parsed.origin !== window.location.origin) return false;
+            safe = parsed.pathname + parsed.search + parsed.hash;
+        } catch (_) {
+            return false;
+        }
+        window.location.href = safe;
+        return true;
     }
 
     document.addEventListener('click', function (e) {
@@ -272,7 +323,12 @@
         const autosave = call('__regDraftShouldAutosaveOnLeave', false);
 
         if (autosave && call('__regDraftCanSave', false)) {
-            submitAsDraft(dest);
+            // Requirements met → silent auto-draft, then navigate (no blocking "unsaved" wall).
+            setAutosaveStatus('Saving draft before you leave…', 'pending');
+            void silentAutosaveDraft({ force: true, keepalive: true }).then(function (ok) {
+                if (ok && navigateAfterDraftSave(dest)) return;
+                submitAsDraft(dest);
+            });
             return;
         }
 
@@ -282,9 +338,24 @@
     window.addEventListener('beforeunload', function (e) {
         if (formSubmitting || window.__regFormSubmitting) return;
         if (!call('__regDraftHasProgress', false)) return;
-        // Tab/window close cannot reliably POST multipart forms — warn instead.
+        // Best-effort silent autosave (may not finish on hard power loss).
+        try { void silentAutosaveDraft({ force: true, keepalive: true }); } catch (_) { /* ignore */ }
+        // Requirements already met → auto-draft covers navigation; skip the browser block.
+        if (call('__regDraftShouldAutosaveOnLeave', false) && call('__regDraftCanSave', false)) {
+            return;
+        }
         e.preventDefault();
         e.returnValue = '';
+    });
+
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') {
+            void silentAutosaveDraft({ keepalive: true });
+        }
+    });
+
+    window.addEventListener('pagehide', function () {
+        void silentAutosaveDraft({ keepalive: true });
     });
 
     document.addEventListener('keydown', function (e) {
@@ -299,4 +370,185 @@
             window.closeDraftNoticeModal();
         }
     });
+
+    // ── Periodic / silent autosave (brownout protection) ───────────────
+
+    function shouldPeriodicAutosave() {
+        if (window.__editReadOnly) return false;
+        if (formSubmitting || window.__regFormSubmitting) return false;
+        // Create page always; edit page only while the record is still a draft.
+        if (typeof window.__regDraftShouldAutosaveOnLeave === 'function') {
+            return !!window.__regDraftShouldAutosaveOnLeave();
+        }
+        return true;
+    }
+
+    function formFieldSnapshot(form) {
+        const parts = [];
+        Array.from(form.elements || []).forEach((el) => {
+            if (!el || !el.name || el.disabled) return;
+            if (el.type === 'file' || el.type === 'button' || el.type === 'submit') return;
+            if (el.name === '_token' || el.name === 'save_as_draft' || el.name === 'autosave' || el.name === 'draft_leave_to') return;
+            if ((el.type === 'checkbox' || el.type === 'radio') && !el.checked) return;
+            parts.push(el.name + '=' + String(el.value || ''));
+        });
+        return parts.sort().join('&');
+    }
+
+    function buildAutosaveFormData(form) {
+        const fd = new FormData();
+        Array.from(form.elements || []).forEach((el) => {
+            if (!el || !el.name || el.disabled) return;
+            if (el.type === 'file') return; // scans re-uploaded only on manual save
+            if (el.type === 'button' || el.type === 'submit') return;
+            if ((el.type === 'checkbox' || el.type === 'radio') && !el.checked) return;
+            fd.append(el.name, el.value);
+        });
+        fd.set('save_as_draft', '1');
+        fd.set('autosave', '1');
+        const leave = document.getElementById('draftLeaveTo');
+        if (leave) fd.set('draft_leave_to', '');
+        return fd;
+    }
+
+    function toAbsoluteUrl(url) {
+        if (!url) return '';
+        return url.indexOf('http') === 0 ? url : (window.location.origin + url);
+    }
+
+    function adoptCreateFormAsDraftEdit(requestId, editUrl, updateUrl) {
+        const form = formEl();
+        if (!form || !requestId || !editUrl) return;
+
+        // PUT target is /register/{id}, not the GET edit page (/register/{id}/edit).
+        const actionUrl = updateUrl
+            || String(editUrl).replace(/\/edit\/?(\?.*)?$/, '$1')
+            || editUrl;
+
+        form.action = toAbsoluteUrl(actionUrl);
+
+        let method = form.querySelector('input[name="_method"]');
+        if (!method) {
+            method = document.createElement('input');
+            method.type = 'hidden';
+            method.name = '_method';
+            form.appendChild(method);
+        }
+        method.value = 'PUT';
+
+        let idField = document.getElementById('requestId');
+        if (!idField) {
+            idField = document.createElement('input');
+            idField.type = 'hidden';
+            idField.id = 'requestId';
+            form.appendChild(idField);
+        }
+        idField.value = String(requestId);
+
+        window.__isDraftDoc = true;
+        window.__draftRequestId = Number(requestId);
+
+        try {
+            history.replaceState(null, '', editUrl);
+        } catch (_) { /* ignore */ }
+    }
+
+    async function silentAutosaveDraft(options) {
+        options = options || {};
+        if (!shouldPeriodicAutosave()) return false;
+        if (autosaveInFlight || formSubmitting || window.__regFormSubmitting) return false;
+        if (!call('__regDraftCanSave', false)) return false;
+
+        const form = formEl();
+        if (!form || !form.action) return false;
+
+        const snapshot = formFieldSnapshot(form);
+        if (!options.force && snapshot && snapshot === lastAutosaveSnapshot) return false;
+
+        if (typeof window.__regDraftPrepareSubmit === 'function') {
+            window.__regDraftPrepareSubmit();
+        }
+        if (typeof syncSyllabiContextHidden === 'function') {
+            syncSyllabiContextHidden();
+        }
+
+        const flag = draftFlag();
+        const previousFlag = flag ? flag.value : '0';
+        if (flag) flag.value = '1';
+
+        const fd = buildAutosaveFormData(form);
+        autosaveInFlight = true;
+        if (!options.keepalive) {
+            setAutosaveStatus('Auto-saving draft…', 'pending');
+        }
+
+        try {
+            const response = await fetch(form.action, {
+                method: 'POST',
+                body: fd,
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-DCS-Autosave': '1',
+                    'X-CSRF-TOKEN': csrfToken(),
+                },
+                keepalive: !!options.keepalive,
+            });
+
+            let data = null;
+            try {
+                data = await response.json();
+            } catch (_) {
+                data = null;
+            }
+
+            if (!response.ok || !data || data.ok !== true) {
+                if (!options.keepalive) {
+                    setAutosaveStatus('Auto-save paused — keep working; try Save Draft if needed', 'warn');
+                }
+                return false;
+            }
+
+            lastAutosaveSnapshot = snapshot;
+            if (data.request_id && data.edit_url) {
+                const onCreate = !document.getElementById('requestId')?.value
+                    && !window.__draftRequestId;
+                if (onCreate) {
+                    adoptCreateFormAsDraftEdit(data.request_id, data.edit_url, data.update_url);
+                }
+            }
+
+            const when = data.saved_at || new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+            setAutosaveStatus('Draft auto-saved at ' + when + ' — resume from Drafts after interruption', 'ok');
+            return true;
+        } catch (_) {
+            if (!options.keepalive) {
+                setAutosaveStatus('Auto-save failed — connection issue', 'warn');
+            }
+            return false;
+        } finally {
+            autosaveInFlight = false;
+            if (flag) flag.value = previousFlag;
+        }
+    }
+
+    function startPeriodicAutosave() {
+        if (autosaveTimer) clearInterval(autosaveTimer);
+        autosaveTimer = setInterval(function () {
+            void silentAutosaveDraft({});
+        }, AUTOSAVE_INTERVAL_MS);
+        // First attempt shortly after the form becomes fillable.
+        setTimeout(function () {
+            void silentAutosaveDraft({});
+        }, 12000);
+    }
+
+    window.__regSilentAutosaveDraft = silentAutosaveDraft;
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startPeriodicAutosave);
+    } else {
+        startPeriodicAutosave();
+    }
 })();

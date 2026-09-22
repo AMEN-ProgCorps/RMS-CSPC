@@ -75,6 +75,19 @@
     font-size: 0.78rem;
     font-weight: 600;
 }
+#masterForm.is-readonly .reg-panel,
+#masterForm.is-readonly .reg-card {
+    opacity: 0.92;
+}
+#masterForm.is-readonly input:disabled,
+#masterForm.is-readonly select:disabled,
+#masterForm.is-readonly textarea:disabled {
+    cursor: not-allowed;
+    background: #f8fafc;
+}
+#dcsEditRoot.is-readonly-edit .reg-actions-right {
+    align-items: center;
+}
 .reg-table tbody td.existing-file {
     padding: 6px 12px;
 }

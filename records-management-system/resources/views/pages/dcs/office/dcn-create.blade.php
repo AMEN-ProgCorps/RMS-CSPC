@@ -82,17 +82,11 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                 <div class="reg-card-body ofi-dcn-form">
                     <div class="ofi-dcn-box">
                         <div class="ofi-dcn-box-section">
-                            <div class="ofi-dcn-doc-fields">
-                                <div class="reg-field">
-                                    <label for="dcnDocumentTitle">Document Title <span class="ofi-req">*</span></label>
-                                    <input type="text" id="dcnDocumentTitle" name="documentTitle" value="{{ old('documentTitle') }}" required maxlength="255" placeholder="Enter document title" autocomplete="off">
-                                </div>
-                                <div class="reg-field">
-                                    <label for="dcnDocumentNo">Document no. <span class="ofi-req">*</span></label>
-                                    <input type="text" id="dcnDocumentNo" name="documentNo" value="{{ old('documentNo') }}" required maxlength="150" placeholder="Enter document no." autocomplete="off">
-                                    <p class="ofi-hint">Create a new Document Change Notice — no need to look up an existing registered document.</p>
-                                </div>
-                            </div>
+                            @include('pages.dcs.office.partials.dcn-docno-fields', [
+                                'initialDocNo' => old('documentNo', ''),
+                                'initialDocTitle' => old('documentTitle', ''),
+                                'initialReviseNo' => null,
+                            ])
                         </div>
 
                         <div class="ofi-dcn-box-section">
@@ -204,6 +198,10 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                     <input type="checkbox" id="ofiConfirmData" name="confirmDataCorrect" value="1" required>
                     <span>I am confirming all the inputted data are correct.</span>
                 </label>
+                <label class="ofi-confirm-check ofi-also-drf-check">
+                    <input type="checkbox" id="ofiAlsoCreateDrf" name="alsoCreateDrf" value="1" @checked(old('alsoCreateDrf'))>
+                    <span>Also create a Document Request Form (DRF) for this change after save</span>
+                </label>
             </div>
 
             <div class="reg-form-actions ofi-reg-actions">
@@ -220,6 +218,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
     const form = document.getElementById('ofiDcnForm');
     const confirmBox = document.getElementById('ofiConfirmData');
     const saveBtn = document.getElementById('ofiDcnSaveBtn');
+    const confirmed = document.getElementById('dcnDocNoConfirmed');
     if (!form || !confirmBox || !saveBtn) return;
 
     function syncConfirm() {
@@ -236,6 +235,13 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
             alert('Please confirm that all the inputted data are correct before saving.');
             return;
         }
+        if (confirmed && confirmed.value !== '1') {
+            e.preventDefault();
+            alert('Select and confirm an existing registered Document No. before saving.');
+            const docNo = document.getElementById('dcnDocumentNo');
+            if (docNo) docNo.focus();
+            return;
+        }
         if (!form.checkValidity()) {
             return;
         }
@@ -244,5 +250,6 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
     });
 })();
 </script>
+@include('pages.dcs.office.partials.dcn-docno-script')
 @include('pages.dcs.office.partials.dcn-reviewers-script')
 @include('pages.dcs.office.partials.dcn-approvals-script')

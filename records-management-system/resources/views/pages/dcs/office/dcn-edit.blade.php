@@ -112,16 +112,12 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
                 <div class="reg-card-body ofi-dcn-form">
                     <div class="ofi-dcn-box">
                         <div class="ofi-dcn-box-section">
-                            <div class="ofi-dcn-doc-fields">
-                                <div class="reg-field">
-                                    <label for="dcnDocumentTitle">Document Title <span class="ofi-req">*</span></label>
-                                    <input type="text" id="dcnDocumentTitle" name="documentTitle" value="{{ old('documentTitle', $dcn->document_title) }}" required maxlength="255" placeholder="Enter document title" autocomplete="off">
-                                </div>
-                                <div class="reg-field">
-                                    <label for="dcnDocumentNo">Document no. <span class="ofi-req">*</span></label>
-                                    <input type="text" id="dcnDocumentNo" name="documentNo" value="{{ old('documentNo', $dcn->document_no) }}" required maxlength="150" placeholder="Enter document no." autocomplete="off">
-                                </div>
-                            </div>
+                            @include('pages.dcs.office.partials.dcn-docno-fields', [
+                                'initialDocNo' => old('documentNo', $dcn->document_no),
+                                'initialDocTitle' => old('documentTitle', $dcn->document_title),
+                                'initialReviseNo' => null,
+                                'forceConfirmed' => trim((string) old('documentNo', $dcn->document_no)) !== '',
+                            ])
                         </div>
 
                         <div class="ofi-dcn-box-section">
@@ -283,5 +279,6 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
     });
 })();
 </script>
+@include('pages.dcs.office.partials.dcn-docno-script')
 @include('pages.dcs.office.partials.dcn-reviewers-script')
 @include('pages.dcs.office.partials.dcn-approvals-script')

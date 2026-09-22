@@ -70,7 +70,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canAccessDts = false;
     public bool $canAccessArchv = false;
     public bool $canAccessDcs = false;
-    public bool $dcsViewAllDocuments = false;
     public bool $dcsCanRegister = false;
     public bool $dcsCanSettings = false;
     public bool $dcsCanRecycleBin = false;
@@ -181,7 +180,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canAccessDts = false;
         $this->canAccessArchv = false;
         $this->canAccessDcs = false;
-        $this->dcsViewAllDocuments = false;
         $this->dcsCanRegister = false;
         $this->dcsCanSettings = false;
         $this->dcsCanRecycleBin = false;
@@ -258,7 +256,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canAccessDts = (bool) $perms->can_access_dts;
                 $this->canAccessArchv = (bool) $perms->can_access_rdp;
                 $this->canAccessDcs = (bool) $perms->can_access_dcs;
-                $this->dcsViewAllDocuments = (bool) ($perms->dcs_view_all_documents ?? false);
                 $this->dcsCanRegister = (bool) ($perms->dcs_can_register ?? false);
                 $this->dcsCanSettings = (bool) ($perms->dcs_can_settings ?? false);
                 $this->dcsCanRecycleBin = (bool) ($perms->dcs_can_recycle_bin ?? false);
@@ -496,7 +493,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_access_dts = $this->canAccessDts;
         $perms->can_access_rdp = $this->canAccessArchv;
         $perms->can_access_dcs = $this->canAccessDcs;
-        $perms->dcs_view_all_documents = $this->canAccessDcs ? $this->dcsViewAllDocuments : false;
         $perms->dcs_can_register = $this->canAccessDcs ? $this->dcsCanRegister : false;
         $perms->dcs_can_settings = $this->canAccessDcs ? $this->dcsCanSettings : false;
         $perms->dcs_can_recycle_bin = $this->canAccessDcs ? $this->dcsCanRecycleBin : false;
@@ -581,12 +577,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     }
 
     /**
-     * When DCS access is toggled off, clear View All and module clearances.
+     * When DCS access is toggled off, clear module clearances.
      */
     public function updatedCanAccessDcs($value): void
     {
         if (! $value) {
-            $this->dcsViewAllDocuments = false;
             $this->dcsCanRegister = false;
             $this->dcsCanSettings = false;
             $this->dcsCanRecycleBin = false;
@@ -665,7 +660,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canAccessDts = true;
         $this->canAccessArchv = true;
         $this->canAccessDcs = true;
-        $this->dcsViewAllDocuments = true;
         $this->dcsCanRegister = true;
         $this->dcsCanSettings = true;
         // HEAD Admin of DCS (Recycle Bin) is NOT Super Admin — leave unset / do not auto-grant.
@@ -705,7 +699,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             'canAccessDts',
             'canAccessArchv',
             'canAccessDcs',
-            'dcsViewAllDocuments',
             'dcsCanRegister',
             'dcsCanSettings',
             'dcsCanRecycleBin',
@@ -1046,7 +1039,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                     <div class="permission-toggle-row">
                                         <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">Access DCS Subsystem</span>
-                                            <span class="permission-toggle-desc">Clearance to utilize DCS functionality.</span>
+                                            <span class="permission-toggle-desc">Lets the role use DCS. RFOIU / Document Controller accounts get admin DCS (with module clearances below). Other offices only get office DRF/DCN intake.</span>
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model.live="canAccessDcs">
@@ -1351,21 +1344,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                             <!-- Document Control System Clearances (gated by Access DCS only — not Administrative Access) -->
                             <div class="permissions-section-card">
                                 <span class="permissions-section-title"><i class="fa-solid fa-stamp"></i> Document Control System (DCS) Clearances</span>
+                                <p class="permission-toggle-desc" style="margin: 0 0 0.75rem; grid-column: 1 / -1;">Admin DCS pages only work for accounts under the RFIO/RFOIU office. Other offices with Access DCS get office DRF/DCN intake only — turn on the modules below for Document Controllers.</p>
                                 <div class="permissions-grid-layout">
                                     <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">View All DCS Documents</span>
-                                            <span class="permission-toggle-desc">Required for full DCS (dashboard search, register, database, etc.) for any office — including RFIO/RFOIU. Keep this OFF on default / intake-only roles so those users only get office DRF/DCN intake. Requires Access DCS.</span>
-                                        </div>
-                                        <label class="switch">
-                                            <input type="checkbox" wire:model="dcsViewAllDocuments" {{ !$canAccessDcs ? 'disabled' : '' }}>
-                                            <span class="slider"></span>
-                                        </label>
-                                    </div>
-                                    <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
-                                        <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">Register</span>
-                                            <span class="permission-toggle-desc">Create and edit document registrations. Requires View All DCS Documents (or Super Admin) plus this module flag.</span>
+                                            <span class="permission-toggle-desc">Create and edit document registrations. For Document Controller / RFOIU accounts only (plus Super Admin).</span>
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="dcsCanRegister" {{ !$canAccessDcs ? 'disabled' : '' }}>
@@ -1384,8 +1368,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                     </div>
                                     <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">HEAD Admin of DCS (Recycle Bin)</span>
-                                            <span class="permission-toggle-desc">Separate from Super Admin. Grants Recycle Bin: review soft-deleted documents (with delete reason), restore, and permanently delete. Grant only to the HEAD Admin of DCS role — not regular DCS admins.</span>
+                                            <span class="permission-toggle-title">HEAD Admin of DCS (Recycle Bin &amp; Edit Requests)</span>
+                                            <span class="permission-toggle-desc">Separate from Super Admin. Grants Recycle Bin (review soft-deleted documents, restore, permanently delete) and Edit Requests (approve or deny Document Controller edit unlocks with a reason). Grant only to the HEAD Admin of DCS role — not regular DCS admins.</span>
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="dcsCanRecycleBin" {{ !$canAccessDcs ? 'disabled' : '' }}>

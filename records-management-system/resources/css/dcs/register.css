@@ -2791,6 +2791,50 @@ select.reg-field-locked:disabled {
     color: #ea580c;
 }
 
+.reg-autosave-status {
+    display: inline-flex;
+    align-items: center;
+    align-self: center;
+    margin-left: 10px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: #334155;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    max-width: min(360px, 46vw);
+}
+
+.reg-autosave-status[hidden],
+.reg-autosave-status:empty {
+    display: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    max-width: 0 !important;
+}
+
+.reg-autosave-status[data-state="pending"] {
+    color: #9a3412;
+    background: #fff7ed;
+    border-color: #fed7aa;
+}
+
+.reg-autosave-status[data-state="ok"] {
+    color: #166534;
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+}
+
+.reg-autosave-status[data-state="warn"] {
+    color: #92400e;
+    background: #fffbeb;
+    border-color: #fde68a;
+}
+
 .reg-modal--draft {
     max-width: 480px;
 }

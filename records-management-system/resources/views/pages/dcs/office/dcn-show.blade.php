@@ -45,6 +45,8 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
             'canEdit' => OfficeIntakeHelper::canOfficeEditIntake('dcn', $this->id),
             'editReason' => trim((string) ($dcn->edit_unlock_reason ?? '')),
             'isRegistered' => OfficeIntakeHelper::isIntakeRegistered('dcn', $this->id),
+            'linkedDrfId' => OfficeIntakeHelper::findLinkedDrfIdForOfficeDcn($this->id),
+            'canCreateDrf' => ! OfficeIntakeHelper::officeDcnHasLinkedDrf($this->id),
         ];
     }
 }; ?>
@@ -61,6 +63,17 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                         <i class="fa-solid fa-pen"></i> Edit form
                     </a>
                 @endif
+                @unless($isIntakeReviewer ?? false)
+                    @if($canCreateDrf ?? true)
+                        <a href="{{ route('dcs.office.drf.create', ['from_dcn' => $dcn->id], absolute: false) }}" class="reg-btn reg-btn-save">
+                            <i class="fa-solid fa-file-circle-plus"></i> Create DRF for this change
+                        </a>
+                    @elseif(! empty($linkedDrfId))
+                        <a href="{{ route('dcs.office.drf.show', $linkedDrfId, absolute: false) }}" class="reg-btn reg-btn-save">
+                            <i class="fa-solid fa-file-lines"></i> View linked DRF
+                        </a>
+                    @endif
+                @endunless
                 <a href="{{ route('dcs.office.dcn.print', $dcn->id, absolute: false) }}" target="_blank" class="reg-btn reg-btn-save">
                     <i class="fa-solid fa-print"></i> Print form
                 </a>

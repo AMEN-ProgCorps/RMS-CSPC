@@ -316,23 +316,12 @@ class RegisterQueryHelper
     }
 
     /**
-     * Inventory / campus-wide DCS scope: super admin, or Access DCS + View All.
-     * RFIO/RFOIU office alone does not grant this — default roles stay office-intake only.
+     * Inventory / campus-wide DCS scope: super admin, or Access DCS on an
+     * RFIO/RFOIU office account. Other offices stay office DRF/DCN intake only.
      */
     public static function canViewAllDocuments(): bool
     {
-        $perms = auth()->user()?->permissions;
-        if (!$perms) {
-            return false;
-        }
-        if (!empty($perms->is_sadm)) {
-            return true;
-        }
-        if (empty($perms->can_access_dcs)) {
-            return false;
-        }
-
-        return !empty($perms->dcs_view_all_documents);
+        return self::isFullDcsUser();
     }
 
     public static function currentOfficeCode(): ?string
@@ -408,14 +397,12 @@ class RegisterQueryHelper
     }
 
     /**
-     * Full DCS operator (not intake-only):
+     * Full / admin DCS operator (not office intake-only):
      * - super admin, or
-     * - can_access_dcs + dcs_view_all_documents
+     * - Access DCS + assigned to RFIO/RFOIU office
      *
-     * RFIO/RFOIU office membership alone does not grant full DCS. A default role with
-     * only Access DCS stays office DRF/DCN intake — even when the account is assigned
-     * to Records & Freedom of Information Unit. Grant View All (plus module clearances)
-     * on Document Controller / HEAD roles that should see register, search, database, etc.
+     * Put Document Controllers under RFOIU and turn on the module clearances they need.
+     * Other offices with Access DCS only get office DRF/DCN intake.
      */
     public static function isFullDcsUser(): bool
     {
@@ -430,7 +417,7 @@ class RegisterQueryHelper
             return false;
         }
 
-        return !empty($perms->dcs_view_all_documents);
+        return self::isRfioOffice();
     }
 
     /** Non-full DCS user with DCS access: DRF/DCN intake only. */
@@ -451,7 +438,7 @@ class RegisterQueryHelper
     }
 
     /**
-     * Per-module clearance. Requires full DCS (View All / SADM) plus the module flag.
+     * Per-module clearance. Requires full DCS (RFIO/RFOIU + Access DCS, or SADM) plus the module flag.
      * Super Admin bypasses module flags — except Recycle Bin (HEAD Admin of DCS),
      * which requires an explicit dcs_can_recycle_bin grant and is not Super Admin identity.
      */
@@ -599,6 +586,57 @@ class RegisterQueryHelper
     }
 
     /**
+     * HEAD-only notice: Document Controllers in RFOIU must not see edit-request
+     * queue alerts they themselves (or peers) triggered for HEAD Admin review.
+     */
+    public static function isEditRequestHeadNotice(?string $redirectUrl): bool
+    {
+        $path = ltrim((string) (parse_url(trim((string) $redirectUrl), PHP_URL_PATH) ?? ''), '/');
+
+        return $path === 'dcs/edit-requests' || str_starts_with($path, 'dcs/edit-requests/');
+    }
+
+    /**
+     * Approve/deny notices are for the requesting Document Controller only
+     * (office-wide RFOIU would otherwise show them to HEAD Admin too).
+     */
+    public static function isEditRequestDecisionNotice(?string $redirectUrl, ?string $content = null): bool
+    {
+        $content = trim((string) $content);
+        if ($content !== '' && str_starts_with($content, 'Your edit request for')) {
+            return true;
+        }
+
+        $url = trim((string) $redirectUrl);
+        if ($url === '') {
+            return false;
+        }
+
+        $query = (string) (parse_url($url, PHP_URL_QUERY) ?? '');
+        parse_str($query, $params);
+
+        return isset($params['edit_for']) && (int) $params['edit_for'] > 0;
+    }
+
+    public static function editRequestDecisionTargetsCurrentUser(?string $redirectUrl): bool
+    {
+        $url = trim((string) $redirectUrl);
+        if ($url === '') {
+            return false;
+        }
+
+        $query = (string) (parse_url($url, PHP_URL_QUERY) ?? '');
+        parse_str($query, $params);
+        $forId = (int) ($params['edit_for'] ?? 0);
+        if ($forId < 1) {
+            // Legacy notices without edit_for — only show to non-HEAD Controllers.
+            return ! self::isDocumentControlHead();
+        }
+
+        return $forId === (int) (auth()->id() ?? 0);
+    }
+
+    /**
      * Apply the same visibility rules as the header notification dropdown
      * (limited-DCS allowlist + hide registered office-intake notices).
      *
@@ -628,6 +666,24 @@ class RegisterQueryHelper
                 ))
                 ->values();
         }
+
+        // Edit-request queue is HEAD Admin only (same office as Document Controllers).
+        if (! self::isDocumentControlHead()) {
+            $rows = $rows
+                ->filter(fn ($row) => ! self::isEditRequestHeadNotice($row->redirect_url ?? null))
+                ->values();
+        }
+
+        // Approve/deny notices: requester Document Controller only (not HEAD / peers).
+        $rows = $rows
+            ->filter(function ($row) {
+                if (! self::isEditRequestDecisionNotice($row->redirect_url ?? null, $row->content ?? null)) {
+                    return true;
+                }
+
+                return self::editRequestDecisionTargetsCurrentUser($row->redirect_url ?? null);
+            })
+            ->values();
 
         return $rows
             ->filter(function ($row) {
@@ -703,10 +759,166 @@ class RegisterQueryHelper
         return self::isDocumentControlHead();
     }
 
+    public static function supportsEditRequests(): bool
+    {
+        return Schema::hasColumn('dcs_document_requests', 'edit_request_status')
+            && Schema::hasColumn('dcs_document_requests', 'edit_unlocked_at');
+    }
+
+    /** @return array<string, mixed>|null */
+    public static function editRequestClearPayload(): ?array
+    {
+        if (! self::supportsEditRequests()) {
+            return null;
+        }
+
+        return [
+            'edit_request_status' => null,
+            'edit_request_reason' => null,
+            'edit_request_by' => null,
+            'edit_request_at' => null,
+            'edit_reviewed_by' => null,
+            'edit_reviewed_at' => null,
+            'edit_review_note' => null,
+            'edit_unlocked_at' => null,
+            'edit_unlocked_by' => null,
+        ];
+    }
+
+    public static function clearEditRequestState(int $requestId): void
+    {
+        $payload = self::editRequestClearPayload();
+        if ($payload === null || $requestId < 1) {
+            return;
+        }
+
+        $payload['updated_at'] = now();
+        DB::table('dcs_document_requests')->where('id', $requestId)->update($payload);
+    }
+
+    public static function isDraftDocument(?object $docRequest): bool
+    {
+        return self::supportsDrafts() && ! empty($docRequest?->is_draft);
+    }
+
+    /**
+     * Drafts and HEAD Admin may edit published docs without a request.
+     * Super Admin does not bypass — HEAD Admin clearance is required for free edit.
+     */
+    public static function canEditDocumentWithoutRequest(?object $docRequest): bool
+    {
+        if (! $docRequest) {
+            return false;
+        }
+        if (self::isDraftDocument($docRequest)) {
+            return true;
+        }
+        if (! self::supportsEditRequests()) {
+            return self::isFullDcsUser();
+        }
+
+        return self::isDocumentControlHead();
+    }
+
+    public static function hasActiveEditUnlock(?object $docRequest): bool
+    {
+        if (! $docRequest || ! self::supportsEditRequests()) {
+            return false;
+        }
+        $status = strtolower(trim((string) ($docRequest->edit_request_status ?? '')));
+
+        return $status === 'approved' && ! empty($docRequest->edit_unlocked_at);
+    }
+
+    public static function canEditDocument(int $requestId, ?object $docRequest = null): bool
+    {
+        $docRequest ??= self::findDocumentRequest($requestId);
+        if (! $docRequest) {
+            return false;
+        }
+        if (! self::userCanAccessRequest($requestId)) {
+            return false;
+        }
+        if (self::canEditDocumentWithoutRequest($docRequest)) {
+            return true;
+        }
+
+        return self::hasActiveEditUnlock($docRequest);
+    }
+
+    public static function assertCanEditDocument(int $requestId, ?object $docRequest = null): void
+    {
+        abort_unless(
+            self::canEditDocument($requestId, $docRequest),
+            403,
+            'Editing this document requires HEAD Admin of DCS approval. Request an edit from Update Documents.'
+        );
+    }
+
+    /**
+     * Edit-gate state for Update list / history UI.
+     *
+     * @return array{
+     *     can_edit: bool,
+     *     can_request_edit: bool,
+     *     edit_request_status: string|null,
+     *     edit_request_reason: string|null,
+     *     edit_review_note: string|null,
+     *     edit_action: string
+     * }
+     */
+    public static function editActionState(?object $docRequest): array
+    {
+        $status = self::supportsEditRequests()
+            ? (strtolower(trim((string) ($docRequest->edit_request_status ?? ''))) ?: null)
+            : null;
+        $canEdit = $docRequest && self::canEditDocument((int) $docRequest->id, $docRequest);
+        $isDraft = self::isDraftDocument($docRequest);
+        $isHead = self::isDocumentControlHead();
+        $canRequest = ! $isDraft
+            && ! $isHead
+            && self::supportsEditRequests()
+            && self::isFullDcsUser()
+            && $docRequest
+            && ! $canEdit
+            && $status !== 'pending';
+
+        $action = 'none';
+        if ($canEdit) {
+            $action = 'edit';
+        } elseif ($status === 'pending') {
+            $action = 'pending';
+        } elseif ($canRequest) {
+            $action = $status === 'denied' ? 'request_again' : 'request';
+        }
+
+        return [
+            'can_edit' => $canEdit,
+            'can_request_edit' => $canRequest,
+            'edit_request_status' => $status,
+            'edit_request_reason' => $status
+                ? (trim((string) ($docRequest->edit_request_reason ?? '')) ?: null)
+                : null,
+            'edit_review_note' => $status === 'denied'
+                ? (trim((string) ($docRequest->edit_review_note ?? '')) ?: null)
+                : null,
+            'edit_action' => $action,
+        ];
+    }
+
     /** Full DCS operators with review-intake clearance may open any office intake form by ID. */
     public static function canBrowseAllOfficeIntake(): bool
     {
         return self::canAccessDcsModule('review_intake');
+    }
+
+    public static function hasPendingEditRequest(?object $docRequest): bool
+    {
+        if (! $docRequest || ! self::supportsEditRequests()) {
+            return false;
+        }
+
+        return strtolower(trim((string) ($docRequest->edit_request_status ?? ''))) === 'pending';
     }
 
     public static function normalizedOriginatorName(?string $name = null): string
@@ -2020,6 +2232,12 @@ class RegisterQueryHelper
         if (self::supportsDrafts()) {
             $select[] = 'dr.is_draft';
         }
+        if (self::supportsEditRequests()) {
+            $select[] = 'dr.edit_request_status';
+            $select[] = 'dr.edit_request_reason';
+            $select[] = 'dr.edit_review_note';
+            $select[] = 'dr.edit_unlocked_at';
+        }
         $query->select($select);
 
         if ($docTypeId !== '' && $docTypeId !== 'all') {
@@ -2060,6 +2278,8 @@ class RegisterQueryHelper
                 ? (bool) ($doc->allows_revision ?? true)
                 : self::effectiveTypeAllowsRevision($doc->doc_type_id ?? null, $doc->sub_type_id ?? null);
 
+            $editState = self::editActionState($doc);
+
             return [
                 'request_id' => (int) $doc->id,
                 'doc_type_id' => (int) ($doc->doc_type_id ?? 0),
@@ -2075,6 +2295,12 @@ class RegisterQueryHelper
                 'edit_url' => route('dcs.register.edit', $doc->id),
                 'history_url' => (!$isDraft && $docNo !== '') ? route('dcs.register.history', $docNo) : null,
                 'can_delete' => $status !== 'obsolete',
+                'can_edit' => $editState['can_edit'],
+                'can_request_edit' => $editState['can_request_edit'],
+                'edit_action' => $editState['edit_action'],
+                'edit_request_status' => $editState['edit_request_status'],
+                'edit_request_reason' => $editState['edit_request_reason'],
+                'edit_review_note' => $editState['edit_review_note'],
             ];
         };
 
@@ -5739,6 +5965,11 @@ class RegisterQueryHelper
         abort_unless($docRequest, 404);
         self::assertCanAccessRequest($id);
 
+        // Full edit still needs unlock / HEAD Admin. Without that, open view-only so
+        // registrars can generate Distribution after save and return to Update Documents.
+        $canEdit = self::canEditDocument($id, $docRequest);
+        $readOnly = ! $canEdit;
+
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
         // Obsolete revisions are editable; Update list groups them under the latest tip.
 
@@ -5975,6 +6206,8 @@ class RegisterQueryHelper
 
         return [
             'blocked' => false,
+            'can_edit' => $canEdit,
+            'read_only' => $readOnly,
             'docRequest' => $docRequest,
             'drf' => $drf,
             'dcn' => $dcn,

@@ -80,11 +80,9 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
             <div>
                 <h1>Office Documents</h1>
                 <p>
-                    <strong>Internal</strong>, <strong>Internal Forms</strong>, and <strong>External</strong>
-                    appear when RFIO distributes a controlled document to
-                    <strong>{{ $officeName }}</strong>.
-                    <strong>Forms</strong> and <strong>Logbooks</strong> appear when your office
-                    is listed as the Source Unit.
+                    Documents appear here when RFIO distributes a controlled document to
+                    <strong>{{ $officeName }}</strong>
+                    (Internal, Internal Forms, External, Forms, and Logbooks).
                 </p>
             </div>
         </div>
@@ -132,8 +130,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                     @if($total < 1)
                         <strong>No documents yet</strong>
                         <p>
-                            No controlled documents list your office in Document Distribution yet,
-                            and no Forms/Logbooks list your office as Source Unit.
+                            No controlled documents list your office in Document Distribution yet.
                         </p>
                     @else
                         <strong>No {{ strtolower($activeLabel) }} documents</strong>

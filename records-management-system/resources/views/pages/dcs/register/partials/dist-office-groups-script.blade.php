@@ -183,6 +183,10 @@
     let pendingDeleteGroupId = null;
 
     window.applyDistOfficeGroup = function (groupId) {
+        if (typeof isDistOfficesLockedFromDrf === 'function' && isDistOfficesLockedFromDrf()) {
+            alert('Distribution offices from the submitted DRF cannot be replaced.');
+            return;
+        }
         const group = findGroup(groupId);
         if (!group || !Array.isArray(group.offices) || !group.offices.length) {
             alert('That group has no active offices.');

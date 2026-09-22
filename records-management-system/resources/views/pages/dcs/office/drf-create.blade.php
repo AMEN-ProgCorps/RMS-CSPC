@@ -10,10 +10,35 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
     public function mount(): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
+
+        $fromDcn = (int) request()->query('from_dcn', 0);
+        if ($fromDcn > 0) {
+            $existingDrfId = OfficeIntakeHelper::findLinkedDrfIdForOfficeDcn($fromDcn);
+            if ($existingDrfId !== null) {
+                session()->flash(
+                    'error',
+                    'This Document Change Notice already has a Document Request Form. Opening the existing DRF.'
+                );
+                $this->redirect(route('dcs.office.drf.show', $existingDrfId, absolute: false));
+
+                return;
+            }
+        }
     }
 
     public function with(): array
     {
+        $prefill = [
+            'drfTitle' => '',
+            'originatorName' => '',
+            'descriptionReason' => '',
+            'from_dcn' => 0,
+        ];
+        $fromDcn = (int) request()->query('from_dcn', 0);
+        if ($fromDcn > 0) {
+            $prefill = OfficeIntakeHelper::drfPrefillFromDcn($fromDcn);
+        }
+
         return [
             'offices' => RegisterQueryHelper::jsCatalog()['offices'] ?? [],
             'clusters' => RegisterQueryHelper::jsCatalog()['clusters'] ?? [],
@@ -21,6 +46,8 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                 'intval',
                 (array) old('distributeToOffice', [])
             ))),
+            'prefill' => $prefill,
+            'fromDcnId' => (int) ($prefill['from_dcn'] ?? 0),
         ];
     }
 }; ?>
@@ -31,8 +58,18 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             <a href="{{ route('dcs.office.drf.index', absolute: false) }}" class="reg-btn reg-btn-cancel">
                 <i class="fa-solid fa-arrow-left"></i> Back to list
             </a>
-            <p class="ofi-toolbar-hint">Fill in the form, save, then print and submit the signed copy to RFIO. Scanned DRF uploads are handled by RFIO during document registration.</p>
+            <p class="ofi-toolbar-hint">
+                @if(($fromDcnId ?? 0) > 0)
+                    Prefilled from Document Change Notice #{{ $fromDcnId }}. All fields remain editable — review before saving.
+                @else
+                    Fill in the form, save, then print and submit the signed copy to RFIO. Scanned DRF uploads are handled by RFIO during document registration.
+                @endif
+            </p>
         </div>
+
+        @if(session('success'))
+            <div class="ofi-alert ok">{{ session('success') }}</div>
+        @endif
 
         @if($errors->any())
             <div class="ofi-alert err">
@@ -42,6 +79,9 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
 
         <form method="POST" action="{{ route('dcs.office.drf.store', absolute: false) }}" id="ofiDrfForm">
             @csrf
+            @if(($fromDcnId ?? 0) > 0)
+                <input type="hidden" name="from_dcn" value="{{ $fromDcnId }}">
+            @endif
             <section class="reg-card" id="section-1">
                 <div class="reg-card-header">
                     <span>Document Request Form</span>
@@ -50,7 +90,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                     <div class="reg-grid-2-1">
                         <div class="reg-field">
                             <label>Originator <span class="ofi-req">*</span></label>
-                            <input type="text" name="originatorName" value="{{ old('originatorName') }}" required maxlength="255" placeholder="Name of originator">
+                            <input type="text" name="originatorName" value="{{ old('originatorName', $prefill['originatorName'] ?? '') }}" required maxlength="255" placeholder="Name of originator">
                         </div>
                         <div class="reg-field">
                             <label>Date <span class="ofi-req">*</span></label>
@@ -59,7 +99,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                     </div>
                     <div class="reg-field">
                         <label>Document Title <span class="ofi-req">*</span></label>
-                        <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle') }}" required maxlength="255" placeholder="Enter document title">
+                        <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle', $prefill['drfTitle'] ?? '') }}" required maxlength="255" placeholder="Enter document title">
                     </div>
                     <div class="reg-field">
                         <label>Type of document <span class="ofi-req">*</span></label>

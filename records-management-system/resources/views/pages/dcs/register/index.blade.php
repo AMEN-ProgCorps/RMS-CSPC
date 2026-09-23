@@ -2054,10 +2054,13 @@ async function runRenumberedDocNoCheck(docNo, fromNo, hintEl) {
     try {
         const docTypeId = document.getElementById('docType').value;
         const subTypeId = document.getElementById('subType').value;
+        const excludeRequestId = document.getElementById('requestId')?.value
+            || (window.__draftRequestId ? String(window.__draftRequestId) : '');
         const url = '/dcs/register/check-docno?doc_no=' + encodeURIComponent(docNo) +
                     (docTypeId ? '&doc_type_id=' + docTypeId : '') +
                     (subTypeId ? '&sub_type_id=' + subTypeId : '') +
-                    '&related_from=' + encodeURIComponent(fromNo);
+                    '&related_from=' + encodeURIComponent(fromNo) +
+                    (excludeRequestId ? '&exclude_request_id=' + encodeURIComponent(excludeRequestId) : '');
         const res = await fetch(url);
         const data = await res.json();
         const revField = document.getElementById('masterlistRevisionNo');
@@ -2122,9 +2125,12 @@ async function runDocNoLookup(docNo, hintEl, revField) {
     try {
         const docTypeId = document.getElementById('docType').value;
         const subTypeId = document.getElementById('subType').value;
+        const excludeRequestId = document.getElementById('requestId')?.value
+            || (window.__draftRequestId ? String(window.__draftRequestId) : '');
         const url = '/dcs/register/check-docno?doc_no=' + encodeURIComponent(docNo) +
                     (docTypeId ? '&doc_type_id=' + docTypeId : '') +
-                    (subTypeId ? '&sub_type_id=' + subTypeId : '');
+                    (subTypeId ? '&sub_type_id=' + subTypeId : '') +
+                    (excludeRequestId ? '&exclude_request_id=' + encodeURIComponent(excludeRequestId) : '');
         const res = await fetch(url);
         const data = await res.json();
 
@@ -2155,8 +2161,10 @@ function applyRevisedDocumentContext(data, options = {}) {
     const effectiveDocNo = (docNo ?? document.getElementById('masterlistDocNo')?.value ?? '').trim();
 
     if (revFieldEl) {
-        // Fresh doc-no context from DCN/lookup always suggests family next rev.
-        if (options.forceNextRev || !revFieldEl.value || revFieldEl.dataset.userEdited !== 'true') {
+        // Keep a manually typed Rev; only suggest next when the field is empty / not user-pinned.
+        const userPinned = revFieldEl.dataset.userEdited === 'true'
+            && String(revFieldEl.value || '').trim() !== '';
+        if (!userPinned && (options.forceNextRev || !String(revFieldEl.value || '').trim())) {
             revFieldEl.value = data.next_rev;
             revFieldEl.dataset.userEdited = '';
         }
@@ -2925,12 +2933,15 @@ async function runRevNoCheck() {
     const reviseNo = revField.value === '' ? '0' : revField.value;
     const docTypeId = document.getElementById('docType')?.value || '';
     const subTypeId = document.getElementById('subType')?.value || '';
+    const excludeRequestId = document.getElementById('requestId')?.value
+        || (window.__draftRequestId ? String(window.__draftRequestId) : '');
 
     try {
         const url = '/dcs/register/check-revno?doc_no=' + encodeURIComponent(docNo) +
             '&revise_no=' + encodeURIComponent(reviseNo) +
             (docTypeId ? '&doc_type_id=' + encodeURIComponent(docTypeId) : '') +
-            (subTypeId ? '&sub_type_id=' + encodeURIComponent(subTypeId) : '');
+            (subTypeId ? '&sub_type_id=' + encodeURIComponent(subTypeId) : '') +
+            (excludeRequestId ? '&exclude_request_id=' + encodeURIComponent(excludeRequestId) : '');
         const res = await fetch(url);
         const data = await res.json();
 

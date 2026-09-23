@@ -5092,6 +5092,12 @@ class RegisterQueryHelper
         if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
             $query->whereIn('ml.revision_status', ['latest', 'obsolete']);
         }
+        // Drafts use revision_status=obsolete — never treat them as occupying a Rev.
+        if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+            $query->where(function ($q) {
+                $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
+        }
         if ($excludeRequestId > 0) {
             $query->where('ml.request_id', '!=', $excludeRequestId);
         }
@@ -5136,6 +5142,11 @@ class RegisterQueryHelper
 
         if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
             $query->whereIn('ml.revision_status', ['latest', 'obsolete']);
+        }
+        if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+            $query->where(function ($q) {
+                $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
         }
         if ($excludeRequestId > 0) {
             $query->where('ml.request_id', '!=', $excludeRequestId);
@@ -5594,6 +5605,10 @@ class RegisterQueryHelper
 
         if ($result['found']) {
             $matches = $result['matches'];
+            // Draft rows must not make a Doc No look "already registered" while still being edited.
+            if (self::supportsDrafts()) {
+                $matches = $matches->filter(fn ($row) => empty($row->is_draft))->values();
+            }
             if ($excludeRequestId > 0) {
                 $matches = $matches->filter(fn ($row) => (int) $row->id !== $excludeRequestId)->values();
             }
@@ -5867,20 +5882,26 @@ class RegisterQueryHelper
         // Fallback: exact doc no only if family walk found nothing.
         if ($takenRevs === []) {
             $matchIds = $result['matches']->pluck('id');
-            $revQuery = DB::table('dcs_masterlist_registration')
-                ->whereIn('request_id', $matchIds)
-                ->where('doc_no', $docNo);
+            $revQuery = DB::table('dcs_masterlist_registration as ml')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                ->whereIn('ml.request_id', $matchIds)
+                ->where('ml.doc_no', $docNo);
 
             if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
-                $revQuery->whereIn('revision_status', ['latest', 'obsolete']);
+                $revQuery->whereIn('ml.revision_status', ['latest', 'obsolete']);
+            }
+            if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+                $revQuery->where(function ($q) {
+                    $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+                });
             }
             if ($excludeRequestId > 0) {
-                $revQuery->where('request_id', '!=', $excludeRequestId);
+                $revQuery->where('ml.request_id', '!=', $excludeRequestId);
             }
 
             $takenRevs = $revQuery
-                ->orderBy('revise_no')
-                ->pluck('revise_no')
+                ->orderBy('ml.revise_no')
+                ->pluck('ml.revise_no')
                 ->map(fn ($n) => (int) $n)
                 ->unique()
                 ->values()

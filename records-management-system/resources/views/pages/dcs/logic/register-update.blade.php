@@ -98,7 +98,7 @@ class RegisterUpdateHelper
             $docRequest->doc_type_id,
             $resolvedSubTypeId
         );
-        if ($docNo && ! $saveAsDraft && $allowsRevision) {
+        if ($docNo && $allowsRevision) {
             $result = RegisterPersistHelper::findMatchingRegistrationRows(
                 $docNo,
                 (int) $docRequest->doc_type_id,
@@ -106,13 +106,18 @@ class RegisterUpdateHelper
             );
             if ($result['found']) {
                 $reviseNo = RegisterPersistHelper::resolveReviseNo($request, $ml?->revise_no);
-                $collision = DB::table('dcs_masterlist_registration')
-                    ->whereIn('request_id', $result['matches']->pluck('id'))
-                    ->where('request_id', '!=', $id)
-                    ->where('doc_no', $docNo)
-                    ->where('revise_no', $reviseNo)
-                    ->exists();
-                if ($collision) {
+                $collision = DB::table('dcs_masterlist_registration as ml')
+                    ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                    ->whereIn('ml.request_id', $result['matches']->pluck('id'))
+                    ->where('ml.request_id', '!=', $id)
+                    ->where('ml.doc_no', $docNo)
+                    ->where('ml.revise_no', $reviseNo);
+                if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+                    $collision->where(function ($q) {
+                        $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+                    });
+                }
+                if ($collision->exists()) {
                     return back()->withInput()
                         ->with('error', 'Revision ' . $reviseNo . ' for document "' . $docNo . '" already exists.');
                 }

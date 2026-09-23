@@ -1007,7 +1007,7 @@ class RegisterPersistHelper
             return $redirect;
         }
 
-        if ($mode === 'new' && ! $saveAsDraft && $allowsRevision) {
+        if ($mode === 'new' && $allowsRevision) {
             $docNo = $request->input('masterlistDocNo');
             $docTypeId = (int) $request->input('doc_type_id');
             $subTypeId = $request->input('sub_type_id');
@@ -1016,9 +1016,24 @@ class RegisterPersistHelper
                 $result = self::findMatchingRegistrationRows($docNo, $docTypeId, $subTypeId ? (int) $subTypeId : null);
 
                 if ($result['found']) {
-                    $existing = $result['latest'];
-                    return back()->withInput()
-                        ->with('error', 'Document "' . $docNo . '" is already registered (Rev ' . $existing->revise_no . '). Please use Revised Registration to create a new revision.');
+                    // Ignore other drafts — only published (or non-draft) rows block a new registration.
+                    $publishedMatches = $result['matches'];
+                    if (RegisterQueryHelper::supportsDrafts()) {
+                        $publishedMatches = $publishedMatches->filter(fn ($row) => empty($row->is_draft))->values();
+                    }
+                    if ($publishedMatches->isNotEmpty()) {
+                        $latest = DB::table('dcs_masterlist_registration')
+                            ->whereIn('request_id', $publishedMatches->pluck('id'))
+                            ->where('doc_no', $docNo)
+                            ->orderByDesc('revise_no')
+                            ->first();
+
+                        return back()->withInput()
+                            ->with(
+                                'error',
+                                'Document "' . $docNo . '" is already registered (Rev ' . ($latest->revise_no ?? 0) . '). Please use Revised Registration to create a new revision.'
+                            );
+                    }
                 }
             }
         }

@@ -584,10 +584,20 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                         </div>
                         <div class="reg-field">
                             <label>Revision No.</label>
-                            <input type="number" id="masterlistRevisionNo" placeholder="0"
-                                value="{{ $masterlist->revise_no ?? '' }}" disabled
-                                style="background:#f1f5f9; cursor:not-allowed; opacity:0.7;">
-                            <input type="hidden" name="masterlistRevisionNo" value="{{ $masterlist->revise_no ?? '0' }}">
+                            @php
+                                $revEditable = ! empty($docRequest->is_draft) && empty($read_only);
+                            @endphp
+                            <input type="number" id="masterlistRevisionNo"
+                                @if($revEditable) name="masterlistRevisionNo" @endif
+                                placeholder="0"
+                                value="{{ $masterlist->revise_no ?? '' }}"
+                                @if(! $revEditable) disabled @endif
+                                @if(! $revEditable) style="background:#f1f5f9; cursor:not-allowed; opacity:0.7;" @endif
+                                min="0">
+                            @unless($revEditable)
+                                <input type="hidden" name="masterlistRevisionNo" value="{{ $masterlist->revise_no ?? '0' }}">
+                            @endunless
+                            <div id="revNoHint" class="reg-field-hint" style="font-size:0.78rem; margin-top:4px;"></div>
                         </div>
                         <div class="reg-field">
                             <label>No. of Pages</label>
@@ -1763,6 +1773,7 @@ document.addEventListener("DOMContentLoaded", async function () {
         // ── Wire doc no lookup ──
         const revField = document.getElementById('masterlistRevisionNo');
         initDocNoLookup(revField);
+        initDraftRevNoLookup(revField);
         wireSyllabiMasterlistSync();
         wireApprovalDeadlineSync();
         enableApproval();
@@ -2381,6 +2392,80 @@ function initDocNoLookup(revField) {
     });
 }
 
+/** Drafts may change Revision No; published edits keep it locked. */
+function initDraftRevNoLookup(revField) {
+    if (!revField || revField.disabled || !window.__isDraftDoc) return;
+
+    let revNoTimer = null;
+    const schedule = () => {
+        clearTimeout(revNoTimer);
+        revNoTimer = setTimeout(() => runDraftRevNoCheck(revField), 400);
+    };
+
+    revField.addEventListener('input', function () {
+        this.dataset.userEdited = 'true';
+        schedule();
+    });
+    revField.addEventListener('change', schedule);
+    revField.addEventListener('blur', schedule);
+    document.getElementById('masterlistDocNo')?.addEventListener('input', schedule);
+    schedule();
+}
+
+async function runDraftRevNoCheck(revField) {
+    const hint = document.getElementById('revNoHint');
+    const docNo = (document.getElementById('masterlistDocNo')?.value || '').trim();
+    if (!revField || revField.disabled || !docNo) {
+        if (hint) hint.innerHTML = '';
+        return;
+    }
+
+    const reviseNo = revField.value === '' ? '0' : revField.value;
+    const docTypeId = document.getElementById('docType')?.value || '';
+    const subTypeId = document.getElementById('subType')?.value || '';
+    const excludeRequestId = document.getElementById('requestId')?.value || '';
+
+    try {
+        const url = '/dcs/register/check-revno?doc_no=' + encodeURIComponent(docNo) +
+            '&revise_no=' + encodeURIComponent(reviseNo) +
+            (docTypeId ? '&doc_type_id=' + encodeURIComponent(docTypeId) : '') +
+            (subTypeId ? '&sub_type_id=' + encodeURIComponent(subTypeId) : '') +
+            (excludeRequestId ? '&exclude_request_id=' + encodeURIComponent(excludeRequestId) : '');
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.needs_doc_no || data.needs_doc_type) {
+            if (hint) hint.innerHTML = '';
+            return;
+        }
+
+        if (data.taken) {
+            if (hint) {
+                hint.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> ' +
+                    escapeHtml(data.message || 'This revision already exists.');
+                hint.style.color = '#dc2626';
+            }
+            revField.style.borderColor = '#dc2626';
+            revField.classList.add('reg-input-invalid');
+            return;
+        }
+
+        if (hint) {
+            if (Array.isArray(data.taken_revs) && data.taken_revs.length > 0) {
+                hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> ' +
+                    escapeHtml(data.message || 'Revision available.');
+                hint.style.color = '#16a34a';
+            } else {
+                hint.innerHTML = '';
+            }
+        }
+        revField.style.borderColor = '';
+        revField.classList.remove('reg-input-invalid');
+    } catch (e) {
+        console.error('Draft RevNo check failed:', e);
+    }
+}
+
 function handleEmptyDocNo(hintEl, revField) {
     docNoDuplicate = false;
     if (hintEl) { hintEl.innerHTML = ''; hintEl.dataset.valid = ''; }
@@ -2450,7 +2535,10 @@ function applyRevisedDocumentContext(data, options = {}) {
     }
 
     if (revFieldEl && !revFieldEl.disabled) {
-        if (options.forceNextRev || !revFieldEl.value || revFieldEl.dataset.userEdited !== 'true') {
+        // Keep a manually typed Rev; only suggest next when the field is empty / not user-pinned.
+        const userPinned = revFieldEl.dataset.userEdited === 'true'
+            && String(revFieldEl.value || '').trim() !== '';
+        if (!userPinned && (options.forceNextRev || !String(revFieldEl.value || '').trim())) {
             revFieldEl.value = data.next_rev;
             revFieldEl.dataset.userEdited = '';
         }

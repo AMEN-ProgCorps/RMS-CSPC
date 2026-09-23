@@ -1368,8 +1368,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                     </div>
                                     <div class="permission-toggle-row" style="{{ !$canAccessDcs ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">HEAD Admin of DCS (Recycle Bin &amp; Edit Requests)</span>
-                                            <span class="permission-toggle-desc">Separate from Super Admin. Grants Recycle Bin (review soft-deleted documents, restore, permanently delete) and Edit Requests (approve or deny Document Controller edit unlocks with a reason). Grant only to the HEAD Admin of DCS role — not regular DCS admins.</span>
+                                            <span class="permission-toggle-title">HEAD Admin of DCS (Recycle Bin)</span>
+                                            <span class="permission-toggle-desc">Separate from Super Admin. Grants Recycle Bin (review soft-deleted documents, restore, permanently delete). Grant only to the HEAD Admin of DCS role — not regular DCS admins.</span>
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="dcsCanRecycleBin" {{ !$canAccessDcs ? 'disabled' : '' }}>

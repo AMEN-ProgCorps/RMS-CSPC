@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Helpers\RegisterQueryHelper;
-use App\Helpers\RegisterUpdateHelper;
 use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
@@ -29,11 +28,6 @@ class DcsEditRequestTest extends TestCase
             DB::connection()->getPdo();
         } catch (\Throwable $e) {
             $this->markTestSkipped('Database unavailable: '.$e->getMessage());
-        }
-
-        if (! Schema::hasColumn('dcs_document_requests', 'edit_request_status')
-            || ! Schema::hasColumn('dcs_document_requests', 'edit_unlocked_at')) {
-            $this->markTestSkipped('Edit request columns are not migrated.');
         }
 
         $this->withHeader(
@@ -181,7 +175,7 @@ class DcsEditRequestTest extends TestCase
         DB::table($keys)->insert([
             'id' => $id,
             'key_name' => $name . ' ' . $id,
-            'key_description' => 'Edit request feature test role',
+            'key_description' => 'Document edit access test role',
             'modifier_key' => $id,
             'is_active' => true,
         ]);
@@ -266,16 +260,17 @@ class DcsEditRequestTest extends TestCase
         return ['request_id' => $requestId];
     }
 
-    public function test_controller_cannot_open_published_edit_without_approval(): void
+    public function test_controller_can_open_published_edit_without_request(): void
     {
         $doc = $this->insertPublishedDocument($this->controllerUserId);
         $this->actingAs(User::find($this->controllerUserId));
 
-        $this->assertFalse(RegisterQueryHelper::isDocumentControlHead());
-        $this->assertFalse(RegisterQueryHelper::canEditDocument($doc['request_id']));
+        $this->assertTrue(RegisterQueryHelper::canEditDocument($doc['request_id']));
 
         $response = $this->get('/dcs/register/' . $doc['request_id'] . '/edit');
-        $response->assertRedirect(route('dcs.register.update'));
+        $response->assertOk();
+        $response->assertDontSee('Request an edit from Update Documents');
+        $response->assertDontSee('An edit request is waiting for HEAD Admin approval');
     }
 
     public function test_controller_can_edit_draft_without_request(): void
@@ -290,7 +285,7 @@ class DcsEditRequestTest extends TestCase
         $this->assertTrue(RegisterQueryHelper::canEditDocument($doc['request_id']));
     }
 
-    public function test_head_can_edit_published_without_request(): void
+    public function test_head_can_edit_published_document(): void
     {
         $doc = $this->insertPublishedDocument($this->headUserId);
         $this->actingAs(User::find($this->headUserId));
@@ -299,45 +294,8 @@ class DcsEditRequestTest extends TestCase
         $this->assertTrue(RegisterQueryHelper::canEditDocument($doc['request_id']));
     }
 
-    public function test_request_approve_unlocks_controller_edit(): void
+    public function test_edit_requests_page_is_removed(): void
     {
-        $doc = $this->insertPublishedDocument($this->controllerUserId);
-
-        $this->actingAs(User::find($this->controllerUserId));
-        $response = RegisterUpdateHelper::requestEdit($doc['request_id'], 'Need to correct typographical error in title.');
-        $this->assertTrue($response->isRedirect());
-
-        $row = DB::table('dcs_document_requests')->where('id', $doc['request_id'])->first();
-        $this->assertSame('pending', $row->edit_request_status);
-        $this->assertFalse(RegisterQueryHelper::canEditDocument($doc['request_id'], $row));
-
-        $this->actingAs(User::find($this->headUserId));
-        $approve = RegisterUpdateHelper::approveEditRequest($doc['request_id']);
-        $this->assertTrue($approve->isRedirect());
-
-        $this->actingAs(User::find($this->controllerUserId));
-        $unlocked = RegisterQueryHelper::findDocumentRequest($doc['request_id']);
-        $this->assertTrue(RegisterQueryHelper::canEditDocument($doc['request_id'], $unlocked));
-        $this->assertSame('approved', $unlocked->edit_request_status);
-        $this->assertNotEmpty($unlocked->edit_unlocked_at);
-
-        $headPage = $this->actingAs(User::find($this->headUserId))->get('/dcs/edit-requests');
-        $headPage->assertOk();
-    }
-
-    public function test_deny_keeps_document_locked(): void
-    {
-        $doc = $this->insertPublishedDocument($this->controllerUserId);
-
-        $this->actingAs(User::find($this->controllerUserId));
-        RegisterUpdateHelper::requestEdit($doc['request_id'], 'Need to update distribution list entries.');
-
-        $this->actingAs(User::find($this->headUserId));
-        RegisterUpdateHelper::denyEditRequest($doc['request_id'], 'Document is already correct as filed.');
-
-        $this->actingAs(User::find($this->controllerUserId));
-        $row = RegisterQueryHelper::findDocumentRequest($doc['request_id']);
-        $this->assertSame('denied', $row->edit_request_status);
-        $this->assertFalse(RegisterQueryHelper::canEditDocument($doc['request_id'], $row));
+        $this->actingAs(User::find($this->headUserId))->get('/dcs/edit-requests')->assertNotFound();
     }
 }

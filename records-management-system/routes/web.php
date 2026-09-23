@@ -794,7 +794,6 @@ Route::middleware(['auth'])
 
                 Route::middleware(['dcs.module:recycle_bin'])->group(function () {
                     Volt::route('/recycle-bin', 'pages.dcs.recycle-bin.index')->name('recycle-bin');
-                    Volt::route('/edit-requests', 'pages.dcs.edit-requests.index')->name('edit-requests');
                 });
 
                 Route::middleware(['dcs.module:reports'])->group(function () {

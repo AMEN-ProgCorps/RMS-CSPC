@@ -237,13 +237,6 @@
             @endif
 
             @if($canRecycleBin)
-                <li class="nav-item {{ request()->routeIs('dcs.edit-requests') ? 'active' : '' }}">
-                    <a href="{{ route('dcs.edit-requests', absolute: false) }}">
-                        <i class="fa-solid fa-lock-open"></i>
-                        <span>Edit Requests</span>
-                        <span class="tooltip">HEAD Admin — Edit Requests</span>
-                    </a>
-                </li>
                 <li class="nav-item {{ request()->routeIs('dcs.recycle-bin') ? 'active' : '' }}">
                     <a href="{{ route('dcs.recycle-bin', absolute: false) }}">
                         <i class="fa-solid fa-trash-can"></i>

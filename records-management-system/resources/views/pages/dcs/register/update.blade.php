@@ -23,20 +23,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $deleteReason = '';
     public string $deleteError = '';
 
-    public ?int $editRequestId = null;
-    public string $editRequestTitle = '';
-    public int $editRequestRev = 0;
-    public string $editRequestReason = '';
-    public string $editRequestError = '';
-    public string $editRequestMode = 'request';
-
     public function with(): array
     {
         return [
             'docTypes' => RegisterQueryHelper::parentDocTypes(),
             'list' => RegisterQueryHelper::updateList($this->search, $this->docTypeId, $this->page),
             'canReviewRecycleBin' => RegisterQueryHelper::isDocumentControlHead(),
-            'isHeadAdmin' => RegisterQueryHelper::isDocumentControlHead(),
         ];
     }
 
@@ -64,7 +56,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public function confirmDelete(int $id, string $title, int $rev): void
     {
-        $this->closeEditRequest();
         $this->deleteId = $id;
         $this->deleteTitle = $title;
         $this->deleteRev = $rev;
@@ -87,7 +78,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             return;
         }
 
-        $reason = trim(preg_replace('/\s+/u', ' ', $this->deleteReason) ?? '');
+        $reason = strip_tags(html_entity_decode((string) $this->deleteReason, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $reason = trim(preg_replace('/\s+/u', ' ', str_replace("\0", '', $reason)) ?? '');
+        $reason = mb_substr($reason, 0, 1000);
         if ($reason === '' || mb_strlen($reason) < 5) {
             $this->deleteError = 'Please enter a delete reason (at least 5 characters).';
 
@@ -100,51 +93,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         $response = RegisterUpdateHelper::destroy($this->deleteId, $reason);
-        if ($response instanceof RedirectResponse) {
-            $this->redirect($response->getTargetUrl(), navigate: true);
-        }
-    }
-
-    public function confirmEditRequest(int $id, string $title, int $rev, string $mode = 'request'): void
-    {
-        $this->closeDelete();
-        $this->editRequestId = $id;
-        $this->editRequestTitle = $title;
-        $this->editRequestRev = $rev;
-        $this->editRequestReason = '';
-        $this->editRequestError = '';
-        $this->editRequestMode = $mode === 'request_again' ? 'request_again' : 'request';
-    }
-
-    public function closeEditRequest(): void
-    {
-        $this->editRequestId = null;
-        $this->editRequestTitle = '';
-        $this->editRequestRev = 0;
-        $this->editRequestReason = '';
-        $this->editRequestError = '';
-        $this->editRequestMode = 'request';
-    }
-
-    public function submitEditRequest(): void
-    {
-        if (!$this->editRequestId) {
-            return;
-        }
-
-        $reason = trim(preg_replace('/\s+/u', ' ', $this->editRequestReason) ?? '');
-        if ($reason === '' || mb_strlen($reason) < 5) {
-            $this->editRequestError = 'Please enter a reason (at least 5 characters).';
-
-            return;
-        }
-        if (mb_strlen($reason) > 1000) {
-            $this->editRequestError = 'Reason must be 1000 characters or fewer.';
-
-            return;
-        }
-
-        $response = RegisterUpdateHelper::requestEdit($this->editRequestId, $reason);
         if ($response instanceof RedirectResponse) {
             $this->redirect($response->getTargetUrl(), navigate: true);
         }
@@ -205,7 +153,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             $itemNo = (($list['current_page'] - 1) * $list['per_page']) + $i + 1;
                             $revKey = 'g-' . $doc['request_id'];
                             $children = $group['children'] ?? [];
-                            $editAction = $doc['edit_action'] ?? 'edit';
                         @endphp
                         <tr class="upd-parent-row">
                             <td>
@@ -233,25 +180,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 @if(!empty($children))
                                     <span class="upd-rev-count">+{{ count($children) }} {{ (!array_key_exists('allows_revision', $group) || !empty($group['allows_revision'])) ? 'older' : 'more' }}</span>
                                 @endif
-                                @if(($doc['edit_request_status'] ?? null) === 'pending')
-                                    <span class="upd-status-badge" style="margin-left:6px;background:#fef3c7;color:#92400e;">Edit pending</span>
-                                @elseif(($doc['edit_request_status'] ?? null) === 'denied')
-                                    <span class="upd-status-badge" style="margin-left:6px;background:#fee2e2;color:#991b1b;" title="{{ $doc['edit_review_note'] ?? '' }}">Edit denied</span>
-                                @endif
                             </td>
                             <td>
                                 <div class="upd-actions">
-                                    @if($editAction === 'edit')
+                                    @if(!empty($doc['can_edit']))
                                         <a href="{{ $doc['edit_url'] }}" class="upd-btn-icon" title="Edit"><i class="fa-solid fa-pen"></i></a>
-                                    @elseif($editAction === 'pending')
-                                        <a href="{{ $doc['edit_url'] }}" class="upd-btn-icon" title="View / Generate distribution (edit pending)"><i class="fa-solid fa-eye"></i></a>
-                                        <span class="upd-btn-icon" style="opacity:0.55;cursor:default;" title="Waiting for HEAD Admin approval"><i class="fa-solid fa-hourglass-half"></i></span>
-                                    @elseif(in_array($editAction, ['request', 'request_again'], true))
-                                        <a href="{{ $doc['edit_url'] }}" class="upd-btn-icon" title="View / Generate distribution"><i class="fa-solid fa-eye"></i></a>
-                                        <button type="button" class="upd-btn-icon" title="{{ $editAction === 'request_again' ? 'Request edit again' : 'Request edit' }}"
-                                            wire:click="confirmEditRequest({{ $doc['request_id'] }}, @js($doc['title']), {{ $doc['rev_no'] }}, @js($editAction))">
-                                            <i class="fa-solid fa-lock"></i>
-                                        </button>
                                     @endif
                                     @if($doc['history_url'])
                                         <a href="{{ $doc['history_url'] }}" class="upd-btn-icon" title="History"><i class="fa-solid fa-clock-rotate-left"></i></a>
@@ -269,7 +202,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @php
                                 $childStatus = strtolower((string) ($child['revision_status'] ?? 'latest'));
                                 $childIsLatest = $childStatus !== 'obsolete' && $childStatus !== 'draft';
-                                $childEditAction = $child['edit_action'] ?? 'edit';
                             @endphp
                             <tr class="upd-child-row" x-show="expanded['{{ $revKey }}']" x-cloak>
                                 <td class="upd-child-ind"></td>
@@ -280,17 +212,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td><span class="upd-status-badge {{ $childIsLatest ? 'is-latest' : 'is-obsolete' }}">{{ $childIsLatest ? 'Latest' : 'Obsolete' }}</span></td>
                                 <td>
                                     <div class="upd-actions">
-                                        @if($childEditAction === 'edit')
+                                        @if(!empty($child['can_edit']))
                                             <a href="{{ $child['edit_url'] }}" class="upd-btn-icon" title="{{ $childIsLatest ? 'Edit' : 'Edit obsolete revision' }}"><i class="fa-solid fa-pen"></i></a>
-                                        @elseif($childEditAction === 'pending')
-                                            <a href="{{ $child['edit_url'] }}" class="upd-btn-icon" title="View / Generate distribution (edit pending)"><i class="fa-solid fa-eye"></i></a>
-                                            <span class="upd-btn-icon" style="opacity:0.55;cursor:default;" title="Waiting for HEAD Admin approval"><i class="fa-solid fa-hourglass-half"></i></span>
-                                        @elseif(in_array($childEditAction, ['request', 'request_again'], true))
-                                            <a href="{{ $child['edit_url'] }}" class="upd-btn-icon" title="View / Generate distribution"><i class="fa-solid fa-eye"></i></a>
-                                            <button type="button" class="upd-btn-icon" title="Request edit"
-                                                wire:click="confirmEditRequest({{ $child['request_id'] }}, @js($child['title']), {{ $child['rev_no'] }}, @js($childEditAction))">
-                                                <i class="fa-solid fa-lock"></i>
-                                            </button>
                                         @endif
                                         @if($child['history_url'])
                                             <a href="{{ $child['history_url'] }}" class="upd-btn-icon" title="History"><i class="fa-solid fa-clock-rotate-left"></i></a>
@@ -352,38 +275,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <button type="button" class="upd-modal-btn upd-modal-cancel" wire:click="closeDelete">Cancel</button>
                 <button type="button" class="upd-modal-btn upd-modal-confirm" wire:click="destroy" wire:loading.attr="disabled">
                     <i class="fa-solid fa-trash-can"></i> Move to Recycle Bin
-                </button>
-            </div>
-        </div>
-    </div>
-    @endteleport
-    @endif
-
-    @if($editRequestId)
-    @teleport('body')
-    <div id="editRequestModal" class="upd-modal-overlay" style="display:flex;">
-        <div class="upd-modal upd-modal-wide">
-            <div class="upd-modal-icon"><i class="fa-solid fa-lock"></i></div>
-            <h3>{{ $editRequestMode === 'request_again' ? 'Request Edit Again?' : 'Request Edit?' }}</h3>
-            <p>
-                Ask the HEAD Admin of DCS to unlock editing for
-                <strong>{{ $editRequestTitle }}</strong> (Rev {{ $editRequestRev }}).
-                Include why the document needs to be changed.
-            </p>
-            <div class="upd-modal-field">
-                <label for="updEditRequestReason">Reason for edit <span>*</span></label>
-                <textarea id="updEditRequestReason" class="upd-modal-textarea" rows="3"
-                    wire:model="editRequestReason"
-                    placeholder="Explain why this document needs to be edited..."
-                    maxlength="1000"></textarea>
-                @if($editRequestError !== '')
-                    <div class="upd-modal-error">{{ $editRequestError }}</div>
-                @endif
-            </div>
-            <div class="upd-modal-actions">
-                <button type="button" class="upd-modal-btn upd-modal-cancel" wire:click="closeEditRequest">Cancel</button>
-                <button type="button" class="upd-modal-btn upd-modal-confirm" wire:click="submitEditRequest" wire:loading.attr="disabled">
-                    <i class="fa-solid fa-paper-plane"></i> Send Request
                 </button>
             </div>
         </div>

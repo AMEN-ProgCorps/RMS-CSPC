@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
+use Illuminate\Container\Container;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -476,7 +478,13 @@ class ServerManagementService
 
         if ($success) {
             // Re-cache views & config
-            Artisan::call('view:clear');
+            if (function_exists('shell_exec')) {
+                $php = $this->getPhpBinary();
+                $artisan = escapeshellarg(base_path('artisan'));
+                @shell_exec(escapeshellarg($php) . " {$artisan} view:clear 2>&1");
+            } else {
+                Artisan::call('view:clear');
+            }
         }
 
         return [
@@ -486,27 +494,69 @@ class ServerManagementService
     }
 
     /**
+     * Get path to the CLI PHP executable.
+     */
+    public function getPhpBinary(): string
+    {
+        if (PHP_BINARY && !str_contains(PHP_BINARY, 'php-fpm') && !str_contains(PHP_BINARY, 'php-cgi') && @file_exists(PHP_BINARY)) {
+            return PHP_BINARY;
+        }
+
+        if (function_exists('shell_exec')) {
+            $which = PHP_OS_FAMILY === 'Windows' ? 'where php 2>NUL' : 'which php 2>/dev/null';
+            $detected = trim((string)@shell_exec($which));
+            if ($detected) {
+                $lines = preg_split('/\r\n|\r|\n/', $detected);
+                if (!empty($lines[0]) && @file_exists($lines[0])) {
+                    return $lines[0];
+                }
+            }
+        }
+
+        return 'php';
+    }
+
+    /**
      * Clear & optimize application caches.
      */
     public function optimizeApp(): array
     {
+        // 1. Try running out-of-process via CLI so the web request container & Livewire state are not disrupted
+        if (function_exists('shell_exec')) {
+            $php = $this->getPhpBinary();
+            $artisan = escapeshellarg(base_path('artisan'));
+            $redirect = PHP_OS_FAMILY === 'Windows' ? '2>&1' : '2>&1';
+
+            // Run optimize:clear followed by optimize
+            $cmd = escapeshellarg($php) . " {$artisan} optimize:clear {$redirect} && " . escapeshellarg($php) . " {$artisan} optimize {$redirect}";
+            $output = @shell_exec($cmd);
+
+            if ($output !== null && !empty(trim($output))) {
+                $isFailed = str_contains(strtolower($output), 'fatal') || str_contains(strtolower($output), 'exception');
+                return [
+                    'success' => !$isFailed,
+                    'message' => !$isFailed
+                        ? 'Application caches cleared and re-optimized successfully.'
+                        : 'Optimization encountered errors.',
+                    'output' => trim($output),
+                ];
+            }
+        }
+
+        // 2. Fallback to in-process execution with Container preservation
+        $originalApp = Container::getInstance();
+        $originalFacade = Facade::getFacadeApplication();
         try {
             Artisan::call('optimize:clear');
             $clearOutput = Artisan::output();
 
-            Artisan::call('config:cache');
-            $configOutput = Artisan::output();
-
-            Artisan::call('route:cache');
-            $routeOutput = Artisan::output();
-
-            Artisan::call('view:cache');
-            $viewOutput = Artisan::output();
+            Artisan::call('optimize');
+            $optimizeOutput = Artisan::output();
 
             return [
                 'success' => true,
                 'message' => 'Application caches cleared and re-optimized successfully.',
-                'output' => trim($clearOutput . "\n" . $configOutput . "\n" . $routeOutput . "\n" . $viewOutput),
+                'output' => trim($clearOutput . "\n" . $optimizeOutput),
             ];
         } catch (\Throwable $e) {
             return [
@@ -514,6 +564,13 @@ class ServerManagementService
                 'message' => 'Failed to optimize application: ' . $e->getMessage(),
                 'output' => $e->getTraceAsString(),
             ];
+        } finally {
+            if ($originalApp) {
+                Container::setInstance($originalApp);
+            }
+            if ($originalFacade) {
+                Facade::setFacadeApplication($originalFacade);
+            }
         }
     }
 

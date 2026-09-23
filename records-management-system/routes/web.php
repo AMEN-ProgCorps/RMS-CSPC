@@ -275,7 +275,9 @@ Route::middleware(['auth'])
         // 1. Chatify unread count (directly based on active conversations in Chatify)
         $chatUnread = 0;
         try {
-            if (\Illuminate\Support\Facades\Schema::hasTable('chat_conversations')) {
+            if (\Illuminate\Support\Facades\Cache::remember('tbl_has_chat_conversations', 3600, fn () =>
+                \Illuminate\Support\Facades\Schema::hasTable('chat_conversations')
+            )) {
                 $totalUnread = \Illuminate\Support\Facades\DB::table('chat_conversations')
                     ->where('is_active', true)
                     ->where(function ($q) use ($userId) {
@@ -298,12 +300,24 @@ Route::middleware(['auth'])
         // 2. RMS Office & System notifications unread count
         $systemUnread = 0;
         try {
-            $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
-            $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
-            $notifTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
-            $notifContentTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
-            $subsystemsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
-            $notifDivTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+            $accDetailsTbl = \Illuminate\Support\Facades\Cache::remember('tbl_acc_details', 3600, fn () =>
+                \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'
+            );
+            $officeTbl = \Illuminate\Support\Facades\Cache::remember('tbl_office', 3600, fn () =>
+                \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'
+            );
+            $notifTbl = \Illuminate\Support\Facades\Cache::remember('tbl_notifications', 3600, fn () =>
+                \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications'
+            );
+            $notifContentTbl = \Illuminate\Support\Facades\Cache::remember('tbl_notif_content', 3600, fn () =>
+                \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content'
+            );
+            $subsystemsTbl = \Illuminate\Support\Facades\Cache::remember('tbl_subsystems', 3600, fn () =>
+                \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems'
+            );
+            $notifDivTbl = \Illuminate\Support\Facades\Cache::remember('tbl_notification_div', 3600, fn () =>
+                \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div'
+            );
 
             $office = \Illuminate\Support\Facades\DB::table($accDetailsTbl)
                 ->join($officeTbl, "{$accDetailsTbl}.office_id", '=', "{$officeTbl}.id")
@@ -378,7 +392,9 @@ Route::middleware(['auth'])
     // Session Heartbeat & Tab Closure Beacon
     Route::post('/api/session/ping', function () {
         if ($user = Auth::user()) {
-            $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+            $accDetailsTbl = \Illuminate\Support\Facades\Cache::remember('tbl_acc_details', 3600, fn () =>
+                \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'
+            );
             \Illuminate\Support\Facades\DB::table($accDetailsTbl)
                 ->where('account_id', $user->id)
                 ->update([

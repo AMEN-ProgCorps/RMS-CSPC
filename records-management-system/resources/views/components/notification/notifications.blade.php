@@ -41,12 +41,25 @@ new class extends Component {
         $user = Auth::user();
         $perms = $user?->permissions;
 
-        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
-        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
-        $notifTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
-        $notifContentTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
-        $subsystemsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
-        $notifDivTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+        // Cache table name lookups (Schema::hasTable hits the DB each call).
+        $accDetailsTbl = \Illuminate\Support\Facades\Cache::remember('tbl_acc_details', 3600, fn () =>
+            \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details'
+        );
+        $officeTbl = \Illuminate\Support\Facades\Cache::remember('tbl_office', 3600, fn () =>
+            \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'
+        );
+        $notifTbl = \Illuminate\Support\Facades\Cache::remember('tbl_notifications', 3600, fn () =>
+            \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications'
+        );
+        $notifContentTbl = \Illuminate\Support\Facades\Cache::remember('tbl_notif_content', 3600, fn () =>
+            \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content'
+        );
+        $subsystemsTbl = \Illuminate\Support\Facades\Cache::remember('tbl_subsystems', 3600, fn () =>
+            \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems'
+        );
+        $notifDivTbl = \Illuminate\Support\Facades\Cache::remember('tbl_notification_div', 3600, fn () =>
+            \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div'
+        );
 
         // Get user's office details to restrict notifications scoping
         $office = DB::table($accDetailsTbl)
@@ -408,7 +421,7 @@ new class extends Component {
 
 <div
     class="notif-wrapper"
-    wire:poll.8s="loadNotifications"
+    wire:poll.15s.keep-alive="loadNotifications"
     x-data="{ open: @entangle('showDropdown') }"
     @click.outside="open = false"
     @close-notifications.window="open = false"

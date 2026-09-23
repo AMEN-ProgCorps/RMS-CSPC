@@ -24,6 +24,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Current Server')] class 
     public string $consoleOutput = '';
     public bool $isBusy = false;
 
+    public function boot(): void
+    {
+        $this->__alias = 'pages.admin.server-settings.current-server';
+    }
+
     public function mount(ServerManagementService $service): void
     {
         $this->refreshData($service);

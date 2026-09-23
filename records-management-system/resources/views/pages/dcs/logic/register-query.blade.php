@@ -316,23 +316,12 @@ class RegisterQueryHelper
     }
 
     /**
-     * Inventory / campus-wide DCS scope: super admin, or Access DCS + View All.
-     * RFIO/RFOIU office alone does not grant this — default roles stay office-intake only.
+     * Inventory / campus-wide DCS scope: super admin, or Access DCS on an
+     * RFIO/RFOIU office account. Other offices stay office DRF/DCN intake only.
      */
     public static function canViewAllDocuments(): bool
     {
-        $perms = auth()->user()?->permissions;
-        if (!$perms) {
-            return false;
-        }
-        if (!empty($perms->is_sadm)) {
-            return true;
-        }
-        if (empty($perms->can_access_dcs)) {
-            return false;
-        }
-
-        return !empty($perms->dcs_view_all_documents);
+        return self::isFullDcsUser();
     }
 
     public static function currentOfficeCode(): ?string
@@ -408,14 +397,12 @@ class RegisterQueryHelper
     }
 
     /**
-     * Full DCS operator (not intake-only):
+     * Full / admin DCS operator (not office intake-only):
      * - super admin, or
-     * - can_access_dcs + dcs_view_all_documents
+     * - Access DCS + assigned to RFIO/RFOIU office
      *
-     * RFIO/RFOIU office membership alone does not grant full DCS. A default role with
-     * only Access DCS stays office DRF/DCN intake — even when the account is assigned
-     * to Records & Freedom of Information Unit. Grant View All (plus module clearances)
-     * on Document Controller / HEAD roles that should see register, search, database, etc.
+     * Put Document Controllers under RFOIU and turn on the module clearances they need.
+     * Other offices with Access DCS only get office DRF/DCN intake.
      */
     public static function isFullDcsUser(): bool
     {
@@ -430,7 +417,7 @@ class RegisterQueryHelper
             return false;
         }
 
-        return !empty($perms->dcs_view_all_documents);
+        return self::isRfioOffice();
     }
 
     /** Non-full DCS user with DCS access: DRF/DCN intake only. */
@@ -451,7 +438,7 @@ class RegisterQueryHelper
     }
 
     /**
-     * Per-module clearance. Requires full DCS (View All / SADM) plus the module flag.
+     * Per-module clearance. Requires full DCS (RFIO/RFOIU + Access DCS, or SADM) plus the module flag.
      * Super Admin bypasses module flags — except Recycle Bin (HEAD Admin of DCS),
      * which requires an explicit dcs_can_recycle_bin grant and is not Super Admin identity.
      */
@@ -599,6 +586,39 @@ class RegisterQueryHelper
     }
 
     /**
+     * HEAD-only notice: Document Controllers in RFOIU must not see edit-request
+     * queue alerts they themselves (or peers) triggered for HEAD Admin review.
+     */
+    public static function isEditRequestHeadNotice(?string $redirectUrl): bool
+    {
+        $path = ltrim((string) (parse_url(trim((string) $redirectUrl), PHP_URL_PATH) ?? ''), '/');
+
+        return $path === 'dcs/edit-requests' || str_starts_with($path, 'dcs/edit-requests/');
+    }
+
+    /**
+     * Approve/deny notices are for the requesting Document Controller only
+     * (office-wide RFOIU would otherwise show them to HEAD Admin too).
+     */
+    public static function isEditRequestDecisionNotice(?string $redirectUrl, ?string $content = null): bool
+    {
+        $content = trim((string) $content);
+        if ($content !== '' && str_starts_with($content, 'Your edit request for')) {
+            return true;
+        }
+
+        $url = trim((string) $redirectUrl);
+        if ($url === '') {
+            return false;
+        }
+
+        $query = (string) (parse_url($url, PHP_URL_QUERY) ?? '');
+        parse_str($query, $params);
+
+        return isset($params['edit_for']) && (int) $params['edit_for'] > 0;
+    }
+
+    /**
      * Apply the same visibility rules as the header notification dropdown
      * (limited-DCS allowlist + hide registered office-intake notices).
      *
@@ -628,6 +648,23 @@ class RegisterQueryHelper
                 ))
                 ->values();
         }
+
+        // Hide leftover notices from the retired edit-request workflow.
+        $rows = $rows
+            ->filter(fn ($row) => ! self::isEditRequestHeadNotice($row->redirect_url ?? null))
+            ->filter(fn ($row) => ! self::isEditRequestDecisionNotice($row->redirect_url ?? null, $row->content ?? null))
+            ->values();
+
+        // Receipt acknowledgements are for other users in the same office.
+        $rows = $rows
+            ->filter(function ($row) {
+                $query = (string) (parse_url((string) ($row->redirect_url ?? ''), PHP_URL_QUERY) ?? '');
+                parse_str($query, $params);
+                $ackBy = (int) ($params['ack_by'] ?? 0);
+
+                return $ackBy < 1 || $ackBy !== (int) (auth()->id() ?? 0);
+            })
+            ->values();
 
         return $rows
             ->filter(function ($row) {
@@ -701,6 +738,33 @@ class RegisterQueryHelper
     public static function canPermanentlyDeleteDcsDocuments(): bool
     {
         return self::isDocumentControlHead();
+    }
+
+    public static function isDraftDocument(?object $docRequest): bool
+    {
+        return self::supportsDrafts() && ! empty($docRequest?->is_draft);
+    }
+
+    public static function canEditDocument(int $requestId, ?object $docRequest = null): bool
+    {
+        $docRequest ??= self::findDocumentRequest($requestId);
+        if (! $docRequest) {
+            return false;
+        }
+        if (! self::userCanAccessRequest($requestId)) {
+            return false;
+        }
+
+        return self::isFullDcsUser();
+    }
+
+    public static function assertCanEditDocument(int $requestId, ?object $docRequest = null): void
+    {
+        abort_unless(
+            self::canEditDocument($requestId, $docRequest),
+            403,
+            'You do not have permission to edit this document.'
+        );
     }
 
     /** Full DCS operators with review-intake clearance may open any office intake form by ID. */
@@ -2060,6 +2124,8 @@ class RegisterQueryHelper
                 ? (bool) ($doc->allows_revision ?? true)
                 : self::effectiveTypeAllowsRevision($doc->doc_type_id ?? null, $doc->sub_type_id ?? null);
 
+            $canEdit = self::canEditDocument((int) $doc->id, $doc);
+
             return [
                 'request_id' => (int) $doc->id,
                 'doc_type_id' => (int) ($doc->doc_type_id ?? 0),
@@ -2075,6 +2141,7 @@ class RegisterQueryHelper
                 'edit_url' => route('dcs.register.edit', $doc->id),
                 'history_url' => (!$isDraft && $docNo !== '') ? route('dcs.register.history', $docNo) : null,
                 'can_delete' => $status !== 'obsolete',
+                'can_edit' => $canEdit,
             ];
         };
 
@@ -4866,6 +4933,12 @@ class RegisterQueryHelper
         if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
             $query->whereIn('ml.revision_status', ['latest', 'obsolete']);
         }
+        // Drafts use revision_status=obsolete — never treat them as occupying a Rev.
+        if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+            $query->where(function ($q) {
+                $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
+        }
         if ($excludeRequestId > 0) {
             $query->where('ml.request_id', '!=', $excludeRequestId);
         }
@@ -4910,6 +4983,11 @@ class RegisterQueryHelper
 
         if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
             $query->whereIn('ml.revision_status', ['latest', 'obsolete']);
+        }
+        if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+            $query->where(function ($q) {
+                $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
         }
         if ($excludeRequestId > 0) {
             $query->where('ml.request_id', '!=', $excludeRequestId);
@@ -5368,6 +5446,10 @@ class RegisterQueryHelper
 
         if ($result['found']) {
             $matches = $result['matches'];
+            // Draft rows must not make a Doc No look "already registered" while still being edited.
+            if (self::supportsDrafts()) {
+                $matches = $matches->filter(fn ($row) => empty($row->is_draft))->values();
+            }
             if ($excludeRequestId > 0) {
                 $matches = $matches->filter(fn ($row) => (int) $row->id !== $excludeRequestId)->values();
             }
@@ -5641,20 +5723,26 @@ class RegisterQueryHelper
         // Fallback: exact doc no only if family walk found nothing.
         if ($takenRevs === []) {
             $matchIds = $result['matches']->pluck('id');
-            $revQuery = DB::table('dcs_masterlist_registration')
-                ->whereIn('request_id', $matchIds)
-                ->where('doc_no', $docNo);
+            $revQuery = DB::table('dcs_masterlist_registration as ml')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                ->whereIn('ml.request_id', $matchIds)
+                ->where('ml.doc_no', $docNo);
 
             if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
-                $revQuery->whereIn('revision_status', ['latest', 'obsolete']);
+                $revQuery->whereIn('ml.revision_status', ['latest', 'obsolete']);
+            }
+            if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+                $revQuery->where(function ($q) {
+                    $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+                });
             }
             if ($excludeRequestId > 0) {
-                $revQuery->where('request_id', '!=', $excludeRequestId);
+                $revQuery->where('ml.request_id', '!=', $excludeRequestId);
             }
 
             $takenRevs = $revQuery
-                ->orderBy('revise_no')
-                ->pluck('revise_no')
+                ->orderBy('ml.revise_no')
+                ->pluck('ml.revise_no')
                 ->map(fn ($n) => (int) $n)
                 ->unique()
                 ->values()
@@ -5739,6 +5827,9 @@ class RegisterQueryHelper
         abort_unless($docRequest, 404);
         self::assertCanAccessRequest($id);
 
+        $canEdit = self::canEditDocument($id, $docRequest);
+        $readOnly = ! $canEdit;
+
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
         // Obsolete revisions are editable; Update list groups them under the latest tip.
 
@@ -5819,6 +5910,10 @@ class RegisterQueryHelper
         if (Schema::hasColumn('dcs_distribution_offices', 'distribution_date')) {
             $distributionOfficeColumns[] = 'd.distribution_date';
         }
+        if (Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
+            $distributionOfficeColumns[] = 'd.office_received_at';
+            $distributionOfficeColumns[] = 'd.office_received_by';
+        }
         $distributionOffices = $distribution
             ? DB::table('dcs_distribution_offices as d')
                 ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'd.office_id')
@@ -5827,6 +5922,7 @@ class RegisterQueryHelper
                 ->orderBy('d.id')
                 ->get($distributionOfficeColumns)
             : collect();
+        $distributionOffices = self::hydrateDistributionReceiptNames($distributionOffices);
 
         // Next revision: offices from THIS distribution (and prior-retrieved fallback)
         // start as Pending in Retrieval — new copies to pull back.
@@ -5975,6 +6071,8 @@ class RegisterQueryHelper
 
         return [
             'blocked' => false,
+            'can_edit' => $canEdit,
+            'read_only' => $readOnly,
             'docRequest' => $docRequest,
             'drf' => $drf,
             'dcn' => $dcn,
@@ -6086,6 +6184,40 @@ class RegisterQueryHelper
         }
 
         return array_values($byOffice);
+    }
+
+    private static function hydrateDistributionReceiptNames(Collection $distributionOffices): Collection
+    {
+        if ($distributionOffices->isEmpty() || ! Schema::hasColumn('dcs_distribution_offices', 'office_received_by')) {
+            return $distributionOffices;
+        }
+
+        $receiverIds = $distributionOffices
+            ->pluck('office_received_by')
+            ->filter(fn ($id) => $id !== null && (int) $id > 0)
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $names = [];
+        if ($receiverIds !== []) {
+            $accDetailsTbl = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+            $names = DB::table($accDetailsTbl)
+                ->whereIn('account_id', $receiverIds)
+                ->get(['account_id', 'first_name', 'last_name'])
+                ->mapWithKeys(fn ($d) => [
+                    (int) $d->account_id => trim(trim((string) ($d->first_name ?? '')) . ' ' . trim((string) ($d->last_name ?? ''))),
+                ])
+                ->all();
+        }
+
+        foreach ($distributionOffices as $row) {
+            $rid = (int) ($row->office_received_by ?? 0);
+            $row->received_by_name = $rid > 0 ? trim((string) ($names[$rid] ?? '')) : '';
+        }
+
+        return $distributionOffices;
     }
 
     /**

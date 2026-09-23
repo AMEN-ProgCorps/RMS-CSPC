@@ -9,6 +9,25 @@
             .replace(/"/g, '&quot;');
     }
 
+    function stripTags(s) {
+        return String(s ?? '').replace(/[<>]/g, '');
+    }
+
+    function sanitizeFormFields(form) {
+        if (!form) return;
+        form.querySelectorAll('input, textarea').forEach(function (el) {
+            var type = String(el.type || '').toLowerCase();
+            if (el.disabled || typeof el.value !== 'string') return;
+            if (['password', 'hidden', 'file', 'checkbox', 'radio', 'submit', 'button'].indexOf(type) !== -1) {
+                return;
+            }
+            var next = el.tagName === 'TEXTAREA'
+                ? stripTags(el.value).replace(/\r\n|\r/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+                : stripTags(el.value).replace(/\s+/g, ' ').trim();
+            if (next !== el.value) el.value = next;
+        });
+    }
+
     // ── Source Unit (same behavior as Register createSourceUnitWidget) ──
     window.__sourceWidgets = window.__sourceWidgets || {};
 
@@ -834,4 +853,11 @@
         initRevisionTable();
         initDcnDocumentFields();
     });
+
+    document.addEventListener('submit', function (e) {
+        var form = e.target;
+        if (form && (form.id === 'ofiDrfForm' || form.id === 'ofiDcnForm')) {
+            sanitizeFormFields(form);
+        }
+    }, true);
 })();

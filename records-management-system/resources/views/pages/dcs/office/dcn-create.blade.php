@@ -1,7 +1,6 @@
 <?php
 
 use App\Helpers\OfficeIntakeHelper;
-use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -14,45 +13,13 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
 
     public function with(): array
     {
-        $catalog = RegisterQueryHelper::jsCatalog();
-        $offices = $catalog['offices'] ?? [];
-        $clusters = $catalog['clusters'] ?? [];
-
-        $officesByCluster = [];
-        foreach ($clusters as $cluster) {
-            $code = (string) ($cluster['cluster_code'] ?? '');
-            if ($code === '') {
-                continue;
-            }
-            $officesByCluster[$code] = [
-                'label' => (string) ($cluster['cluster_name'] ?? $code),
-                'offices' => [],
-            ];
-        }
-
-        $unassigned = [];
-        foreach ($offices as $office) {
-            $code = trim((string) ($office['cluster'] ?? ''));
-            if ($code !== '' && isset($officesByCluster[$code])) {
-                $officesByCluster[$code]['offices'][] = $office;
-            } else {
-                $unassigned[] = $office;
-            }
-        }
-
-        $groupedOffices = array_values(array_filter(
-            $officesByCluster,
-            fn (array $group) => $group['offices'] !== []
-        ));
-        if ($unassigned !== []) {
-            $groupedOffices[] = [
-                'label' => 'Other',
-                'offices' => $unassigned,
-            ];
-        }
+        $office = OfficeIntakeHelper::currentUserOfficeForDcn();
 
         return [
-            'groupedOffices' => $groupedOffices,
+            'userOfficeId' => $office['id'],
+            'userOfficeCode' => $office['code'],
+            'userOfficeName' => $office['name'],
+            'userOfficeLabel' => $office['label'] !== '' ? $office['label'] : 'Your office',
         ];
     }
 }; ?>
@@ -82,17 +49,11 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                 <div class="reg-card-body ofi-dcn-form">
                     <div class="ofi-dcn-box">
                         <div class="ofi-dcn-box-section">
-                            <div class="ofi-dcn-doc-fields">
-                                <div class="reg-field">
-                                    <label for="dcnDocumentTitle">Document Title <span class="ofi-req">*</span></label>
-                                    <input type="text" id="dcnDocumentTitle" name="documentTitle" value="{{ old('documentTitle') }}" required maxlength="255" placeholder="Enter document title" autocomplete="off">
-                                </div>
-                                <div class="reg-field">
-                                    <label for="dcnDocumentNo">Document no. <span class="ofi-req">*</span></label>
-                                    <input type="text" id="dcnDocumentNo" name="documentNo" value="{{ old('documentNo') }}" required maxlength="150" placeholder="Enter document no." autocomplete="off">
-                                    <p class="ofi-hint">Create a new Document Change Notice — no need to look up an existing registered document.</p>
-                                </div>
-                            </div>
+                            @include('pages.dcs.office.partials.dcn-docno-fields', [
+                                'initialDocNo' => old('documentNo', ''),
+                                'initialDocTitle' => old('documentTitle', ''),
+                                'initialReviseNo' => null,
+                            ])
                         </div>
 
                         <div class="ofi-dcn-box-section">
@@ -120,29 +81,12 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                                 <input type="text" id="originatorName" name="originatorName" value="{{ old('originatorName') }}" required maxlength="255" placeholder="Enter originator name">
                             </div>
                             <div class="reg-grid-2-1">
-                                <div class="reg-field">
-                                    <label for="departmentOfficeId">Department <span class="ofi-req">*</span></label>
-                                    <select id="departmentOfficeId" name="departmentOfficeId" required>
-                                        <option value="">Select department…</option>
-                                        @foreach($groupedOffices as $group)
-                                            <optgroup label="{{ $group['label'] }}">
-                                                @foreach($group['offices'] as $office)
-                                                    @php
-                                                        $officeId = (int) ($office['office_id'] ?? 0);
-                                                        $code = trim((string) ($office['office_code'] ?? ''));
-                                                        $name = trim((string) ($office['office_name'] ?? ''));
-                                                        $label = $code !== '' && $name !== ''
-                                                            ? $code . ' — ' . $name
-                                                            : ($name !== '' ? $name : $code);
-                                                    @endphp
-                                                    @if($officeId > 0 && $label !== '')
-                                                        <option value="{{ $officeId }}" @selected((string) old('departmentOfficeId') === (string) $officeId)>{{ $label }}</option>
-                                                    @endif
-                                                @endforeach
-                                            </optgroup>
-                                        @endforeach
-                                    </select>
-                                </div>
+                                @include('pages.dcs.office.partials.dcn-department-field', [
+                                    'userOfficeId' => $userOfficeId ?? 0,
+                                    'userOfficeCode' => $userOfficeCode ?? '',
+                                    'userOfficeName' => $userOfficeName ?? '',
+                                    'userOfficeLabel' => $userOfficeLabel ?? '',
+                                ])
                                 <div class="reg-field">
                                     <label for="departmentDate">Date <span class="ofi-req">*</span></label>
                                     <input type="date" id="departmentDate" name="departmentDate" value="{{ old('departmentDate') }}" required>
@@ -204,6 +148,10 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                     <input type="checkbox" id="ofiConfirmData" name="confirmDataCorrect" value="1" required>
                     <span>I am confirming all the inputted data are correct.</span>
                 </label>
+                <label class="ofi-confirm-check ofi-also-drf-check">
+                    <input type="checkbox" id="ofiAlsoCreateDrf" name="alsoCreateDrf" value="1" @checked(old('alsoCreateDrf'))>
+                    <span>Also create a Document Request Form (DRF) for this change after save</span>
+                </label>
             </div>
 
             <div class="reg-form-actions ofi-reg-actions">
@@ -220,6 +168,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
     const form = document.getElementById('ofiDcnForm');
     const confirmBox = document.getElementById('ofiConfirmData');
     const saveBtn = document.getElementById('ofiDcnSaveBtn');
+    const confirmed = document.getElementById('dcnDocNoConfirmed');
     if (!form || !confirmBox || !saveBtn) return;
 
     function syncConfirm() {
@@ -236,6 +185,13 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
             alert('Please confirm that all the inputted data are correct before saving.');
             return;
         }
+        if (confirmed && confirmed.value !== '1') {
+            e.preventDefault();
+            alert('Select and confirm an existing registered Document No. before saving.');
+            const docNo = document.getElementById('dcnDocumentNo');
+            if (docNo) docNo.focus();
+            return;
+        }
         if (!form.checkValidity()) {
             return;
         }
@@ -244,5 +200,6 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
     });
 })();
 </script>
+@include('pages.dcs.office.partials.dcn-docno-script')
 @include('pages.dcs.office.partials.dcn-reviewers-script')
 @include('pages.dcs.office.partials.dcn-approvals-script')

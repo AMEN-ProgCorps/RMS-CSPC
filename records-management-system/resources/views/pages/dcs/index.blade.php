@@ -163,7 +163,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <div class="ofi-dash-stat-body">
                     <span class="ofi-dash-stat-label">Office Documents</span>
                     <strong class="ofi-dash-stat-value">{{ (int) $officeDocTotal }}</strong>
-                    <span class="ofi-dash-stat-hint">Distributed to you, or Source Unit for Forms/Logbooks</span>
+                    <span class="ofi-dash-stat-hint">Distributed to your office</span>
                 </div>
             </a>
         </section>

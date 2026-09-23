@@ -7,7 +7,7 @@
 <div class="ofi-approvals" id="ofiApprovals" data-max="9">
     <div class="ofi-approvals-head">
         <label class="ofi-dcn-section-label">Approvals</label>
-        <p class="ofi-approvals-hint">Add approving positions and names. Signature is left blank for wet-ink on the printed form.</p>
+        <p class="ofi-approvals-hint">Add approving positions and names. Signature and date are left blank for wet-ink on the printed form.</p>
     </div>
     <div class="ofi-approvals-list" id="ofiApprovalsList">
         @foreach($approvalRows as $i => $appr)
@@ -18,7 +18,7 @@
                         <i class="fa-solid fa-xmark"></i> Remove
                     </button>
                 </div>
-                <div class="reg-grid-3">
+                <div class="reg-grid-2">
                     <div class="reg-field">
                         <label>Position</label>
                         <input type="text" name="approvalPosition[]" value="{{ $appr['position'] ?? '' }}" maxlength="255" placeholder="e.g. College Dean" autocomplete="organization-title">
@@ -26,10 +26,6 @@
                     <div class="reg-field">
                         <label>Name</label>
                         <input type="text" name="approvalName[]" value="{{ $appr['name'] ?? '' }}" maxlength="255" placeholder="Approver name" autocomplete="name">
-                    </div>
-                    <div class="reg-field">
-                        <label>Date</label>
-                        <input type="date" name="approvalDate[]" value="{{ $appr['date'] ?? '' }}">
                     </div>
                 </div>
             </div>
@@ -48,7 +44,7 @@
                 <i class="fa-solid fa-xmark"></i> Remove
             </button>
         </div>
-        <div class="reg-grid-3">
+        <div class="reg-grid-2">
             <div class="reg-field">
                 <label>Position</label>
                 <input type="text" name="approvalPosition[]" value="" maxlength="255" placeholder="e.g. College Dean" autocomplete="organization-title">
@@ -56,10 +52,6 @@
             <div class="reg-field">
                 <label>Name</label>
                 <input type="text" name="approvalName[]" value="" maxlength="255" placeholder="Approver name" autocomplete="name">
-            </div>
-            <div class="reg-field">
-                <label>Date</label>
-                <input type="date" name="approvalDate[]" value="">
             </div>
         </div>
     </div>

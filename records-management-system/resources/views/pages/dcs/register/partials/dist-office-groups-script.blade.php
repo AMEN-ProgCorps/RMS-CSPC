@@ -96,6 +96,9 @@
         <td style="text-align: center;">
             <input type="number" name="distCopies[]" value="${copies}" min="1" oninput="updateTotal('${tid}', 'distBody')">
         </td>
+        ${document.querySelector('#distBody')?.closest('table')?.querySelector('.reg-dist-receipt-head')
+            ? '<td class="reg-dist-receipt-cell"><div class="reg-dist-receipt-status is-pending">Pending</div></td>'
+            : ''}
         <td>
             <button type="button" class="btn-remove" onclick="removeOffice(this, '${tid}', 'distBody')">
                 <i class="fa-solid fa-xmark"></i>
@@ -134,7 +137,7 @@
             }
         });
         const empty = document.querySelector('#distBody tr.reg-empty-row td');
-        if (empty) empty.colSpan = 4;
+        if (empty) empty.colSpan = table.querySelector('.reg-dist-receipt-head') ? 5 : 4;
     }
 
     // Patch empty-row colspan for distBody.
@@ -142,7 +145,8 @@
     if (typeof _emptyOfficeRowHTML === 'function') {
         window.emptyOfficeRowHTML = function (bodyId) {
             if (bodyId === 'distBody') {
-                return '<tr class="reg-empty-row"><td colspan="4"><div class="reg-empty-state">' +
+                const cols = document.querySelector('#distBody')?.closest('table')?.querySelector('.reg-dist-receipt-head') ? 5 : 4;
+                return '<tr class="reg-empty-row"><td colspan="' + cols + '"><div class="reg-empty-state">' +
                     '<i class="fa-solid fa-building-circle-xmark"></i><span>No offices added yet</span></div></td></tr>';
             }
             return _emptyOfficeRowHTML(bodyId);
@@ -183,6 +187,10 @@
     let pendingDeleteGroupId = null;
 
     window.applyDistOfficeGroup = function (groupId) {
+        if (typeof isDistOfficesLockedFromDrf === 'function' && isDistOfficesLockedFromDrf()) {
+            alert('Distribution offices from the submitted DRF cannot be replaced.');
+            return;
+        }
         const group = findGroup(groupId);
         if (!group || !Array.isArray(group.offices) || !group.offices.length) {
             alert('That group has no active offices.');

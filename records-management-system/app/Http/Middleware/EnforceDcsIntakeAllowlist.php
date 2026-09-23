@@ -31,6 +31,7 @@ class EnforceDcsIntakeAllowlist
         'dcs.office.dcn.print',
         'dcs.office.dcn.store',
         'dcs.office.dcn.update',
+        'dcs.api.office.revisable-documents',
     ];
 
     public function handle(Request $request, Closure $next): Response
@@ -79,6 +80,7 @@ class EnforceDcsIntakeAllowlist
             return in_array($path, [
                 'dcs/api/documents/search',
                 'dcs/api/documents/revisions',
+                'dcs/api/office/revisable-documents',
                 'dcs/api/offices',
             ], true);
         }

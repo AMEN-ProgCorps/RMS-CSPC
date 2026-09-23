@@ -2,6 +2,7 @@
 
 namespace App\Helpers;
 
+use App\Services\DcsNotificationService;
 use App\Services\DocumentStorageService;
 use App\Services\StampBackupService;
 use Illuminate\Http\RedirectResponse;
@@ -26,13 +27,17 @@ class RegisterUpdateHelper
         return new RedirectResponse(route($route, $params, false));
     }
 
-    public static function update(Request $request, int $id): RedirectResponse
+    public static function update(Request $request, int $id): RedirectResponse|\Illuminate\Http\JsonResponse
     {
         RegisterQueryHelper::assertFullDcsUser('register');
 
-        $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
-        if (!$rateCheck['allowed']) {
-            return back()->withInput()->with('error', $rateCheck['message']);
+        $autosave = RegisterPersistHelper::isAutosaveRequest($request) && $request->boolean('save_as_draft');
+
+        if (! $autosave) {
+            $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
+            if (!$rateCheck['allowed']) {
+                return RegisterPersistHelper::draftErrorResponse($request, $rateCheck['message'], 429);
+            }
         }
 
         RegisterPersistHelper::blankStringsToNull($request);
@@ -55,6 +60,7 @@ class RegisterUpdateHelper
         $docRequest = RegisterQueryHelper::findDocumentRequest($id);
         abort_unless($docRequest, 404);
         RegisterQueryHelper::assertCanAccessRequest($id);
+        RegisterQueryHelper::assertCanEditDocument($id, $docRequest);
 
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
         $editingObsolete = $ml && $ml->doc_no
@@ -93,7 +99,7 @@ class RegisterUpdateHelper
             $docRequest->doc_type_id,
             $resolvedSubTypeId
         );
-        if ($docNo && ! $saveAsDraft && $allowsRevision) {
+        if ($docNo && $allowsRevision) {
             $result = RegisterPersistHelper::findMatchingRegistrationRows(
                 $docNo,
                 (int) $docRequest->doc_type_id,
@@ -101,13 +107,18 @@ class RegisterUpdateHelper
             );
             if ($result['found']) {
                 $reviseNo = RegisterPersistHelper::resolveReviseNo($request, $ml?->revise_no);
-                $collision = DB::table('dcs_masterlist_registration')
-                    ->whereIn('request_id', $result['matches']->pluck('id'))
-                    ->where('request_id', '!=', $id)
-                    ->where('doc_no', $docNo)
-                    ->where('revise_no', $reviseNo)
-                    ->exists();
-                if ($collision) {
+                $collision = DB::table('dcs_masterlist_registration as ml')
+                    ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                    ->whereIn('ml.request_id', $result['matches']->pluck('id'))
+                    ->where('ml.request_id', '!=', $id)
+                    ->where('ml.doc_no', $docNo)
+                    ->where('ml.revise_no', $reviseNo);
+                if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+                    $collision->where(function ($q) {
+                        $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+                    });
+                }
+                if ($collision->exists()) {
                     return back()->withInput()
                         ->with('error', 'Revision ' . $reviseNo . ' for document "' . $docNo . '" already exists.');
                 }
@@ -163,6 +174,8 @@ class RegisterUpdateHelper
         if ($redirect = RegisterPersistHelper::validateMasterlistHasData($request, requireScan: false)) {
             return $redirect;
         }
+
+        $addedDistOfficeIds = [];
 
         DB::beginTransaction();
         $uploadedFiles = [];
@@ -603,7 +616,7 @@ class RegisterUpdateHelper
                         $request->file('scanneddist'),
                         $uploadedFiles,
                         'distribution',
-                        RegisterPersistHelper::buildScanBasename($request, 'D&R', $request->input('drfDate'))
+                        RegisterPersistHelper::buildScanBasename($request, 'D&R', $request->input('distributionFormDate'))
                     );
                 }
                 $distTimeSpent = null;
@@ -629,8 +642,17 @@ class RegisterUpdateHelper
                         'created_at' => $now,
                     ]));
                 }
-                DB::table('dcs_distribution_offices')->where('distribution_id', $distributionId)->delete();
+                $previousDistOfficeIds = DB::table('dcs_distribution_offices')
+                    ->where('distribution_id', $distributionId)
+                    ->pluck('office_id')
+                    ->map(fn ($oid) => (int) $oid)
+                    ->all();
                 RegisterPersistHelper::saveDistributionOffices($distributionId, $request);
+                $newDistOfficeIds = array_values(array_unique(array_filter(array_map(
+                    'intval',
+                    (array) $request->input('distOffice', [])
+                ))));
+                $addedDistOfficeIds = array_values(array_diff($newDistOfficeIds, $previousDistOfficeIds));
             }
 
             if ($approvalStatus === 'applicable' && $request->filled('approvalBody')) {
@@ -664,6 +686,7 @@ class RegisterUpdateHelper
             }
 
             DB::commit();
+
             foreach ($filesToDelete as $file) {
                 DocumentStorageService::deleteDcsScan($file);
             }
@@ -681,6 +704,24 @@ class RegisterUpdateHelper
                 RegisterPersistHelper::syncDrfTitleForRequest((int) $requestId, $savedTitle);
             } catch (\Throwable $e) {
                 Log::warning('DRF title sync after update skipped: '.$e->getMessage());
+            }
+
+            if (! $saveAsDraft && $addedDistOfficeIds !== []) {
+                $notifyDocNo = trim((string) ($ml->doc_no ?? $docNo ?? ''));
+                $notifyTitle = trim((string) $savedTitle);
+                $revNo = isset($ml->revise_no) ? (int) $ml->revise_no : null;
+                $actorOffice = RegisterQueryHelper::currentOfficeCode();
+                foreach (DcsNotificationService::officeCodesFromIds($addedDistOfficeIds) as $officeCode) {
+                    if ($actorOffice && strtoupper($officeCode) === strtoupper($actorOffice)) {
+                        continue;
+                    }
+                    DcsNotificationService::notifyDocumentDistributed(
+                        $officeCode,
+                        $notifyDocNo,
+                        $notifyTitle !== '' ? $notifyTitle : null,
+                        $revNo
+                    );
+                }
             }
 
             RegisterPersistHelper::logAdminChange(
@@ -701,11 +742,21 @@ class RegisterUpdateHelper
                 ? 'Draft saved. Continue anytime from Document Registration → Drafts.'
                 : 'Document updated successfully!';
 
+            if ($saveAsDraft && RegisterPersistHelper::isAutosaveRequest($request)) {
+                return RegisterPersistHelper::draftAutosaveSuccessResponse((int) $id, $successMessage);
+            }
+
             if ($saveAsDraft) {
                 $leaveTo = RegisterPersistHelper::safeDraftLeaveRedirect($request->input('draft_leave_to'));
                 if ($leaveTo) {
                     return redirect()->to($leaveTo)->with('success', $successMessage);
                 }
+            }
+
+            // Published save clears unlock — send non-HEAD users back to Update (not the editor).
+            if (! $saveAsDraft && ! RegisterQueryHelper::isDocumentControlHead()) {
+                return redirect()->route('dcs.register.update')
+                    ->with('success', $successMessage);
             }
 
             return redirect()->route('dcs.register.edit', $id)
@@ -718,8 +769,11 @@ class RegisterUpdateHelper
             $refId = uniqid('err_');
             Log::error("Document update failed [{$refId}]: " . $e->getMessage());
 
-            return back()->withInput()
-                ->with('error', 'Failed to update document. Please try again. (ref: ' . $refId . ')');
+            return RegisterPersistHelper::draftErrorResponse(
+                $request,
+                'Failed to update document. Please try again. (ref: ' . $refId . ')',
+                500
+            );
         }
     }
 
@@ -740,7 +794,9 @@ class RegisterUpdateHelper
         $isDraft = RegisterQueryHelper::supportsDrafts() && ! empty($docRequest->is_draft);
         $listRoute = $isDraft ? 'dcs.register.drafts' : 'dcs.register.update';
 
-        $reason = trim(preg_replace('/\s+/u', ' ', $reason) ?? '');
+        $reason = strip_tags(html_entity_decode((string) $reason, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $reason = trim(preg_replace('/\s+/u', ' ', str_replace("\0", '', $reason)) ?? '');
+        $reason = mb_substr($reason, 0, 1000);
         if ($reason === '' || mb_strlen($reason) < 5) {
             return self::flashRedirect(
                 $listRoute,

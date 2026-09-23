@@ -358,20 +358,58 @@ class RegisterPersistHelper
 
     public static function blankStringsToNull(Request $request): void
     {
+        $multiline = [
+            'descriptionReason', 'description_reason', 'keywords',
+            'changeFrom', 'changeTo', 'change_from', 'change_to',
+            'deleteReason', 'deleted_reason', 'remarks', 'recommended_actions',
+            'revisionPurpose', 'briefPurpose', 'justification', 'dcnJustification',
+            'editUnlockReason', 'edit_unlock_reason', 'reason', 'denyNote', 'description',
+        ];
+        $skip = array_merge(['_token', '_method'], array_keys($request->allFiles()));
         $clean = [];
         foreach ($request->all() as $key => $value) {
-            if (is_string($value) && trim($value) === '') {
-                $clean[$key] = null;
-            } elseif (is_array($value)) {
-                $clean[$key] = array_map(
-                    fn ($v) => is_string($v) && trim($v) === '' ? null : $v,
-                    $value
-                );
+            if (in_array($key, $skip, true)) {
+                continue;
             }
+            $clean[$key] = self::sanitizeIncomingValue($value, is_string($key) ? $key : '', $multiline);
         }
         if ($clean !== []) {
             $request->merge($clean);
         }
+    }
+
+    /** Strip HTML/scripts from DCS form text; keep document numbers and punctuation. */
+    private static function sanitizeIncomingValue(mixed $value, string $key, array $multiline): mixed
+    {
+        if (is_array($value)) {
+            $out = [];
+            foreach ($value as $childKey => $child) {
+                $nextKey = is_string($childKey) ? $childKey : $key;
+                $out[$childKey] = self::sanitizeIncomingValue($child, $nextKey, $multiline);
+            }
+
+            return $out;
+        }
+        if (! is_string($value)) {
+            return $value;
+        }
+
+        $value = str_replace("\0", '', $value);
+        $value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $value = preg_replace('#<script\b[^>]*>.*?</script>#is', '', $value) ?? '';
+        $value = preg_replace('#<style\b[^>]*>.*?</style>#is', '', $value) ?? '';
+        $value = strip_tags($value);
+        $value = str_replace(['<', '>'], '', $value);
+        if (in_array($key, $multiline, true)) {
+            $value = str_replace(["\r\n", "\r"], "\n", $value);
+            $value = preg_replace("/[ \t]+/u", ' ', $value) ?? '';
+            $value = preg_replace("/\n{3,}/u", "\n\n", $value) ?? '';
+        } else {
+            $value = preg_replace('/\s+/u', ' ', $value) ?? '';
+        }
+        $value = trim($value);
+
+        return $value === '' ? null : $value;
     }
 
     public static function syncedDocTitle(Request $request): ?string
@@ -548,7 +586,7 @@ class RegisterPersistHelper
      * Masterlist must contain some substance (always on). Drafts cannot be empty shells
      * or Document No alone — drafts need at least one other filled masterlist field.
      */
-    public static function validateMasterlistHasData(Request $request, bool $requireScan = false): ?RedirectResponse
+    public static function validateMasterlistHasData(Request $request, bool $requireScan = false): RedirectResponse|\Illuminate\Http\JsonResponse|null
     {
         $docNo = trim((string) $request->input('masterlistDocNo', ''));
         $title = trim((string) (self::syncedDocTitle($request)
@@ -591,14 +629,14 @@ class RegisterPersistHelper
 
         if ($saveAsDraft) {
             if ($filledCount < 2 || ($flags['docNo'] && $filledCount === 1)) {
-                return back()->withInput()->with(
-                    'error',
+                return self::draftErrorResponse(
+                    $request,
                     'To save a draft, fill Document No plus at least one other masterlist field (e.g. Title, Effectivity Date, Pages, Keywords, Originator, or Source Unit).'
                 );
             }
         } elseif ($filledCount < 1) {
-            return back()->withInput()->with(
-                'error',
+            return self::draftErrorResponse(
+                $request,
                 'Masterlist Registration needs data (Document No, Title, Effectivity Date, or a scanned master copy) before saving.'
             );
         }
@@ -606,8 +644,8 @@ class RegisterPersistHelper
         if ($requireScan && ! $hasUpload && ! $hasExistingScan) {
             $subType = self::dcsDocType($request->input('sub_type_id'));
             if (! self::isSyllabiLikeSubTypeRow($subType)) {
-                return back()->withInput()->with(
-                    'error',
+                return self::draftErrorResponse(
+                    $request,
                     'Upload the scanned master copy in Masterlist Registration before saving.'
                 );
             }
@@ -741,31 +779,139 @@ class RegisterPersistHelper
 
     public static function saveDistributionOffices(int $distributionId, Request $request): void
     {
-        foreach ($request->input('distOffice', []) as $i => $officeId) {
-            $id = (int) $officeId;
+        $officeIds = array_values(array_filter(array_map('intval', (array) $request->input('distOffice', []))));
+        $copies = (array) $request->input('distCopies', []);
+
+        // DRF office intake: distribution offices are fixed to what the submitter selected.
+        $intakeType = strtolower(trim((string) $request->input('office_intake_type', '')));
+        $intakeId = (int) $request->input('office_intake_id', 0);
+        if ($intakeType === 'drf' && $intakeId > 0) {
+            $allowed = self::allowedDistributeOfficeIdsForDrfIntake($intakeId);
+            if ($allowed !== []) {
+                $officeIds = array_values(array_filter(
+                    $officeIds,
+                    static fn (int $id) => in_array($id, $allowed, true)
+                ));
+            }
+        }
+
+        $keptReceipts = [];
+        if (Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
+            $keptReceipts = DB::table('dcs_distribution_offices')
+                ->where('distribution_id', $distributionId)
+                ->whereNotNull('office_received_at')
+                ->get(['office_id', 'office_received_at', 'office_received_by'])
+                ->keyBy(fn ($row) => (int) $row->office_id)
+                ->all();
+        }
+
+        DB::table('dcs_distribution_offices')->where('distribution_id', $distributionId)->delete();
+
+        foreach ($officeIds as $i => $id) {
             if ($id <= 0) {
                 continue;
             }
             $row = [
                 'distribution_id' => $distributionId,
                 'office_id' => $id,
-                'copies' => $request->input('distCopies')[$i] ?? 1,
+                'copies' => $copies[$i] ?? 1,
                 'sort_order' => $i,
             ];
             if (Schema::hasColumn('dcs_distribution_offices', 'distribution_date')) {
                 $row['distribution_date'] = $request->input('distOfficeDate')[$i] ?? null;
             }
+            $prior = $keptReceipts[$id] ?? null;
+            if ($prior && Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
+                $row['office_received_at'] = $prior->office_received_at;
+                $row['office_received_by'] = $prior->office_received_by ?? null;
+            }
             DB::table('dcs_distribution_offices')->insert($row);
         }
     }
 
-    public static function persist(Request $request): RedirectResponse
+    /**
+     * Office IDs the DRF submitter selected for distribution (empty = no lock / unknown).
+     *
+     * @return list<int>
+     */
+    public static function allowedDistributeOfficeIdsForDrfIntake(int $drfId): array
+    {
+        $drf = OfficeIntakeHelper::findOfficeDrf($drfId);
+        if (! $drf) {
+            return [];
+        }
+
+        $ids = [];
+        foreach (OfficeIntakeHelper::decodeDistributeTo($drf->distribute_to ?? null) as $stored) {
+            $stored = trim((string) $stored);
+            if ($stored === '') {
+                continue;
+            }
+            $row = DB::table(Schema::hasTable('sys_office') ? 'sys_office' : 'office')
+                ->where(function ($q) use ($stored) {
+                    $q->where('office_code', $stored)->orWhere('office_name', $stored);
+                })
+                ->first(['id']);
+            if ($row) {
+                $ids[] = (int) $row->id;
+            }
+        }
+
+        return array_values(array_unique(array_filter($ids)));
+    }
+
+    public static function isAutosaveRequest(Request $request): bool
+    {
+        return $request->boolean('autosave')
+            || $request->header('X-DCS-Autosave') === '1';
+    }
+
+    /**
+     * @return \Illuminate\Http\JsonResponse|\Illuminate\Http\RedirectResponse
+     */
+    public static function draftErrorResponse(Request $request, string $message, int $status = 422)
+    {
+        if (self::isAutosaveRequest($request) && $request->boolean('save_as_draft')) {
+            return response()->json([
+                'ok' => false,
+                'autosave' => true,
+                'message' => $message,
+            ], $status);
+        }
+
+        return back()->withInput()->with('error', $message);
+    }
+
+    /**
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public static function draftAutosaveSuccessResponse(int $requestId, string $message = '')
+    {
+        return response()->json([
+            'ok' => true,
+            'autosave' => true,
+            'request_id' => $requestId,
+            'edit_url' => route('dcs.register.edit', $requestId, absolute: false),
+            'update_url' => route('dcs.register.updateDoc', $requestId, absolute: false),
+            'drafts_url' => route('dcs.register.drafts', absolute: false),
+            'message' => $message !== ''
+                ? $message
+                : 'Draft auto-saved. Continue anytime from Document Registration → Drafts.',
+            'saved_at' => now('Asia/Manila')->format('g:i A'),
+        ]);
+    }
+
+    public static function persist(Request $request): RedirectResponse|\Illuminate\Http\JsonResponse
     {
         RegisterQueryHelper::assertFullDcsUser('register');
 
-        $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
-        if (!$rateCheck['allowed']) {
-            return back()->withInput()->with('error', $rateCheck['message']);
+        $autosave = self::isAutosaveRequest($request) && $request->boolean('save_as_draft');
+
+        if (! $autosave) {
+            $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
+            if (!$rateCheck['allowed']) {
+                return self::draftErrorResponse($request, $rateCheck['message'], 429);
+            }
         }
 
         self::blankStringsToNull($request);
@@ -916,7 +1062,7 @@ class RegisterPersistHelper
             return $redirect;
         }
 
-        if ($mode === 'new' && ! $saveAsDraft && $allowsRevision) {
+        if ($mode === 'new' && $allowsRevision) {
             $docNo = $request->input('masterlistDocNo');
             $docTypeId = (int) $request->input('doc_type_id');
             $subTypeId = $request->input('sub_type_id');
@@ -925,9 +1071,24 @@ class RegisterPersistHelper
                 $result = self::findMatchingRegistrationRows($docNo, $docTypeId, $subTypeId ? (int) $subTypeId : null);
 
                 if ($result['found']) {
-                    $existing = $result['latest'];
-                    return back()->withInput()
-                        ->with('error', 'Document "' . $docNo . '" is already registered (Rev ' . $existing->revise_no . '). Please use Revised Registration to create a new revision.');
+                    // Ignore other drafts — only published (or non-draft) rows block a new registration.
+                    $publishedMatches = $result['matches'];
+                    if (RegisterQueryHelper::supportsDrafts()) {
+                        $publishedMatches = $publishedMatches->filter(fn ($row) => empty($row->is_draft))->values();
+                    }
+                    if ($publishedMatches->isNotEmpty()) {
+                        $latest = DB::table('dcs_masterlist_registration')
+                            ->whereIn('request_id', $publishedMatches->pluck('id'))
+                            ->where('doc_no', $docNo)
+                            ->orderByDesc('revise_no')
+                            ->first();
+
+                        return back()->withInput()
+                            ->with(
+                                'error',
+                                'Document "' . $docNo . '" is already registered (Rev ' . ($latest->revise_no ?? 0) . '). Please use Revised Registration to create a new revision.'
+                            );
+                    }
                 }
             }
         }
@@ -956,6 +1117,13 @@ class RegisterPersistHelper
             $checkedChecklists = self::withRequiredMasterlistChecklist(
                 array_map('intval', $request->input('checklists', []))
             );
+            // Non-revisable types cannot use DCN even if the checkbox was posted.
+            if (! $allowsRevision) {
+                $checkedChecklists = array_values(array_filter(
+                    $checkedChecklists,
+                    static fn ($id) => (int) $id !== 2
+                ));
+            }
 
             if (in_array(1, $checkedChecklists, true)) {
                 $drfFile = null;
@@ -1294,7 +1462,7 @@ class RegisterPersistHelper
                         $request->file('scanneddist'),
                         $uploadedFiles,
                         'distribution',
-                        self::buildScanBasename($request, 'D&R', $request->input('drfDate'))
+                        self::buildScanBasename($request, 'D&R', $request->input('distributionFormDate'))
                     );
                     $uploadedFiles[] = $distFile;
                 }
@@ -1479,6 +1647,10 @@ class RegisterPersistHelper
                 ? 'Draft saved. Continue anytime from Document Registration → Drafts.'
                 : 'Document registered successfully!';
 
+            if ($saveAsDraft && self::isAutosaveRequest($request)) {
+                return self::draftAutosaveSuccessResponse((int) $requestId, $successMessage);
+            }
+
             if ($saveAsDraft) {
                 $leaveTo = self::safeDraftLeaveRedirect($request->input('draft_leave_to'));
                 if ($leaveTo) {
@@ -1498,8 +1670,11 @@ class RegisterPersistHelper
             $refId = uniqid('err_');
             Log::error("Document registration failed [{$refId}]: " . $e->getMessage());
 
-            return back()->withInput()
-                ->with('error', 'Failed to save document. Please try again. (ref: ' . $refId . ')');
+            return self::draftErrorResponse(
+                $request,
+                'Failed to save document. Please try again. (ref: ' . $refId . ')',
+                500
+            );
         }
     }
 

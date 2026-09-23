@@ -722,6 +722,9 @@ Route::middleware(['auth'])
             // Document lookup for office DCN (and full Register) — available to all DCS users
             Route::get('/api/documents/search', fn (Request $request) => RegisterQueryHelper::searchDocuments($request));
             Route::get('/api/documents/revisions', fn (Request $request) => RegisterQueryHelper::documentRevisions($request));
+            Route::get('/api/office/revisable-documents', function (Request $request) {
+                return response()->json(OfficeIntakeHelper::searchRevisableDocuments($request));
+            })->name('api.office.revisable-documents');
             Route::get('/api/offices', fn () => response()->json(
                 collect(RegisterQueryHelper::jsCatalog()['offices'] ?? [])->values()
             ));

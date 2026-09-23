@@ -126,18 +126,38 @@ class DcsNotificationService
         $revSuffix = $revNo !== null && $revNo > 0 ? ", Rev {$revNo}" : '';
 
         if ($title !== '' && $docNo !== '') {
-            $message = "Document \"{$title}\" ({$docNo}{$revSuffix}) has been registered / controlled and distributed to your office.";
+            $message = "Incoming document \"{$title}\" ({$docNo}{$revSuffix}) will be distributed to your office.";
         } elseif ($title !== '') {
             $revLabel = $revNo !== null && $revNo > 0 ? " (Rev {$revNo})" : '';
-            $message = "Document \"{$title}\"{$revLabel} has been registered / controlled and distributed to your office.";
+            $message = "Incoming document \"{$title}\"{$revLabel} will be distributed to your office.";
         } elseif ($docNo !== '') {
             $revLabel = $revNo !== null && $revNo > 0 ? " (Rev {$revNo})" : '';
-            $message = "Document {$docNo}{$revLabel} has been registered / controlled and distributed to your office.";
+            $message = "Incoming document {$docNo}{$revLabel} will be distributed to your office.";
         } else {
-            $message = 'A controlled document has been distributed to your office.';
+            $message = 'An incoming document will be distributed to your office.';
         }
 
         static::createNotification($officeCode, $message, '/dcs/office/documents');
+    }
+
+    public static function notifyOfficeDocumentReceived(
+        string $officeCode,
+        string $receiverName,
+        string $docTitle,
+        ?string $docNo = null,
+        ?int $receiverAccountId = null
+    ): void {
+        $name = static::displayName($receiverName);
+        $title = trim($docTitle);
+        $docNo = trim((string) $docNo);
+        $label = $title !== '' ? "\"{$title}\"" : ($docNo !== '' ? $docNo : 'the document');
+        $message = "{$name} marked incoming document {$label} as received.";
+        $url = '/dcs/office/documents';
+        if ($receiverAccountId && $receiverAccountId > 0) {
+            $url .= '?ack_by=' . $receiverAccountId;
+        }
+
+        static::createNotification($officeCode, $message, $url);
     }
 
     public static function notifyOfficeDrfSubmitted(

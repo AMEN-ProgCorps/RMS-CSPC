@@ -70,7 +70,6 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
                 'can_access_dts'                 => 'Access Document Tracking System',
                 'can_access_rdp'                 => 'Access Archive',
                 'can_access_dcs'                 => 'Access DCS',
-                'dcs_view_all_documents'         => 'View All DCS Documents',
                 'can_dts_modify_docflow'         => 'Modify Document Flow',
                 'can_sadm_modify_accountlist'    => 'Modify Account List',
                 'can_sadm_modify_pass'           => 'Modify Passwords',

@@ -34,6 +34,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 @php
     $reviseNo = (int) (($masterlist->revise_no ?? 0));
     $allowsRetrieval = $reviseNo > 0;
+    $canEditDocument = (bool) ($can_edit ?? false);
+    $readOnly = (bool) ($read_only ?? ! $canEditDocument);
 @endphp
 <script>
 window.APP_CONFIG = {
@@ -53,13 +55,15 @@ window.__existingSyllabiGroups = @json($syllabiGroupsSeed);
 window.__syllabiEditLocked = false;
 window.__allowsRetrieval = @json($allowsRetrieval);
 window.__registerCatalog = @json($catalog);
+window.__editReadOnly = @json($readOnly);
+window.__canEditDocument = @json($canEditDocument);
 window.__timeSpentNonWorkingDates = @json(\App\Helpers\CalendarHelper::nonWorkingDatesForTimeSpent());
 window.__timeSpentNonWorkingDateSet = Object.create(null);
 (window.__timeSpentNonWorkingDates || []).forEach(function (iso) {
     window.__timeSpentNonWorkingDateSet[iso] = true;
 });
 </script>
-<div class="reg-container main-content" id="dcsEditRoot" wire:ignore
+<div class="reg-container main-content {{ $readOnly ? 'is-readonly-edit' : '' }}" id="dcsEditRoot" wire:ignore
     x-data="{
         syllabiStep: 1,
         reviewOpen: false,
@@ -75,18 +79,27 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
         <!-- Header -->
         <div class="reg-header">
             <div>
-                <div class="reg-breadcrumb">Document Control System / Update / <span>Edit</span></div>
+                <div class="reg-breadcrumb">Document Control System / Update / <span>{{ $readOnly ? 'View' : 'Edit' }}</span></div>
                 <div style="display:flex; align-items:center; gap:12px;">
                     <div class="reg-title">{{ trim((string) ($masterlist->doc_no ?? '')) !== '' ? $masterlist->doc_no : 'Document #' . $docRequest->id }}</div>
-                    <span class="edit-badge"><i class="fa-solid fa-pen"></i> Editing</span>
+                    @if($readOnly)
+                        <span class="edit-badge" style="background:#e2e8f0;color:#334155;"><i class="fa-solid fa-eye"></i> View only</span>
+                    @else
+                        <span class="edit-badge"><i class="fa-solid fa-pen"></i> Editing</span>
+                    @endif
                 </div>
+                @if($readOnly)
+                    <p style="margin:8px 0 0;color:#64748b;font-size:0.92rem;">
+                        Fields are locked. Generate the distribution template if needed, then return to Update Documents.
+                    </p>
+                @endif
             </div>
             <a href="{{ route('dcs.register.update') }}" class="reg-btn reg-btn-cancel">
                 <i class="fa-solid fa-arrow-left"></i> Back to List
             </a>
         </div>
 
-        <form id="masterForm" method="POST" action="{{ route('dcs.register.updateDoc', $docRequest->id) }}" enctype="multipart/form-data">
+        <form id="masterForm" method="POST" action="{{ route('dcs.register.updateDoc', $docRequest->id) }}" enctype="multipart/form-data" class="{{ $readOnly ? 'is-readonly' : '' }}">
             <input type="hidden" id="requestId" value="{{ $docRequest->id }}">
             <input type="hidden" id="saveAsDraft" name="save_as_draft" value="0">
             <input type="hidden" name="has_existing_masterlist_scan" value="{{ !empty($masterlist?->scanned_masterlist) ? '1' : '0' }}">
@@ -566,10 +579,20 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                         </div>
                         <div class="reg-field">
                             <label>Revision No.</label>
-                            <input type="number" id="masterlistRevisionNo" placeholder="0"
-                                value="{{ $masterlist->revise_no ?? '' }}" disabled
-                                style="background:#f1f5f9; cursor:not-allowed; opacity:0.7;">
-                            <input type="hidden" name="masterlistRevisionNo" value="{{ $masterlist->revise_no ?? '0' }}">
+                            @php
+                                $revEditable = ! empty($docRequest->is_draft) && empty($read_only);
+                            @endphp
+                            <input type="number" id="masterlistRevisionNo"
+                                @if($revEditable) name="masterlistRevisionNo" @endif
+                                placeholder="0"
+                                value="{{ $masterlist->revise_no ?? '' }}"
+                                @if(! $revEditable) disabled @endif
+                                @if(! $revEditable) style="background:#f1f5f9; cursor:not-allowed; opacity:0.7;" @endif
+                                min="0">
+                            @unless($revEditable)
+                                <input type="hidden" name="masterlistRevisionNo" value="{{ $masterlist->revise_no ?? '0' }}">
+                            @endunless
+                            <div id="revNoHint" class="reg-field-hint" style="font-size:0.78rem; margin-top:4px;"></div>
                         </div>
                         <div class="reg-field">
                             <label>No. of Pages</label>
@@ -826,7 +849,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                 <div class="reg-field">
                                     <label>Distribution Form Date</label>
                                     <div class="reg-dual">
-                                        <input type="date" id="distributionFormDate" name="distributionFormDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($distribution->doc_distribution_date_file ?? '') }}" oninput="calcDistributionTimeSpent()">
+                                        <input type="date" id="distributionFormDate" name="distributionFormDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($distribution->doc_distribution_date_file ?? '') }}" oninput="calcDistributionTimeSpent(); if (window.DCSScanNamePreview) DCSScanNamePreview.update();">
                                         <input type="time" id="distributionFormTime" name="distributionFormTime" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($distribution->doc_distribution_time_file ?? '') }}" oninput="calcDistributionTimeSpent()">
                                     </div>
                                 </div>
@@ -893,6 +916,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                         </th>
                                         <th>Receiving Office(s)</th>
                                         <th style="width:110px; text-align:center;">No. of Copies</th>
+                                        <th class="reg-dist-receipt-head" style="width:180px;">Physical receipt</th>
                                         <th style="width:40px;"></th>
                                     </tr>
                                 </thead>
@@ -914,6 +938,17 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                         <td style="text-align:center;">
                                             <input type="number" name="distCopies[]" value="{{ $distOff->copies }}" min="1" oninput="updateTotal('distTotal', 'distBody')">
                                         </td>
+                                        <td class="reg-dist-receipt-cell">
+                                            @if(!empty($distOff->office_received_at))
+                                                <div class="reg-dist-receipt-status is-received">Received</div>
+                                                <div class="reg-dist-receipt-who">
+                                                    {{ ($distOff->received_by_name ?? '') !== '' ? $distOff->received_by_name : 'Office intake' }}
+                                                    · {{ \Carbon\Carbon::parse($distOff->office_received_at)->format('M d, Y g:i A') }}
+                                                </div>
+                                            @else
+                                                <div class="reg-dist-receipt-status is-pending">Pending</div>
+                                            @endif
+                                        </td>
                                         <td>
                                             <button type="button" class="btn-remove" onclick="removeOffice(this, 'distTotal', 'distBody')">
                                                 <i class="fa-solid fa-xmark"></i>
@@ -922,7 +957,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                     </tr>
                                     @empty
                                     <tr class="reg-empty-row">
-                                        <td colspan="4">
+                                        <td colspan="5">
                                             <div class="reg-empty-state">
                                                 <i class="fa-solid fa-building-circle-xmark"></i>
                                                 <span>No offices added yet</span>
@@ -936,6 +971,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                         <td class="reg-dist-check-foot"></td>
                                         <td>Total No. of Copies</td>
                                         <td id="distTotal" style="text-align:center; font-weight:700;">{{ $distributionOffices->sum('copies') }}</td>
+                                        <td></td>
                                         <td></td>
                                     </tr>
                                 </tfoot>
@@ -952,23 +988,28 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
             <div class="reg-actions" id="formActions" style="display: flex;">
                 <div class="reg-actions-left">
                     <a href="{{ route('dcs.register.update') }}" class="reg-btn reg-btn-cancel">
-                        <i class="fa-solid fa-xmark"></i> Cancel
+                        <i class="fa-solid fa-arrow-left"></i> {{ $readOnly ? 'Back to Update Documents' : 'Cancel' }}
                     </a>
                 </div>
                 <div class="reg-actions-right">
+                    @unless($readOnly)
                     <p id="regNoChangesHint" class="reg-no-changes-hint" hidden>
                         <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                         No changes detected — edit a field to enable Update Document.
                     </p>
+                    @endunless
                     <button type="button" id="btnGenerateDistribution" class="reg-btn reg-btn-generate" onclick="generateDistributionTemplate()">
                         <i class="fa-solid fa-file-lines"></i> Generate
                     </button>
+                    @unless($readOnly)
                     <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                         <i class="fa-regular fa-floppy-disk"></i> Save Draft
                     </button>
+                    <span id="regAutosaveStatus" class="reg-autosave-status" aria-live="polite" hidden></span>
                     <button type="button" id="btnUpdateDocument" class="reg-btn reg-btn-save" onclick="confirmSave()">
                         <i class="fa-solid fa-floppy-disk"></i> Update Document
                     </button>
+                    @endunless
                 </div>
             </div>
         </form>
@@ -1129,6 +1170,20 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+function sanitizeFormFields(form) {
+    if (!form) return;
+    form.querySelectorAll('input, textarea').forEach(function (el) {
+        const type = String(el.type || '').toLowerCase();
+        if (el.disabled || typeof el.value !== 'string') return;
+        if (['password', 'hidden', 'file', 'checkbox', 'radio', 'submit', 'button'].includes(type)) return;
+        const stripped = String(el.value).replace(/[<>]/g, '');
+        const next = el.tagName === 'TEXTAREA'
+            ? stripped.replace(/\r\n|\r/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+            : stripped.replace(/\s+/g, ' ').trim();
+        if (next !== el.value) el.value = next;
+    });
+}
+
 function checkFile(file) {
     const ext = file.name.split('.').pop().toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(ext)) return { valid: false, ext, reason: 'type' };
@@ -1235,7 +1290,9 @@ function filterOffices(query) {
 
 function emptyOfficeRowHTML(tbodyId) {
     const isRetrieval = tbodyId === 'retrievalBody';
-    const cols = (isRetrieval || tbodyId === 'distBody') ? 4 : 3;
+    const table = document.getElementById(tbodyId)?.closest('table');
+    const receiptCol = table?.querySelector('.reg-dist-receipt-head') ? 1 : 0;
+    const cols = (isRetrieval || tbodyId === 'distBody') ? (4 + receiptCol) : 3;
     return '<tr class="reg-empty-row"><td colspan="' + cols + '"><div class="reg-empty-state"><i class="fa-solid fa-building-circle-xmark"></i><span>No offices added yet</span></div></td></tr>';
 }
 
@@ -1512,6 +1569,7 @@ function seedOfficeRow(tbodyId, totalId, officeId, officeName, copies) {
         <td class="reg-dist-check-cell"><input type="checkbox" class="dist-office-check" onchange="onDistOfficeCheckChange()" title="Select to reorder"></td>
         <td><input type="hidden" name="${officeNameAttr}" value="${officeId}"><div class="reg-office-name"><span class="reg-dist-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></span><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div><span class="reg-office-text">${escapeHtml(officeName)}</span></div></td>
         <td style="text-align:center;"><input type="number" name="${copiesNameAttr}" value="${copies}" min="1" oninput="updateTotal('${totalId}', '${tbodyId}')"></td>
+        <td class="reg-dist-receipt-cell"><div class="reg-dist-receipt-status is-pending">Pending</div></td>
         <td><button type="button" class="btn-remove" onclick="removeOffice(this, '${totalId}', '${tbodyId}')"><i class="fa-solid fa-xmark"></i></button></td>
     `;
     }
@@ -1643,6 +1701,26 @@ document.addEventListener("DOMContentLoaded", async function () {
     const form = document.getElementById("masterForm");
     if (form) form.setAttribute("autocomplete", "off");
 
+    if (window.__editReadOnly) {
+        const keepEnabled = new Set(['btnGenerateDistribution']);
+        form?.querySelectorAll('input, select, textarea, button').forEach((el) => {
+            if (!el || el.type === 'hidden') return;
+            if (keepEnabled.has(el.id)) return;
+            if (el.classList.contains('reg-office-see-more') || el.id === 'distSeeMore' || el.id === 'retrievalSeeMore') return;
+            el.disabled = true;
+            el.setAttribute('aria-disabled', 'true');
+        });
+        // Source-unit / office widgets and checklist toggles
+        form?.querySelectorAll('.reg-su-remove, .reg-chip-remove, .reg-office-remove, .reg-add-office, .reg-check, [data-office-picker], .su-dropdown, .originator-dropdown').forEach((el) => {
+            el.style.pointerEvents = 'none';
+            el.setAttribute('aria-disabled', 'true');
+            if (el.tagName === 'BUTTON' || el.tagName === 'INPUT') el.disabled = true;
+        });
+        form?.addEventListener('submit', (e) => e.preventDefault());
+        window.__regDraftShouldAutosaveOnLeave = () => false;
+        window.__regDraftCanSave = () => false;
+    }
+
     try {
         const catalog = window.__registerCatalog || {};
         const offices = catalog.offices || [];
@@ -1720,6 +1798,7 @@ document.addEventListener("DOMContentLoaded", async function () {
         // ── Wire doc no lookup ──
         const revField = document.getElementById('masterlistRevisionNo');
         initDocNoLookup(revField);
+        initDraftRevNoLookup(revField);
         wireSyllabiMasterlistSync();
         wireApprovalDeadlineSync();
         enableApproval();
@@ -2106,9 +2185,16 @@ function allowsDocumentRetrieval() {
 }
 
 function filterChecklistsForMode(checklists) {
-    const list = Array.isArray(checklists) ? checklists : [];
-    if (allowsDocumentRetrieval()) return list;
-    return list.filter(c => parseInt(c.checklist_id, 10) !== 4);
+    let list = Array.isArray(checklists) ? checklists : [];
+    if (!allowsDocumentRetrieval()) {
+        list = list.filter(c => parseInt(c.checklist_id, 10) !== 4);
+    }
+    const docTypeId = document.getElementById('docType')?.value;
+    const subTypeId = document.getElementById('subType')?.value;
+    if (typeof typeAllowsRevision === 'function' && !typeAllowsRevision(docTypeId, subTypeId)) {
+        list = list.filter(c => parseInt(c.checklist_id, 10) !== 2);
+    }
+    return list;
 }
 
 function renderChecklists(checklists, disabled) {
@@ -2331,6 +2417,80 @@ function initDocNoLookup(revField) {
     });
 }
 
+/** Drafts may change Revision No; published edits keep it locked. */
+function initDraftRevNoLookup(revField) {
+    if (!revField || revField.disabled || !window.__isDraftDoc) return;
+
+    let revNoTimer = null;
+    const schedule = () => {
+        clearTimeout(revNoTimer);
+        revNoTimer = setTimeout(() => runDraftRevNoCheck(revField), 400);
+    };
+
+    revField.addEventListener('input', function () {
+        this.dataset.userEdited = 'true';
+        schedule();
+    });
+    revField.addEventListener('change', schedule);
+    revField.addEventListener('blur', schedule);
+    document.getElementById('masterlistDocNo')?.addEventListener('input', schedule);
+    schedule();
+}
+
+async function runDraftRevNoCheck(revField) {
+    const hint = document.getElementById('revNoHint');
+    const docNo = (document.getElementById('masterlistDocNo')?.value || '').trim();
+    if (!revField || revField.disabled || !docNo) {
+        if (hint) hint.innerHTML = '';
+        return;
+    }
+
+    const reviseNo = revField.value === '' ? '0' : revField.value;
+    const docTypeId = document.getElementById('docType')?.value || '';
+    const subTypeId = document.getElementById('subType')?.value || '';
+    const excludeRequestId = document.getElementById('requestId')?.value || '';
+
+    try {
+        const url = '/dcs/register/check-revno?doc_no=' + encodeURIComponent(docNo) +
+            '&revise_no=' + encodeURIComponent(reviseNo) +
+            (docTypeId ? '&doc_type_id=' + encodeURIComponent(docTypeId) : '') +
+            (subTypeId ? '&sub_type_id=' + encodeURIComponent(subTypeId) : '') +
+            (excludeRequestId ? '&exclude_request_id=' + encodeURIComponent(excludeRequestId) : '');
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.needs_doc_no || data.needs_doc_type) {
+            if (hint) hint.innerHTML = '';
+            return;
+        }
+
+        if (data.taken) {
+            if (hint) {
+                hint.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> ' +
+                    escapeHtml(data.message || 'This revision already exists.');
+                hint.style.color = '#dc2626';
+            }
+            revField.style.borderColor = '#dc2626';
+            revField.classList.add('reg-input-invalid');
+            return;
+        }
+
+        if (hint) {
+            if (Array.isArray(data.taken_revs) && data.taken_revs.length > 0) {
+                hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> ' +
+                    escapeHtml(data.message || 'Revision available.');
+                hint.style.color = '#16a34a';
+            } else {
+                hint.innerHTML = '';
+            }
+        }
+        revField.style.borderColor = '';
+        revField.classList.remove('reg-input-invalid');
+    } catch (e) {
+        console.error('Draft RevNo check failed:', e);
+    }
+}
+
 function handleEmptyDocNo(hintEl, revField) {
     docNoDuplicate = false;
     if (hintEl) { hintEl.innerHTML = ''; hintEl.dataset.valid = ''; }
@@ -2400,7 +2560,10 @@ function applyRevisedDocumentContext(data, options = {}) {
     }
 
     if (revFieldEl && !revFieldEl.disabled) {
-        if (options.forceNextRev || !revFieldEl.value || revFieldEl.dataset.userEdited !== 'true') {
+        // Keep a manually typed Rev; only suggest next when the field is empty / not user-pinned.
+        const userPinned = revFieldEl.dataset.userEdited === 'true'
+            && String(revFieldEl.value || '').trim() !== '';
+        if (!userPinned && (options.forceNextRev || !String(revFieldEl.value || '').trim())) {
             revFieldEl.value = data.next_rev;
             revFieldEl.dataset.userEdited = '';
         }
@@ -6708,7 +6871,9 @@ window.submitForm = function () {
     }
     window.__regFormSubmitting = true;
     showSavingDocumentOverlay();
-    document.getElementById("masterForm").submit();
+    const form = document.getElementById("masterForm");
+    if (form && typeof sanitizeFormFields === 'function') sanitizeFormFields(form);
+    form.submit();
 };
 
 function showSavingDocumentOverlay() {

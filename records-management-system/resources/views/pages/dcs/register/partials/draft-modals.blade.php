@@ -41,7 +41,9 @@
             <div class="reg-modal-body reg-modal-body--draft">
                 <p class="reg-draft-lead">You entered data that isn’t saved yet.</p>
                 <p class="reg-draft-note" id="regLeaveDraftHint">
-                    Save it as a draft so you can continue later from Document Registration → Drafts.
+                    A draft needs <strong>Document No</strong> plus at least one other masterlist field.
+                    Once those are filled, auto-draft turns on and you can freely open other pages —
+                    or click <strong>Save Draft</strong> anytime if you aren’t ready to finish.
                 </p>
             </div>
             <div class="reg-modal-footer reg-modal-footer--draft-leave">

@@ -36,7 +36,7 @@
         {
             key: 'distribution',
             formToken: 'D&R',
-            dateIds: ['drfDate'],
+            dateIds: ['distributionFormDate'],
             fileIds: ['scanneddist'],
         },
     ];
@@ -52,6 +52,7 @@
         'syllabiDocTitle',
         'retrievalDate',
         'retrievalFormDate',
+        'distributionFormDate',
     ];
 
     function val(id) {

@@ -45,6 +45,8 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
             'canEdit' => OfficeIntakeHelper::canOfficeEditIntake('dcn', $this->id),
             'editReason' => trim((string) ($dcn->edit_unlock_reason ?? '')),
             'isRegistered' => OfficeIntakeHelper::isIntakeRegistered('dcn', $this->id),
+            'linkedDrfId' => OfficeIntakeHelper::findLinkedDrfIdForOfficeDcn($this->id),
+            'canCreateDrf' => ! OfficeIntakeHelper::officeDcnHasLinkedDrf($this->id),
         ];
     }
 }; ?>
@@ -61,6 +63,17 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                         <i class="fa-solid fa-pen"></i> Edit form
                     </a>
                 @endif
+                @unless($isIntakeReviewer ?? false)
+                    @if($canCreateDrf ?? true)
+                        <a href="{{ route('dcs.office.drf.create', ['from_dcn' => $dcn->id], absolute: false) }}" class="reg-btn reg-btn-save">
+                            <i class="fa-solid fa-file-circle-plus"></i> Create DRF
+                        </a>
+                    @elseif(! empty($linkedDrfId))
+                        <a href="{{ route('dcs.office.drf.show', $linkedDrfId, absolute: false) }}" class="reg-btn reg-btn-save">
+                            <i class="fa-solid fa-file-lines"></i> View linked DRF
+                        </a>
+                    @endif
+                @endunless
                 <a href="{{ route('dcs.office.dcn.print', $dcn->id, absolute: false) }}" target="_blank" class="reg-btn reg-btn-save">
                     <i class="fa-solid fa-print"></i> Print form
                 </a>
@@ -149,13 +162,13 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                         @endphp
                         @foreach($reviewerRows as $i => $rev)
                         <div class="reg-field">
-                            <label>Reviewed by / Date{{ count($reviewerRows) > 1 ? ' ('.($i + 1).')' : '' }}</label>
+                            <label>Reviewed by{{ count($reviewerRows) > 1 ? ' ('.($i + 1).')' : '' }}</label>
                             <div class="ofi-show-value ofi-show-reviewed">{{ $rev['label'] !== '' ? $rev['label'] : '—' }}</div>
                         </div>
                         @endforeach
                         @if($reviewerRows === [])
                         <div class="reg-field">
-                            <label>Reviewed by / Date</label>
+                            <label>Reviewed by</label>
                             <div class="ofi-show-value ofi-show-reviewed">{{ $dcn->reviewed_by_date ?: '—' }}</div>
                         </div>
                         @endif
@@ -171,7 +184,6 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                                         <tr>
                                             <th>Position</th>
                                             <th>Name</th>
-                                            <th>Date</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -179,13 +191,6 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                                             <tr>
                                                 <td>{{ $appr['position'] !== '' ? $appr['position'] : '—' }}</td>
                                                 <td>{{ $appr['name'] !== '' ? $appr['name'] : '—' }}</td>
-                                                <td>
-                                                    @if(!empty($appr['date']))
-                                                        {{ \Carbon\Carbon::parse($appr['date'])->format('M d, Y') }}
-                                                    @else
-                                                        —
-                                                    @endif
-                                                </td>
                                             </tr>
                                         @endforeach
                                     </tbody>

@@ -40,13 +40,57 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
         $payload = OfficeIntakeHelper::requestReviewPayload($this->type, $this->id);
         abort_unless($payload, 404);
 
-        $printUrl = $this->type === 'dcn'
-            ? route('dcs.office.dcn.print', ['id' => $this->id, 'view' => 1], absolute: false)
-            : route('dcs.office.drf.print', ['id' => $this->id, 'view' => 1], absolute: false);
+        $dcnPrintUrl = null;
+        $drfPrintUrl = null;
+        $linkedDrfId = null;
+        $linkedDcnId = null;
+        $previewDocs = [];
+
+        if ($this->type === 'dcn') {
+            $dcnPrintUrl = route('dcs.office.dcn.print', ['id' => $this->id, 'view' => 1], absolute: false);
+            $linkedDrfId = OfficeIntakeHelper::findLinkedDrfIdForOfficeDcn($this->id);
+            $previewDocs[] = [
+                'key' => 'dcn',
+                'label' => 'DCN',
+                'url' => $dcnPrintUrl,
+            ];
+            if ($linkedDrfId) {
+                $drfPrintUrl = route('dcs.office.drf.print', ['id' => $linkedDrfId, 'view' => 1], absolute: false);
+                $previewDocs[] = [
+                    'key' => 'drf',
+                    'label' => 'DRF',
+                    'url' => $drfPrintUrl,
+                ];
+            }
+        } else {
+            $drfPrintUrl = route('dcs.office.drf.print', ['id' => $this->id, 'view' => 1], absolute: false);
+            $linkedDcnId = OfficeIntakeHelper::findSourceDcnIdForOfficeDrf($this->id);
+            if ($linkedDcnId) {
+                $dcnPrintUrl = route('dcs.office.dcn.print', ['id' => $linkedDcnId, 'view' => 1], absolute: false);
+                // Linked pair: DCN first, then DRF (default still this page's DRF via activeKey)
+                $previewDocs[] = [
+                    'key' => 'dcn',
+                    'label' => 'DCN',
+                    'url' => $dcnPrintUrl,
+                ];
+            }
+            $previewDocs[] = [
+                'key' => 'drf',
+                'label' => 'DRF',
+                'url' => $drfPrintUrl,
+            ];
+        }
+
+        $activeKey = $this->type === 'dcn' ? 'dcn' : 'drf';
+        $printUrl = $this->type === 'dcn' ? $dcnPrintUrl : $drfPrintUrl;
 
         return [
             'payload' => $payload,
             'printUrl' => $printUrl,
+            'previewDocs' => $previewDocs,
+            'activePreviewKey' => $activeKey,
+            'linkedDrfId' => $linkedDrfId,
+            'linkedDcnId' => $linkedDcnId,
         ];
     }
 }; ?>
@@ -84,10 +128,27 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
             <section class="ofi-request-preview-panel" aria-label="Form preview">
                 <div class="ofi-request-preview-bar">
                     <span><i class="fa-regular fa-file-lines"></i> Print preview</span>
-                    <span class="ofi-request-preview-hint">View only</span>
+                    <div class="ofi-request-preview-bar-right">
+                        @if(count($previewDocs) > 1)
+                            <div class="ofi-preview-switch" role="tablist" aria-label="Preview form">
+                                @foreach($previewDocs as $doc)
+                                    <button
+                                        type="button"
+                                        class="ofi-preview-switch-btn{{ ($doc['key'] ?? '') === $activePreviewKey ? ' is-active' : '' }}"
+                                        role="tab"
+                                        aria-selected="{{ ($doc['key'] ?? '') === $activePreviewKey ? 'true' : 'false' }}"
+                                        data-ofi-preview-key="{{ $doc['key'] }}"
+                                        data-ofi-preview-url="{{ $doc['url'] }}"
+                                    >{{ $doc['label'] }}</button>
+                                @endforeach
+                            </div>
+                        @endif
+                        <span class="ofi-request-preview-hint">View only</span>
+                    </div>
                 </div>
                 <div class="ofi-request-preview-wrap">
                     <iframe
+                        id="ofiRequestPreviewFrame"
                         class="ofi-request-preview"
                         title="Form preview"
                         src="{{ $printUrl }}"
@@ -195,3 +256,24 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
 </div>
 
 <script src="{{ asset('js/dcs/office-request-review.js') }}"></script>
+<script>
+(function () {
+    const frame = document.getElementById('ofiRequestPreviewFrame');
+    const switchRoot = document.querySelector('.ofi-preview-switch');
+    if (!frame || !switchRoot) return;
+
+    switchRoot.addEventListener('click', function (e) {
+        const btn = e.target.closest('[data-ofi-preview-url]');
+        if (!btn || !switchRoot.contains(btn)) return;
+        const url = btn.getAttribute('data-ofi-preview-url') || '';
+        if (!url) return;
+
+        frame.src = url;
+        switchRoot.querySelectorAll('.ofi-preview-switch-btn').forEach(function (el) {
+            const on = el === btn;
+            el.classList.toggle('is-active', on);
+            el.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+    });
+})();
+</script>

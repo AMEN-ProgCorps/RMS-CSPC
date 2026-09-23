@@ -234,6 +234,24 @@
     color: #f8fafc !important;
 }
 
+[data-theme="dark"] .ofi-dept-control {
+    background: linear-gradient(180deg, #131c2e 0%, #0f172a 100%) !important;
+    border-color: #334155 !important;
+}
+[data-theme="dark"] .ofi-dept-icon {
+    background: #1e3a5f !important;
+    color: #93c5fd !important;
+}
+[data-theme="dark"] .ofi-dept-name,
+[data-theme="dark"] .ofi-dept-lock,
+[data-theme="dark"] .ofi-dept-field .ofi-hint {
+    color: #e2e8f0 !important;
+}
+[data-theme="dark"] .ofi-dept-lock,
+[data-theme="dark"] .ofi-dept-field .ofi-hint {
+    color: #94a3b8 !important;
+}
+
 /* Dashboard light-tinted panels */
 [data-theme="dark"] .dash-search-bar:focus-within,
 [data-theme="dark"] .dash-search-results,
@@ -1441,6 +1459,15 @@
     background: #131c2e !important;
     color: #f8fafc !important;
     border-color: #334155 !important;
+}
+
+[data-theme="dark"] .reg-dist-receipt-status.is-received {
+    color: #86efac !important;
+}
+
+[data-theme="dark"] .reg-dist-receipt-status.is-pending,
+[data-theme="dark"] .reg-dist-receipt-who {
+    color: #94a3b8 !important;
 }
 
 [data-theme="dark"] .reg-ret-when-fields input[type="date"],

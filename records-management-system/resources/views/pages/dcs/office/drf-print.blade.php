@@ -472,6 +472,28 @@
             text-align: center !important;
             background: transparent !important;
         }
+        .sig-table .sig-fit-cell {
+            text-align: center !important;
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            padding: 0 2px !important;
+        }
+        .sig-table .sig-fit {
+            display: inline-block !important;
+            max-width: 100% !important;
+            white-space: nowrap !important;
+            line-height: 1 !important;
+            vertical-align: middle !important;
+        }
+        .sig-table .sig-fit.name-bold {
+            font-size: 10pt !important;
+        }
+        .sig-table .sig-fit.desig,
+        .sig-table .sig-fit.col-c {
+            font-size: 11pt !important;
+            font-weight: 400 !important;
+            text-transform: none !important;
+        }
 
         .footer-rule {
             border: none !important;
@@ -855,15 +877,15 @@
                 </tr>
                 <tr>
                     <td class="row-label">Name</td>
-                    <td class="name-bold">{{ $preparedName }}</td>
-                    <td class="name-bold">{{ $reviewedName }}</td>
-                    <td class="name-bold">{{ $approvedName }}</td>
+                    <td class="sig-fit-cell"><span class="sig-fit name-bold" data-sig-fit data-fit-pt="10">{{ $preparedName }}</span></td>
+                    <td class="sig-fit-cell"><span class="sig-fit name-bold" data-sig-fit data-fit-pt="10">{{ $reviewedName }}</span></td>
+                    <td class="sig-fit-cell"><span class="sig-fit name-bold" data-sig-fit data-fit-pt="10">{{ $approvedName }}</span></td>
                 </tr>
                 <tr>
                     <td class="row-label">Designation</td>
-                    <td class="col-c">{{ $preparedDesig }}</td>
-                    <td class="desig">{{ $reviewedDesig }}</td>
-                    <td class="desig">{{ $approvedDesig }}</td>
+                    <td class="sig-fit-cell"><span class="sig-fit col-c" data-sig-fit data-fit-pt="11">{{ $preparedDesig }}</span></td>
+                    <td class="sig-fit-cell"><span class="sig-fit desig" data-sig-fit data-fit-pt="11">{{ $reviewedDesig }}</span></td>
+                    <td class="sig-fit-cell"><span class="sig-fit desig" data-sig-fit data-fit-pt="11">{{ $approvedDesig }}</span></td>
                 </tr>
                 <tr>
                     <td class="row-label">Date</td>
@@ -949,7 +971,24 @@
 @endforeach
 @endif
 <script>
+function ofiFitSigText() {
+    document.querySelectorAll('[data-sig-fit]').forEach(function (el) {
+        var cell = el.parentElement;
+        if (!cell) return;
+        var startPt = parseFloat(el.getAttribute('data-fit-pt') || '10') || 10;
+        var maxPx = startPt * 96 / 72;
+        var minPx = 5 * 96 / 72;
+        el.style.fontSize = maxPx + 'px';
+        var guard = 48;
+        while (guard-- > 0 && el.scrollWidth > cell.clientWidth && maxPx > minPx) {
+            maxPx -= 0.25;
+            el.style.fontSize = maxPx + 'px';
+        }
+    });
+}
+
 function ofiPrintClean() {
+    ofiFitSigText();
     var prevTitle = document.title;
     var prevPath = window.location.pathname + window.location.search + window.location.hash;
     var restored = false;
@@ -966,6 +1005,10 @@ function ofiPrintClean() {
     window.print();
     setTimeout(restore, 1500);
 }
+
+document.addEventListener('DOMContentLoaded', ofiFitSigText);
+window.addEventListener('resize', ofiFitSigText);
+window.addEventListener('beforeprint', ofiFitSigText);
 </script>
 </body>
 </html>

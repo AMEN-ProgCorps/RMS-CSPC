@@ -21,20 +21,14 @@
             if (remove) remove.hidden = i === 0 || items.length < 2;
 
             const nameInput = row.querySelector('input[name="reviewedByName[]"]');
-            const dateInput = row.querySelector('input[name="reviewedByOn[]"]');
             const nameLabel = nameInput ? nameInput.closest('.reg-field')?.querySelector('label') : null;
-            const dateLabel = dateInput ? dateInput.closest('.reg-field')?.querySelector('label') : null;
             const reqHtml = ' <span class="ofi-req">*</span>';
             if (i === 0) {
                 if (nameInput) nameInput.required = true;
-                if (dateInput) dateInput.required = true;
                 if (nameLabel) nameLabel.innerHTML = 'Name' + reqHtml;
-                if (dateLabel) dateLabel.innerHTML = 'Date' + reqHtml;
             } else {
                 if (nameInput) nameInput.required = false;
-                if (dateInput) dateInput.required = false;
                 if (nameLabel) nameLabel.textContent = 'Name';
-                if (dateLabel) dateLabel.textContent = 'Date';
             }
         });
         addBtn.hidden = items.length >= max;

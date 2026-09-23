@@ -78,7 +78,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             return;
         }
 
-        $reason = trim(preg_replace('/\s+/u', ' ', $this->deleteReason) ?? '');
+        $reason = strip_tags(html_entity_decode((string) $this->deleteReason, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $reason = trim(preg_replace('/\s+/u', ' ', str_replace("\0", '', $reason)) ?? '');
+        $reason = mb_substr($reason, 0, 1000);
         if ($reason === '' || mb_strlen($reason) < 5) {
             $this->deleteError = 'Please enter a delete reason (at least 5 characters).';
 
@@ -141,7 +143,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <th>Document No.</th>
                         <th>Rev</th>
                         <th>Status</th>
-                        <th style="width:130px;">Actions</th>
+                        <th style="width:160px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -181,7 +183,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             </td>
                             <td>
                                 <div class="upd-actions">
-                                    <a href="{{ $doc['edit_url'] }}" class="upd-btn-icon" title="Edit"><i class="fa-solid fa-pen"></i></a>
+                                    @if(!empty($doc['can_edit']))
+                                        <a href="{{ $doc['edit_url'] }}" class="upd-btn-icon" title="Edit"><i class="fa-solid fa-pen"></i></a>
+                                    @endif
                                     @if($doc['history_url'])
                                         <a href="{{ $doc['history_url'] }}" class="upd-btn-icon" title="History"><i class="fa-solid fa-clock-rotate-left"></i></a>
                                     @endif
@@ -208,7 +212,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td><span class="upd-status-badge {{ $childIsLatest ? 'is-latest' : 'is-obsolete' }}">{{ $childIsLatest ? 'Latest' : 'Obsolete' }}</span></td>
                                 <td>
                                     <div class="upd-actions">
-                                        <a href="{{ $child['edit_url'] }}" class="upd-btn-icon" title="{{ $childIsLatest ? 'Edit' : 'Edit obsolete revision' }}"><i class="fa-solid fa-pen"></i></a>
+                                        @if(!empty($child['can_edit']))
+                                            <a href="{{ $child['edit_url'] }}" class="upd-btn-icon" title="{{ $childIsLatest ? 'Edit' : 'Edit obsolete revision' }}"><i class="fa-solid fa-pen"></i></a>
+                                        @endif
                                         @if($child['history_url'])
                                             <a href="{{ $child['history_url'] }}" class="upd-btn-icon" title="History"><i class="fa-solid fa-clock-rotate-left"></i></a>
                                         @endif

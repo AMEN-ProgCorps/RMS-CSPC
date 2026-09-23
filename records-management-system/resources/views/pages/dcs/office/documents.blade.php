@@ -40,6 +40,13 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
         }
     }
 
+    public function markReceived(int $requestId): void
+    {
+        OfficeIntakeHelper::assertCanAccessIntake();
+        $result = OfficeIntakeHelper::markOfficeDocumentReceived($requestId);
+        session()->flash($result['ok'] ? 'success' : 'error', $result['message']);
+    }
+
     public function with(): array
     {
         $groups = OfficeIntakeHelper::officeDocumentGroups(null, false);
@@ -80,14 +87,20 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
             <div>
                 <h1>Office Documents</h1>
                 <p>
-                    <strong>Internal</strong>, <strong>Internal Forms</strong>, and <strong>External</strong>
-                    appear when RFIO distributes a controlled document to
-                    <strong>{{ $officeName }}</strong>.
-                    <strong>Forms</strong> and <strong>Logbooks</strong> appear when your office
-                    is listed as the Source Unit.
+                    Documents appear here when RFIO distributes a controlled document to
+                    <strong>{{ $officeName }}</strong>
+                    (Internal, Internal Forms, External, Forms, and Logbooks).
+                    Mark a row received after the physical copy arrives so Document Control can see it.
                 </p>
             </div>
         </div>
+
+        @if(session('success'))
+            <div class="ofi-alert ok">{{ session('success') }}</div>
+        @endif
+        @if(session('error'))
+            <div class="ofi-alert err">{{ session('error') }}</div>
+        @endif
 
         <nav class="ofi-doc-nav" aria-label="Document types">
             <button
@@ -116,7 +129,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
         </nav>
 
         <div class="ofi-card" style="position:relative;" wire:loading.class="is-loading">
-            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType">
+            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType,markReceived">
                 <div class="dcs-loading-spinner" aria-hidden="true"></div>
                 <h4>Loading documents…</h4>
                 <p>Fetching records and preparing the list.</p>
@@ -132,8 +145,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                     @if($total < 1)
                         <strong>No documents yet</strong>
                         <p>
-                            No controlled documents list your office in Document Distribution yet,
-                            and no Forms/Logbooks list your office as Source Unit.
+                            No controlled documents list your office in Document Distribution yet.
                         </p>
                     @else
                         <strong>No {{ strtolower($activeLabel) }} documents</strong>
@@ -154,6 +166,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                                 <th>Document Title</th>
                                 <th style="width:100px;">Pages</th>
                                 <th style="width:140px;">Effectivity Date</th>
+                                <th style="width:200px;">Physical receipt</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -165,6 +178,27 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                                     <td>{{ $row['doc_title'] !== '' ? $row['doc_title'] : '—' }}</td>
                                     <td>{{ ($row['pages'] ?? '') !== '' ? $row['pages'] : '—' }}</td>
                                     <td>{{ $row['effectivity_date'] ?? '—' }}</td>
+                                    <td class="ofi-receive-cell">
+                                        @if(!empty($row['can_receive']) && (int) ($row['request_id'] ?? 0) > 0)
+                                            <button
+                                                type="button"
+                                                class="ofi-btn ofi-btn-sm primary"
+                                                wire:click="markReceived({{ (int) $row['request_id'] }})"
+                                                wire:loading.attr="disabled"
+                                                wire:target="markReceived"
+                                            >
+                                                Mark received
+                                            </button>
+                                        @elseif(!empty($row['received_at']))
+                                            <span class="ofi-status-pill is-received">Received</span>
+                                            <span class="ofi-receive-meta">
+                                                {{ ($row['received_by_name'] ?? '') !== '' ? $row['received_by_name'] : 'Your office' }}
+                                                · {{ $row['received_at'] }}
+                                            </span>
+                                        @else
+                                            —
+                                        @endif
+                                    </td>
                                 </tr>
                             @endforeach
                         </tbody>

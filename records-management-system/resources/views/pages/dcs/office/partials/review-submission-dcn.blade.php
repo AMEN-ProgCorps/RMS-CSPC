@@ -84,12 +84,12 @@
             @endphp
             @forelse($reviewerRows as $i => $rev)
             <div class="ofi-review-field">
-                <dt>Reviewed by / Date{{ count($reviewerRows) > 1 ? ' ('.($i + 1).')' : '' }}</dt>
+                <dt>Reviewed by{{ count($reviewerRows) > 1 ? ' ('.($i + 1).')' : '' }}</dt>
                 <dd class="ofi-show-reviewed">{{ $rev['label'] !== '' ? $rev['label'] : '—' }}</dd>
             </div>
             @empty
             <div class="ofi-review-field">
-                <dt>Reviewed by / Date</dt>
+                <dt>Reviewed by</dt>
                 <dd class="ofi-show-reviewed">{{ $dcn->reviewed_by_date ?: '—' }}</dd>
             </div>
             @endforelse
@@ -108,7 +108,6 @@
                     <tr>
                         <th>Position</th>
                         <th>Name</th>
-                        <th>Date</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -116,13 +115,6 @@
                         <tr>
                             <td>{{ $appr['position'] !== '' ? $appr['position'] : '—' }}</td>
                             <td>{{ $appr['name'] !== '' ? $appr['name'] : '—' }}</td>
-                            <td>
-                                @if(!empty($appr['date']))
-                                    {{ \Carbon\Carbon::parse($appr['date'])->format('M d, Y') }}
-                                @else
-                                    —
-                                @endif
-                            </td>
                         </tr>
                     @endforeach
                 </tbody>

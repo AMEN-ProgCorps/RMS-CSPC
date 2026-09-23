@@ -148,8 +148,11 @@ class OfficeIntakeHelper
         }
 
         $rows = $query->orderByDesc('dcn.id')->get($cols);
+        $linkedDrfIds = self::linkedDrfIdsForOfficeDcns(
+            $rows->pluck('id')->map(fn ($id) => (int) $id)->all()
+        );
 
-        return $rows->map(function ($row) {
+        return $rows->map(function ($row) use ($linkedDrfIds) {
             $meta = self::intakeRegistrationMeta('dcn', $row);
             $row->is_registered = $meta['is_registered'];
             $row->registered_doc_no = $meta['doc_no'];
@@ -157,6 +160,7 @@ class OfficeIntakeHelper
             $submission = self::intakeSubmissionMeta($row, 'dcn', (int) $row->id);
             $row->submitting_office = $submission['office'];
             $row->submitter_name = $submission['submitter'];
+            $row->linked_drf_id = $linkedDrfIds[(int) $row->id] ?? null;
 
             return $row;
         });
@@ -389,6 +393,7 @@ class OfficeIntakeHelper
         RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
         RegisterQueryHelper::applyExcludeOfficeIntakeRequests($query, 'dr');
         RegisterQueryHelper::applyLatestRevisionStatus($query, 'ml');
+        self::applyDcnDocumentTypeFilter($query);
 
         $select = [
             'ml.id as ml_id',
@@ -436,7 +441,7 @@ class OfficeIntakeHelper
         }
 
         throw \Illuminate\Validation\ValidationException::withMessages([
-            'documentNo' => 'Document No. is not registered (or not revisable). Only existing revisable documents can be used on a DCN.',
+            'documentNo' => 'Document No. is not a registered revisable Internal or External document. Forms, Internal Forms, and Logbooks cannot be used on a DCN.',
         ]);
     }
 
@@ -467,6 +472,7 @@ class OfficeIntakeHelper
         RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
         RegisterQueryHelper::applyExcludeOfficeIntakeRequests($query, 'dr');
         RegisterQueryHelper::applyLatestRevisionStatus($query, 'ml');
+        self::applyDcnDocumentTypeFilter($query);
 
         $select = [
             'ml.doc_no',
@@ -542,6 +548,35 @@ class OfficeIntakeHelper
         ];
     }
 
+    /**
+     * @param  list<int>  $dcnIds
+     * @return array<int, int>
+     */
+    public static function linkedDrfIdsForOfficeDcns(array $dcnIds): array
+    {
+        $dcnIds = array_values(array_unique(array_filter(array_map('intval', $dcnIds), static fn (int $id) => $id > 0)));
+        if ($dcnIds === [] || ! Schema::hasColumn('dcs_document_request_form', 'source_office_dcn_id')) {
+            return [];
+        }
+
+        $query = DB::table('dcs_document_request_form')
+            ->whereIn('source_office_dcn_id', $dcnIds)
+            ->orderBy('id');
+        if (Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
+            $query->where('is_office_intake', true);
+        }
+
+        $out = [];
+        foreach ($query->get(['id', 'source_office_dcn_id']) as $row) {
+            $dcnId = (int) $row->source_office_dcn_id;
+            if ($dcnId > 0 && ! isset($out[$dcnId])) {
+                $out[$dcnId] = (int) $row->id;
+            }
+        }
+
+        return $out;
+    }
+
     /** Linked office DRF id for this office DCN, if any. */
     public static function findLinkedDrfIdForOfficeDcn(int $dcnId): ?int
     {
@@ -599,6 +634,42 @@ class OfficeIntakeHelper
         ]);
     }
 
+    /** @return array{id: int|null, code: string, name: string, label: string} */
+    public static function currentUserOfficeForDcn(): array
+    {
+        $id = RegisterQueryHelper::currentOfficeId();
+        $code = trim((string) (RegisterQueryHelper::currentOfficeCode() ?? ''));
+        $name = RegisterQueryHelper::currentOfficeName();
+        $name = $name !== '—' ? trim($name) : '';
+        $label = '';
+        if ($code !== '' && $name !== '') {
+            $label = $code . ' — ' . $name;
+        } elseif ($name !== '') {
+            $label = $name;
+        } elseif ($code !== '') {
+            $label = $code;
+        }
+
+        return [
+            'id' => $id,
+            'code' => $code,
+            'name' => $name,
+            'label' => $label,
+        ];
+    }
+
+    private static function lockedDepartmentOfficeId(): int
+    {
+        $id = RegisterQueryHelper::currentOfficeId();
+        if (! $id) {
+            throw ValidationException::withMessages([
+                'departmentOfficeId' => 'Your account has no office assigned.',
+            ]);
+        }
+
+        return $id;
+    }
+
     public static function originatorMatchesUser(?string $originatorName, ?int $originatorAccountId = null): bool
     {
         return RegisterQueryHelper::originatorMatchesCurrentUser($originatorName, $originatorAccountId);
@@ -607,6 +678,7 @@ class OfficeIntakeHelper
     public static function storeDrf(Request $request): RedirectResponse
     {
         self::assertCanAccessIntake();
+        RegisterPersistHelper::blankStringsToNull($request);
 
         $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
         if (!$rateCheck['allowed']) {
@@ -751,6 +823,7 @@ class OfficeIntakeHelper
     public static function storeDcn(Request $request): RedirectResponse
     {
         self::assertCanAccessIntake();
+        RegisterPersistHelper::blankStringsToNull($request);
 
         $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
         if (!$rateCheck['allowed']) {
@@ -764,20 +837,14 @@ class OfficeIntakeHelper
             'changeTo' => 'required|string|max:5000',
             'dcnJustification' => 'required|string|max:5000',
             'originatorName' => 'required|string|max:255',
-            'departmentOfficeId' => 'required|integer',
             'departmentDate' => 'required|date',
             'reviewedByName' => 'required|array|min:1|max:9',
             'reviewedByName.0' => 'required|string|max:255',
             'reviewedByName.*' => 'nullable|string|max:255',
-            'reviewedByOn' => 'required|array|min:1|max:9',
-            'reviewedByOn.0' => 'required|date',
-            'reviewedByOn.*' => 'nullable|date',
             'approvalPosition' => 'nullable|array|max:9',
             'approvalPosition.*' => 'nullable|string|max:255',
             'approvalName' => 'nullable|array|max:9',
             'approvalName.*' => 'nullable|string|max:255',
-            'approvalDate' => 'nullable|array|max:9',
-            'approvalDate.*' => 'nullable|date',
             'alsoCreateDrf' => 'nullable|boolean',
             'confirmDataCorrect' => 'accepted',
         ]);
@@ -794,7 +861,7 @@ class OfficeIntakeHelper
             ]);
         }
         $departmentDateLabel = self::formatDepartmentDateLabel(
-            isset($data['departmentOfficeId']) ? (int) $data['departmentOfficeId'] : null,
+            self::lockedDepartmentOfficeId(),
             $data['departmentDate'] ?? null
         );
         $reviewers = self::reviewersPayloadFromRequest($data);
@@ -903,13 +970,13 @@ class OfficeIntakeHelper
         return redirect()
             ->route('dcs.office.dcn.show', $id)
             ->with('success', 'Document Change Notice saved. This document cannot be edited.')
-            ->with('locked', true)
-            ->with('offer_create_drf', true);
+            ->with('locked', true);
     }
 
     public static function updateDrf(Request $request, int $id): RedirectResponse
     {
         self::assertCanAccessIntake();
+        RegisterPersistHelper::blankStringsToNull($request);
         abort_unless(self::canOfficeEditIntake('drf', $id), 403, self::IMMUTABLE_MESSAGE);
 
         $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
@@ -1007,6 +1074,7 @@ class OfficeIntakeHelper
     public static function updateDcn(Request $request, int $id): RedirectResponse
     {
         self::assertCanAccessIntake();
+        RegisterPersistHelper::blankStringsToNull($request);
         abort_unless(self::canOfficeEditIntake('dcn', $id), 403, self::IMMUTABLE_MESSAGE);
 
         $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
@@ -1021,20 +1089,14 @@ class OfficeIntakeHelper
             'changeTo' => 'required|string|max:5000',
             'dcnJustification' => 'required|string|max:5000',
             'originatorName' => 'required|string|max:255',
-            'departmentOfficeId' => 'required|integer',
             'departmentDate' => 'required|date',
             'reviewedByName' => 'required|array|min:1|max:9',
             'reviewedByName.0' => 'required|string|max:255',
             'reviewedByName.*' => 'nullable|string|max:255',
-            'reviewedByOn' => 'required|array|min:1|max:9',
-            'reviewedByOn.0' => 'required|date',
-            'reviewedByOn.*' => 'nullable|date',
             'approvalPosition' => 'nullable|array|max:9',
             'approvalPosition.*' => 'nullable|string|max:255',
             'approvalName' => 'nullable|array|max:9',
             'approvalName.*' => 'nullable|string|max:255',
-            'approvalDate' => 'nullable|array|max:9',
-            'approvalDate.*' => 'nullable|date',
             'confirmDataCorrect' => 'accepted',
         ]);
 
@@ -1050,7 +1112,7 @@ class OfficeIntakeHelper
             ]);
         }
         $departmentDateLabel = self::formatDepartmentDateLabel(
-            isset($data['departmentOfficeId']) ? (int) $data['departmentOfficeId'] : null,
+            self::lockedDepartmentOfficeId(),
             $data['departmentDate'] ?? null
         );
         $reviewers = self::reviewersPayloadFromRequest($data);
@@ -1174,31 +1236,12 @@ class OfficeIntakeHelper
         return null;
     }
 
-    /** Format Reviewed by display: "NAME / Mmm DD, YYYY". */
-    private static function formatReviewedByLabel(?string $name, ?string $date): ?string
+    /** Format Reviewed by display: name only (dates are left blank for wet-ink). */
+    private static function formatReviewedByLabel(?string $name, ?string $date = null): ?string
     {
         $name = trim((string) $name);
-        $dateLabel = '';
-        $date = trim((string) $date);
-        if ($date !== '') {
-            try {
-                $dateLabel = \Carbon\Carbon::parse($date)->format('M d, Y');
-            } catch (\Throwable) {
-                $dateLabel = '';
-            }
-        }
 
-        if ($name !== '' && $dateLabel !== '') {
-            return $name . ' / ' . $dateLabel;
-        }
-        if ($name !== '') {
-            return $name;
-        }
-        if ($dateLabel !== '') {
-            return $dateLabel;
-        }
-
-        return null;
+        return $name !== '' ? $name : null;
     }
 
     /**
@@ -1208,12 +1251,8 @@ class OfficeIntakeHelper
     public static function reviewersPayloadFromRequest(array $data): array
     {
         $names = $data['reviewedByName'] ?? [];
-        $dates = $data['reviewedByOn'] ?? [];
         if (! is_array($names)) {
             $names = [];
-        }
-        if (! is_array($dates)) {
-            $dates = [];
         }
 
         // Legacy single-field form names (reviewedByName / reviewedByName2).
@@ -1222,31 +1261,17 @@ class OfficeIntakeHelper
                 (string) ($data['reviewedByName'] ?? ''),
                 (string) ($data['reviewedByName2'] ?? ''),
             ];
-            $dates = [
-                (string) ($data['reviewedByOn'] ?? ''),
-                (string) ($data['reviewedByOn2'] ?? ''),
-            ];
         }
 
-        $count = max(count($names), count($dates));
         $rows = [];
-        for ($i = 0; $i < $count; $i++) {
-            $name = trim((string) ($names[$i] ?? ''));
-            $date = trim((string) ($dates[$i] ?? ''));
-            if ($name === '' && $date === '') {
+        foreach ($names as $rawName) {
+            $name = trim((string) $rawName);
+            if ($name === '') {
                 continue;
-            }
-            $dateOut = null;
-            if ($date !== '') {
-                try {
-                    $dateOut = \Carbon\Carbon::parse($date)->format('Y-m-d');
-                } catch (\Throwable) {
-                    $dateOut = null;
-                }
             }
             $rows[] = [
                 'name' => $name,
-                'date' => $dateOut,
+                'date' => null,
             ];
             if (count($rows) >= 9) {
                 break;
@@ -1517,38 +1542,25 @@ class OfficeIntakeHelper
     {
         $positions = $data['approvalPosition'] ?? [];
         $names = $data['approvalName'] ?? [];
-        $dates = $data['approvalDate'] ?? [];
         if (! is_array($positions)) {
             $positions = [];
         }
         if (! is_array($names)) {
             $names = [];
         }
-        if (! is_array($dates)) {
-            $dates = [];
-        }
 
-        $count = max(count($positions), count($names), count($dates));
+        $count = max(count($positions), count($names));
         $rows = [];
         for ($i = 0; $i < $count; $i++) {
             $position = trim((string) ($positions[$i] ?? ''));
             $name = trim((string) ($names[$i] ?? ''));
-            $date = trim((string) ($dates[$i] ?? ''));
-            if ($position === '' && $name === '' && $date === '') {
+            if ($position === '' && $name === '') {
                 continue;
-            }
-            $dateOut = null;
-            if ($date !== '') {
-                try {
-                    $dateOut = \Carbon\Carbon::parse($date)->format('Y-m-d');
-                } catch (\Throwable) {
-                    $dateOut = null;
-                }
             }
             $rows[] = [
                 'position' => $position,
                 'name' => $name,
-                'date' => $dateOut,
+                'date' => null,
             ];
             if (count($rows) >= 9) {
                 break;
@@ -2122,7 +2134,9 @@ class OfficeIntakeHelper
             abort(422, 'Edit unlock is not available yet. Please run migrations.');
         }
 
-        $reason = trim($reason);
+        $reason = strip_tags(html_entity_decode((string) $reason, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $reason = trim(preg_replace('/\s+/u', ' ', str_replace("\0", '', $reason)) ?? '');
+        $reason = mb_substr($reason, 0, 1000);
         abort_if($reason === '' || mb_strlen($reason) < 5, 422, 'Please provide a short reason (at least 5 characters).');
 
         $now = now();
@@ -3010,6 +3024,23 @@ class OfficeIntakeHelper
         return self::applyOfficeInventoryCommonFilters($query);
     }
 
+    /** Office DCN Document No. lookup is Internal and External only. */
+    public static function dcnDocumentGroupKeys(): array
+    {
+        return ['internal_docs', 'external_docs'];
+    }
+
+    protected static function applyDcnDocumentTypeFilter($query)
+    {
+        return $query->where(function ($outer) {
+            foreach (self::dcnDocumentGroupKeys() as $key) {
+                $outer->orWhere(function ($q) use ($key) {
+                    self::applyMasterlistGroupFilter($q, $key);
+                });
+            }
+        });
+    }
+
     /**
      * Filter by parent document type the same way Inventory type tabs do
      * (dcs_document_requests.doc_type_id = parent type id).
@@ -3082,7 +3113,18 @@ class OfficeIntakeHelper
     }
 
     /**
-     * @return list<array{item_no: int, doc_no: string, rev_no: int, doc_title: string, pages: string, effectivity_date: string|null}>
+     * @return list<array{
+     *     item_no: int,
+     *     request_id: int,
+     *     doc_no: string,
+     *     rev_no: int,
+     *     doc_title: string,
+     *     pages: string,
+     *     effectivity_date: string|null,
+     *     can_receive: bool,
+     *     received_at: string|null,
+     *     received_by_name: string
+     * }>
      */
     public static function listOfficeDocuments(string $groupKey, ?int $officeId = null): array
     {
@@ -3113,12 +3155,20 @@ class OfficeIntakeHelper
         if (Schema::hasColumn('dcs_masterlist_registration', 'no_pages')) {
             $select[] = 'ml.no_pages';
         }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'request_id')) {
+            $select[] = 'ml.request_id';
+        }
 
         $records = $query
             ->orderByRaw("CASE WHEN COALESCE(TRIM(ml.doc_no), '') = '' THEN 1 ELSE 0 END")
             ->orderBy('ml.doc_no')
             ->orderBy('ml.id')
             ->get($select);
+
+        $receipts = self::officeDistributionReceipts(
+            $officeId,
+            $records->pluck('request_id')->filter()->map(fn ($id) => (int) $id)->unique()->all()
+        );
 
         $rows = [];
         $itemNo = 0;
@@ -3128,8 +3178,12 @@ class OfficeIntakeHelper
             $pages = ($pagesRaw !== null && $pagesRaw !== '')
                 ? (string) (int) $pagesRaw
                 : '';
+            $requestId = (int) ($ml->request_id ?? 0);
+            $receipt = $receipts[$requestId] ?? null;
+            $receivedAt = $receipt['received_at'] ?? null;
             $rows[] = [
                 'item_no' => $itemNo,
+                'request_id' => $requestId,
                 'doc_no' => (string) ($ml->doc_no ?? ''),
                 'rev_no' => (int) ($ml->revise_no ?? 0),
                 'doc_title' => (string) ($ml->doc_title ?? ''),
@@ -3137,10 +3191,132 @@ class OfficeIntakeHelper
                 'effectivity_date' => $ml->effectivity_date
                     ? \Carbon\Carbon::parse($ml->effectivity_date)->format('M d, Y')
                     : null,
+                'can_receive' => $requestId > 0 && $receipt !== null && $receivedAt === null,
+                'received_at' => $receivedAt,
+                'received_by_name' => (string) ($receipt['received_by_name'] ?? ''),
             ];
         }
 
         return $rows;
+    }
+
+    /**
+     * @param  list<int>  $requestIds
+     * @return array<int, array{received_at: string|null, received_by_name: string}>
+     */
+    protected static function officeDistributionReceipts(int $officeId, array $requestIds): array
+    {
+        $requestIds = array_values(array_filter($requestIds, static fn (int $id) => $id > 0));
+        if ($requestIds === [] || ! Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
+            return [];
+        }
+
+        $rows = DB::table('dcs_document_distribution as dist')
+            ->join('dcs_distribution_offices as doff', 'doff.distribution_id', '=', 'dist.id')
+            ->whereIn('dist.request_id', $requestIds)
+            ->where('doff.office_id', $officeId)
+            ->get([
+                'dist.request_id',
+                'doff.office_received_at',
+                'doff.office_received_by',
+            ]);
+
+        $names = [];
+        $receiverIds = $rows
+            ->pluck('office_received_by')
+            ->filter(fn ($id) => $id !== null && (int) $id > 0)
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+        if ($receiverIds !== []) {
+            $accDetailsTbl = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+            $names = DB::table($accDetailsTbl)
+                ->whereIn('account_id', $receiverIds)
+                ->get(['account_id', 'first_name', 'last_name'])
+                ->mapWithKeys(fn ($d) => [
+                    (int) $d->account_id => trim(trim((string) ($d->first_name ?? '')) . ' ' . trim((string) ($d->last_name ?? ''))),
+                ])
+                ->all();
+        }
+
+        $out = [];
+        foreach ($rows as $row) {
+            $requestId = (int) $row->request_id;
+            $rid = (int) ($row->office_received_by ?? 0);
+            $out[$requestId] = [
+                'received_at' => $row->office_received_at
+                    ? \Carbon\Carbon::parse($row->office_received_at)->format('M d, Y g:i A')
+                    : null,
+                'received_by_name' => $rid > 0 ? trim((string) ($names[$rid] ?? '')) : '',
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return array{ok: bool, already?: bool, message: string}
+     */
+    public static function markOfficeDocumentReceived(int $requestId): array
+    {
+        self::assertCanAccessIntake();
+
+        $officeId = RegisterQueryHelper::currentOfficeId();
+        if (! $officeId || $requestId <= 0) {
+            return ['ok' => false, 'message' => 'Your office is not assigned to this document.'];
+        }
+        if (! Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
+            return ['ok' => false, 'message' => 'Physical receipt is not available yet.'];
+        }
+
+        $row = DB::table('dcs_document_distribution as dist')
+            ->join('dcs_distribution_offices as doff', 'doff.distribution_id', '=', 'dist.id')
+            ->where('dist.request_id', $requestId)
+            ->where('doff.office_id', $officeId)
+            ->select('doff.id', 'doff.office_received_at', 'doff.office_received_by')
+            ->first();
+
+        if (! $row) {
+            return ['ok' => false, 'message' => 'This document is not listed for your office.'];
+        }
+
+        $ml = Schema::hasTable('dcs_masterlist_registration')
+            ? DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first(['doc_title', 'doc_no'])
+            : null;
+        $title = trim((string) ($ml->doc_title ?? ''));
+        $docNo = trim((string) ($ml->doc_no ?? ''));
+
+        if (! empty($row->office_received_at)) {
+            $who = self::displayNameForUser((int) ($row->office_received_by ?? 0));
+
+            return [
+                'ok' => true,
+                'already' => true,
+                'message' => $who !== ''
+                    ? "This document was already received by {$who}."
+                    : 'This document was already received by your office.',
+            ];
+        }
+
+        $userId = (int) (auth()->id() ?? 0);
+        DB::table('dcs_distribution_offices')->where('id', $row->id)->update([
+            'office_received_at' => now(),
+            'office_received_by' => $userId > 0 ? $userId : null,
+        ]);
+
+        $officeCode = RegisterQueryHelper::currentOfficeCode();
+        if ($officeCode) {
+            DcsNotificationService::notifyOfficeDocumentReceived(
+                $officeCode,
+                RegisterQueryHelper::currentUserDisplayName(),
+                $title !== '' ? $title : $docNo,
+                $docNo !== '' ? $docNo : null,
+                $userId > 0 ? $userId : null
+            );
+        }
+
+        return ['ok' => true, 'already' => false, 'message' => 'Document marked as received.'];
     }
 
     /**

@@ -176,9 +176,15 @@ class OfficeDcnDocNoDrfTest extends TestCase
     /** @return array{doc_no: string, doc_title: string, request_id: int} */
     private function insertRevisableRegistration(string $suffix): array
     {
-        $docTypeId = (int) (DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('id')->value('id') ?: 0);
+        $docTypeId = (int) (\App\Helpers\RegisterQueryHelper::parentTypeIdMap()['internal_docs'] ?? 0);
         if ($docTypeId < 1) {
-            $payload = ['doc_type_name' => 'DCN Revisable Type ' . $suffix, 'parent_id' => null];
+            $docTypeId = (int) (DB::table('dcs_doc_types')
+                ->whereNull('parent_id')
+                ->whereRaw('LOWER(TRIM(doc_type_name)) = ?', ['internal'])
+                ->value('id') ?: 0);
+        }
+        if ($docTypeId < 1) {
+            $payload = ['doc_type_name' => 'Internal', 'parent_id' => null];
             if (Schema::hasColumn('dcs_doc_types', 'allows_revision')) {
                 $payload['allows_revision'] = true;
             }
@@ -296,6 +302,12 @@ class OfficeDcnDocNoDrfTest extends TestCase
             'is_office_intake' => true,
             'created_by' => $this->limitedUserId,
         ]);
+
+        $show = $this->actingAs(User::find($this->limitedUserId))
+            ->get($response->headers->get('Location') ?? '');
+        $show->assertOk();
+        $show->assertSee('Create DRF', false);
+        $show->assertDontSee('View linked DRF', false);
     }
 
     public function test_limited_user_can_search_revisable_documents_campus_wide(): void

@@ -1,7 +1,6 @@
 <?php
 
 use App\Helpers\OfficeIntakeHelper;
-use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -14,45 +13,13 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
 
     public function with(): array
     {
-        $catalog = RegisterQueryHelper::jsCatalog();
-        $offices = $catalog['offices'] ?? [];
-        $clusters = $catalog['clusters'] ?? [];
-
-        $officesByCluster = [];
-        foreach ($clusters as $cluster) {
-            $code = (string) ($cluster['cluster_code'] ?? '');
-            if ($code === '') {
-                continue;
-            }
-            $officesByCluster[$code] = [
-                'label' => (string) ($cluster['cluster_name'] ?? $code),
-                'offices' => [],
-            ];
-        }
-
-        $unassigned = [];
-        foreach ($offices as $office) {
-            $code = trim((string) ($office['cluster'] ?? ''));
-            if ($code !== '' && isset($officesByCluster[$code])) {
-                $officesByCluster[$code]['offices'][] = $office;
-            } else {
-                $unassigned[] = $office;
-            }
-        }
-
-        $groupedOffices = array_values(array_filter(
-            $officesByCluster,
-            fn (array $group) => $group['offices'] !== []
-        ));
-        if ($unassigned !== []) {
-            $groupedOffices[] = [
-                'label' => 'Other',
-                'offices' => $unassigned,
-            ];
-        }
+        $office = OfficeIntakeHelper::currentUserOfficeForDcn();
 
         return [
-            'groupedOffices' => $groupedOffices,
+            'userOfficeId' => $office['id'],
+            'userOfficeCode' => $office['code'],
+            'userOfficeName' => $office['name'],
+            'userOfficeLabel' => $office['label'] !== '' ? $office['label'] : 'Your office',
         ];
     }
 }; ?>
@@ -114,29 +81,12 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                                 <input type="text" id="originatorName" name="originatorName" value="{{ old('originatorName') }}" required maxlength="255" placeholder="Enter originator name">
                             </div>
                             <div class="reg-grid-2-1">
-                                <div class="reg-field">
-                                    <label for="departmentOfficeId">Department <span class="ofi-req">*</span></label>
-                                    <select id="departmentOfficeId" name="departmentOfficeId" required>
-                                        <option value="">Select department…</option>
-                                        @foreach($groupedOffices as $group)
-                                            <optgroup label="{{ $group['label'] }}">
-                                                @foreach($group['offices'] as $office)
-                                                    @php
-                                                        $officeId = (int) ($office['office_id'] ?? 0);
-                                                        $code = trim((string) ($office['office_code'] ?? ''));
-                                                        $name = trim((string) ($office['office_name'] ?? ''));
-                                                        $label = $code !== '' && $name !== ''
-                                                            ? $code . ' — ' . $name
-                                                            : ($name !== '' ? $name : $code);
-                                                    @endphp
-                                                    @if($officeId > 0 && $label !== '')
-                                                        <option value="{{ $officeId }}" @selected((string) old('departmentOfficeId') === (string) $officeId)>{{ $label }}</option>
-                                                    @endif
-                                                @endforeach
-                                            </optgroup>
-                                        @endforeach
-                                    </select>
-                                </div>
+                                @include('pages.dcs.office.partials.dcn-department-field', [
+                                    'userOfficeId' => $userOfficeId ?? 0,
+                                    'userOfficeCode' => $userOfficeCode ?? '',
+                                    'userOfficeName' => $userOfficeName ?? '',
+                                    'userOfficeLabel' => $userOfficeLabel ?? '',
+                                ])
                                 <div class="reg-field">
                                     <label for="departmentDate">Date <span class="ofi-req">*</span></label>
                                     <input type="date" id="departmentDate" name="departmentDate" value="{{ old('departmentDate') }}" required>

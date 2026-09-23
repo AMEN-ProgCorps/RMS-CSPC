@@ -23,7 +23,7 @@
             <input type="text" id="dcnDocumentNo" name="documentNo"
                 value="{{ $initialDocNo }}"
                 required maxlength="150"
-                placeholder="Search an existing registered Document No."
+                placeholder="Search a registered Internal or External Document No."
                 autocomplete="off"
                 aria-autocomplete="list"
                 aria-controls="dcnDocNoResults"
@@ -40,7 +40,7 @@
             </span>
             <button type="button" class="ofi-chip-x" id="dcnDocNoClear" title="Clear selection" aria-label="Clear selected document">&times;</button>
         </div>
-        <p class="ofi-hint">Search and confirm an <strong>existing</strong> registered Document No. that allows revision. Unknown numbers are rejected on save.</p>
+        <p class="ofi-hint">Search and confirm an existing registered <strong>Internal</strong> or <strong>External</strong> Document No. that allows revision. Forms, Internal Forms, and Logbooks are not listed here.</p>
     </div>
 </div>
 

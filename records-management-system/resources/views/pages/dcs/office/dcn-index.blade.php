@@ -88,6 +88,13 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                             <td>{{ $row->originator_name ?: '—' }}</td>
                             <td class="ofi-actions">
                                 <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}" title="View"><i class="fa-solid fa-eye"></i></a>
+                                @unless($isReviewer ?? false)
+                                    @if(! empty($row->linked_drf_id))
+                                        <a href="{{ route('dcs.office.drf.show', $row->linked_drf_id, absolute: false) }}" title="View linked DRF"><i class="fa-solid fa-file-lines"></i></a>
+                                    @else
+                                        <a href="{{ route('dcs.office.drf.create', ['from_dcn' => $row->id], absolute: false) }}" title="Create DRF"><i class="fa-solid fa-file-circle-plus"></i></a>
+                                    @endif
+                                @endunless
                                 <a href="{{ route('dcs.office.dcn.print', $row->id, absolute: false) }}" target="_blank" title="{{ ($isReviewer ?? false) ? 'Open print form' : 'Print' }}"><i class="fa-solid fa-print"></i></a>
                             </td>
                         </tr>

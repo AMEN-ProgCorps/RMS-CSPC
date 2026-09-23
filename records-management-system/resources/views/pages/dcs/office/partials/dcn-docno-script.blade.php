@@ -130,7 +130,7 @@
         if (!activeItems.length) {
             const empty = document.createElement('div');
             empty.className = 'ofi-docno-empty';
-            empty.textContent = 'No revisable registered documents found.';
+            empty.textContent = 'No revisable Internal or External documents found.';
             results.appendChild(empty);
             results.style.display = 'block';
             input.setAttribute('aria-expanded', 'true');

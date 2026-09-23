@@ -14,20 +14,13 @@
                         <i class="fa-solid fa-xmark"></i> Remove
                     </button>
                 </div>
-                <div class="reg-grid-2-1">
-                    <div class="reg-field">
-                        <label>Name @if($i === 0)<span class="ofi-req">*</span>@endif</label>
-                        <input type="text" name="reviewedByName[]" value="{{ $rev['name'] ?? '' }}"
-                            @if($i === 0) required @endif
-                            maxlength="255"
-                            placeholder="{{ $i === 0 ? 'Reviewer name' : 'Reviewer name' }}"
-                            autocomplete="name">
-                    </div>
-                    <div class="reg-field">
-                        <label>Date @if($i === 0)<span class="ofi-req">*</span>@endif</label>
-                        <input type="date" name="reviewedByOn[]" value="{{ $rev['date'] ?? '' }}"
-                            @if($i === 0) required @endif>
-                    </div>
+                <div class="reg-field">
+                    <label>Name @if($i === 0)<span class="ofi-req">*</span>@endif</label>
+                    <input type="text" name="reviewedByName[]" value="{{ $rev['name'] ?? '' }}"
+                        @if($i === 0) required @endif
+                        maxlength="255"
+                        placeholder="Reviewer name"
+                        autocomplete="name">
                 </div>
             </div>
         @endforeach
@@ -45,15 +38,9 @@
                 <i class="fa-solid fa-xmark"></i> Remove
             </button>
         </div>
-        <div class="reg-grid-2-1">
-            <div class="reg-field">
-                <label>Name</label>
-                <input type="text" name="reviewedByName[]" value="" maxlength="255" placeholder="Reviewer name" autocomplete="name">
-            </div>
-            <div class="reg-field">
-                <label>Date</label>
-                <input type="date" name="reviewedByOn[]" value="">
-            </div>
+        <div class="reg-field">
+            <label>Name</label>
+            <input type="text" name="reviewedByName[]" value="" maxlength="255" placeholder="Reviewer name" autocomplete="name">
         </div>
     </div>
 </template>

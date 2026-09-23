@@ -546,6 +546,20 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     border-bottom: 1px solid #e2e8f0;
     padding: 8px 10px;
 }
+.ofi-receive-cell {
+    min-width: 168px;
+}
+.ofi-receive-cell .ofi-btn-sm.primary {
+    white-space: nowrap;
+}
+.ofi-receive-meta {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    color: #64748b;
+    line-height: 1.35;
+}
+
 .ofi-table td {
     padding: 12px 10px;
     border-bottom: 1px solid #f1f5f9;
@@ -572,6 +586,20 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 .ofi-alert.ok { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
 .ofi-alert.err { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
 .ofi-alert ul { margin: 0; padding-left: 18px; }
+.ofi-create-drf-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.ofi-create-drf-banner strong {
+    display: block;
+    margin-bottom: 2px;
+}
+.ofi-create-drf-banner .reg-btn {
+    white-space: nowrap;
+}
 .ofi-lock-banner {
     display: flex;
     align-items: center;
@@ -1392,6 +1420,74 @@ body.ofi-docno-use-open {
     color: #0f172a;
     margin: 0;
     line-height: 1.35;
+}
+.ofi-dept-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 42px;
+    padding: 6px 10px;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    box-sizing: border-box;
+}
+.ofi-dept-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    flex-shrink: 0;
+}
+.ofi-dept-body {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+.ofi-dept-code {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: #1d4ed8;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    flex-shrink: 0;
+}
+.ofi-dept-name {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    font-size: 0.85rem;
+    font-weight: 650;
+    color: #0f172a;
+    cursor: default;
+}
+.ofi-dept-name:focus {
+    outline: none;
+}
+.ofi-dept-lock {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.ofi-dept-field .ofi-hint {
+    color: #64748b;
 }
 .ofi-dcn-doc-fields {
     display: flex;

@@ -66,7 +66,7 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                 @unless($isIntakeReviewer ?? false)
                     @if($canCreateDrf ?? true)
                         <a href="{{ route('dcs.office.drf.create', ['from_dcn' => $dcn->id], absolute: false) }}" class="reg-btn reg-btn-save">
-                            <i class="fa-solid fa-file-circle-plus"></i> Create DRF for this change
+                            <i class="fa-solid fa-file-circle-plus"></i> Create DRF
                         </a>
                     @elseif(! empty($linkedDrfId))
                         <a href="{{ route('dcs.office.drf.show', $linkedDrfId, absolute: false) }}" class="reg-btn reg-btn-save">
@@ -162,13 +162,13 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                         @endphp
                         @foreach($reviewerRows as $i => $rev)
                         <div class="reg-field">
-                            <label>Reviewed by / Date{{ count($reviewerRows) > 1 ? ' ('.($i + 1).')' : '' }}</label>
+                            <label>Reviewed by{{ count($reviewerRows) > 1 ? ' ('.($i + 1).')' : '' }}</label>
                             <div class="ofi-show-value ofi-show-reviewed">{{ $rev['label'] !== '' ? $rev['label'] : '—' }}</div>
                         </div>
                         @endforeach
                         @if($reviewerRows === [])
                         <div class="reg-field">
-                            <label>Reviewed by / Date</label>
+                            <label>Reviewed by</label>
                             <div class="ofi-show-value ofi-show-reviewed">{{ $dcn->reviewed_by_date ?: '—' }}</div>
                         </div>
                         @endif
@@ -184,7 +184,6 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                                         <tr>
                                             <th>Position</th>
                                             <th>Name</th>
-                                            <th>Date</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -192,13 +191,6 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                                             <tr>
                                                 <td>{{ $appr['position'] !== '' ? $appr['position'] : '—' }}</td>
                                                 <td>{{ $appr['name'] !== '' ? $appr['name'] : '—' }}</td>
-                                                <td>
-                                                    @if(!empty($appr['date']))
-                                                        {{ \Carbon\Carbon::parse($appr['date'])->format('M d, Y') }}
-                                                    @else
-                                                        —
-                                                    @endif
-                                                </td>
                                             </tr>
                                         @endforeach
                                     </tbody>

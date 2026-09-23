@@ -10,7 +10,7 @@
     }
 
     function stripTags(s) {
-        return String(s ?? '').replace(/<[^>]*>/g, '').replace(/[<>]/g, '');
+        return String(s ?? '').replace(/[<>]/g, '');
     }
 
     function sanitizeFormFields(form) {

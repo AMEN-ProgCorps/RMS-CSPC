@@ -1176,7 +1176,7 @@ function sanitizeFormFields(form) {
         const type = String(el.type || '').toLowerCase();
         if (el.disabled || typeof el.value !== 'string') return;
         if (['password', 'hidden', 'file', 'checkbox', 'radio', 'submit', 'button'].includes(type)) return;
-        const stripped = String(el.value).replace(/<[^>]*>/g, '').replace(/[<>]/g, '');
+        const stripped = String(el.value).replace(/[<>]/g, '');
         const next = el.tagName === 'TEXTAREA'
             ? stripped.replace(/\r\n|\r/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
             : stripped.replace(/\s+/g, ' ').trim();

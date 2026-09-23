@@ -298,7 +298,7 @@
         const id = currentPayload.id;
         const els = footerEls();
         const reason = String(els.unlockReason?.value || '')
-            .replace(/<[^>]*>/g, '')
+            .replace(/[<>]/g, '')
             .replace(/\s+/g, ' ')
             .trim();
         if (els.unlockReason) {

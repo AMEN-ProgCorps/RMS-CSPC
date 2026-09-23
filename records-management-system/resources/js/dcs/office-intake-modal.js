@@ -297,7 +297,13 @@
         const type = currentPayload.type;
         const id = currentPayload.id;
         const els = footerEls();
-        const reason = (els.unlockReason?.value || '').trim();
+        const reason = String(els.unlockReason?.value || '')
+            .replace(/<[^>]*>/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (els.unlockReason) {
+            els.unlockReason.value = reason;
+        }
         if (reason.length < 5) {
             if (els.unlockMeta) {
                 els.unlockMeta.textContent = 'Enter a reason (at least 5 characters).';

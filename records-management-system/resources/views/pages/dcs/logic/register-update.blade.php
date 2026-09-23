@@ -2,6 +2,7 @@
 
 namespace App\Helpers;
 
+use App\Services\DcsNotificationService;
 use App\Services\DocumentStorageService;
 use App\Services\StampBackupService;
 use Illuminate\Http\RedirectResponse;
@@ -173,6 +174,8 @@ class RegisterUpdateHelper
         if ($redirect = RegisterPersistHelper::validateMasterlistHasData($request, requireScan: false)) {
             return $redirect;
         }
+
+        $addedDistOfficeIds = [];
 
         DB::beginTransaction();
         $uploadedFiles = [];
@@ -639,8 +642,17 @@ class RegisterUpdateHelper
                         'created_at' => $now,
                     ]));
                 }
-                DB::table('dcs_distribution_offices')->where('distribution_id', $distributionId)->delete();
+                $previousDistOfficeIds = DB::table('dcs_distribution_offices')
+                    ->where('distribution_id', $distributionId)
+                    ->pluck('office_id')
+                    ->map(fn ($oid) => (int) $oid)
+                    ->all();
                 RegisterPersistHelper::saveDistributionOffices($distributionId, $request);
+                $newDistOfficeIds = array_values(array_unique(array_filter(array_map(
+                    'intval',
+                    (array) $request->input('distOffice', [])
+                ))));
+                $addedDistOfficeIds = array_values(array_diff($newDistOfficeIds, $previousDistOfficeIds));
             }
 
             if ($approvalStatus === 'applicable' && $request->filled('approvalBody')) {
@@ -675,10 +687,6 @@ class RegisterUpdateHelper
 
             DB::commit();
 
-            if (! $saveAsDraft) {
-                RegisterQueryHelper::clearEditRequestState((int) $id);
-            }
-
             foreach ($filesToDelete as $file) {
                 DocumentStorageService::deleteDcsScan($file);
             }
@@ -696,6 +704,24 @@ class RegisterUpdateHelper
                 RegisterPersistHelper::syncDrfTitleForRequest((int) $requestId, $savedTitle);
             } catch (\Throwable $e) {
                 Log::warning('DRF title sync after update skipped: '.$e->getMessage());
+            }
+
+            if (! $saveAsDraft && $addedDistOfficeIds !== []) {
+                $notifyDocNo = trim((string) ($ml->doc_no ?? $docNo ?? ''));
+                $notifyTitle = trim((string) $savedTitle);
+                $revNo = isset($ml->revise_no) ? (int) $ml->revise_no : null;
+                $actorOffice = RegisterQueryHelper::currentOfficeCode();
+                foreach (DcsNotificationService::officeCodesFromIds($addedDistOfficeIds) as $officeCode) {
+                    if ($actorOffice && strtoupper($officeCode) === strtoupper($actorOffice)) {
+                        continue;
+                    }
+                    DcsNotificationService::notifyDocumentDistributed(
+                        $officeCode,
+                        $notifyDocNo,
+                        $notifyTitle !== '' ? $notifyTitle : null,
+                        $revNo
+                    );
+                }
             }
 
             RegisterPersistHelper::logAdminChange(
@@ -768,7 +794,9 @@ class RegisterUpdateHelper
         $isDraft = RegisterQueryHelper::supportsDrafts() && ! empty($docRequest->is_draft);
         $listRoute = $isDraft ? 'dcs.register.drafts' : 'dcs.register.update';
 
-        $reason = trim(preg_replace('/\s+/u', ' ', $reason) ?? '');
+        $reason = strip_tags(html_entity_decode((string) $reason, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $reason = trim(preg_replace('/\s+/u', ' ', str_replace("\0", '', $reason)) ?? '');
+        $reason = mb_substr($reason, 0, 1000);
         if ($reason === '' || mb_strlen($reason) < 5) {
             return self::flashRedirect(
                 $listRoute,
@@ -814,10 +842,6 @@ class RegisterUpdateHelper
             }
             if (Schema::hasColumn('dcs_document_requests', 'deleted_reason')) {
                 $update['deleted_reason'] = $reason;
-            }
-            $clearEdit = RegisterQueryHelper::editRequestClearPayload();
-            if ($clearEdit !== null) {
-                $update = array_merge($update, $clearEdit);
             }
             DB::table('dcs_document_requests')->where('id', $id)->update($update);
 
@@ -901,10 +925,6 @@ class RegisterUpdateHelper
         }
         if (Schema::hasColumn('dcs_document_requests', 'deleted_reason')) {
             $update['deleted_reason'] = null;
-        }
-        $clearEdit = RegisterQueryHelper::editRequestClearPayload();
-        if ($clearEdit !== null) {
-            $update = array_merge($update, $clearEdit);
         }
         DB::table('dcs_document_requests')->where('id', $id)->update($update);
 
@@ -1114,307 +1134,5 @@ class RegisterUpdateHelper
         foreach ($ids as $id) {
             StampBackupService::invalidate($requestId, 'syllabi_drf_' . $id);
         }
-    }
-
-    public static function requestEdit(int $id, string $reason): RedirectResponse
-    {
-        RegisterQueryHelper::assertFullDcsUser('register');
-        abort_unless(RegisterQueryHelper::supportsEditRequests(), 422, 'Edit requests are not available yet. Please run migrations.');
-
-        $docRequest = RegisterQueryHelper::findDocumentRequest($id);
-        abort_unless($docRequest, 404);
-        RegisterQueryHelper::assertCanAccessRequest($id);
-
-        if (RegisterQueryHelper::isDraftDocument($docRequest)) {
-            return self::flashRedirect('dcs.register.update', 'error', 'Drafts can be edited without a request.');
-        }
-        if (RegisterQueryHelper::isDocumentControlHead()) {
-            return self::flashRedirect('dcs.register.update', 'error', 'HEAD Admin of DCS can edit documents directly.');
-        }
-        if (RegisterQueryHelper::canEditDocument($id, $docRequest)) {
-            return self::flashRedirect(
-                'dcs.register.edit',
-                'success',
-                'This document is already unlocked for editing.',
-                [$id]
-            );
-        }
-        if (RegisterQueryHelper::hasPendingEditRequest($docRequest)) {
-            return self::flashRedirect(
-                'dcs.register.update',
-                'error',
-                'An edit request for this document is already waiting for HEAD Admin approval.'
-            );
-        }
-
-        $reason = trim(preg_replace('/\s+/u', ' ', $reason) ?? '');
-        if ($reason === '' || mb_strlen($reason) < 5) {
-            return self::flashRedirect(
-                'dcs.register.update',
-                'error',
-                'Please provide a reason for the edit request (at least 5 characters).'
-            );
-        }
-        if (mb_strlen($reason) > 1000) {
-            return self::flashRedirect(
-                'dcs.register.update',
-                'error',
-                'Edit request reason must be 1000 characters or fewer.'
-            );
-        }
-
-        $now = now();
-        $userId = (int) auth()->id();
-        DB::table('dcs_document_requests')->where('id', $id)->update([
-            'edit_request_status' => 'pending',
-            'edit_request_reason' => mb_substr($reason, 0, 1000),
-            'edit_request_by' => $userId > 0 ? $userId : null,
-            'edit_request_at' => $now,
-            'edit_reviewed_by' => null,
-            'edit_reviewed_at' => null,
-            'edit_review_note' => null,
-            'edit_unlocked_at' => null,
-            'edit_unlocked_by' => null,
-            'updated_at' => $now,
-        ]);
-
-        $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
-        $docNo = trim((string) ($ml->doc_no ?? ''));
-        $title = trim((string) ($ml->doc_title ?? '')) ?: ('Document #' . $id);
-        $label = $docNo !== '' ? "{$docNo} — {$title}" : $title;
-        $requester = RegisterQueryHelper::currentUserDisplayName();
-
-        \App\Services\DcsNotificationService::notifyEditRequestPending(
-            $label,
-            $requester,
-            $reason
-        );
-
-        RegisterPersistHelper::logAdminChange(
-            'Requested edit for document #' . $id
-            . ($docNo !== '' ? ' — ' . $docNo : '')
-            . ': ' . $reason
-        );
-
-        return self::flashRedirect(
-            'dcs.register.update',
-            'success',
-            'Edit request sent to the HEAD Admin of DCS for approval.'
-        );
-    }
-
-    public static function approveEditRequest(int $id): RedirectResponse
-    {
-        abort_unless(RegisterQueryHelper::isDocumentControlHead(), 403);
-        abort_unless(RegisterQueryHelper::supportsEditRequests(), 422, 'Edit requests are not available yet. Please run migrations.');
-
-        $docRequest = RegisterQueryHelper::findDocumentRequest($id);
-        abort_unless($docRequest, 404);
-        abort_unless(
-            RegisterQueryHelper::hasPendingEditRequest($docRequest),
-            422,
-            'This document does not have a pending edit request.'
-        );
-
-        $now = now();
-        $userId = (int) auth()->id();
-        DB::table('dcs_document_requests')->where('id', $id)->update([
-            'edit_request_status' => 'approved',
-            'edit_reviewed_by' => $userId > 0 ? $userId : null,
-            'edit_reviewed_at' => $now,
-            'edit_review_note' => null,
-            'edit_unlocked_at' => $now,
-            'edit_unlocked_by' => $userId > 0 ? $userId : null,
-            'updated_at' => $now,
-        ]);
-
-        $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
-        $docNo = trim((string) ($ml->doc_no ?? ''));
-        $title = trim((string) ($ml->doc_title ?? '')) ?: ('Document #' . $id);
-        $label = $docNo !== '' ? "{$docNo} — {$title}" : $title;
-
-        \App\Services\DcsNotificationService::notifyEditRequestDecision(
-            (int) ($docRequest->edit_request_by ?? 0),
-            $label,
-            true,
-            null,
-            $id
-        );
-
-        RegisterPersistHelper::logAdminChange('Approved edit request for document #' . $id . ($docNo !== '' ? ' — ' . $docNo : ''));
-
-        return self::flashRedirect(
-            'dcs.edit-requests',
-            'success',
-            'Edit approved. The requester can now open the document editor.'
-        );
-    }
-
-    public static function denyEditRequest(int $id, string $note): RedirectResponse
-    {
-        abort_unless(RegisterQueryHelper::isDocumentControlHead(), 403);
-        abort_unless(RegisterQueryHelper::supportsEditRequests(), 422, 'Edit requests are not available yet. Please run migrations.');
-
-        $docRequest = RegisterQueryHelper::findDocumentRequest($id);
-        abort_unless($docRequest, 404);
-        abort_unless(
-            RegisterQueryHelper::hasPendingEditRequest($docRequest),
-            422,
-            'This document does not have a pending edit request.'
-        );
-
-        $note = trim(preg_replace('/\s+/u', ' ', $note) ?? '');
-        if ($note === '' || mb_strlen($note) < 5) {
-            return self::flashRedirect(
-                'dcs.edit-requests',
-                'error',
-                'Please provide a denial note (at least 5 characters).'
-            );
-        }
-        if (mb_strlen($note) > 1000) {
-            return self::flashRedirect(
-                'dcs.edit-requests',
-                'error',
-                'Denial note must be 1000 characters or fewer.'
-            );
-        }
-
-        $now = now();
-        $userId = (int) auth()->id();
-        DB::table('dcs_document_requests')->where('id', $id)->update([
-            'edit_request_status' => 'denied',
-            'edit_reviewed_by' => $userId > 0 ? $userId : null,
-            'edit_reviewed_at' => $now,
-            'edit_review_note' => mb_substr($note, 0, 1000),
-            'edit_unlocked_at' => null,
-            'edit_unlocked_by' => null,
-            'updated_at' => $now,
-        ]);
-
-        $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
-        $docNo = trim((string) ($ml->doc_no ?? ''));
-        $title = trim((string) ($ml->doc_title ?? '')) ?: ('Document #' . $id);
-        $label = $docNo !== '' ? "{$docNo} — {$title}" : $title;
-
-        \App\Services\DcsNotificationService::notifyEditRequestDecision(
-            (int) ($docRequest->edit_request_by ?? 0),
-            $label,
-            false,
-            $note,
-            $id
-        );
-
-        RegisterPersistHelper::logAdminChange(
-            'Denied edit request for document #' . $id
-            . ($docNo !== '' ? ' — ' . $docNo : '')
-            . ': ' . $note
-        );
-
-        return self::flashRedirect(
-            'dcs.edit-requests',
-            'success',
-            'Edit request denied. The requester has been notified.'
-        );
-    }
-
-    /**
-     * @return array{rows: list<array<string, mixed>>, total: int, current_page: int, last_page: int, per_page: int}
-     */
-    public static function editRequestList(string $search = '', int $page = 1, int $perPage = 15): array
-    {
-        abort_unless(RegisterQueryHelper::isDocumentControlHead(), 403);
-
-        $empty = [
-            'rows' => [],
-            'total' => 0,
-            'current_page' => 1,
-            'last_page' => 1,
-            'per_page' => $perPage,
-        ];
-
-        if (! RegisterQueryHelper::supportsEditRequests()) {
-            return $empty;
-        }
-
-        $accDetails = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
-        $account = Schema::hasTable('sys_account') ? 'sys_account' : 'account';
-
-        $query = DB::table('dcs_document_requests as dr')
-            ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
-            ->leftJoin($accDetails . ' as ad', 'ad.account_id', '=', 'dr.edit_request_by')
-            ->leftJoin($account . ' as a', 'a.id', '=', 'dr.edit_request_by')
-            ->where('dr.edit_request_status', 'pending');
-        RegisterQueryHelper::applyNotDeleted($query, 'dr');
-
-        $search = trim($search);
-        if ($search !== '') {
-            $like = '%' . $search . '%';
-            $query->where(function ($q) use ($like) {
-                $q->whereRaw('dr.id::text ilike ?', [$like])
-                    ->orWhere('ml.doc_no', 'ilike', $like)
-                    ->orWhere('ml.doc_title', 'ilike', $like)
-                    ->orWhere('ad.first_name', 'ilike', $like)
-                    ->orWhere('ad.last_name', 'ilike', $like)
-                    ->orWhere('a.username', 'ilike', $like)
-                    ->orWhere('dr.edit_request_reason', 'ilike', $like);
-            });
-        }
-
-        $total = (clone $query)->distinct('dr.id')->count('dr.id');
-        $lastPage = max(1, (int) ceil($total / $perPage));
-        $page = max(1, min($page, $lastPage));
-
-        $rows = $query
-            ->orderByDesc('dr.edit_request_at')
-            ->orderByDesc('dr.id')
-            ->offset(($page - 1) * $perPage)
-            ->limit($perPage)
-            ->get([
-                'dr.id',
-                'dr.edit_request_reason',
-                'dr.edit_request_at',
-                'dr.edit_request_by',
-                'ml.doc_no',
-                'ml.doc_title',
-                'ml.revise_no',
-                'ad.first_name',
-                'ad.middle_name',
-                'ad.last_name',
-                'a.username',
-            ])
-            ->map(function ($row) {
-                $parts = array_filter([
-                    trim((string) ($row->first_name ?? '')),
-                    trim((string) ($row->middle_name ?? '')),
-                    trim((string) ($row->last_name ?? '')),
-                ]);
-                $requester = $parts !== []
-                    ? implode(' ', $parts)
-                    : (trim((string) ($row->username ?? '')) ?: 'Unknown');
-                $docNo = trim((string) ($row->doc_no ?? ''));
-                $title = trim((string) ($row->doc_title ?? '')) ?: ('Document #' . $row->id);
-
-                return [
-                    'request_id' => (int) $row->id,
-                    'doc_no' => $docNo !== '' ? $docNo : 'N/A',
-                    'title' => $title,
-                    'rev_no' => (int) ($row->revise_no ?? 0),
-                    'reason' => trim((string) ($row->edit_request_reason ?? '')),
-                    'requester' => $requester,
-                    'requested_at' => $row->edit_request_at
-                        ? \Carbon\Carbon::parse($row->edit_request_at)->timezone('Asia/Manila')->format('M d, Y g:i A')
-                        : '—',
-                    'edit_url' => route('dcs.register.edit', $row->id, false),
-                ];
-            })
-            ->all();
-
-        return [
-            'rows' => $rows,
-            'total' => $total,
-            'current_page' => $page,
-            'last_page' => $lastPage,
-            'per_page' => $perPage,
-        ];
     }
 }

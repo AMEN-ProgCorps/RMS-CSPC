@@ -126,18 +126,38 @@ class DcsNotificationService
         $revSuffix = $revNo !== null && $revNo > 0 ? ", Rev {$revNo}" : '';
 
         if ($title !== '' && $docNo !== '') {
-            $message = "Document \"{$title}\" ({$docNo}{$revSuffix}) has been registered / controlled and distributed to your office.";
+            $message = "Incoming document \"{$title}\" ({$docNo}{$revSuffix}) will be distributed to your office.";
         } elseif ($title !== '') {
             $revLabel = $revNo !== null && $revNo > 0 ? " (Rev {$revNo})" : '';
-            $message = "Document \"{$title}\"{$revLabel} has been registered / controlled and distributed to your office.";
+            $message = "Incoming document \"{$title}\"{$revLabel} will be distributed to your office.";
         } elseif ($docNo !== '') {
             $revLabel = $revNo !== null && $revNo > 0 ? " (Rev {$revNo})" : '';
-            $message = "Document {$docNo}{$revLabel} has been registered / controlled and distributed to your office.";
+            $message = "Incoming document {$docNo}{$revLabel} will be distributed to your office.";
         } else {
-            $message = 'A controlled document has been distributed to your office.';
+            $message = 'An incoming document will be distributed to your office.';
         }
 
         static::createNotification($officeCode, $message, '/dcs/office/documents');
+    }
+
+    public static function notifyOfficeDocumentReceived(
+        string $officeCode,
+        string $receiverName,
+        string $docTitle,
+        ?string $docNo = null,
+        ?int $receiverAccountId = null
+    ): void {
+        $name = static::displayName($receiverName);
+        $title = trim($docTitle);
+        $docNo = trim((string) $docNo);
+        $label = $title !== '' ? "\"{$title}\"" : ($docNo !== '' ? $docNo : 'the document');
+        $message = "{$name} marked incoming document {$label} as received.";
+        $url = '/dcs/office/documents';
+        if ($receiverAccountId && $receiverAccountId > 0) {
+            $url .= '?ack_by=' . $receiverAccountId;
+        }
+
+        static::createNotification($officeCode, $message, $url);
     }
 
     public static function notifyOfficeDrfSubmitted(
@@ -299,65 +319,6 @@ class DcsNotificationService
         $url = '/dcs/stamping?request_id=' . urlencode((string) $requestId);
 
         static::createNotification($officeCode, $message, $url);
-    }
-
-    public static function notifyEditRequestPending(string $documentLabel, string $requesterName, string $reason): bool
-    {
-        $officeCode = \App\Helpers\RegisterQueryHelper::rfioNotificationOfficeCode();
-        $message = trim($requesterName) !== ''
-            ? "{$requesterName} requested edit access for {$documentLabel}: {$reason}"
-            : "Edit access requested for {$documentLabel}: {$reason}";
-
-        return static::createNotification($officeCode, $message, '/dcs/edit-requests');
-    }
-
-    public static function notifyEditRequestDecision(
-        int $requesterAccountId,
-        string $documentLabel,
-        bool $approved,
-        ?string $note = null,
-        ?int $requestId = null
-    ): bool {
-        $officeCode = static::officeCodeForAccount($requesterAccountId);
-        if ($officeCode === null) {
-            $officeCode = \App\Helpers\RegisterQueryHelper::rfioNotificationOfficeCode();
-        }
-
-        $forQs = $requesterAccountId > 0 ? ('?edit_for=' . $requesterAccountId) : '';
-
-        if ($approved) {
-            $message = "Your edit request for {$documentLabel} was approved. You can edit the document now.";
-            $url = $requestId && $requestId > 0
-                ? '/dcs/register/' . $requestId . '/edit' . $forQs
-                : '/dcs/register/update' . $forQs;
-        } else {
-            $notePart = trim((string) $note) !== '' ? ': ' . trim((string) $note) : '.';
-            $message = "Your edit request for {$documentLabel} was denied{$notePart}";
-            $url = '/dcs/register/update' . $forQs;
-        }
-
-        return static::createNotification($officeCode, $message, $url);
-    }
-
-    public static function officeCodeForAccount(int $accountId): ?string
-    {
-        if ($accountId < 1) {
-            return null;
-        }
-
-        $accDetails = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details')
-            ? 'sys_account_details'
-            : 'account_details';
-        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
-
-        $code = DB::table($accDetails . ' as ad')
-            ->join($officeTbl . ' as o', 'o.id', '=', 'ad.office_id')
-            ->where('ad.account_id', $accountId)
-            ->value('o.office_code');
-
-        $code = trim((string) $code);
-
-        return $code !== '' ? $code : null;
     }
 
     /** @param  array<int|string|null>  $officeIds

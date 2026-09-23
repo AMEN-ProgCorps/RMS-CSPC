@@ -103,8 +103,24 @@ class DcsNotificationTest extends TestCase
         );
 
         $this->assertDatabaseHas($this->contentTable(), [
-            'content' => 'Document "Continuation of the Curriculum" (CSPC-F-COL, Rev 1) has been registered / controlled and distributed to your office.',
+            'content' => 'Incoming document "Continuation of the Curriculum" (CSPC-F-COL, Rev 1) will be distributed to your office.',
             'redirect_url' => '/dcs/office/documents',
+        ]);
+    }
+
+    public function test_notify_office_document_received_message_and_redirect(): void
+    {
+        DcsNotificationService::notifyOfficeDocumentReceived(
+            $this->officeCode,
+            'Maria Santos',
+            'Continuation of the Curriculum',
+            'CSPC-F-COL',
+            15
+        );
+
+        $this->assertDatabaseHas($this->contentTable(), [
+            'content' => 'Maria Santos marked incoming document "Continuation of the Curriculum" as received.',
+            'redirect_url' => '/dcs/office/documents?ack_by=15',
         ]);
     }
 

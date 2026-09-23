@@ -6450,7 +6450,9 @@ window.submitForm = function () {
         sessionStorage.removeItem('dcs_office_intake_pending');
     } catch (_) { /* ignore */ }
     showSavingDocumentOverlay();
-    document.getElementById("masterForm").submit();
+    const form = document.getElementById("masterForm");
+    if (form && typeof sanitizeFormFields === 'function') sanitizeFormFields(form);
+    form.submit();
 };
 
 function showSavingDocumentOverlay() {
@@ -7230,6 +7232,20 @@ function escapeHtml(str) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+}
+
+function sanitizeFormFields(form) {
+    if (!form) return;
+    form.querySelectorAll('input, textarea').forEach(function (el) {
+        const type = String(el.type || '').toLowerCase();
+        if (el.disabled || typeof el.value !== 'string') return;
+        if (['password', 'hidden', 'file', 'checkbox', 'radio', 'submit', 'button'].includes(type)) return;
+        const stripped = String(el.value).replace(/<[^>]*>/g, '').replace(/[<>]/g, '');
+        const next = el.tagName === 'TEXTAREA'
+            ? stripped.replace(/\r\n|\r/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+            : stripped.replace(/\s+/g, ' ').trim();
+        if (next !== el.value) el.value = next;
+    });
 }
 
 function getOrCreateSyllabiFacultyDropdown(uid) {

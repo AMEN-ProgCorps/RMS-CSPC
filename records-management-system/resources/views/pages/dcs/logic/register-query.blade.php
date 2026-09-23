@@ -618,24 +618,6 @@ class RegisterQueryHelper
         return isset($params['edit_for']) && (int) $params['edit_for'] > 0;
     }
 
-    public static function editRequestDecisionTargetsCurrentUser(?string $redirectUrl): bool
-    {
-        $url = trim((string) $redirectUrl);
-        if ($url === '') {
-            return false;
-        }
-
-        $query = (string) (parse_url($url, PHP_URL_QUERY) ?? '');
-        parse_str($query, $params);
-        $forId = (int) ($params['edit_for'] ?? 0);
-        if ($forId < 1) {
-            // Legacy notices without edit_for — only show to non-HEAD Controllers.
-            return ! self::isDocumentControlHead();
-        }
-
-        return $forId === (int) (auth()->id() ?? 0);
-    }
-
     /**
      * Apply the same visibility rules as the header notification dropdown
      * (limited-DCS allowlist + hide registered office-intake notices).
@@ -667,21 +649,20 @@ class RegisterQueryHelper
                 ->values();
         }
 
-        // Edit-request queue is HEAD Admin only (same office as Document Controllers).
-        if (! self::isDocumentControlHead()) {
-            $rows = $rows
-                ->filter(fn ($row) => ! self::isEditRequestHeadNotice($row->redirect_url ?? null))
-                ->values();
-        }
+        // Hide leftover notices from the retired edit-request workflow.
+        $rows = $rows
+            ->filter(fn ($row) => ! self::isEditRequestHeadNotice($row->redirect_url ?? null))
+            ->filter(fn ($row) => ! self::isEditRequestDecisionNotice($row->redirect_url ?? null, $row->content ?? null))
+            ->values();
 
-        // Approve/deny notices: requester Document Controller only (not HEAD / peers).
+        // Receipt acknowledgements are for other users in the same office.
         $rows = $rows
             ->filter(function ($row) {
-                if (! self::isEditRequestDecisionNotice($row->redirect_url ?? null, $row->content ?? null)) {
-                    return true;
-                }
+                $query = (string) (parse_url((string) ($row->redirect_url ?? ''), PHP_URL_QUERY) ?? '');
+                parse_str($query, $params);
+                $ackBy = (int) ($params['ack_by'] ?? 0);
 
-                return self::editRequestDecisionTargetsCurrentUser($row->redirect_url ?? null);
+                return $ackBy < 1 || $ackBy !== (int) (auth()->id() ?? 0);
             })
             ->values();
 
@@ -759,75 +740,9 @@ class RegisterQueryHelper
         return self::isDocumentControlHead();
     }
 
-    public static function supportsEditRequests(): bool
-    {
-        return Schema::hasColumn('dcs_document_requests', 'edit_request_status')
-            && Schema::hasColumn('dcs_document_requests', 'edit_unlocked_at');
-    }
-
-    /** @return array<string, mixed>|null */
-    public static function editRequestClearPayload(): ?array
-    {
-        if (! self::supportsEditRequests()) {
-            return null;
-        }
-
-        return [
-            'edit_request_status' => null,
-            'edit_request_reason' => null,
-            'edit_request_by' => null,
-            'edit_request_at' => null,
-            'edit_reviewed_by' => null,
-            'edit_reviewed_at' => null,
-            'edit_review_note' => null,
-            'edit_unlocked_at' => null,
-            'edit_unlocked_by' => null,
-        ];
-    }
-
-    public static function clearEditRequestState(int $requestId): void
-    {
-        $payload = self::editRequestClearPayload();
-        if ($payload === null || $requestId < 1) {
-            return;
-        }
-
-        $payload['updated_at'] = now();
-        DB::table('dcs_document_requests')->where('id', $requestId)->update($payload);
-    }
-
     public static function isDraftDocument(?object $docRequest): bool
     {
         return self::supportsDrafts() && ! empty($docRequest?->is_draft);
-    }
-
-    /**
-     * Drafts and HEAD Admin may edit published docs without a request.
-     * Super Admin does not bypass — HEAD Admin clearance is required for free edit.
-     */
-    public static function canEditDocumentWithoutRequest(?object $docRequest): bool
-    {
-        if (! $docRequest) {
-            return false;
-        }
-        if (self::isDraftDocument($docRequest)) {
-            return true;
-        }
-        if (! self::supportsEditRequests()) {
-            return self::isFullDcsUser();
-        }
-
-        return self::isDocumentControlHead();
-    }
-
-    public static function hasActiveEditUnlock(?object $docRequest): bool
-    {
-        if (! $docRequest || ! self::supportsEditRequests()) {
-            return false;
-        }
-        $status = strtolower(trim((string) ($docRequest->edit_request_status ?? '')));
-
-        return $status === 'approved' && ! empty($docRequest->edit_unlocked_at);
     }
 
     public static function canEditDocument(int $requestId, ?object $docRequest = null): bool
@@ -839,11 +754,8 @@ class RegisterQueryHelper
         if (! self::userCanAccessRequest($requestId)) {
             return false;
         }
-        if (self::canEditDocumentWithoutRequest($docRequest)) {
-            return true;
-        }
 
-        return self::hasActiveEditUnlock($docRequest);
+        return self::isFullDcsUser();
     }
 
     public static function assertCanEditDocument(int $requestId, ?object $docRequest = null): void
@@ -851,74 +763,14 @@ class RegisterQueryHelper
         abort_unless(
             self::canEditDocument($requestId, $docRequest),
             403,
-            'Editing this document requires HEAD Admin of DCS approval. Request an edit from Update Documents.'
+            'You do not have permission to edit this document.'
         );
-    }
-
-    /**
-     * Edit-gate state for Update list / history UI.
-     *
-     * @return array{
-     *     can_edit: bool,
-     *     can_request_edit: bool,
-     *     edit_request_status: string|null,
-     *     edit_request_reason: string|null,
-     *     edit_review_note: string|null,
-     *     edit_action: string
-     * }
-     */
-    public static function editActionState(?object $docRequest): array
-    {
-        $status = self::supportsEditRequests()
-            ? (strtolower(trim((string) ($docRequest->edit_request_status ?? ''))) ?: null)
-            : null;
-        $canEdit = $docRequest && self::canEditDocument((int) $docRequest->id, $docRequest);
-        $isDraft = self::isDraftDocument($docRequest);
-        $isHead = self::isDocumentControlHead();
-        $canRequest = ! $isDraft
-            && ! $isHead
-            && self::supportsEditRequests()
-            && self::isFullDcsUser()
-            && $docRequest
-            && ! $canEdit
-            && $status !== 'pending';
-
-        $action = 'none';
-        if ($canEdit) {
-            $action = 'edit';
-        } elseif ($status === 'pending') {
-            $action = 'pending';
-        } elseif ($canRequest) {
-            $action = $status === 'denied' ? 'request_again' : 'request';
-        }
-
-        return [
-            'can_edit' => $canEdit,
-            'can_request_edit' => $canRequest,
-            'edit_request_status' => $status,
-            'edit_request_reason' => $status
-                ? (trim((string) ($docRequest->edit_request_reason ?? '')) ?: null)
-                : null,
-            'edit_review_note' => $status === 'denied'
-                ? (trim((string) ($docRequest->edit_review_note ?? '')) ?: null)
-                : null,
-            'edit_action' => $action,
-        ];
     }
 
     /** Full DCS operators with review-intake clearance may open any office intake form by ID. */
     public static function canBrowseAllOfficeIntake(): bool
     {
         return self::canAccessDcsModule('review_intake');
-    }
-
-    public static function hasPendingEditRequest(?object $docRequest): bool
-    {
-        if (! $docRequest || ! self::supportsEditRequests()) {
-            return false;
-        }
-
-        return strtolower(trim((string) ($docRequest->edit_request_status ?? ''))) === 'pending';
     }
 
     public static function normalizedOriginatorName(?string $name = null): string
@@ -2232,12 +2084,6 @@ class RegisterQueryHelper
         if (self::supportsDrafts()) {
             $select[] = 'dr.is_draft';
         }
-        if (self::supportsEditRequests()) {
-            $select[] = 'dr.edit_request_status';
-            $select[] = 'dr.edit_request_reason';
-            $select[] = 'dr.edit_review_note';
-            $select[] = 'dr.edit_unlocked_at';
-        }
         $query->select($select);
 
         if ($docTypeId !== '' && $docTypeId !== 'all') {
@@ -2278,7 +2124,7 @@ class RegisterQueryHelper
                 ? (bool) ($doc->allows_revision ?? true)
                 : self::effectiveTypeAllowsRevision($doc->doc_type_id ?? null, $doc->sub_type_id ?? null);
 
-            $editState = self::editActionState($doc);
+            $canEdit = self::canEditDocument((int) $doc->id, $doc);
 
             return [
                 'request_id' => (int) $doc->id,
@@ -2295,12 +2141,7 @@ class RegisterQueryHelper
                 'edit_url' => route('dcs.register.edit', $doc->id),
                 'history_url' => (!$isDraft && $docNo !== '') ? route('dcs.register.history', $docNo) : null,
                 'can_delete' => $status !== 'obsolete',
-                'can_edit' => $editState['can_edit'],
-                'can_request_edit' => $editState['can_request_edit'],
-                'edit_action' => $editState['edit_action'],
-                'edit_request_status' => $editState['edit_request_status'],
-                'edit_request_reason' => $editState['edit_request_reason'],
-                'edit_review_note' => $editState['edit_review_note'],
+                'can_edit' => $canEdit,
             ];
         };
 
@@ -5986,8 +5827,6 @@ class RegisterQueryHelper
         abort_unless($docRequest, 404);
         self::assertCanAccessRequest($id);
 
-        // Full edit still needs unlock / HEAD Admin. Without that, open view-only so
-        // registrars can generate Distribution after save and return to Update Documents.
         $canEdit = self::canEditDocument($id, $docRequest);
         $readOnly = ! $canEdit;
 
@@ -6071,6 +5910,10 @@ class RegisterQueryHelper
         if (Schema::hasColumn('dcs_distribution_offices', 'distribution_date')) {
             $distributionOfficeColumns[] = 'd.distribution_date';
         }
+        if (Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
+            $distributionOfficeColumns[] = 'd.office_received_at';
+            $distributionOfficeColumns[] = 'd.office_received_by';
+        }
         $distributionOffices = $distribution
             ? DB::table('dcs_distribution_offices as d')
                 ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'd.office_id')
@@ -6079,6 +5922,7 @@ class RegisterQueryHelper
                 ->orderBy('d.id')
                 ->get($distributionOfficeColumns)
             : collect();
+        $distributionOffices = self::hydrateDistributionReceiptNames($distributionOffices);
 
         // Next revision: offices from THIS distribution (and prior-retrieved fallback)
         // start as Pending in Retrieval — new copies to pull back.
@@ -6340,6 +6184,40 @@ class RegisterQueryHelper
         }
 
         return array_values($byOffice);
+    }
+
+    private static function hydrateDistributionReceiptNames(Collection $distributionOffices): Collection
+    {
+        if ($distributionOffices->isEmpty() || ! Schema::hasColumn('dcs_distribution_offices', 'office_received_by')) {
+            return $distributionOffices;
+        }
+
+        $receiverIds = $distributionOffices
+            ->pluck('office_received_by')
+            ->filter(fn ($id) => $id !== null && (int) $id > 0)
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+
+        $names = [];
+        if ($receiverIds !== []) {
+            $accDetailsTbl = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+            $names = DB::table($accDetailsTbl)
+                ->whereIn('account_id', $receiverIds)
+                ->get(['account_id', 'first_name', 'last_name'])
+                ->mapWithKeys(fn ($d) => [
+                    (int) $d->account_id => trim(trim((string) ($d->first_name ?? '')) . ' ' . trim((string) ($d->last_name ?? ''))),
+                ])
+                ->all();
+        }
+
+        foreach ($distributionOffices as $row) {
+            $rid = (int) ($row->office_received_by ?? 0);
+            $row->received_by_name = $rid > 0 ? trim((string) ($names[$rid] ?? '')) : '';
+        }
+
+        return $distributionOffices;
     }
 
     /**

@@ -91,11 +91,6 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                 @if($readOnly)
                     <p style="margin:8px 0 0;color:#64748b;font-size:0.92rem;">
                         Fields are locked. Generate the distribution template if needed, then return to Update Documents.
-                        @if(RegisterQueryHelper::hasPendingEditRequest($docRequest))
-                            An edit request is waiting for HEAD Admin approval.
-                        @else
-                            To change this document, request an edit from Update Documents.
-                        @endif
                     </p>
                 @endif
             </div>
@@ -921,6 +916,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                         </th>
                                         <th>Receiving Office(s)</th>
                                         <th style="width:110px; text-align:center;">No. of Copies</th>
+                                        <th class="reg-dist-receipt-head" style="width:180px;">Physical receipt</th>
                                         <th style="width:40px;"></th>
                                     </tr>
                                 </thead>
@@ -942,6 +938,17 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                         <td style="text-align:center;">
                                             <input type="number" name="distCopies[]" value="{{ $distOff->copies }}" min="1" oninput="updateTotal('distTotal', 'distBody')">
                                         </td>
+                                        <td class="reg-dist-receipt-cell">
+                                            @if(!empty($distOff->office_received_at))
+                                                <div class="reg-dist-receipt-status is-received">Received</div>
+                                                <div class="reg-dist-receipt-who">
+                                                    {{ ($distOff->received_by_name ?? '') !== '' ? $distOff->received_by_name : 'Office intake' }}
+                                                    · {{ \Carbon\Carbon::parse($distOff->office_received_at)->format('M d, Y g:i A') }}
+                                                </div>
+                                            @else
+                                                <div class="reg-dist-receipt-status is-pending">Pending</div>
+                                            @endif
+                                        </td>
                                         <td>
                                             <button type="button" class="btn-remove" onclick="removeOffice(this, 'distTotal', 'distBody')">
                                                 <i class="fa-solid fa-xmark"></i>
@@ -950,7 +957,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                     </tr>
                                     @empty
                                     <tr class="reg-empty-row">
-                                        <td colspan="4">
+                                        <td colspan="5">
                                             <div class="reg-empty-state">
                                                 <i class="fa-solid fa-building-circle-xmark"></i>
                                                 <span>No offices added yet</span>
@@ -964,6 +971,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                         <td class="reg-dist-check-foot"></td>
                                         <td>Total No. of Copies</td>
                                         <td id="distTotal" style="text-align:center; font-weight:700;">{{ $distributionOffices->sum('copies') }}</td>
+                                        <td></td>
                                         <td></td>
                                     </tr>
                                 </tfoot>
@@ -1162,6 +1170,20 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+function sanitizeFormFields(form) {
+    if (!form) return;
+    form.querySelectorAll('input, textarea').forEach(function (el) {
+        const type = String(el.type || '').toLowerCase();
+        if (el.disabled || typeof el.value !== 'string') return;
+        if (['password', 'hidden', 'file', 'checkbox', 'radio', 'submit', 'button'].includes(type)) return;
+        const stripped = String(el.value).replace(/<[^>]*>/g, '').replace(/[<>]/g, '');
+        const next = el.tagName === 'TEXTAREA'
+            ? stripped.replace(/\r\n|\r/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
+            : stripped.replace(/\s+/g, ' ').trim();
+        if (next !== el.value) el.value = next;
+    });
+}
+
 function checkFile(file) {
     const ext = file.name.split('.').pop().toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(ext)) return { valid: false, ext, reason: 'type' };
@@ -1268,7 +1290,9 @@ function filterOffices(query) {
 
 function emptyOfficeRowHTML(tbodyId) {
     const isRetrieval = tbodyId === 'retrievalBody';
-    const cols = (isRetrieval || tbodyId === 'distBody') ? 4 : 3;
+    const table = document.getElementById(tbodyId)?.closest('table');
+    const receiptCol = table?.querySelector('.reg-dist-receipt-head') ? 1 : 0;
+    const cols = (isRetrieval || tbodyId === 'distBody') ? (4 + receiptCol) : 3;
     return '<tr class="reg-empty-row"><td colspan="' + cols + '"><div class="reg-empty-state"><i class="fa-solid fa-building-circle-xmark"></i><span>No offices added yet</span></div></td></tr>';
 }
 
@@ -1545,6 +1569,7 @@ function seedOfficeRow(tbodyId, totalId, officeId, officeName, copies) {
         <td class="reg-dist-check-cell"><input type="checkbox" class="dist-office-check" onchange="onDistOfficeCheckChange()" title="Select to reorder"></td>
         <td><input type="hidden" name="${officeNameAttr}" value="${officeId}"><div class="reg-office-name"><span class="reg-dist-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></span><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div><span class="reg-office-text">${escapeHtml(officeName)}</span></div></td>
         <td style="text-align:center;"><input type="number" name="${copiesNameAttr}" value="${copies}" min="1" oninput="updateTotal('${totalId}', '${tbodyId}')"></td>
+        <td class="reg-dist-receipt-cell"><div class="reg-dist-receipt-status is-pending">Pending</div></td>
         <td><button type="button" class="btn-remove" onclick="removeOffice(this, '${totalId}', '${tbodyId}')"><i class="fa-solid fa-xmark"></i></button></td>
     `;
     }
@@ -6846,7 +6871,9 @@ window.submitForm = function () {
     }
     window.__regFormSubmitting = true;
     showSavingDocumentOverlay();
-    document.getElementById("masterForm").submit();
+    const form = document.getElementById("masterForm");
+    if (form && typeof sanitizeFormFields === 'function') sanitizeFormFields(form);
+    form.submit();
 };
 
 function showSavingDocumentOverlay() {

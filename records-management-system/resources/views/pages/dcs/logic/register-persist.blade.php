@@ -358,20 +358,58 @@ class RegisterPersistHelper
 
     public static function blankStringsToNull(Request $request): void
     {
+        $multiline = [
+            'descriptionReason', 'description_reason', 'keywords',
+            'changeFrom', 'changeTo', 'change_from', 'change_to',
+            'deleteReason', 'deleted_reason', 'remarks', 'recommended_actions',
+            'revisionPurpose', 'briefPurpose', 'justification', 'dcnJustification',
+            'editUnlockReason', 'edit_unlock_reason', 'reason', 'denyNote', 'description',
+        ];
+        $skip = array_merge(['_token', '_method'], array_keys($request->allFiles()));
         $clean = [];
         foreach ($request->all() as $key => $value) {
-            if (is_string($value) && trim($value) === '') {
-                $clean[$key] = null;
-            } elseif (is_array($value)) {
-                $clean[$key] = array_map(
-                    fn ($v) => is_string($v) && trim($v) === '' ? null : $v,
-                    $value
-                );
+            if (in_array($key, $skip, true)) {
+                continue;
             }
+            $clean[$key] = self::sanitizeIncomingValue($value, is_string($key) ? $key : '', $multiline);
         }
         if ($clean !== []) {
             $request->merge($clean);
         }
+    }
+
+    /** Strip HTML/scripts from DCS form text; keep document numbers and punctuation. */
+    private static function sanitizeIncomingValue(mixed $value, string $key, array $multiline): mixed
+    {
+        if (is_array($value)) {
+            $out = [];
+            foreach ($value as $childKey => $child) {
+                $nextKey = is_string($childKey) ? $childKey : $key;
+                $out[$childKey] = self::sanitizeIncomingValue($child, $nextKey, $multiline);
+            }
+
+            return $out;
+        }
+        if (! is_string($value)) {
+            return $value;
+        }
+
+        $value = str_replace("\0", '', $value);
+        $value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $value = preg_replace('#<script\b[^>]*>.*?</script>#is', '', $value) ?? '';
+        $value = preg_replace('#<style\b[^>]*>.*?</style>#is', '', $value) ?? '';
+        $value = strip_tags($value);
+        $value = str_replace(['<', '>'], '', $value);
+        if (in_array($key, $multiline, true)) {
+            $value = str_replace(["\r\n", "\r"], "\n", $value);
+            $value = preg_replace("/[ \t]+/u", ' ', $value) ?? '';
+            $value = preg_replace("/\n{3,}/u", "\n\n", $value) ?? '';
+        } else {
+            $value = preg_replace('/\s+/u', ' ', $value) ?? '';
+        }
+        $value = trim($value);
+
+        return $value === '' ? null : $value;
     }
 
     public static function syncedDocTitle(Request $request): ?string
@@ -757,6 +795,18 @@ class RegisterPersistHelper
             }
         }
 
+        $keptReceipts = [];
+        if (Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
+            $keptReceipts = DB::table('dcs_distribution_offices')
+                ->where('distribution_id', $distributionId)
+                ->whereNotNull('office_received_at')
+                ->get(['office_id', 'office_received_at', 'office_received_by'])
+                ->keyBy(fn ($row) => (int) $row->office_id)
+                ->all();
+        }
+
+        DB::table('dcs_distribution_offices')->where('distribution_id', $distributionId)->delete();
+
         foreach ($officeIds as $i => $id) {
             if ($id <= 0) {
                 continue;
@@ -769,6 +819,11 @@ class RegisterPersistHelper
             ];
             if (Schema::hasColumn('dcs_distribution_offices', 'distribution_date')) {
                 $row['distribution_date'] = $request->input('distOfficeDate')[$i] ?? null;
+            }
+            $prior = $keptReceipts[$id] ?? null;
+            if ($prior && Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
+                $row['office_received_at'] = $prior->office_received_at;
+                $row['office_received_by'] = $prior->office_received_by ?? null;
             }
             DB::table('dcs_distribution_offices')->insert($row);
         }

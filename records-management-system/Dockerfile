@@ -4,6 +4,7 @@ FROM php:8.4-fpm-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends \
         bash \
         curl \
+        git \
         nginx \
         supervisor \
         postgresql-client \

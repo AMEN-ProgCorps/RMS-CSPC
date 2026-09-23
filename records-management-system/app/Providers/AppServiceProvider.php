@@ -10,7 +10,10 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        //
+        $dcsBootstrap = resource_path('views/pages/dcs/logic/bootstrap.blade.php');
+        if (file_exists($dcsBootstrap)) {
+            require_once $dcsBootstrap;
+        }
     }
 
     public function boot(): void

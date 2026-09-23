@@ -4,6 +4,11 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 
+// Ensure .env variables take precedence over static Docker container environment variables
+if (file_exists(dirname(__DIR__) . '/.env')) {
+    \Dotenv\Dotenv::createMutable(dirname(__DIR__))->safeLoad();
+}
+
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
@@ -14,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustProxies(at: '*');
         $middleware->validateCsrfTokens(except: [
             'api/session/*',
+            'api/cluster/*',
         ]);
         $middleware->web(append: [
             \App\Http\Middleware\UpdateUserOnlineStatus::class,

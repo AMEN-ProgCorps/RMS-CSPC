@@ -8,6 +8,7 @@
     $defaultSubsystemsRoute = route('admin.subsystems.add');
     $defaultDtsRoute = route('admin.dts.transaction-flows');
     $defaultRdpRoute = route('admin.rdp.conversions');
+    $defaultServerSettingsRoute = route('admin.server-settings.current');
 @endphp
 
 {{-- 1. Dashboard Section --}}
@@ -225,6 +226,38 @@
         <div class="button-label">
             <span>System Settings</span>
         </div>
+    </div>
+</div>
+@endif
+
+{{-- Server Settings & Clustering Section --}}
+@if($isSadm || $perms?->can_access_settings)
+<div id="admin-server-settings-id" class="button-section-container {{ (request()->routeIs('admin.server-settings.*') && !$enableTopTabs) ? 'show' : '' }}">
+    <div class="button-container {{ request()->routeIs('admin.server-settings.*') ? 'force-active' : '' }}" 
+         onclick="{{ $enableTopTabs ? "proccedto('{$defaultServerSettingsRoute}')" : "showButtonSection('admin-server-settings-id')" }}">
+        <div class="button-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4F4F4F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect width="20" height="8" x="2" y="2" rx="2" ry="2"/>
+                <rect width="20" height="8" x="2" y="14" rx="2" ry="2"/>
+                <line x1="6" x2="6.01" y1="6" y2="6"/>
+                <line x1="6" x2="6.01" y1="18" y2="18"/>
+            </svg>
+        </div>
+        <div class="button-label">
+            <span>Server Settings</span>
+        </div>
+        @if(!$enableTopTabs)
+        <div class="show-arrow">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="11" viewBox="0 0 18 11" fill="none">
+                <path d="M2.03223 9.76953L2.20898 9.59277L8.8125 2.98828L15.418 9.59375L15.5947 9.77148L15.7715 9.59375L17.0967 8.26758L17.2734 8.09082L17.0967 7.91406L9.875 0.69043H9.87402C9.73533 0.551169 9.57112 0.439765 9.38965 0.364258C9.20774 0.28857 9.01246 0.250036 8.81543 0.25C8.61847 0.25 8.42308 0.28866 8.24121 0.364258C8.05943 0.439892 7.89373 0.550835 7.75488 0.69043L0.530273 7.91406L0.353516 8.09082L2.03223 9.76953Z" fill="#646464" stroke="#646464" stroke-width="0.5"/>
+            </svg>
+        </div>
+        @endif
+    </div>
+    <div class="functions-container">
+        <div class="function-button {{ request()->routeIs('admin.server-settings.current') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.server-settings.current') }}')">Current Server</div>
+        <div class="function-button {{ (request()->routeIs('admin.server-settings.multi-server') || request()->routeIs('admin.server-settings.addons')) ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.server-settings.multi-server') }}')">Multi-Server</div>
+        <div class="function-button {{ request()->routeIs('admin.server-settings.diagnostic') ? 'force-active' : '' }}" onclick="proccedto('{{ route('admin.server-settings.diagnostic') }}')">Site Diagnostic</div>
     </div>
 </div>
 @endif

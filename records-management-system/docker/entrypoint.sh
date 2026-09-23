@@ -11,6 +11,18 @@ mkdir -p storage/framework/views storage/framework/sessions storage/framework/ca
 chmod -R 777 storage bootstrap/cache public/chatify/uploads public/chatify/storage /tmp/laravel-views
 export VIEW_COMPILED_PATH="${VIEW_COMPILED_PATH:-/tmp/laravel-views}"
 
+# ── Ensure Git is available for rolling updates & repository tracking ─────────
+if ! command -v git >/dev/null 2>&1; then
+    if command -v apk >/dev/null 2>&1; then
+        apk add --no-cache git >/dev/null 2>&1 || true
+    elif command -v apt-get >/dev/null 2>&1; then
+        apt-get update -qq && apt-get install -y -qq git >/dev/null 2>&1 || true
+    fi
+fi
+if command -v git >/dev/null 2>&1; then
+    git config --global --add safe.directory "*" >/dev/null 2>&1 || true
+fi
+
 # ── Ensure .env file exists ──────────────────────────────────────────────────
 if [ ! -f ".env" ]; then
     if [ -f ".env.docker" ]; then

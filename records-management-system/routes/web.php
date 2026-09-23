@@ -258,6 +258,7 @@ Volt::route('/tracked', 'pages.portal.tracked')
 Route::middleware(['auth'])
     ->group(function () {
     Route::get('/open-chat', [ChatController::class, 'openChat'])->name('open-chat');
+    Route::get('/chatify/open-chat', [ChatController::class, 'openChat'])->name('chatify.open-chat');
     Route::get('/chat/unread-count', function () {
         $user = Auth::user();
         if (!$user) {
@@ -870,7 +871,7 @@ Route::get('/logout', function () {
         try {
             \Illuminate\Support\Facades\Http::timeout(3)->post(url('/chatify/invalidate_chat_session.php'), [
                 'account_id' => $user->id,
-                'secret'     => env('CHAT_SHARED_SECRET', ''),
+                'secret'     => env('CHAT_SHARED_SECRET', '7f5b84c8a2bf6d91cd4a9c68aef2bc7e4c925d8864b85abef95a720cf12a32cd'),
             ]);
         } catch (\Exception $e) {
             // Non-fatal — chat session will expire naturally

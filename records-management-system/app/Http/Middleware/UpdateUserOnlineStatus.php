@@ -73,6 +73,8 @@ class UpdateUserOnlineStatus
             };
 
             // A. Check if Admin modified account (Forced Logout)
+            // Admin-forced logout is always enforced, even on background polls,
+            // because it is an explicit administrative action, not a passive timeout.
             if ($details && $details->force_logout_at !== null) {
                 try {
                     DB::table($secLogsTbl)->insert([
@@ -98,7 +100,12 @@ class UpdateUserOnlineStatus
             }
 
             // B. Check if inactive for longer than configured timeout
-            if ($details && $details->last_online_time !== null) {
+            // IMPORTANT: Skip this check for automated background polls (e.g. chat/unread-count,
+            // wire:poll). Chatify's iframe requests go directly to standalone PHP files and bypass
+            // this Laravel middleware entirely, so they never refresh last_online_time here.
+            // Without this guard, a passive poll would see the stale timestamp and force a logout
+            // even though the user is actively chatting — the poll should observe, not enforce.
+            if (! $isBackgroundPoll && $details && $details->last_online_time !== null) {
                 $lastOnline = \Carbon\Carbon::parse($details->last_online_time);
                 if ($lastOnline->diffInMinutes($now) >= $timeoutMinutes) {
                     $statusId = 3;

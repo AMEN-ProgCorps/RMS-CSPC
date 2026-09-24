@@ -182,8 +182,11 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
     // ==========================================
     // 2. TYPEWRITER EFFECT FOR "LOGIN" HEADING
     // ==========================================
+    let typewriterTimeout = null;
+
     function initTypewriter() {
-        const words = ["LOGIN", "WELCOME", "HELLO WORLD",];
+        if (typewriterTimeout) clearTimeout(typewriterTimeout);
+        const words = ["LOGIN", "WELCOME", "HELLO WORLD"];
         const textEl = document.getElementById('typewriter-text');
         if (!textEl) return;
 
@@ -202,26 +205,26 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
                 textEl.textContent = currentWord.substring(0, charIndex);
             }
 
-            let typingSpeed = isDeleting ? 50 : 90;
+            let typingSpeed = isDeleting ? 45 : 85;
 
             if (!isDeleting && charIndex === currentWord.length) {
                 // Finished typing word, pause before erasing
                 isDeleting = true;
-                setTimeout(typeStep, 2200);
+                typewriterTimeout = setTimeout(typeStep, 2400);
                 return;
             } else if (isDeleting && charIndex === 0) {
                 // Finished deleting, move to next word
                 isDeleting = false;
                 wordIndex = (wordIndex + 1) % words.length;
-                setTimeout(typeStep, 350);
+                typewriterTimeout = setTimeout(typeStep, 150);
                 return;
             }
 
-            setTimeout(typeStep, typingSpeed);
+            typewriterTimeout = setTimeout(typeStep, typingSpeed);
         }
 
         // Initial delay before first deletion
-        setTimeout(typeStep, 2400);
+        typewriterTimeout = setTimeout(typeStep, 2600);
     }
 
     // ==========================================
@@ -242,21 +245,25 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
         }
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
+    function setupPage() {
         const wrapper = document.getElementById('main-swipe-wrapper');
         const whitePane = document.getElementById('pane-white');
 
         initMobileSwipe();
         initTypewriter();
 
-        if (wrapper) {
+        if (wrapper && !wrapper.dataset.scrollBound) {
+            wrapper.dataset.scrollBound = "true";
             wrapper.addEventListener('scroll', () => {
                 if (isMobile() && whitePane) {
                     currentActivePane = (wrapper.scrollLeft < whitePane.offsetLeft / 2) ? 'blue' : 'white';
                 }
             }, { passive: true });
         }
-    });
+    }
+
+    document.addEventListener('DOMContentLoaded', setupPage);
+    document.addEventListener('livewire:navigated', setupPage);
 
     window.addEventListener('resize', () => {
         const wrapper = document.getElementById('main-swipe-wrapper');

@@ -490,7 +490,7 @@ class ReportHelper
                 'rev_no'           => (int) ($ml->revise_no ?? 0),
                 'doc_title'        => $ml->doc_title,
                 'effectivity_date' => $ml->effectivity_date
-                    ? \Carbon\Carbon::parse($ml->effectivity_date)->format('M d, Y') : null,
+                    ? RegisterQueryHelper::formatSmartDate($ml->effectivity_date) : null,
                 'originator'       => $ml->originator_name,
                 'no_pages'         => $ml->no_pages,
                 'doc_type'         => $doc?->docType?->doc_type_name ?? $ml->docType?->doc_type_name ?? 'N/A',
@@ -587,7 +587,7 @@ class ReportHelper
 
             // Date received
             $dateReceived = $drf && $drf->drf_date
-                ? \Carbon\Carbon::parse($drf->drf_date)->format('m/d/Y') : null;
+                ? RegisterQueryHelper::formatSmartDate($drf->drf_date) : null;
 
             // Time received
             $timeReceived = $drf && $drf->drf_receipt_time
@@ -610,7 +610,7 @@ class ReportHelper
 
             // Masterlist registration date
             $mlRegDate = $ml && $ml->doc_registered_date
-                ? \Carbon\Carbon::parse($ml->doc_registered_date)->format('m/d/Y') : null;
+                ? RegisterQueryHelper::formatSmartDate($ml->doc_registered_date) : null;
 
             // Masterlist registration time
             $mlRegTime = $ml && $ml->doc_registered_time
@@ -629,7 +629,7 @@ class ReportHelper
             // Time released date — from distribution when available
             $dist = $doc->documentDistribution;
             $dateReleased = $dist && $dist->doc_distribution_date_actual
-                ? \Carbon\Carbon::parse($dist->doc_distribution_date_actual)->format('m/d/Y') : null;
+                ? RegisterQueryHelper::formatSmartDate($dist->doc_distribution_date_actual) : null;
 
             // Time released time
             $timeReleased = $dist && $dist->doc_distribution_time_actual
@@ -777,7 +777,7 @@ class ReportHelper
 
             // Date received (document date)
             $dateReceived = $drf && $drf->drf_date
-                ? \Carbon\Carbon::parse($drf->drf_date)->format('m/d/Y') : null;
+                ? RegisterQueryHelper::formatSmartDate($drf->drf_date) : null;
 
             // Time received
             $timeReceived = $drf && $drf->drf_receipt_time
@@ -785,7 +785,7 @@ class ReportHelper
 
             // Registered to masterlist - date
             $dateRegistered = $ml && $ml->doc_registered_date
-                ? \Carbon\Carbon::parse($ml->doc_registered_date)->format('m/d/Y') : null;
+                ? RegisterQueryHelper::formatSmartDate($ml->doc_registered_date) : null;
 
             // Registered to masterlist - time
             $timeRegistered = $ml && $ml->doc_registered_time
@@ -815,7 +815,7 @@ class ReportHelper
 
             // Effectivity date
             $effectivityDate = $ml && $ml->effectivity_date
-                ? \Carbon\Carbon::parse($ml->effectivity_date)->format('m/d/Y') : null;
+                ? RegisterQueryHelper::formatSmartDate($ml->effectivity_date) : null;
 
             // Days spent
             $daysSpent = null;
@@ -839,9 +839,9 @@ class ReportHelper
                 'subject_matter'   => $subjectMatter,
                 'effectivity_date' => $effectivityDate,
                 'deadline'         => $ml && $ml->deadline
-                    ? \Carbon\Carbon::parse($ml->deadline)->format('m/d/Y') : null,
+                    ? RegisterQueryHelper::formatSmartDate($ml->deadline) : 'N/A',
                 'date_released'    => $dist && $dist->doc_distribution_date_actual
-                    ? \Carbon\Carbon::parse($dist->doc_distribution_date_actual)->format('m/d/Y') : null,
+                    ? RegisterQueryHelper::formatSmartDate($dist->doc_distribution_date_actual) : null,
                 'days_spent'       => $daysSpent,
                 'remarks'          => $dcn && $dcn->dcn_no ? 'DCN: ' . $dcn->dcn_no : null,
                 'pdf_path'         => $ml && $ml->scanned_masterlist
@@ -926,10 +926,10 @@ class ReportHelper
                 'item_no'          => $index + 1,
                 'drf_no'           => $drf->drf_no,
                 'drf_date'         => $drf->drf_date
-                    ? \Carbon\Carbon::parse($drf->drf_date)->format('M d, Y') : null,
+                    ? RegisterQueryHelper::formatSmartDate($drf->drf_date) : null,
                 'doc_title'        => $drf->doc_title,
                 'receipt_date'     => $drf->drf_receipt_date
-                    ? \Carbon\Carbon::parse($drf->drf_receipt_date)->format('M d, Y') : null,
+                    ? RegisterQueryHelper::formatSmartDate($drf->drf_receipt_date) : null,
                 'receipt_time'     => $drf->drf_receipt_time
                     ? $this->formatTime($drf->drf_receipt_time) : null,
                 'doc_type'         => $drf->doc_type_name ?: 'N/A',
@@ -985,9 +985,9 @@ class ReportHelper
                 'item_no'          => $index + 1,
                 'dcn_no'           => $dcn->dcn_no,
                 'dcn_date'         => $dcn->dcn_date
-                    ? \Carbon\Carbon::parse($dcn->dcn_date)->format('M d, Y') : null,
+                    ? RegisterQueryHelper::formatSmartDate($dcn->dcn_date) : null,
                 'receipt_date'     => $dcn->dcn_receipt_date
-                    ? \Carbon\Carbon::parse($dcn->dcn_receipt_date)->format('M d, Y') : null,
+                    ? RegisterQueryHelper::formatSmartDate($dcn->dcn_receipt_date) : null,
                 'receipt_time'     => $dcn->dcn_receipt_time
                     ? $this->formatTime($dcn->dcn_receipt_time) : null,
                 'purpose'          => $purpose,
@@ -1093,11 +1093,11 @@ class ReportHelper
                 ? \Carbon\Carbon::parse($recvDateRaw)->startOfDay()
                 : null;
 
-            $dateReceived = $receivedAt?->format('m/d/Y');
+            $dateReceived = $receivedAt ? RegisterQueryHelper::formatSmartDate($receivedAt) : null;
             $timeReceived = $recvTimeRaw ? $this->formatTime($recvTimeRaw) : null;
 
             $dateRegistered = ($ml && $ml->doc_registered_date)
-                ? \Carbon\Carbon::parse($ml->doc_registered_date)->format('m/d/Y')
+                ? RegisterQueryHelper::formatSmartDate($ml->doc_registered_date)
                 : null;
             $timeRegistered = ($ml && $ml->doc_registered_time)
                 ? $this->formatTime($ml->doc_registered_time)
@@ -1108,13 +1108,13 @@ class ReportHelper
             $timeReleased = null;
             if ($dist && $dist->doc_distribution_date_actual) {
                 $releasedAt = \Carbon\Carbon::parse($dist->doc_distribution_date_actual)->startOfDay();
-                $dateReleased = $releasedAt->format('m/d/Y');
+                $dateReleased = RegisterQueryHelper::formatSmartDate($releasedAt);
                 $timeReleased = $dist->doc_distribution_time_actual
                     ? $this->formatTime($dist->doc_distribution_time_actual)
                     : null;
             } elseif ($ml && $ml->effectivity_date) {
                 $releasedAt = \Carbon\Carbon::parse($ml->effectivity_date)->startOfDay();
-                $dateReleased = $releasedAt->format('m/d/Y');
+                $dateReleased = RegisterQueryHelper::formatSmartDate($releasedAt);
             }
 
             $compareEnd = $layout === 'masterlist'

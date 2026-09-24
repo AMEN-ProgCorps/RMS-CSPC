@@ -527,6 +527,46 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     letter-spacing: 0.03em;
 }
 
+.reg-req {
+    color: #dc2626;
+    font-weight: 700;
+}
+
+.reg-deadline-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.reg-deadline-row input[type="date"] {
+    flex: 1;
+    min-width: 0;
+}
+
+.reg-na-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 0 2px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--reg-text-muted);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+}
+
+.reg-na-check input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    accent-color: var(--reg-accent, #0d2a7a);
+    cursor: pointer;
+}
+
 .reg-field input[type="text"],
 .reg-field input[type="number"],
 .reg-field input[type="date"],
@@ -1230,6 +1270,12 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 .reg-card-body {
     padding: 24px;
     overflow: visible;
+}
+
+#section-4 .reg-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
 }
 
 /* ══════════════════════════════════════════════

@@ -556,7 +556,9 @@ class SyllabiMonitoringHelper
                 }
                 continue;
             }
-            $formatted = self::formatDate($raw);
+            $formatted = $field === 'effectivity_date'
+                ? (RegisterQueryHelper::formatSmartDate($raw) ?: null)
+                : self::formatDate($raw);
             if ($formatted) {
                 $dates[$formatted] = true;
             }

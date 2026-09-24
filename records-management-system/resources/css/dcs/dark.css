@@ -1628,6 +1628,14 @@
     border-color: #1e293b !important;
 }
 
+[data-theme="dark"] .reg-na-check {
+    color: #94a3b8;
+}
+
+[data-theme="dark"] .reg-req {
+    color: #f87171;
+}
+
 [data-theme="dark"] input[readonly][style*="background"],
 [data-theme="dark"] #retrievalTimeSpentDisplay,
 [data-theme="dark"] #distributionTimeSpentDisplay,

@@ -453,7 +453,7 @@ class RandomCheckHelper
                 'doc_no' => (string) ($item->doc_no ?? ''),
                 'rev_no' => (int) ($item->rev_no ?? 0),
                 'doc_title' => (string) ($item->doc_title ?? ''),
-                'effectivity_date' => $raw ? Carbon::parse($raw)->format('M d, Y') : null,
+                'effectivity_date' => $raw ? RegisterQueryHelper::formatSmartDate($raw) : null,
                 'effectivity_date_raw' => $raw ? Carbon::parse($raw)->format('Y-m-d') : null,
                 'doc_type_key' => $itemKey,
                 'doc_type_label' => $itemLabel,

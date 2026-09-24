@@ -545,7 +545,13 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                         </div>
                         <div class="reg-field">
                             <label>Deadline of Submission</label>
-                            <input type="date" id="deadlineOfSubmission" name="deadlineOfSubmission" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($masterlist->deadline ?? '') }}">
+                            <div class="reg-deadline-row">
+                                <input type="date" id="deadlineOfSubmission" name="deadlineOfSubmission" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($masterlist->deadline ?? '') }}">
+                                <label class="reg-na-check" for="deadlineNotApplicable">
+                                    <input type="checkbox" id="deadlineNotApplicable" name="deadlineNotApplicable" value="1" @checked(empty($masterlist->deadline))>
+                                    N/A
+                                </label>
+                            </div>
                         </div>
                         <div class="reg-field">
                             <label>Document Receipt</label>
@@ -574,7 +580,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     </div>
                     <div class="reg-ml-mid">
                         <div class="reg-field">
-                            <label>Effectivity Date</label>
+                            <label>Effectivity Date <span class="reg-req" aria-hidden="true">*</span></label>
                             <input type="date" id="masterlistEffectivityDate" name="masterlistEffectivityDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($masterlist->effectivity_date ?? '') }}">
                         </div>
                         <div class="reg-field">
@@ -697,51 +703,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                 <div class="reg-card-header">
                     <span>Document Retrieval</span>
                 </div>
-                <div class="reg-card-body reg-split">
-                    <div class="reg-split-left">
-                        <div class="reg-split-form-grid">
-                            <div class="reg-split-form-stack">
-                                <div class="reg-field">
-                                    <label>Retrieval Form Date</label>
-                                    <div class="reg-dual">
-                                        <input type="date" id="retrievalFormDate" name="retrievalFormDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($retrieval->doc_retrieval_date_file ?? '') }}">
-                                        <input type="time" id="retrievalFormTime" name="retrievalFormTime" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($retrieval->doc_retrieval_time_file ?? '') }}">
-                                    </div>
-                                </div>
-                                <div class="reg-field">
-                                    <label>Retrieval Date & Time</label>
-                                    <div class="reg-dual">
-                                        <input type="date" id="retrievalDate" name="retrievalDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($retrieval->doc_retrieval_date_actual ?? '') }}">
-                                        <input type="time" id="retrievalTime" name="retrievalTime" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($retrieval->doc_retrieval_time_actual ?? '') }}">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="reg-field">
-                            <label>Remarks</label>
-                            <input type="text" id="retrievalRemarks" name="retrievalRemarks" placeholder="Optional remarks" value="{{ $retrieval->remarks ?? '' }}">
-                        </div>
-                        <div class="reg-field">
-                            <label>Upload Scanned D&amp;R</label>
-                            @if($retrieval && $retrieval->scanned_retrieval)
-                                <div class="reg-current-file">
-                                    <i class="fa-solid fa-file-pdf"></i>
-                                    <span>{{ basename($retrieval->scanned_retrieval) }}</span>
-                                    <a href="{{ RegisterQueryHelper::scanUrl($retrieval->scanned_retrieval) }}" target="_blank">View</a>
-                                </div>
-                            @endif
-                            <label class="reg-upload">
-                                <input type="file" id="scannedRet" name="scannedRet" accept=".pdf">
-                                <i class="fa-solid fa-cloud-arrow-up"></i>
-                                <span>{{ $retrieval && $retrieval->scanned_retrieval ? 'Replace file' : 'Choose scanned PDF' }}</span>
-                            </label>
-                            <p class="reg-scan-name-preview" data-scan-preview="retrieval">
-                                <strong>{{ $retrieval && $retrieval->scanned_retrieval ? 'Replacement will be saved as' : 'Will be saved as' }}</strong>
-                                <code data-scan-preview-name>—</code>
-                            </p>
-                        </div>
-                    </div>
-                    <div class="reg-split-right">
+                <div class="reg-card-body">
                         <div class="reg-field">
                             <label>Office retrieval status</label>
                             <p class="reg-field-hint">Mark as Retrieved to also add that office to Distribution. Then set that office’s retrieval date and time. The office stays listed here as Retrieved. Set status back to Pending (or remove it from Distribution) to undo. On the next revision, retrieved offices start again as Pending in Retrieval.</p>
@@ -833,7 +795,6 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                         <button type="button" class="reg-office-see-more" id="retrievalSeeMore" data-office-wrap="retrievalOfficeWrap" onclick="toggleOfficeSeeMore(this)">
                             See more
                         </button>
-                    </div>
                 </div>
             </section>
 
@@ -1801,6 +1762,7 @@ document.addEventListener("DOMContentLoaded", async function () {
         initDraftRevNoLookup(revField);
         wireSyllabiMasterlistSync();
         wireApprovalDeadlineSync();
+        wireDeadlineNotApplicable();
         enableApproval();
         const applicableOnLoad = document.querySelector('input[name="approval_status"][value="applicable"]');
         if (typeof window.handleApprovalToggle === 'function') {
@@ -2728,14 +2690,17 @@ async function bridgeDcnPickToMasterlist(docNo, options = {}) {
         const url = '/dcs/register/check-docno?doc_no=' + encodeURIComponent(docNo) +
                     (docTypeId ? '&doc_type_id=' + docTypeId : '') +
                     (subTypeId ? '&sub_type_id=' + subTypeId : '') +
-                    (excludeRequestId ? '&exclude_request_id=' + excludeRequestId : '');
+                    (excludeRequestId ? '&exclude_request_id=' + excludeRequestId : '') +
+                    '&include_drafts=1';
         const res = await fetch(url);
         const data = await res.json();
         if (data.exists) {
             applyRevisedDocumentContext(data, { docNo, hintEl, revField, forceNextRev: true });
         }
+        return data;
     } catch (e) {
         console.error('DCN pick check-docno failed:', e);
+        return null;
     }
 }
 
@@ -2928,6 +2893,7 @@ function handleRevisionSearchInput(input, key, field) {
                 q,
                 field: field || '',
                 doc_type_id: docTypeId,
+                for_revision: '1',
             });
             if (subTypeId) params.set('sub_type_id', subTypeId);
             const excludeId = document.getElementById('requestId')?.value;
@@ -2937,7 +2903,7 @@ function handleRevisionSearchInput(input, key, field) {
             revSearchCache[key] = data;
 
             dd.innerHTML = data.length === 0
-                ? '<div class="reg-reldocs-noresult">No matching documents of this type</div>'
+                ? '<div class="reg-reldocs-noresult">No matching documents. Save the New registration first, then search the full Document No.</div>'
                 : data.map((d, idx) => `<div onmousedown="pickRevisionDocument('${key}', ${idx})">${escapeHtml(d.label)}</div>`).join('');
 
             positionFixedDropdown(dd, input);
@@ -2996,6 +2962,22 @@ function clearAllLinkedRevisionRows(tbody, exceptRow) {
     });
 }
 
+function revisionHistoryRowsForDcn(docs, latestRev) {
+    const list = Array.isArray(docs) ? docs.slice() : [];
+    const cap = latestRev !== null && latestRev !== undefined && latestRev !== ''
+        ? Number(latestRev)
+        : NaN;
+    let rows = Number.isFinite(cap)
+        ? list.filter((d) => Number(d?.revise_no) <= cap)
+        : list.slice();
+    if (!rows.length && list.length) {
+        const first = { ...list[0] };
+        if (Number.isFinite(cap)) first.revise_no = cap;
+        rows = [first];
+    }
+    return rows;
+}
+
 async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {}) {
     const tbody = document.getElementById('revisionTableBody');
     if (!tbody || !anchorRow || !docs.length) return;
@@ -3004,7 +2986,7 @@ async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {
 
     clearAllLinkedRevisionRows(tbody, anchorRow);
 
-    const rowsToFill = docs.slice();
+    const rowsToFill = revisionHistoryRowsForDcn(docs, options.latestRev);
 
     populateRevisionRowFromDoc(anchorRow, rowsToFill[0]);
     anchorRow.dataset.linked = 'true';
@@ -3054,11 +3036,12 @@ window.pickRevisionDocument = async function (key, idx) {
     const pickedNo = String(doc.doc_no || '').trim().toLowerCase();
 
     try {
-        await fillRevisionTableWithDocumentHistory(row, revisions, { docNo: pickedNo });
-
+        let checkData = null;
         if (isDcnSectionVisible() && doc.doc_no) {
-            await bridgeDcnPickToMasterlist(doc.doc_no);
+            checkData = await bridgeDcnPickToMasterlist(doc.doc_no);
         }
+        const latestRev = checkData?.latest_rev ?? doc.revise_no;
+        await fillRevisionTableWithDocumentHistory(row, revisions, { docNo: pickedNo, latestRev });
     } finally {
         setRevisionTableLoading(false);
     }
@@ -3818,6 +3801,22 @@ function initSelectProtection() {
 // ══════════════════════════════════════════════
 // FILE INPUTS (with drag & drop)
 // ══════════════════════════════════════════════
+function assignDroppedFiles(input, files) {
+    if (!input || !files || files.length === 0) return false;
+    try {
+        input.files = files;
+    } catch (err) {
+        try {
+            const dt = new DataTransfer();
+            dt.items.add(files[0]);
+            input.files = dt.files;
+        } catch (err2) {
+            return false;
+        }
+    }
+    return !!(input.files && input.files.length > 0);
+}
+
 function initFileInputs() {
     document.querySelectorAll('.reg-upload').forEach(container => {
         const input = container.querySelector('input[type="file"]');
@@ -3834,9 +3833,8 @@ function initFileInputs() {
         container.addEventListener('drop', function (e) {
             e.preventDefault();
             container.classList.remove('reg-upload-drag');
-            if (e.dataTransfer.files.length > 0) {
-                input.files = e.dataTransfer.files;
-                processUploadAreaFile(input, container, icon, label, originalText);
+            if (assignDroppedFiles(input, e.dataTransfer.files)) {
+                input.dispatchEvent(new Event('change', { bubbles: true }));
             }
         });
     });
@@ -4422,6 +4420,15 @@ function validateMasterlistRequired(errors, { requireScan = false, forDraft = fa
             type: 'file',
         });
     }
+    if (!forDraft && !window.__isSyllabiMode) {
+        const effectivity = (document.getElementById('masterlistEffectivityDate')?.value || '').trim();
+        if (!effectivity) {
+            errors.push({
+                field: 'masterlistEffectivityDate',
+                message: 'Effectivity Date is required.',
+            });
+        }
+    }
 }
 
 window.toggleSection = function (checklistId, show) {
@@ -4462,19 +4469,40 @@ window.handleApprovalToggle = function (applicable) {
     if (el) el.style.display = applicable ? "block" : "none";
 };
 
+function applyDeadlineNotApplicableState() {
+    const deadline = document.getElementById('deadlineOfSubmission');
+    const na = document.getElementById('deadlineNotApplicable');
+    if (!deadline || !na) return;
+    if (na.checked) {
+        deadline.value = '';
+        deadline.disabled = true;
+    } else {
+        deadline.disabled = false;
+    }
+}
+
+function wireDeadlineNotApplicable() {
+    const na = document.getElementById('deadlineNotApplicable');
+    if (!na || na.dataset.bound === '1') return;
+    na.dataset.bound = '1';
+    na.addEventListener('change', applyDeadlineNotApplicableState);
+    applyDeadlineNotApplicableState();
+}
+
 function wireApprovalDeadlineSync() {
     const approval = document.getElementById('approvalDate');
     const deadline = document.getElementById('deadlineOfSubmission');
+    const na = document.getElementById('deadlineNotApplicable');
     if (!approval || !deadline) return;
     let syncing = false;
     approval.addEventListener('change', () => {
-        if (syncing) return;
+        if (syncing || na?.checked) return;
         syncing = true;
         deadline.value = approval.value;
         syncing = false;
     });
     deadline.addEventListener('change', () => {
-        if (syncing) return;
+        if (syncing || na?.checked) return;
         syncing = true;
         approval.value = deadline.value;
         syncing = false;
@@ -6280,19 +6308,6 @@ function validateTimeSpentFields(errors) {
                 .forEach(id => document.getElementById(id)?.classList.add("reg-input-error"));
         }
     }
-    if (sectionVisible("section-4")) {
-        const duration = computeDuration(
-            document.getElementById("retrievalFormDate")?.value,
-            document.getElementById("retrievalFormTime")?.value,
-            document.getElementById("retrievalDate")?.value,
-            document.getElementById("retrievalTime")?.value
-        );
-        if (duration && duration.invalid) {
-            errors.push({ field: "retrievalDate", message: "Retrieval: Retrieval Date must be after Form Date." });
-            ["retrievalFormDate", "retrievalFormTime", "retrievalDate", "retrievalTime"]
-                .forEach(id => document.getElementById(id)?.classList.add("reg-input-error"));
-        }
-    }
     if (sectionVisible("section-5")) {
         const dist = document.getElementById("distributionTimeSpentDisplay");
         if (dist && dist.value === "Invalid") {
@@ -6476,7 +6491,6 @@ function collectMissingFields() {
         if (!window.__isSyllabiMode) {
             checkText("Masterlist", "masterlistDocNo", "Document No.");
             checkText("Masterlist", "masterlistDocTitle", "Document Title");
-            checkText("Masterlist", "deadlineOfSubmission", "Deadline of Submission");
             checkText("Masterlist", "masterlistEffectivityDate", "Effectivity Date");
         }
         checkText("Masterlist", "masterlistNoOfPages", "No. of Pages");
@@ -6489,8 +6503,6 @@ function collectMissingFields() {
     }
 
     if (sectionVisible("section-4")) {
-        checkText("Retrieval", "retrievalFormDate", "Form Date");
-        checkText("Retrieval", "retrievalDate", "Retrieval Date");
         if (document.querySelectorAll("#retrievalBody input[type='hidden']").length === 0) missing.push("Retrieval: At least one office");
     }
 
@@ -6584,17 +6596,23 @@ function getSelectText(id) {
     if (!el || el.selectedIndex < 0) return "";
     return el.options[el.selectedIndex].text;
 }
-function formatInputDate(id) {
-    const val = getInputVal(id);
+function formatSmartDateValue(val) {
     if (!val) return "";
     const date = new Date(val + "T00:00:00");
     if (isNaN(date.getTime())) return val;
+    if (date.getDate() === 1) {
+        return date.toLocaleDateString("en-US", { year: "numeric", month: "short" });
+    }
     return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
+function formatInputDate(id) {
+    return formatSmartDateValue(getInputVal(id));
+}
 function fmtDateValue(val) {
-    if (!val) return "";
-    const d = new Date(val + "T00:00:00");
-    return isNaN(d.getTime()) ? val : d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    return formatSmartDateValue(val);
+}
+function isDeadlineNotApplicable() {
+    return !!document.getElementById("deadlineNotApplicable")?.checked;
 }
 function getOfficeList(tbodyId) {
     const tbody = document.getElementById(tbodyId);
@@ -6788,7 +6806,7 @@ function buildMasterlistReview(reviewContent) {
     addReviewSection(reviewContent, "Masterlist Registration", [
         { label: "Doc No.", value: getInputVal("masterlistDocNo") },
         { label: "Title", value: getInputVal("masterlistDocTitle") },
-        { label: "Deadline", value: formatInputDate("deadlineOfSubmission") },
+        { label: "Deadline", value: isDeadlineNotApplicable() ? "N/A" : (formatInputDate("deadlineOfSubmission") || "N/A") },
         { label: "Receipt", value: formatInputDate("masterlistReceiptDate") + " " + getInputVal("masterlistReceiptTime") },
         { label: "Registered", value: formatInputDate("masterlistRegisteredDate") + " " + getInputVal("masterlistRegisteredTime") },
         { label: "Time Spent", value: document.getElementById("masterlistTimeSpentDisplay")?.value || null },
@@ -6816,13 +6834,6 @@ function buildApprovalReview(reviewContent) {
 function buildRetrievalReview(reviewContent) {
     const s4 = document.getElementById("section-4");
     if (!s4 || s4.style.display === "none") return;
-    const f = document.getElementById("scannedRet")?.files;
-    addReviewSection(reviewContent, "Document Retrieval", [
-        { label: "Form Date", value: formatInputDate("retrievalFormDate") + " " + getInputVal("retrievalFormTime") },
-        { label: "Retrieval Date", value: formatInputDate("retrievalDate") + " " + getInputVal("retrievalTime") },
-        { label: "Remarks", value: getInputVal("retrievalRemarks") },
-        { label: "File", value: f && f.length > 0 ? f[0].name : null, isFile: true },
-    ]);
     const off = getOfficeList("retrievalBody");
     if (off.length) addReviewOfficeList(reviewContent, "Receiving Offices (Retrieval)", off);
 }

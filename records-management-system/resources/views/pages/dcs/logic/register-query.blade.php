@@ -277,6 +277,29 @@ class RegisterQueryHelper
         return Carbon::parse($val)->format('Y-m-d');
     }
 
+    /**
+     * Display dates: the 1st of a month is month + year only (Jan 2025).
+     * Any other day keeps the full date (Jan 2, 2025).
+     */
+    public static function formatSmartDate(mixed $val, string $empty = '', bool $longMonth = false): string
+    {
+        if (! $val) {
+            return $empty;
+        }
+
+        try {
+            $date = $val instanceof Carbon ? $val : Carbon::parse($val);
+        } catch (\Throwable $e) {
+            return trim((string) $val);
+        }
+
+        if ((int) $date->day === 1) {
+            return $date->format($longMonth ? 'F Y' : 'M Y');
+        }
+
+        return $date->format($longMonth ? 'F j, Y' : 'M d, Y');
+    }
+
     public static function formatTime(mixed $val): string
     {
         if (!$val) {
@@ -1134,6 +1157,42 @@ class RegisterQueryHelper
         self::applyExcludeOfficeIntakeRequests($q, 'dr');
 
         return self::intIds($q->pluck('dr.id'));
+    }
+
+    /**
+     * Newest open draft for this document number + type (one draft per document).
+     */
+    public static function findExistingDraftRequestId(
+        string $docNo,
+        int $docTypeId,
+        ?int $subTypeId = null,
+        int $excludeRequestId = 0
+    ): ?int {
+        if (! self::supportsDrafts()) {
+            return null;
+        }
+
+        $docNo = trim($docNo);
+        if ($docNo === '' || $docTypeId < 1) {
+            return null;
+        }
+
+        $query = DB::table('dcs_document_requests as dr')
+            ->join('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+            ->where('dr.is_draft', true)
+            ->where('dr.doc_type_id', $docTypeId)
+            ->where('ml.doc_no', $docNo);
+        self::applyNotDeleted($query, 'dr');
+        self::applyOfficeScope($query, 'dr');
+        self::applyExcludeOfficeIntakeRequests($query, 'dr');
+
+        if ($excludeRequestId > 0) {
+            $query->where('dr.id', '!=', $excludeRequestId);
+        }
+
+        $id = $query->orderByDesc('dr.updated_at')->orderByDesc('dr.id')->value('dr.id');
+
+        return $id ? (int) $id : null;
     }
 
     public static function isOfficeIntakeScanPath(string $path): bool
@@ -2253,6 +2312,8 @@ class RegisterQueryHelper
             'last_page' => 1,
             'per_page' => $perPage,
         ];
+
+        RegisterUpdateHelper::collapseDuplicateDrafts();
 
         $draftIds = self::draftRequestIds();
         if ($draftIds === []) {
@@ -3522,7 +3583,7 @@ class RegisterQueryHelper
 
     private static function hstDate(mixed $val): string
     {
-        return $val ? Carbon::parse($val)->format('M d, Y') : '—';
+        return self::formatSmartDate($val, '—');
     }
 
     private static function hstDateTime(mixed $val): string
@@ -3644,8 +3705,8 @@ class RegisterQueryHelper
             self::hstRow('registered_by', 'Registered by', $lookups['creators'][(int) $creatorId] ?? null),
             self::hstRow('originator', 'Originator', $ml->originator_name),
             self::hstOfficeRow('sources', 'Source offices', $mlHydrated->sourceOffices ?? collect()),
-            self::hstRow('effectivity', 'Effectivity', self::hstDate($ml->effectivity_date)),
-            self::hstRow('deadline', 'Deadline', self::hstDate($ml->deadline)),
+            self::hstRow('effectivity', 'Effectivity', self::formatSmartDate($ml->effectivity_date, '—')),
+            self::hstRow('deadline', 'Deadline', $ml->deadline ? self::formatSmartDate($ml->deadline) : 'N/A'),
             self::hstRow('pages', 'Pages', $ml->no_pages === null ? null : (string) $ml->no_pages),
             self::hstRow('receipt_date', 'Date received', self::hstDate($ml->doc_receipt_date)),
             self::hstRow('receipt_time', 'Time received', self::hstTime($ml->doc_receipt_time)),
@@ -3677,7 +3738,7 @@ class RegisterQueryHelper
                     'document_no' => $rev->document_no ?: '—',
                     'title' => $rev->title ?: '—',
                     'revision_no' => $rev->revision_no !== null ? (string) $rev->revision_no : '—',
-                    'effectivity_date' => self::hstDate($rev->effectivity_date) ?: '—',
+                    'effectivity_date' => self::formatSmartDate($rev->effectivity_date, '—'),
                     'brief_purpose' => $rev->brief_purpose ?: '—',
                 ];
             })->all();
@@ -3687,7 +3748,7 @@ class RegisterQueryHelper
                     $rev->title ?: null,
                     $rev->document_no ? 'No. ' . $rev->document_no : null,
                     $rev->revision_no !== null ? 'Rev ' . $rev->revision_no : null,
-                    $rev->effectivity_date ? self::hstDate($rev->effectivity_date) : null,
+                    $rev->effectivity_date ? self::formatSmartDate($rev->effectivity_date) : null,
                     $rev->brief_purpose ?: null,
                 ]);
 
@@ -3722,15 +3783,8 @@ class RegisterQueryHelper
 
         if ($ret) {
             self::hstPushSection($sections, 'retrieval', 'Retrieval', [
-                self::hstRow('ret_date_actual', 'Actual date', self::hstDate($ret->doc_retrieval_date_actual ?? null)),
-                self::hstRow('ret_time_actual', 'Actual time', self::hstTime($ret->doc_retrieval_time_actual ?? null)),
-                self::hstRow('ret_date_file', 'File date', self::hstDate($ret->doc_retrieval_date_file ?? null)),
-                self::hstRow('ret_time_file', 'File time', self::hstTime($ret->doc_retrieval_time_file ?? null)),
-                self::hstRow('ret_spent', 'Time spent', $ret->time_spent ?? null),
                 self::hstOfficeRow('ret_offices', 'Offices / copies', $ret->offices ?? collect(), true),
-                self::hstRow('ret_remarks', 'Remarks', $ret->remarks ?? null),
-                self::hstRow('ret_scan', 'Scanned copy', self::hstFile($ret->scanned_retrieval ?? null)),
-            ], self::hstScanMeta($ret->scanned_retrieval ?? null));
+            ]);
         }
 
         $approvalText = collect($approvals)->map(function ($a) use ($lookups) {
@@ -4006,12 +4060,28 @@ class RegisterQueryHelper
             ->limit($allRevisions ? 50 : ($dashboardSearch ? 60 : 30))
             ->get($select);
 
+        $forRevision = $request->boolean('for_revision') || in_array($field, ['no', 'title'], true);
+        if ($rows->isEmpty() && $forRevision && $docTypeId) {
+            $rows = self::searchRevisionDocumentsFallback(
+                $q,
+                (string) $field,
+                (int) $docTypeId,
+                $subTypeId ? (int) $subTypeId : null,
+                (int) $request->input('exclude_request_id', 0),
+                $select
+            );
+        }
+
         if ($rows->isEmpty()) {
             return [];
         }
 
         if ($dashboardSearch) {
             $rows = self::resolveDashboardSearchHits($rows, $visibleIds, $hasKeywords, $q);
+        } elseif ($forRevision && !$allRevisions) {
+            // Documents for Revision must show the published current rev, not a
+            // leftover revision draft or the next unused number.
+            $rows = self::resolveRevisionSearchHits($rows, $visibleIds, $hasKeywords);
         } elseif (!$allRevisions) {
             $seen = [];
             $rows = $rows->filter(function ($m) use (&$seen) {
@@ -4082,6 +4152,65 @@ class RegisterQueryHelper
         })
             ->values()
             ->all();
+    }
+
+    /**
+     * Revision picker fallback: same parent type, optional subtype, include drafts,
+     * and do not require revision_status = latest. Used when the strict search misses
+     * a just-saved New registration the user is trying to revise.
+     */
+    private static function searchRevisionDocumentsFallback(
+        string $q,
+        string $field,
+        int $docTypeId,
+        ?int $subTypeId,
+        int $excludeRequestId,
+        array $select
+    ): Collection {
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
+            ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
+            ->where(function ($q) use ($docTypeId) {
+                $q->where('dr.doc_type_id', $docTypeId)
+                    ->orWhere('dr.sub_type_id', $docTypeId)
+                    ->orWhereIn('dr.doc_type_id', function ($sub) use ($docTypeId) {
+                        $sub->select('id')->from('dcs_doc_types')->where('parent_id', $docTypeId);
+                    })
+                    ->orWhereIn('dr.sub_type_id', function ($sub) use ($docTypeId) {
+                        $sub->select('id')->from('dcs_doc_types')->where('parent_id', $docTypeId);
+                    });
+            })
+            ->whereNotNull('ml.doc_no')
+            ->where('ml.doc_no', '!=', '');
+
+        self::applyNotDeleted($query, 'dr');
+        self::applyExcludeOfficeIntakeRequests($query, 'dr');
+
+        if ($excludeRequestId > 0) {
+            $query->where('ml.request_id', '!=', $excludeRequestId);
+        }
+
+        $query->where(function ($qr) use ($q, $field) {
+            if ($field === 'title') {
+                $qr->where('ml.doc_title', 'ilike', "%{$q}%");
+            } else {
+                $qr->where('ml.doc_no', 'ilike', "%{$q}%");
+            }
+        });
+
+        if ($subTypeId) {
+            $query->orderByRaw('CASE WHEN dr.sub_type_id = ? THEN 0 ELSE 1 END', [$subTypeId]);
+        }
+        if (self::supportsDrafts()) {
+            $query->orderByRaw('CASE WHEN dr.is_draft = true THEN 1 ELSE 0 END');
+        }
+        if (self::supportsRevisionStatus()) {
+            $query->orderByRaw("CASE WHEN ml.revision_status = 'latest' OR ml.revision_status IS NULL OR ml.revision_status = '' THEN 0 ELSE 1 END");
+        }
+        $query->orderByDesc('ml.revise_no')->orderBy('ml.doc_no');
+
+        return $query->limit(30)->get($select);
     }
 
     /**
@@ -4199,6 +4328,41 @@ class RegisterQueryHelper
         return $tip;
     }
 
+    /**
+     * Revision picker: one row per document, always the published current rev.
+     * A leftover revision draft (next unused Rev) must not win over Latest.
+     */
+    private static function resolveRevisionSearchHits(Collection $rows, array $visibleIds, bool $hasKeywords): Collection
+    {
+        $out = collect();
+        $seenKeys = [];
+
+        foreach ($rows as $hit) {
+            $tip = self::resolveLineageTipMasterlist($hit, $visibleIds);
+            $source = $tip ?: $hit;
+            $key = strtolower(trim((string) ($source->doc_no ?? ''))) . '|'
+                . (int) ($source->doc_type_id ?? $hit->doc_type_id ?? 0) . '|'
+                . (int) ($source->sub_type_id ?? $hit->sub_type_id ?? 0);
+            if ($key === '|0|0' || isset($seenKeys[$key])) {
+                continue;
+            }
+            $seenKeys[$key] = true;
+
+            if ($tip) {
+                $enriched = self::loadSearchDocumentRow((int) $tip->id, $hasKeywords);
+                if ($enriched) {
+                    $enriched->originator_name = $enriched->originator_name ?? ($hit->originator_name ?? null);
+                    $out->push($enriched);
+                    continue;
+                }
+            }
+
+            $out->push($hit);
+        }
+
+        return $out->values();
+    }
+
     private static function loadSearchDocumentRow(int $masterlistId, bool $hasKeywords): ?object
     {
         $select = [
@@ -4209,6 +4373,7 @@ class RegisterQueryHelper
             'ml.revise_no',
             'ml.effectivity_date',
             'ml.scanned_masterlist',
+            'ml.originator_name',
             'dr.doc_type_id',
             'dr.sub_type_id',
             'dt.doc_type_name as type_name',
@@ -4241,7 +4406,24 @@ class RegisterQueryHelper
             ? self::visibleOriginatorRequestIds()
             : self::visibleRequestIds();
         if (! in_array($requestId, $visibleIds, true)) {
-            abort(403, 'You do not have access to this document revision.');
+            $draftAnchor = DB::table('dcs_masterlist_registration as ml')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                ->where('ml.request_id', $requestId)
+                ->select('ml.doc_no', 'ml.revise_no', 'dr.doc_type_id', 'dr.sub_type_id')
+                ->first();
+            $tip = $draftAnchor && trim((string) ($draftAnchor->doc_no ?? '')) !== ''
+                ? self::latestMasterlistForDocNo(
+                    trim((string) $draftAnchor->doc_no),
+                    (int) $draftAnchor->doc_type_id,
+                    $draftAnchor->sub_type_id ? (int) $draftAnchor->sub_type_id : null,
+                    $visibleIds
+                )
+                : null;
+            if ($tip && in_array((int) $tip->request_id, $visibleIds, true)) {
+                $requestId = (int) $tip->request_id;
+            } else {
+                abort(403, 'You do not have access to this document revision.');
+            }
         }
 
         $anchor = DB::table('dcs_masterlist_registration as ml')
@@ -5268,7 +5450,7 @@ class RegisterQueryHelper
                 'title' => $rev->title ?: '—',
                 'document_no' => $rev->document_no ?: '—',
                 'revision_no' => $rev->revision_no !== null ? (string) $rev->revision_no : '—',
-                'effectivity_date' => self::formatDate($rev->effectivity_date) ?: '—',
+                'effectivity_date' => self::formatSmartDate($rev->effectivity_date, '—'),
                 'brief_purpose' => $rev->brief_purpose ?: '—',
             ])
             ->all();
@@ -5318,10 +5500,10 @@ class RegisterQueryHelper
                 self::previewField('Receipt Time', self::formatTime($ml->doc_receipt_time)),
                 self::previewField('Registered Date', self::formatDate($ml->doc_registered_date)),
                 self::previewField('Registered Time', self::formatTime($ml->doc_registered_time)),
-                self::previewField('Effectivity Date', self::formatDate($ml->effectivity_date)),
+                self::previewField('Effectivity Date', self::formatSmartDate($ml->effectivity_date)),
                 self::previewField('No. of Pages', $ml->no_pages),
                 self::previewField('Originator', $ml->originator_name),
-                self::previewField('Deadline', self::formatDate($ml->deadline)),
+                self::previewField('Deadline', $ml->deadline ? self::formatSmartDate($ml->deadline) : 'N/A'),
                 self::previewField('Time Spent (mins)', $ml->time_spent),
             ],
             'sections' => array_values(array_filter([
@@ -5412,14 +5594,7 @@ class RegisterQueryHelper
             'type' => 'retrieval',
             'doc_no' => null,
             'doc_title' => null,
-            'fields' => [
-                self::previewField('Retrieval Date (Actual)', self::formatDate($ret->doc_retrieval_date_actual)),
-                self::previewField('Retrieval Time (Actual)', self::formatTime($ret->doc_retrieval_time_actual)),
-                self::previewField('Retrieval Date (File)', self::formatDate($ret->doc_retrieval_date_file)),
-                self::previewField('Retrieval Time (File)', self::formatTime($ret->doc_retrieval_time_file)),
-                self::previewField('Time Spent (mins)', $ret->time_spent),
-                self::previewField('Remarks', $ret->remarks),
-            ],
+            'fields' => [],
             'sections' => array_values(array_filter([
                 self::previewOfficesSection('Retrieval Offices', $offices, true),
             ])),
@@ -5443,11 +5618,23 @@ class RegisterQueryHelper
             $docTypeId,
             $subTypeId ? (int) $subTypeId : null
         );
+        if (
+            ! ($result['found'] ?? false)
+            && $request->boolean('include_drafts')
+            && in_array($result['reason'] ?? '', ['wrong_subtype', 'wrong_type'], true)
+        ) {
+            $result = RegisterPersistHelper::findMatchingRegistrationRows(
+                $docNo,
+                $docTypeId,
+                $subTypeId ? (int) $subTypeId : null,
+                true
+            );
+        }
 
         if ($result['found']) {
             $matches = $result['matches'];
             // Draft rows must not make a Doc No look "already registered" while still being edited.
-            if (self::supportsDrafts()) {
+            if (self::supportsDrafts() && ! $request->boolean('include_drafts')) {
                 $matches = $matches->filter(fn ($row) => empty($row->is_draft))->values();
             }
             if ($excludeRequestId > 0) {
@@ -5462,8 +5649,10 @@ class RegisterQueryHelper
                 ];
             }
             $result['matches'] = $matches;
+            $matchIds = $matches->pluck('id');
+            $publishedIds = $matches->filter(fn ($row) => empty($row->is_draft))->pluck('id');
             $latest = DB::table('dcs_masterlist_registration')
-                ->whereIn('request_id', $matches->pluck('id'))
+                ->whereIn('request_id', $publishedIds->isNotEmpty() ? $publishedIds : $matchIds)
                 ->where('doc_no', $docNo)
                 ->orderByDesc('revise_no')
                 ->first();

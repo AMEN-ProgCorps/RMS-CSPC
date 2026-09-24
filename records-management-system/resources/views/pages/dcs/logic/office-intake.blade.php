@@ -3189,7 +3189,7 @@ class OfficeIntakeHelper
                 'doc_title' => (string) ($ml->doc_title ?? ''),
                 'pages' => $pages,
                 'effectivity_date' => $ml->effectivity_date
-                    ? \Carbon\Carbon::parse($ml->effectivity_date)->format('M d, Y')
+                    ? RegisterQueryHelper::formatSmartDate($ml->effectivity_date)
                     : null,
                 'can_receive' => $requestId > 0 && $receipt !== null && $receivedAt === null,
                 'received_at' => $receivedAt,
@@ -3438,7 +3438,7 @@ class OfficeIntakeHelper
                 'rev_no' => (int) ($ml->revise_no ?? 0),
                 'doc_title' => (string) ($ml->doc_title ?? ''),
                 'effectivity_date' => $raw
-                    ? \Carbon\Carbon::parse($raw)->format('M d, Y')
+                    ? RegisterQueryHelper::formatSmartDate($raw)
                     : null,
                 'effectivity_date_raw' => $raw
                     ? \Carbon\Carbon::parse($raw)->format('Y-m-d')

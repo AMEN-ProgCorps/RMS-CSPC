@@ -485,15 +485,18 @@ body {
         display: flex;
         flex-direction: column;
         justify-content: space-between;
+        box-sizing: border-box;
     }
 
-    /* Top Bar Mobile: Aligned Vertically, No Shrink Letters */
+    /* Top Bar Mobile: Aligned Vertically, Flex-Wrap prevents collision on shrink test */
     .white-top-bar {
         display: flex;
         align-items: center;
         justify-content: space-between;
         width: 100%;
         min-height: 28px;
+        gap: 8px;
+        flex-wrap: wrap;
     }
 
     .white-brand-header {
@@ -548,25 +551,43 @@ body {
     .white-center-area {
         padding: 20px 0;
         margin: auto 0;
+        width: 100%;
+        min-height: min-content;
     }
 
     .white-form-box {
+        width: 100%;
+        max-width: 100%;
         gap: 22px;
     }
 
     .welcome-heading {
-        font-size: 26px;
+        font-size: 28px;
         white-space: nowrap;
     }
 
     .welcome-subheading {
-        font-size: 13px;
+        font-size: 13.5px;
     }
 
     .ref-google-button {
-        padding: 13px 20px;
-        font-size: 15px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        min-width: fit-content;
+        box-sizing: border-box;
+        padding: 12px 18px;
+        font-size: 14.5px;
+        gap: 10px;
         white-space: nowrap;
+        border-radius: 10px;
+    }
+
+    .google-icon-svg {
+        width: 22px;
+        height: 22px;
+        flex-shrink: 0;
     }
 }
 
@@ -576,6 +597,69 @@ body {
     }
 
     .form-white-pane {
-        padding: 24px 16px 28px 16px;
+        padding: 22px 16px 26px 16px;
+    }
+
+    .ref-google-button {
+        padding: 11px 16px;
+        font-size: 14px;
+        gap: 9px;
+    }
+
+    .google-icon-svg {
+        width: 20px;
+        height: 20px;
+    }
+}
+
+/* Extra Small / Extreme Shrink Test Support (<= 340px) */
+@media (max-width: 340px) {
+    .form-white-pane {
+        padding: 18px 12px 22px 12px;
+    }
+
+    .white-brand-seal {
+        width: 22px;
+        height: 22px;
+    }
+
+    .white-brand-name {
+        font-size: 16px;
+    }
+
+    .white-track-btn {
+        font-size: 12px;
+    }
+
+    .white-track-btn svg {
+        width: 12px;
+        height: 12px;
+    }
+
+    .welcome-heading {
+        font-size: 24px;
+    }
+
+    .welcome-subheading {
+        font-size: 12px;
+    }
+
+    .ref-google-button {
+        padding: 9px 12px;
+        font-size: 13px;
+        gap: 7px;
+    }
+
+    .google-icon-svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .unit-text {
+        font-size: 11px;
+    }
+
+    .college-text {
+        font-size: 10.5px;
     }
 }

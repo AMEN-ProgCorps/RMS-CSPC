@@ -483,13 +483,32 @@ Route::middleware(['auth'])
         Volt::route('/rdp', 'pages.rdp.index')->name('rdp');
         Volt::route('/rdp/manage-files', 'pages.rdp.manage-files')->name('rdp.manage-files');
 
-        // Received Documents Section (Intake landing pages for DTS & DCS)
         Volt::route('/rdp/received-documents', 'pages.rdp.received-documents.dts')->name('rdp.received-documents.index');
         Volt::route('/rdp/received-documents/dts', 'pages.rdp.received-documents.dts')->name('rdp.received-documents.dts');
         Volt::route('/rdp/received-documents/dcs', 'pages.rdp.received-documents.dcs')->name('rdp.received-documents.dcs');
 
-        // API / Action to Send Document to RDP from other subsystems
-        Route::post('/rdp/intake/send', function (\Illuminate\Http\Request $request) {
+        Volt::route('/rdp/add-records/inventory-and-appraisal', 'pages.rdp.add-records.inventory-and-appraisal')->name('rdp.add-records.inventory-and-appraisal');
+        Volt::route('/rdp/add-records/records-and-disposition-schedule', 'pages.rdp.add-records.records-and-disposition-schedule')->name('rdp.add-records.records-and-disposition-schedule');
+
+        Volt::route('/rdp/reports/nap-form-1', 'pages.rdp.reports.nap-form-1')->name('rdp.reports.nap-form-1');
+        Volt::route('/rdp/reports/nap-form-2', 'pages.rdp.reports.nap-form-2')->name('rdp.reports.nap-form-2');
+        Volt::route('/rdp/reports/nap-form-3', 'pages.rdp.reports.nap-form-3')->name('rdp.reports.nap-form-3');
+
+        Volt::route('/rdp/references/{type}', 'pages.rdp.references.show')->name('rdp.references.show');
+
+        // Pending Subsystem
+        Volt::route('/rdp/pending/list', 'pages.rdp.pending.list')->name('rdp.pending.list');
+        Volt::route('/rdp/pending/for-approval', 'pages.rdp.pending.for-approval')->name('rdp.pending.for-approval');
+
+        // Draft Subsystem
+        Volt::route('/rdp/draft/inventory-and-appraisal', 'pages.rdp.draft.inventory-and-appraisal')->name('rdp.draft.inventory-and-appraisal');
+        Volt::route('/rdp/draft/records-and-disposition-schedule', 'pages.rdp.draft.records-and-disposition-schedule')->name('rdp.draft.records-and-disposition-schedule');
+    });
+
+    // RDP API Endpoints (accessible across all subsystems by authenticated users)
+    Route::middleware(['auth'])->prefix('rdp/api')->group(function () {
+        // Send / Intake Document to RDP
+        Route::post('/intake', function (\Illuminate\Http\Request $request) {
             $validated = $request->validate([
                 'source_subsystem'    => 'required|string|in:DTS,DCS,OTHER',
                 'document_code'       => 'required|string|max:100',
@@ -509,14 +528,27 @@ Route::middleware(['auth'])
                 ->where('document_code', $validated['document_code'])
                 ->first();
 
+            $landingUrl = $validated['source_subsystem'] === 'DCS'
+                ? route('rdp.received-documents.dcs')
+                : route('rdp.received-documents.dts');
+
             if ($existing) {
                 return response()->json([
-                    'success'  => true,
-                    'message'  => 'Document already exists in RDP received documents.',
-                    'id'       => $existing->id,
-                    'redirect' => $validated['source_subsystem'] === 'DCS'
-                        ? route('rdp.received-documents.dcs')
-                        : route('rdp.received-documents.dts'),
+                    'success'      => true,
+                    'already_sent' => true,
+                    'message'      => "Document '{$validated['document_code']}' is already in RDP intake.",
+                    'id'           => $existing->id,
+                    'status'       => $existing->status,
+                    'landing_url'  => $landingUrl,
+                    'appraise_url' => route('rdp.add-records.inventory-and-appraisal', [
+                        'prefill_intake_id' => $existing->id,
+                        'prefill_source'    => $existing->source_subsystem,
+                        'prefill_code'      => $existing->document_code,
+                        'prefill_title'     => $existing->document_title,
+                        'prefill_desc'      => $existing->description,
+                        'prefill_date'      => $existing->date_received,
+                        'prefill_doc_id'    => $existing->document_id_handler,
+                    ]),
                 ]);
             }
 
@@ -539,32 +571,81 @@ Route::middleware(['auth'])
             ]);
 
             return response()->json([
-                'success'  => true,
-                'message'  => 'Document successfully sent to RDP!',
-                'id'       => $id,
-                'redirect' => $validated['source_subsystem'] === 'DCS'
-                    ? route('rdp.received-documents.dcs')
-                    : route('rdp.received-documents.dts'),
+                'success'      => true,
+                'already_sent' => false,
+                'message'      => "Document '{$validated['document_code']}' successfully sent to RDP!",
+                'id'           => $id,
+                'status'       => 'pending',
+                'landing_url'  => $landingUrl,
+                'appraise_url' => route('rdp.add-records.inventory-and-appraisal', [
+                    'prefill_intake_id' => $id,
+                    'prefill_source'    => $validated['source_subsystem'],
+                    'prefill_code'      => $validated['document_code'],
+                    'prefill_title'     => $validated['document_title'],
+                    'prefill_desc'      => $validated['description'] ?? null,
+                    'prefill_date'      => $validated['date_received'] ?? now()->toDateString(),
+                    'prefill_doc_id'    => $validated['document_id_handler'] ?? null,
+                ]),
             ]);
-        })->name('rdp.intake.send');
+        })->name('rdp.api.intake');
 
-        Volt::route('/rdp/add-records/inventory-and-appraisal', 'pages.rdp.add-records.inventory-and-appraisal')->name('rdp.add-records.inventory-and-appraisal');
-        Volt::route('/rdp/add-records/records-and-disposition-schedule', 'pages.rdp.add-records.records-and-disposition-schedule')->name('rdp.add-records.records-and-disposition-schedule');
+        // Check Document Status in RDP
+        Route::get('/status/{code}', function (string $code) {
+            $doc = \Illuminate\Support\Facades\DB::table('rdp_received_documents')
+                ->where('document_code', $code)
+                ->first();
 
-        Volt::route('/rdp/reports/nap-form-1', 'pages.rdp.reports.nap-form-1')->name('rdp.reports.nap-form-1');
-        Volt::route('/rdp/reports/nap-form-2', 'pages.rdp.reports.nap-form-2')->name('rdp.reports.nap-form-2');
-        Volt::route('/rdp/reports/nap-form-3', 'pages.rdp.reports.nap-form-3')->name('rdp.reports.nap-form-3');
+            if (!$doc) {
+                return response()->json([
+                    'found'   => false,
+                    'message' => "Document '{$code}' not found in RDP intake.",
+                ], 404);
+            }
 
-        Volt::route('/rdp/references/{type}', 'pages.rdp.references.show')->name('rdp.references.show');
+            return response()->json([
+                'found'               => true,
+                'id'                  => $doc->id,
+                'source_subsystem'    => $doc->source_subsystem,
+                'document_code'       => $doc->document_code,
+                'document_title'      => $doc->document_title,
+                'status'              => $doc->status,
+                'appraised_record_id' => $doc->appraised_record_id,
+                'date_received'       => $doc->date_received,
+                'created_at'          => $doc->created_at,
+            ]);
+        })->name('rdp.api.status');
 
-        // Pending Subsystem
-        Volt::route('/rdp/pending/list', 'pages.rdp.pending.list')->name('rdp.pending.list');
-        Volt::route('/rdp/pending/for-approval', 'pages.rdp.pending.for-approval')->name('rdp.pending.for-approval');
+        // List / Query Received Documents
+        Route::get('/documents', function (\Illuminate\Http\Request $request) {
+            $query = \Illuminate\Support\Facades\DB::table('rdp_received_documents');
 
-        // Draft Subsystem
-        Volt::route('/rdp/draft/inventory-and-appraisal', 'pages.rdp.draft.inventory-and-appraisal')->name('rdp.draft.inventory-and-appraisal');
-        Volt::route('/rdp/draft/records-and-disposition-schedule', 'pages.rdp.draft.records-and-disposition-schedule')->name('rdp.draft.records-and-disposition-schedule');
+            if ($request->filled('source')) {
+                $query->where('source_subsystem', strtoupper($request->query('source')));
+            }
+
+            if ($request->filled('status')) {
+                $query->where('status', $request->query('status'));
+            }
+
+            if ($request->filled('search')) {
+                $s = '%' . trim($request->query('search')) . '%';
+                $query->where(function($q) use ($s) {
+                    $q->where('document_code', 'ilike', $s)
+                      ->orWhere('document_title', 'ilike', $s)
+                      ->orWhere('origin_office', 'ilike', $s);
+                });
+            }
+
+            $docs = $query->orderBy('created_at', 'desc')->paginate((int)($request->query('per_page', 20)));
+
+            return response()->json($docs);
+        })->name('rdp.api.documents');
     });
+
+    // Alias for legacy /rdp/intake/send route
+    Route::post('/rdp/intake/send', function (\Illuminate\Http\Request $request) {
+        return app()->call(Route::getRoutes()->getByName('rdp.api.intake')->getAction()['uses'], ['request' => $request]);
+    })->middleware(['auth'])->name('rdp.intake.send');
 
     // DTS — Document Tracking System (requires can_access_dts or is_sadm)
     Route::middleware(['can.access.dts'])->group(function () {

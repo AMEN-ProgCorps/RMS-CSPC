@@ -20,6 +20,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'api/session/*',
             'api/cluster/*',
+            'rdp/api/*',
+            'rdp/intake/*',
         ]);
         $middleware->web(append: [
             \App\Http\Middleware\UpdateUserOnlineStatus::class,
@@ -36,7 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(function (\Illuminate\Auth\AuthenticationException $e, \Illuminate\Http\Request $request) {
-            if ($request->ajax() || $request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest') {
+            if ($request->ajax() || $request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest' || $request->is('rdp/api/*')) {
                 return response()->json([
                     'error' => 'Unauthenticated',
                     'redirect' => route('login'),

@@ -96,7 +96,9 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
         <div class="white-center-area">
             <div class="white-form-box">
                 <div class="welcome-header-group">
-                    <h2 class="welcome-heading">LOGIN</h2>
+                    <h2 class="welcome-heading">
+                        <span id="typewriter-text">LOGIN</span><span class="typewriter-cursor" aria-hidden="true">|</span>
+                    </h2>
                     <p class="welcome-subheading">
                         Single Sign-On enabled. Please sign in with your authorized Google account.
                     </p>
@@ -135,7 +137,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
                 </div>
 
                 <div class="bottom-support-info">
-                    <p class="unit-text">Records and Freedom of Information Unit (RFIU) &bull; ICTU</p>
+                    <p class="unit-text">Records and Freedom of Information Unit (RFIU)</p>
                     <p class="college-text">Camarines Sur Polytechnic Colleges</p>
                 </div>
             </div>
@@ -145,6 +147,86 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
 
 @push('scripts')
 <script>
+    // ==========================================
+    // 1. PREVENT PINCH ZOOM & DOUBLE-TAP ZOOM
+    // ==========================================
+    (function preventPinchZoom() {
+        const metaViewport = document.querySelector('meta[name="viewport"]');
+        if (metaViewport) {
+            metaViewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+        }
+
+        // Prevent multi-touch gestures (pinch zoom)
+        document.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 1) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+
+        // Prevent fast double-tap zooming on iOS Safari & mobile Chrome
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', (e) => {
+            const now = Date.now();
+            if (now - lastTouchEnd <= 300) {
+                e.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, { passive: false });
+
+        // Prevent iOS Safari gesture zoom events
+        document.addEventListener('gesturestart', (e) => e.preventDefault());
+        document.addEventListener('gesturechange', (e) => e.preventDefault());
+        document.addEventListener('gestureend', (e) => e.preventDefault());
+    })();
+
+    // ==========================================
+    // 2. TYPEWRITER EFFECT FOR "LOGIN" HEADING
+    // ==========================================
+    function initTypewriter() {
+        const words = ["LOGIN", "WELCOME", "HELLO WORLD",];
+        const textEl = document.getElementById('typewriter-text');
+        if (!textEl) return;
+
+        let wordIndex = 0;
+        let charIndex = words[0].length;
+        let isDeleting = true; // Starts by deleting initial "LOGIN" after delay
+
+        function typeStep() {
+            const currentWord = words[wordIndex];
+
+            if (isDeleting) {
+                charIndex--;
+                textEl.textContent = currentWord.substring(0, charIndex);
+            } else {
+                charIndex++;
+                textEl.textContent = currentWord.substring(0, charIndex);
+            }
+
+            let typingSpeed = isDeleting ? 50 : 90;
+
+            if (!isDeleting && charIndex === currentWord.length) {
+                // Finished typing word, pause before erasing
+                isDeleting = true;
+                setTimeout(typeStep, 2200);
+                return;
+            } else if (isDeleting && charIndex === 0) {
+                // Finished deleting, move to next word
+                isDeleting = false;
+                wordIndex = (wordIndex + 1) % words.length;
+                setTimeout(typeStep, 350);
+                return;
+            }
+
+            setTimeout(typeStep, typingSpeed);
+        }
+
+        // Initial delay before first deletion
+        setTimeout(typeStep, 2400);
+    }
+
+    // ==========================================
+    // 3. MOBILE TOUCH SWIPE INTERACTION
+    // ==========================================
     let currentActivePane = 'white';
 
     function isMobile() {
@@ -165,6 +247,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
         const whitePane = document.getElementById('pane-white');
 
         initMobileSwipe();
+        initTypewriter();
 
         if (wrapper) {
             wrapper.addEventListener('scroll', () => {

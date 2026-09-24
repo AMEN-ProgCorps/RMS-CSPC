@@ -188,9 +188,47 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    // Intake / Prefill Properties from DTS or DCS
+    public ?int $prefill_intake_id = null;
+    public ?string $prefill_source = null;
+    public ?string $prefill_code = null;
+    public ?string $prefill_doc_id = null;
+
     public function mount(): void
     {
         $this->time_value = $this->is_permanent ? 'P' : 'T';
+
+        $this->prefill_intake_id = request()->query('prefill_intake_id') ? (int)request()->query('prefill_intake_id') : null;
+        $this->prefill_source = request()->query('prefill_source');
+        $this->prefill_code = request()->query('prefill_code');
+        $this->prefill_doc_id = request()->query('prefill_doc_id');
+
+        if ($this->prefill_intake_id) {
+            $intake = DB::table('rdp_received_documents')->where('id', $this->prefill_intake_id)->first();
+            if ($intake) {
+                $this->parentSeriesTitle = $intake->document_title ?? '';
+                $this->selectedSeriesTitle = $intake->document_title ?? '';
+                $this->description = $intake->description ?? '';
+                if ($intake->date_received) {
+                    $this->date_covered = Carbon::parse($intake->date_received)->format('Y-m-d');
+                }
+                if ($intake->origin_office) {
+                    $this->duplicate_offices = array_values(array_unique(array_merge($this->duplicate_offices, [$intake->origin_office])));
+                }
+                if ($intake->document_id_handler) {
+                    $this->prefill_doc_id = $intake->document_id_handler;
+                }
+            }
+        } elseif (request()->query('prefill_title')) {
+            $this->parentSeriesTitle = request()->query('prefill_title');
+            $this->selectedSeriesTitle = request()->query('prefill_title');
+            if (request()->query('prefill_desc')) {
+                $this->description = request()->query('prefill_desc');
+            }
+            if (request()->query('prefill_date')) {
+                $this->date_covered = Carbon::parse(request()->query('prefill_date'))->format('Y-m-d');
+            }
+        }
     }
 
     public function addDuplicateOffice(?string $officeCode = null): void
@@ -658,6 +696,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 ]);
             }
 
+            if ($this->prefill_intake_id) {
+                DB::table('rdp_received_documents')->where('id', $this->prefill_intake_id)->update([
+                    'status' => 'appraised',
+                    'appraised_record_id' => $recordId,
+                    'updated_at' => now(),
+                ]);
+            }
+
             DB::commit();
 
             $this->successMessage = 'Inventory and Appraisal draft saved successfully!';
@@ -731,6 +777,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             if ($this->uploadedFile) {
                 $uploadResult = \App\Services\DocumentStorageService::storeUpload($this->uploadedFile, 'RDP', $user);
                 $documentIdHandler = $uploadResult['document_id'];
+            } elseif ($this->prefill_doc_id) {
+                $documentIdHandler = $this->prefill_doc_id;
             }
 
             $periodId = null;
@@ -800,6 +848,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 ]);
             }
 
+            if ($this->prefill_intake_id) {
+                DB::table('rdp_received_documents')->where('id', $this->prefill_intake_id)->update([
+                    'status' => 'appraised',
+                    'appraised_record_id' => $recordId,
+                    'updated_at' => now(),
+                ]);
+            }
+
             DB::commit();
 
             $this->successMessage = 'Inventory and Appraisal Record created successfully!';
@@ -850,6 +906,32 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         @vite(['resources/css/rdp/inventory-and-appraisal.css'])
     @endpush
 
+
+    <!-- Received Document Intake Banner -->
+    @if ($prefill_intake_id)
+        <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 14px 18px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="width: 38px; height: 38px; border-radius: 8px; background: #dbeafe; display: flex; align-items: center; justify-content: center; color: #1d4ed8; flex-shrink: 0;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                </div>
+                <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-weight: 700; color: #1e3a8a; font-size: 14px;">Appraising Received Document from {{ $prefill_source ?? 'Intake' }}</span>
+                        @if($prefill_code)
+                            <span style="background: #ffffff; color: #1d4ed8; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 5px; border: 1px solid #bfdbfe;">{{ $prefill_code }}</span>
+                        @endif
+                    </div>
+                    <div style="font-size: 12px; color: #475569; margin-top: 3px;">
+                        Document fields have been pre-filled. Finalizing or saving as draft will automatically link and mark the intake document as <strong>Appraised</strong>.
+                    </div>
+                </div>
+            </div>
+            <a href="{{ $prefill_source === 'DCS' ? route('rdp.received-documents.dcs') : route('rdp.received-documents.dts') }}" 
+               style="font-size: 12px; font-weight: 600; color: #2563eb; text-decoration: none; padding: 6px 12px; border: 1px solid #bfdbfe; border-radius: 6px; background: #ffffff; white-space: nowrap;">
+                &larr; Back to {{ $prefill_source === 'DCS' ? 'DCS' : 'DTS' }} Intake
+            </a>
+        </div>
+    @endif
 
     <!-- Alert Messages -->
     @if ($successMessage)

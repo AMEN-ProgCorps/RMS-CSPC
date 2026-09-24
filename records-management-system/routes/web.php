@@ -483,6 +483,71 @@ Route::middleware(['auth'])
         Volt::route('/rdp', 'pages.rdp.index')->name('rdp');
         Volt::route('/rdp/manage-files', 'pages.rdp.manage-files')->name('rdp.manage-files');
 
+        // Received Documents Section (Intake landing pages for DTS & DCS)
+        Volt::route('/rdp/received-documents', 'pages.rdp.received-documents.dts')->name('rdp.received-documents.index');
+        Volt::route('/rdp/received-documents/dts', 'pages.rdp.received-documents.dts')->name('rdp.received-documents.dts');
+        Volt::route('/rdp/received-documents/dcs', 'pages.rdp.received-documents.dcs')->name('rdp.received-documents.dcs');
+
+        // API / Action to Send Document to RDP from other subsystems
+        Route::post('/rdp/intake/send', function (\Illuminate\Http\Request $request) {
+            $validated = $request->validate([
+                'source_subsystem'    => 'required|string|in:DTS,DCS,OTHER',
+                'document_code'       => 'required|string|max:100',
+                'document_title'      => 'required|string|max:255',
+                'description'         => 'nullable|string',
+                'origin_office'       => 'nullable|string|max:100',
+                'target_office'       => 'nullable|string|max:100',
+                'date_received'       => 'nullable|date',
+                'file_path'           => 'nullable|string',
+                'file_name'           => 'nullable|string',
+                'document_id_handler' => 'nullable|string',
+                'metadata'            => 'nullable|array',
+            ]);
+
+            $existing = \Illuminate\Support\Facades\DB::table('rdp_received_documents')
+                ->where('source_subsystem', $validated['source_subsystem'])
+                ->where('document_code', $validated['document_code'])
+                ->first();
+
+            if ($existing) {
+                return response()->json([
+                    'success'  => true,
+                    'message'  => 'Document already exists in RDP received documents.',
+                    'id'       => $existing->id,
+                    'redirect' => $validated['source_subsystem'] === 'DCS'
+                        ? route('rdp.received-documents.dcs')
+                        : route('rdp.received-documents.dts'),
+                ]);
+            }
+
+            $id = \Illuminate\Support\Facades\DB::table('rdp_received_documents')->insertGetId([
+                'source_subsystem'    => $validated['source_subsystem'],
+                'document_code'       => $validated['document_code'],
+                'document_title'      => $validated['document_title'],
+                'description'         => $validated['description'] ?? null,
+                'origin_office'       => $validated['origin_office'] ?? null,
+                'target_office'       => $validated['target_office'] ?? null,
+                'date_received'       => $validated['date_received'] ?? now()->toDateString(),
+                'file_path'           => $validated['file_path'] ?? null,
+                'file_name'           => $validated['file_name'] ?? null,
+                'document_id_handler' => $validated['document_id_handler'] ?? null,
+                'status'              => 'pending',
+                'sent_by_user'        => auth()->id(),
+                'metadata'            => isset($validated['metadata']) ? json_encode($validated['metadata']) : null,
+                'created_at'          => now(),
+                'updated_at'          => now(),
+            ]);
+
+            return response()->json([
+                'success'  => true,
+                'message'  => 'Document successfully sent to RDP!',
+                'id'       => $id,
+                'redirect' => $validated['source_subsystem'] === 'DCS'
+                    ? route('rdp.received-documents.dcs')
+                    : route('rdp.received-documents.dts'),
+            ]);
+        })->name('rdp.intake.send');
+
         Volt::route('/rdp/add-records/inventory-and-appraisal', 'pages.rdp.add-records.inventory-and-appraisal')->name('rdp.add-records.inventory-and-appraisal');
         Volt::route('/rdp/add-records/records-and-disposition-schedule', 'pages.rdp.add-records.records-and-disposition-schedule')->name('rdp.add-records.records-and-disposition-schedule');
 

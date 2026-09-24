@@ -96,9 +96,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
         <div class="white-center-area">
             <div class="white-form-box">
                 <div class="welcome-header-group">
-                    <h2 class="welcome-heading">
-                        <span id="typewriter-text">LOGIN</span><span class="typewriter-cursor" aria-hidden="true">|</span>
-                    </h2>
+                    <h2 class="welcome-heading">LOGIN</h2>
                     <p class="welcome-subheading">
                         Single Sign-On enabled. Please sign in with your authorized Google account.
                     </p>

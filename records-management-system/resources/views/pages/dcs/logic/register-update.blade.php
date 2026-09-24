@@ -362,7 +362,7 @@ class RegisterUpdateHelper
                     'revise_no' => RegisterPersistHelper::resolveReviseNo($request, $masterlist?->revise_no),
                     'no_pages' => $request->masterlistNoOfPages,
                     'originator_name' => $originator['originator_name'],
-                    'deadline' => $request->deadlineOfSubmission,
+                    'deadline' => RegisterPersistHelper::masterlistDeadlineValue($request),
                     'updated_at' => $now,
                 ];
                 $masterlistData = array_merge(
@@ -479,7 +479,7 @@ class RegisterUpdateHelper
                     'doc_registered_time' => $request->masterlistRegisteredTime,
                     'time_spent' => $masterlistTimeSpent,
                     'effectivity_date' => $request->masterlistEffectivityDate,
-                    'deadline' => $request->deadlineOfSubmission,
+                    'deadline' => RegisterPersistHelper::masterlistDeadlineValue($request),
                     'revise_no' => RegisterPersistHelper::resolveReviseNo($request, $masterlist?->revise_no),
                     'no_pages' => $totalPages,
                     'originator_name' => $originator['originator_name'],
@@ -551,21 +551,11 @@ class RegisterUpdateHelper
                         RegisterPersistHelper::buildScanBasename(
                             $request,
                             'DRR',
-                            $request->input('retrievalDate') ?: $request->input('retrievalFormDate')
+                            collect($request->input('retrievalOfficeDate', []))->first(fn ($date) => filled($date))
                         )
                     );
                 }
-                $retrievalTimeSpent = null;
-                if ($request->filled('retrievalTimeSpent') && is_numeric($request->retrievalTimeSpent) && $request->retrievalTimeSpent >= 0) {
-                    $retrievalTimeSpent = intval($request->retrievalTimeSpent);
-                }
                 $retrievalData = array_merge([
-                    'doc_retrieval_date_actual' => $request->retrievalDate,
-                    'doc_retrieval_time_actual' => $request->retrievalTime,
-                    'doc_retrieval_date_file' => $request->retrievalFormDate,
-                    'doc_retrieval_time_file' => $request->retrievalFormTime,
-                    'time_spent' => $retrievalTimeSpent,
-                    'remarks' => $request->retrievalRemarks,
                     'updated_at' => $now,
                 ], RegisterPersistHelper::dcsScanFields('dcs_document_retrieval', 'scanned_retrieval', $retrievalFile));
                 if ($retrieval) {
@@ -741,6 +731,10 @@ class RegisterUpdateHelper
             $successMessage = $saveAsDraft
                 ? 'Draft saved. Continue anytime from Document Registration → Drafts.'
                 : 'Document updated successfully!';
+
+            if ($saveAsDraft) {
+                self::collapseDuplicateDrafts((int) $id);
+            }
 
             if ($saveAsDraft && RegisterPersistHelper::isAutosaveRequest($request)) {
                 return RegisterPersistHelper::draftAutosaveSuccessResponse((int) $id, $successMessage);
@@ -955,6 +949,138 @@ class RegisterUpdateHelper
     }
 
     /**
+     * Permanently remove a live draft (not a registered document).
+     * Registered documents still go through Recycle Bin via destroy().
+     */
+    public static function destroyDraftPermanently(int $id, bool $redirect = true): ?RedirectResponse
+    {
+        $docRequest = RegisterQueryHelper::findDocumentRequest($id);
+        if (! $docRequest) {
+            if (! $redirect) {
+                return null;
+            }
+            abort(404);
+        }
+
+        RegisterQueryHelper::assertCanAccessRequest($id);
+
+        $isDraft = RegisterQueryHelper::supportsDrafts() && ! empty($docRequest->is_draft);
+        if (! $isDraft) {
+            if (! $redirect) {
+                return null;
+            }
+
+            return self::flashRedirect(
+                'dcs.register.drafts',
+                'error',
+                'Only drafts can be permanently deleted here. Registered documents stay in Update and use the Recycle Bin.'
+            );
+        }
+
+        $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
+
+        DB::beginTransaction();
+        try {
+            $filesToDelete = self::purgeRequestRecords($id);
+            DB::commit();
+            StampBackupService::pruneOrphans();
+            foreach ($filesToDelete as $file) {
+                DocumentStorageService::deleteDcsScan($file);
+            }
+
+            RegisterPersistHelper::logAdminChange(
+                'Permanently deleted draft #' . $id
+                . (! empty($ml->doc_no) ? ' — ' . $ml->doc_no : '')
+                . (! empty($ml->doc_title) ? ': ' . $ml->doc_title : '')
+            );
+
+            if (! $redirect) {
+                return null;
+            }
+
+            return self::flashRedirect(
+                'dcs.register.drafts',
+                'success',
+                'Draft permanently deleted. The registered document was not changed.'
+            );
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            $refId = uniqid('err_');
+            Log::error("Draft permanent deletion failed [{$refId}]: " . $e->getMessage());
+
+            if (! $redirect) {
+                throw $e;
+            }
+
+            return self::flashRedirect(
+                'dcs.register.drafts',
+                'error',
+                'Failed to delete draft. Please try again. (ref: ' . $refId . ')'
+            );
+        }
+    }
+
+    /**
+     * Keep one draft per document number + type. Older copies are permanently removed.
+     */
+    public static function collapseDuplicateDrafts(?int $keepRequestId = null): void
+    {
+        if (! RegisterQueryHelper::supportsDrafts()) {
+            return;
+        }
+
+        $draftIds = RegisterQueryHelper::draftRequestIds();
+        if ($draftIds === []) {
+            return;
+        }
+
+        $rows = DB::table('dcs_document_requests as dr')
+            ->join('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+            ->whereIn('dr.id', $draftIds)
+            ->whereNotNull('ml.doc_no')
+            ->where('ml.doc_no', '!=', '')
+            ->get(['dr.id', 'dr.doc_type_id', 'dr.sub_type_id', 'dr.updated_at', 'ml.doc_no']);
+
+        $groups = [];
+        foreach ($rows as $row) {
+            $key = strtolower(trim((string) $row->doc_no)) . '|' . (int) $row->doc_type_id;
+            $groups[$key][] = $row;
+        }
+
+        foreach ($groups as $group) {
+            if (count($group) < 2) {
+                continue;
+            }
+            usort($group, static function ($a, $b) {
+                $cmp = strcmp((string) ($b->updated_at ?? ''), (string) ($a->updated_at ?? ''));
+
+                return $cmp !== 0 ? $cmp : ((int) $b->id <=> (int) $a->id);
+            });
+            if ($keepRequestId) {
+                foreach ($group as $i => $row) {
+                    if ((int) $row->id === $keepRequestId) {
+                        $keep = $row;
+                        unset($group[$i]);
+                        array_unshift($group, $keep);
+                        $group = array_values($group);
+                        break;
+                    }
+                }
+            }
+            for ($i = 1, $n = count($group); $i < $n; $i++) {
+                if ($keepRequestId && (int) $group[$i]->id === $keepRequestId) {
+                    continue;
+                }
+                try {
+                    self::destroyDraftPermanently((int) $group[$i]->id, false);
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to collapse duplicate draft #' . $group[$i]->id . ': ' . $e->getMessage());
+                }
+            }
+        }
+    }
+
+    /**
      * Permanently remove a soft-deleted document and its files.
      * Interactive deletes require Head of Document Control; retention purge skips the check.
      */
@@ -977,82 +1103,8 @@ class RegisterUpdateHelper
         }
 
         DB::beginTransaction();
-        $filesToDelete = [];
         try {
-            $drf = DB::table('dcs_document_request_form')->where('request_id', $id)->first();
-            if ($drf) {
-                if ($drf->scanned_drf) {
-                    $filesToDelete[] = $drf->scanned_drf;
-                }
-                DB::table('dcs_drf_offices')->where('document_request_form_id', $drf->id)->delete();
-                DB::table('dcs_document_request_form')->where('id', $drf->id)->delete();
-            }
-
-            $dcn = DB::table('dcs_document_change_notice')->where('request_id', $id)->first();
-            if ($dcn) {
-                if ($dcn->scanned_dcn) {
-                    $filesToDelete[] = $dcn->scanned_dcn;
-                }
-                foreach (DB::table('dcs_doc_revision')->where('dcn_id', $dcn->id)->get() as $rev) {
-                    if ($rev->scanned_copy) {
-                        $filesToDelete[] = $rev->scanned_copy;
-                    }
-                }
-                DB::table('dcs_doc_revision')->where('dcn_id', $dcn->id)->delete();
-                if (Schema::hasTable('dcs_dcn_offices')) {
-                    DB::table('dcs_dcn_offices')->where('dcn_id', $dcn->id)->delete();
-                }
-                DB::table('dcs_document_change_notice')->where('id', $dcn->id)->delete();
-            }
-
-            $masterlist = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
-            if ($masterlist) {
-                if ($masterlist->scanned_masterlist) {
-                    $filesToDelete[] = $masterlist->scanned_masterlist;
-                }
-                DB::table('dcs_masterlist_source_offices')->where('masterlist_id', $masterlist->id)->delete();
-                DB::table('dcs_masterlist_related_docs')
-                    ->where(function ($q) use ($masterlist) {
-                        $q->where('masterlist_id', $masterlist->id)
-                            ->orWhere('related_doc_id', $masterlist->id);
-                    })
-                    ->delete();
-                DB::table('dcs_masterlist_registration')->where('id', $masterlist->id)->delete();
-            }
-
-            self::queueSyllabiFiles($id, $filesToDelete);
-            self::invalidateSyllabiStamps($id);
-            $sylIds = DB::table('dcs_syllabi')->where('request_id', $id)->pluck('id');
-            if ($sylIds->isNotEmpty()) {
-                DB::table('dcs_syllabi_drf')->whereIn('syllabi_id', $sylIds)->delete();
-            }
-            DB::table('dcs_syllabi')->where('request_id', $id)->delete();
-
-            $retrieval = DB::table('dcs_document_retrieval')->where('request_id', $id)->first();
-            if ($retrieval) {
-                if ($retrieval->scanned_retrieval) {
-                    $filesToDelete[] = $retrieval->scanned_retrieval;
-                }
-                DB::table('dcs_retrieval_offices')->where('retrieval_id', $retrieval->id)->delete();
-                DB::table('dcs_document_retrieval')->where('id', $retrieval->id)->delete();
-            }
-
-            $distribution = DB::table('dcs_document_distribution')->where('request_id', $id)->first();
-            if ($distribution) {
-                if ($distribution->scanned_distribution) {
-                    $filesToDelete[] = $distribution->scanned_distribution;
-                }
-                DB::table('dcs_distribution_offices')->where('distribution_id', $distribution->id)->delete();
-                DB::table('dcs_document_distribution')->where('id', $distribution->id)->delete();
-            }
-
-            DB::table('dcs_approval_records')->where('request_id', $id)->delete();
-            DB::table('dcs_opcr_ratings')->where('request_id', $id)->delete();
-            if (Schema::hasTable('dcs_document_stamps')) {
-                DB::table('dcs_document_stamps')->where('document_request_id', $id)->delete();
-            }
-            DB::table('dcs_document_requests')->where('id', $id)->delete();
-
+            $filesToDelete = self::purgeRequestRecords($id);
             DB::commit();
             StampBackupService::pruneOrphans();
 
@@ -1084,6 +1136,94 @@ class RegisterUpdateHelper
                 'Failed to permanently delete document. Please try again. (ref: ' . $refId . ')'
             );
         }
+    }
+
+    /** @return list<string> */
+    private static function purgeRequestRecords(int $id): array
+    {
+        $filesToDelete = [];
+
+        $drf = DB::table('dcs_document_request_form')->where('request_id', $id)->first();
+        if ($drf) {
+            if ($drf->scanned_drf) {
+                $filesToDelete[] = $drf->scanned_drf;
+            }
+            DB::table('dcs_drf_offices')->where('document_request_form_id', $drf->id)->delete();
+            DB::table('dcs_document_request_form')->where('id', $drf->id)->delete();
+        }
+
+        $dcn = DB::table('dcs_document_change_notice')->where('request_id', $id)->first();
+        if ($dcn) {
+            if ($dcn->scanned_dcn) {
+                $filesToDelete[] = $dcn->scanned_dcn;
+            }
+            foreach (DB::table('dcs_doc_revision')->where('dcn_id', $dcn->id)->get() as $rev) {
+                if ($rev->scanned_copy) {
+                    $filesToDelete[] = $rev->scanned_copy;
+                }
+            }
+            DB::table('dcs_doc_revision')->where('dcn_id', $dcn->id)->delete();
+            if (Schema::hasTable('dcs_dcn_offices')) {
+                DB::table('dcs_dcn_offices')->where('dcn_id', $dcn->id)->delete();
+            }
+            if (Schema::hasTable('dcs_dcn_reviewers')) {
+                DB::table('dcs_dcn_reviewers')->where('dcn_id', $dcn->id)->delete();
+            }
+            if (Schema::hasTable('dcs_dcn_approvals')) {
+                DB::table('dcs_dcn_approvals')->where('dcn_id', $dcn->id)->delete();
+            }
+            DB::table('dcs_document_change_notice')->where('id', $dcn->id)->delete();
+        }
+
+        $masterlist = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
+        if ($masterlist) {
+            if ($masterlist->scanned_masterlist) {
+                $filesToDelete[] = $masterlist->scanned_masterlist;
+            }
+            DB::table('dcs_masterlist_source_offices')->where('masterlist_id', $masterlist->id)->delete();
+            DB::table('dcs_masterlist_related_docs')
+                ->where(function ($q) use ($masterlist) {
+                    $q->where('masterlist_id', $masterlist->id)
+                        ->orWhere('related_doc_id', $masterlist->id);
+                })
+                ->delete();
+            DB::table('dcs_masterlist_registration')->where('id', $masterlist->id)->delete();
+        }
+
+        self::queueSyllabiFiles($id, $filesToDelete);
+        self::invalidateSyllabiStamps($id);
+        $sylIds = DB::table('dcs_syllabi')->where('request_id', $id)->pluck('id');
+        if ($sylIds->isNotEmpty()) {
+            DB::table('dcs_syllabi_drf')->whereIn('syllabi_id', $sylIds)->delete();
+        }
+        DB::table('dcs_syllabi')->where('request_id', $id)->delete();
+
+        $retrieval = DB::table('dcs_document_retrieval')->where('request_id', $id)->first();
+        if ($retrieval) {
+            if ($retrieval->scanned_retrieval) {
+                $filesToDelete[] = $retrieval->scanned_retrieval;
+            }
+            DB::table('dcs_retrieval_offices')->where('retrieval_id', $retrieval->id)->delete();
+            DB::table('dcs_document_retrieval')->where('id', $retrieval->id)->delete();
+        }
+
+        $distribution = DB::table('dcs_document_distribution')->where('request_id', $id)->first();
+        if ($distribution) {
+            if ($distribution->scanned_distribution) {
+                $filesToDelete[] = $distribution->scanned_distribution;
+            }
+            DB::table('dcs_distribution_offices')->where('distribution_id', $distribution->id)->delete();
+            DB::table('dcs_document_distribution')->where('id', $distribution->id)->delete();
+        }
+
+        DB::table('dcs_approval_records')->where('request_id', $id)->delete();
+        DB::table('dcs_opcr_ratings')->where('request_id', $id)->delete();
+        if (Schema::hasTable('dcs_document_stamps')) {
+            DB::table('dcs_document_stamps')->where('document_request_id', $id)->delete();
+        }
+        DB::table('dcs_document_requests')->where('id', $id)->delete();
+
+        return $filesToDelete;
     }
 
     /** Permanently delete soft-deleted documents older than the Recycle Bin retention window. */

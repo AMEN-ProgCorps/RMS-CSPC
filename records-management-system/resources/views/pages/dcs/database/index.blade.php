@@ -150,10 +150,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'Dist. Actual Time',
             'Receiving Office(s)',
             'Scanned Dist.',
-            'Retrieval On File',
-            'Retrieval Actual',
             'Retrieved Office(s)',
-            'Scanned Ret.',
         ];
 
         $mainIndexes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 21];
@@ -665,7 +662,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'doc_no' => $ml ? $ml->doc_no : 'N/A',
             'rev_no' => $ml ? (int) $ml->revise_no : 0,
             'title' => ($ml && $ml->doc_title) ? $ml->doc_title : (($drf && $drf->doc_title) ? $drf->doc_title : 'N/A'),
-            'effectivity' => ($ml && $ml->effectivity_date) ? Carbon::parse($ml->effectivity_date)->format('M d, Y') : null,
+            'effectivity' => ($ml && $ml->effectivity_date) ? RegisterQueryHelper::formatSmartDate($ml->effectivity_date) : null,
             'originator' => $ml?->originator_name,
             'pages' => $ml?->no_pages,
             'status' => $status,
@@ -683,36 +680,33 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ])->values() : [],
             'syllabi_courses' => $syllabiCourses,
             'approval_no' => $appr?->approval_no,
-            'approval_date' => ($appr && $appr->approval_date) ? Carbon::parse($appr->approval_date)->format('M d, Y') : null,
-            'deadline_date' => ($ml && $ml->deadline) ? Carbon::parse($ml->deadline)->format('M d, Y') : null,
+            'approval_date' => ($appr && $appr->approval_date) ? RegisterQueryHelper::formatSmartDate($appr->approval_date) : null,
+            'deadline_date' => ($ml && $ml->deadline) ? RegisterQueryHelper::formatSmartDate($ml->deadline) : 'N/A',
             'deadline_diff' => $deadlineDiff !== null ? $deadlineDiff . ' days' : null,
-            'ml_receipt_date' => ($ml && $ml->doc_receipt_date) ? Carbon::parse($ml->doc_receipt_date)->format('M d, Y') : null,
+            'ml_receipt_date' => ($ml && $ml->doc_receipt_date) ? RegisterQueryHelper::formatSmartDate($ml->doc_receipt_date) : null,
             'ml_receipt_time' => $ml && $ml->doc_receipt_time ? $this->formatTime($ml->doc_receipt_time) : null,
-            'ml_register_date' => ($ml && $ml->doc_registered_date) ? Carbon::parse($ml->doc_registered_date)->format('M d, Y') : null,
+            'ml_register_date' => ($ml && $ml->doc_registered_date) ? RegisterQueryHelper::formatSmartDate($ml->doc_registered_date) : null,
             'ml_register_time' => $ml && $ml->doc_registered_time ? $this->formatTime($ml->doc_registered_time) : null,
             'ml_time_spent' => ($ml && $ml->time_spent !== null && $ml->time_spent !== '') ? (int) $ml->time_spent : null,
             'dcn_no' => $dcn?->dcn_no,
-            'dcn_date' => ($dcn && $dcn->dcn_date) ? Carbon::parse($dcn->dcn_date)->format('M d, Y') : null,
-            'dcn_receipt_date' => ($dcn && $dcn->dcn_receipt_date) ? Carbon::parse($dcn->dcn_receipt_date)->format('M d, Y') : null,
+            'dcn_date' => ($dcn && $dcn->dcn_date) ? RegisterQueryHelper::formatSmartDate($dcn->dcn_date) : null,
+            'dcn_receipt_date' => ($dcn && $dcn->dcn_receipt_date) ? RegisterQueryHelper::formatSmartDate($dcn->dcn_receipt_date) : null,
             'dcn_receipt_time' => $dcn && $dcn->dcn_receipt_time ? $this->formatTime($dcn->dcn_receipt_time) : null,
             'dcn_purpose' => $dcnPurpose,
             'dcn_scan' => ($dcn && $dcn->scanned_dcn) ? RegisterQueryHelper::scanUrl($dcn->scanned_dcn) : null,
             'drf_no' => $drf?->drf_no,
-            'drf_date' => ($drf && $drf->drf_date) ? Carbon::parse($drf->drf_date)->format('M d, Y') : null,
-            'drf_receipt_date' => ($drf && $drf->drf_receipt_date) ? Carbon::parse($drf->drf_receipt_date)->format('M d, Y') : null,
+            'drf_date' => ($drf && $drf->drf_date) ? RegisterQueryHelper::formatSmartDate($drf->drf_date) : null,
+            'drf_receipt_date' => ($drf && $drf->drf_receipt_date) ? RegisterQueryHelper::formatSmartDate($drf->drf_receipt_date) : null,
             'drf_receipt_time' => $drf && $drf->drf_receipt_time ? $this->formatTime($drf->drf_receipt_time) : null,
             'drf_scan' => ($drf && $drf->scanned_drf) ? RegisterQueryHelper::scanUrl($drf->scanned_drf) : null,
-            'dist_onfile_date' => ($dist && $dist->doc_distribution_date_file) ? Carbon::parse($dist->doc_distribution_date_file)->format('M d, Y') : null,
+            'dist_onfile_date' => ($dist && $dist->doc_distribution_date_file) ? RegisterQueryHelper::formatSmartDate($dist->doc_distribution_date_file) : null,
             'dist_onfile_time' => $dist && $dist->doc_distribution_time_file ? $this->formatTime($dist->doc_distribution_time_file) : null,
-            'dist_actual_date' => ($dist && $dist->doc_distribution_date_actual) ? Carbon::parse($dist->doc_distribution_date_actual)->format('M d, Y') : null,
+            'dist_actual_date' => ($dist && $dist->doc_distribution_date_actual) ? RegisterQueryHelper::formatSmartDate($dist->doc_distribution_date_actual) : null,
             'dist_actual_time' => $dist && $dist->doc_distribution_time_actual ? $this->formatTime($dist->doc_distribution_time_actual) : null,
             'dist_offices' => $distOffices,
             'dist_office_ids' => $distOfficeIds,
             'dist_scan' => ($dist && $dist->scanned_distribution) ? RegisterQueryHelper::scanUrl($dist->scanned_distribution) : null,
-            'ret_onfile' => ($ret && $ret->doc_retrieval_date_file) ? Carbon::parse($ret->doc_retrieval_date_file)->format('M d, Y') : null,
-            'ret_actual' => ($ret && $ret->doc_retrieval_date_actual) ? Carbon::parse($ret->doc_retrieval_date_actual)->format('M d, Y') : null,
             'ret_offices' => $retOffices,
-            'ret_scan' => ($ret && $ret->scanned_retrieval) ? RegisterQueryHelper::scanUrl($ret->scanned_retrieval) : null,
         ];
     }
 
@@ -906,10 +900,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $r['dist_actual_time'] ?? '',
             $r['dist_offices'] ?? '',
             $this->exportFileUrl($r['dist_scan'] ?? null),
-            $r['ret_onfile'] ?? '',
-            $r['ret_actual'] ?? '',
             $r['ret_offices'] ?? '',
-            $this->exportFileUrl($r['ret_scan'] ?? null),
         ];
     }
 
@@ -1385,7 +1376,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <th colspan="{{ $groupColspans['distribution'] ?? 6 }}" class="col-group-distribution col-group-expanded db-group-header" x-show="visible.distribution && open.distribution" x-on:click="toggle('distribution')" @contextmenu.prevent="openGroupMenu($event, 'distribution')">DISTRIBUTION <span class="collapse-arrow">&#9664;</span></th>
 
                         <th rowspan="3" class="col-group-summary db-group-header" data-group="retrieval" x-show="visible.retrieval && !open.retrieval" x-on:click="toggle('retrieval')" @contextmenu.prevent="openGroupMenu($event, 'retrieval')">RETRIEVAL <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['retrieval'] ?? 4 }}" class="col-group-retrieval col-group-expanded db-group-header" x-show="visible.retrieval && open.retrieval" x-on:click="toggle('retrieval')" @contextmenu.prevent="openGroupMenu($event, 'retrieval')">RETRIEVAL <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-retrieval col-group-expanded db-group-header db-offices-col" x-show="visible.retrieval && open.retrieval" x-on:click="toggle('retrieval')" @contextmenu.prevent="openGroupMenu($event, 'retrieval')">RETRIEVED OFFICE(S) <span class="collapse-arrow">&#9664;</span></th>
                     </tr>
 
                     <tr class="db-head-secondary">
@@ -1408,9 +1399,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <th colspan="2" class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DISTRIBUTION (ACTUAL)</th>
                         <th rowspan="2" class="col-group-distribution col-group-expanded db-offices-col" x-show="visible.distribution && open.distribution">RECEIVING OFFICE(S)</th>
                         <th rowspan="2" class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">SCANNED DIST.</th>
-                        <th colspan="2" class="col-group-retrieval col-group-expanded" x-show="visible.retrieval && open.retrieval">DATE</th>
-                        <th rowspan="2" class="col-group-retrieval col-group-expanded db-offices-col" x-show="visible.retrieval && open.retrieval">RETRIEVED OFFICE(S)</th>
-                        <th rowspan="2" class="col-group-retrieval col-group-expanded" x-show="visible.retrieval && open.retrieval">SCANNED RET.</th>
                     </tr>
 
                     <tr class="db-head-tertiary">
@@ -1428,8 +1416,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">TIME</th>
                         <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DATE</th>
                         <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">TIME</th>
-                        <th class="col-group-retrieval col-group-expanded" x-show="visible.retrieval && open.retrieval">ON FILE</th>
-                        <th class="col-group-retrieval col-group-expanded" x-show="visible.retrieval && open.retrieval">ACTUAL</th>
                     </tr>
                 </thead>
 

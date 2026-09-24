@@ -23,7 +23,7 @@ class DcsDatabaseColumns
         'dcn' => 6,
         'drf' => 5,
         'distribution' => 6,
-        'retrieval' => 4,
+        'retrieval' => 1,
     ];
 
     public const GROUP_LABELS = [

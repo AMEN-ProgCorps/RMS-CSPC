@@ -651,7 +651,28 @@ class RegisterPersistHelper
             }
         }
 
+        if (! $saveAsDraft && $effectivity === '') {
+            $subType = self::dcsDocType($request->input('sub_type_id'));
+            if (! self::isSyllabiLikeSubTypeRow($subType)) {
+                return self::draftErrorResponse(
+                    $request,
+                    'Effectivity Date is required.'
+                );
+            }
+        }
+
         return null;
+    }
+
+    public static function masterlistDeadlineValue(Request $request): ?string
+    {
+        if ($request->boolean('deadlineNotApplicable')) {
+            return null;
+        }
+
+        $deadline = trim((string) $request->input('deadlineOfSubmission', ''));
+
+        return $deadline !== '' ? $deadline : null;
     }
 
     /** Ensure checklist id 3 (Masterlist) is always included. */
@@ -1062,6 +1083,27 @@ class RegisterPersistHelper
             return $redirect;
         }
 
+        if ($saveAsDraft && RegisterQueryHelper::supportsDrafts()) {
+            $draftDocNo = trim((string) $request->input('masterlistDocNo', ''));
+            $existingDraftId = $draftDocNo !== ''
+                ? RegisterQueryHelper::findExistingDraftRequestId(
+                    $draftDocNo,
+                    (int) $request->input('doc_type_id'),
+                    $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null
+                )
+                : null;
+            if ($existingDraftId) {
+                RegisterUpdateHelper::collapseDuplicateDrafts($existingDraftId);
+                $existingDraftId = RegisterQueryHelper::findExistingDraftRequestId(
+                    $draftDocNo,
+                    (int) $request->input('doc_type_id'),
+                    $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null
+                ) ?: $existingDraftId;
+
+                return RegisterUpdateHelper::update($request, $existingDraftId);
+            }
+        }
+
         if ($mode === 'new' && $allowsRevision) {
             $docNo = $request->input('masterlistDocNo');
             $docTypeId = (int) $request->input('doc_type_id');
@@ -1254,7 +1296,7 @@ class RegisterPersistHelper
                     'revise_no' => self::resolveReviseNo($request),
                     'no_pages' => $request->masterlistNoOfPages,
                     'originator_name' => $originator['originator_name'],
-                    'deadline' => $request->deadlineOfSubmission,
+                    'deadline' => self::masterlistDeadlineValue($request),
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
@@ -1337,7 +1379,7 @@ class RegisterPersistHelper
                     'doc_registered_time' => $request->masterlistRegisteredTime,
                     'time_spent' => $masterlistTimeSpent,
                     'effectivity_date' => $request->masterlistEffectivityDate,
-                    'deadline' => $request->deadlineOfSubmission,
+                    'deadline' => self::masterlistDeadlineValue($request),
                     'revise_no' => self::resolveReviseNo($request),
                     'no_pages' => $totalPages,
                     'originator_name' => $originator['originator_name'],
@@ -1407,24 +1449,13 @@ class RegisterPersistHelper
                         self::buildScanBasename(
                             $request,
                             'DRR',
-                            $request->input('retrievalDate') ?: $request->input('retrievalFormDate')
+                            collect($request->input('retrievalOfficeDate', []))->first(fn ($date) => filled($date))
                         )
                     );
                 }
 
-                $retrievalTimeSpent = null;
-                if ($request->filled('retrievalTimeSpent') && is_numeric($request->retrievalTimeSpent) && $request->retrievalTimeSpent >= 0) {
-                    $retrievalTimeSpent = intval($request->retrievalTimeSpent);
-                }
-
                 $retrievalId = DB::table('dcs_document_retrieval')->insertGetId(array_merge([
                     'request_id' => $requestId,
-                    'doc_retrieval_date_actual' => $request->retrievalDate,
-                    'doc_retrieval_time_actual' => $request->retrievalTime,
-                    'doc_retrieval_date_file' => $request->retrievalFormDate,
-                    'doc_retrieval_time_file' => $request->retrievalFormTime,
-                    'time_spent' => $retrievalTimeSpent,
-                    'remarks' => $request->retrievalRemarks,
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
@@ -1730,7 +1761,7 @@ class RegisterPersistHelper
         }
     }
 
-    public static function findMatchingRegistrationRows(string $docNo, int $docTypeId, ?int $subTypeId): array
+    public static function findMatchingRegistrationRows(string $docNo, int $docTypeId, ?int $subTypeId, bool $anySubType = false): array
     {
         $allMl = DB::table('dcs_masterlist_registration')->where('doc_no', $docNo)->get();
 
@@ -1750,9 +1781,12 @@ class RegisterPersistHelper
 
         $hasSubType = $subTypeId && (int) $subTypeId > 0;
 
-        $matching = $relatedDocRequests->filter(function ($dr) use ($docTypeId, $subTypeId, $hasSubType) {
+        $matching = $relatedDocRequests->filter(function ($dr) use ($docTypeId, $subTypeId, $hasSubType, $anySubType) {
             if ((int) $dr->doc_type_id !== (int) $docTypeId) {
                 return false;
+            }
+            if ($anySubType) {
+                return true;
             }
             if ($hasSubType) {
                 return $dr->sub_type_id && (int) $dr->sub_type_id === (int) $subTypeId;

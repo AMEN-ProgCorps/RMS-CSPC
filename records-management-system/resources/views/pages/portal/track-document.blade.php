@@ -13,8 +13,15 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
     public bool $isProcessing = false;
     public string $deviceInfoJson = '';
 
-    public function track(): void
+    public function track(?string $code = null, ?string $deviceInfo = null): void
     {
+        if (!empty($code)) {
+            $this->trackingNumber = trim($code);
+        }
+        if (!empty($deviceInfo)) {
+            $this->deviceInfoJson = $deviceInfo;
+        }
+
         $this->validate([
             'trackingNumber' => ['required', 'string'],
         ]);
@@ -116,9 +123,10 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
     @vite(['resources/css/login.css', 'resources/css/track-document.css'])
 @endpush
 
-<div class="salesskip-split-container livewire-root" id="main-swipe-wrapper">
-    <!-- LEFT PANEL: Vibrant Royal Blue Hero with Curves, Welcome & Developers -->
-    <div class="hero-blue-pane" id="pane-blue">
+<div class="salesskip-viewport-root livewire-root" id="track-document-viewport-root">
+    <div class="salesskip-split-container" id="main-swipe-wrapper">
+        <!-- LEFT PANEL: Vibrant Royal Blue Hero with Curves, Welcome & Developers -->
+        <div class="hero-blue-pane" id="pane-blue">
         <!-- Curved wireframe contour lines in background -->
         <div class="wireframe-waves-bg" aria-hidden="true">
             <svg viewBox="0 0 700 800" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
@@ -227,7 +235,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
                             <circle cx="11" cy="11" r="8"></circle>
                             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                         </svg>
-                        <input wire:model="trackingNumber" id="tracking-input" type="text" placeholder="Enter tracking number" class="track-input-field" required autocomplete="off" @keydown.enter.prevent>
+                        <input wire:model="trackingNumber" id="tracking-input" type="text" placeholder="Enter tracking number" class="track-input-field" required autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();event.stopPropagation();return false;}">
                     </div>
 
                     <div class="track-btn-row">
@@ -241,24 +249,14 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
                             <span>Scan QR</span>
                         </button>
 
-                        <button type="button" id="track-submit-btn" class="track-submit-btn" wire:loading.attr="disabled">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" wire:loading.remove wire:target="track">
+                        <button type="button" id="track-submit-btn" class="track-submit-btn" onclick="window.submitTracking();">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                 <circle cx="11" cy="11" r="8"></circle>
                                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                             </svg>
-                            <span wire:loading.remove wire:target="track">Track Document</span>
-                            <span wire:loading wire:target="track">Searching…</span>
+                            <span>Track Document</span>
                         </button>
                     </div>
-
-                    <div id="status_indicator" wire:ignore>
-                        <div class="si-phase"></div>
-                        <div class="si-message"></div>
-                    </div>
-
-                    @error('trackingNumber')
-                        <span class="form-error">{{ $message }}</span>
-                    @enderror
                 </form>
 
                 <div class="bottom-support-info">
@@ -268,6 +266,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
             </div>
         </div>
     </div>
+    </div> <!-- /.salesskip-split-container -->
 
     <!-- Public QR Scanner Modal -->
     <div id="public-scanner-modal" class="scanner-backdrop" style="display: none;" wire:ignore>
@@ -316,6 +315,33 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
                 </label>
                 <div id="scanner-file-status" class="scanner-file-status" style="display: none;"></div>
             </div>
+        </div>
+    </div>
+
+    <!-- Tracking Progress & Result Modal -->
+    <div id="tracking-status-modal" class="clean-modal-backdrop" style="display: none;" wire:ignore>
+        <div class="clean-modal-card">
+            <div id="tsm-icon-wrap" class="clean-modal-icon-wrap loading">
+                <div id="tsm-spinner" class="clean-modal-spinner"></div>
+                <svg id="tsm-icon-success" style="display: none;" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <svg id="tsm-icon-error" style="display: none;" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+            </div>
+
+            <h3 id="tsm-title" class="clean-modal-title">Tracking Document</h3>
+
+            <div id="tsm-code-badge" style="margin-top: 10px; display: none;">
+                <span class="tracked-code-pill" id="tsm-code-val"></span>
+            </div>
+
+            <p id="tsm-message" class="clean-modal-body">Searching and verifying document transaction...</p>
+
+            <button type="button" id="tsm-close-btn" class="clean-modal-btn" style="display: none;">Close</button>
         </div>
     </div>
 </div>
@@ -705,19 +731,181 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         return d;
     }
 
-    function setStatus(phase, message, type) {
-        const el = document.getElementById('status_indicator');
-        if (!el) return;
-        el.dataset.type = type;
-        el.style.display = '';
-        el.querySelector('.si-phase').textContent = phase;
-        el.querySelector('.si-message').textContent = message;
-    }
+    window.showTrackingModal = function (type, title, message, code = '', showClose = false) {
+        const modalEl = document.getElementById('tracking-status-modal');
+        const iconWrapEl = document.getElementById('tsm-icon-wrap');
+        const spinnerEl = document.getElementById('tsm-spinner');
+        const iconSuccessEl = document.getElementById('tsm-icon-success');
+        const iconErrorEl = document.getElementById('tsm-icon-error');
+        const titleEl = document.getElementById('tsm-title');
+        const codeBadgeEl = document.getElementById('tsm-code-badge');
+        const codeValEl = document.getElementById('tsm-code-val');
+        const messageEl = document.getElementById('tsm-message');
+        const closeBtnEl = document.getElementById('tsm-close-btn');
 
-    function resetStatus() {
-        const el = document.getElementById('status_indicator');
-        if (el) el.style.display = 'none';
-    }
+        if (!modalEl) return;
+        modalEl.style.display = 'flex';
+        if (iconWrapEl) iconWrapEl.className = 'clean-modal-icon-wrap ' + type;
+        if (spinnerEl) spinnerEl.style.display = (type === 'loading') ? '' : 'none';
+        if (iconSuccessEl) iconSuccessEl.style.display = (type === 'success') ? '' : 'none';
+        if (iconErrorEl) iconErrorEl.style.display = (type === 'error' || type === 'warning') ? '' : 'none';
+        if (titleEl) titleEl.textContent = title;
+        if (code && codeValEl && codeBadgeEl) {
+            codeBadgeEl.style.display = '';
+            codeValEl.textContent = code;
+        } else if (codeBadgeEl) {
+            codeBadgeEl.style.display = 'none';
+        }
+        if (messageEl) messageEl.innerHTML = message;
+        if (closeBtnEl) {
+            closeBtnEl.style.display = showClose ? 'block' : 'none';
+            closeBtnEl.onclick = window.hideTrackingModal;
+        }
+        modalEl.onclick = function (e) {
+            if (e.target === modalEl && showClose) {
+                window.hideTrackingModal();
+            }
+        };
+    };
+
+    window.hideTrackingModal = function () {
+        const modalEl = document.getElementById('tracking-status-modal');
+        if (modalEl) modalEl.style.display = 'none';
+        submitting = false;
+        window.isTrackingSubmitting = false;
+    };
+
+    window.submitTracking = async function () {
+        if (submitting || window.isTrackingSubmitting) return;
+
+        const inputEl = document.getElementById('tracking-input');
+        const codeVal = inputEl ? inputEl.value.trim() : '';
+        if (!codeVal) {
+            window.showTrackingModal(
+                'warning',
+                'Tracking Number Required',
+                'Please enter or scan a valid tracking number to track your document.',
+                '',
+                true
+            );
+            if (inputEl) inputEl.focus();
+            return;
+        }
+
+        let d = initDevice();
+        const nowMs = Date.now();
+
+        // Unblock if block period has expired
+        if (d.device_blocked_until) {
+            const blockedUntil = new Date(d.device_blocked_until).getTime();
+            if (nowMs < blockedUntil) {
+                const mins = Math.ceil((blockedUntil - nowMs) / 60000);
+                window.showTrackingModal(
+                    'warning',
+                    'Device Rate-Limited',
+                    'Your device is temporarily rate-limited (' + mins + ' min remaining). <br><a href="#" id="reset-device-btn" style="color:#b45309;text-decoration:underline;margin-top:8px;display:inline-block;font-weight:700;">Reset lockout now</a>',
+                    codeVal,
+                    true
+                );
+                setTimeout(() => {
+                    const rBtn = document.getElementById('reset-device-btn');
+                    if (rBtn) {
+                        rBtn.onclick = (ev) => {
+                            ev.preventDefault();
+                            window.resetTrackingDevice();
+                            window.hideTrackingModal();
+                        };
+                    }
+                }, 50);
+                return;
+            }
+            d.device_blocked_until = null;
+            d.document_tracked_within_10_minutes = 0;
+            d.last_document_tracked_at = null;
+            saveDevice(d);
+        }
+
+        // Reset counter if 10-minute window expired
+        if (d.last_document_tracked_at) {
+            const lastMs = new Date(d.last_document_tracked_at).getTime();
+            if (nowMs - lastMs > WINDOW_MS) {
+                d.document_tracked_within_10_minutes = 0;
+                d.last_document_tracked_at = null;
+                saveDevice(d);
+            }
+        }
+
+        // Block if limit reached
+        if (d.document_tracked_within_10_minutes >= MAX_ATTEMPTS) {
+            d.device_blocked_until = new Date(nowMs + BLOCK_MS).toISOString();
+            saveDevice(d);
+            window.showTrackingModal(
+                'warning',
+                'Device Rate-Limited',
+                'Too many failed attempts. Your device has been blocked for 50 minutes. <br><a href="#" id="reset-device-btn" style="color:#b45309;text-decoration:underline;margin-top:8px;display:inline-block;font-weight:700;">Reset lockout now</a>',
+                codeVal,
+                true
+            );
+            setTimeout(() => {
+                const rBtn = document.getElementById('reset-device-btn');
+                if (rBtn) {
+                    rBtn.onclick = (ev) => {
+                        ev.preventDefault();
+                        window.resetTrackingDevice();
+                        window.hideTrackingModal();
+                    };
+                }
+            }, 50);
+            return;
+        }
+
+        // Phase 1.4 — evaluate email domain
+        if (d.email_used_on_verification) {
+            d.is_email_not_cspc = !CSPC_PATTERN.test(d.email_used_on_verification);
+            saveDevice(d);
+        }
+
+        submitting = true;
+        window.isTrackingSubmitting = true;
+
+        // Show loading modal immediately
+        window.showTrackingModal(
+            'loading',
+            'Tracking Document',
+            'Searching and validating tracking number with the server...',
+            codeVal,
+            false
+        );
+
+        let comp = null;
+        const rootEl = document.getElementById('track-document-viewport-root');
+        if (rootEl && typeof Livewire !== 'undefined') {
+            comp = Livewire.find(rootEl.getAttribute('wire:id'));
+        }
+        if (!comp) {
+            const wireEl = document.querySelector('[wire\\:id]');
+            if (wireEl && typeof Livewire !== 'undefined') {
+                comp = Livewire.find(wireEl.getAttribute('wire:id'));
+            }
+        }
+        if (!comp && typeof @this !== 'undefined') {
+            comp = @this;
+        }
+
+        if (comp) {
+            try {
+                await comp.call('track', codeVal, JSON.stringify(d));
+            } catch (err) {
+                submitting = false;
+                window.isTrackingSubmitting = false;
+                window.showTrackingModal('error', 'Validation Request Failed', 'Please check your connection and try again.', codeVal, true);
+            }
+        } else {
+            submitting = false;
+            window.isTrackingSubmitting = false;
+            window.showTrackingModal('error', 'Connection Error', 'Tracking service could not be initialized. Please refresh the page.', codeVal, true);
+        }
+    };
 
     function setup() {
         const form = document.getElementById('track-form');
@@ -725,46 +913,85 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
 
         initDevice();
 
-        // Remove any previously registered track-result listener
-        if (cleanupTrackResult) { cleanupTrackResult(); cleanupTrackResult = null; }
+        function bindResultListener() {
+            if (typeof Livewire === 'undefined') return;
+            if (cleanupTrackResult) { cleanupTrackResult(); cleanupTrackResult = null; }
 
-        cleanupTrackResult = Livewire.on('track-result', function (data) {
-            submitting = false;
-            let status = null;
-            let msg = null;
-            if (typeof data === 'string') {
-                status = data;
-            } else if (data && typeof data === 'object') {
-                status = data.status || (data[0] && (data[0].status || data[0])) || null;
-                msg = data.message || (data[0] && data[0].message) || null;
-            }
+            cleanupTrackResult = Livewire.on('track-result', function (data) {
+                submitting = false;
+                window.isTrackingSubmitting = false;
 
-            let d = getDevice();
+                let status = null;
+                let msg = null;
+                if (typeof data === 'string') {
+                    status = data;
+                } else if (data && typeof data === 'object') {
+                    status = data.status || (data[0] && (data[0].status || data[0])) || null;
+                    msg = data.message || (data[0] && data[0].message) || null;
+                }
 
-            if (status === 'not-found') {
-                if (d && typeof d === 'object') {
-                    const nowMs = Date.now();
-                    d.document_tracked_within_10_minutes = (d.document_tracked_within_10_minutes ?? 0) + 1;
-                    d.last_document_tracked_at = new Date(nowMs).toISOString();
-                    if (d.document_tracked_within_10_minutes >= MAX_ATTEMPTS) {
-                        d.device_blocked_until = new Date(nowMs + BLOCK_MS).toISOString();
+                let d = getDevice();
+                const inputEl = document.getElementById('tracking-input');
+                const codeVal = inputEl ? inputEl.value.trim() : '';
+
+                if (status === 'not-found') {
+                    if (d && typeof d === 'object') {
+                        const nowMs = Date.now();
+                        d.document_tracked_within_10_minutes = (d.document_tracked_within_10_minutes ?? 0) + 1;
+                        d.last_document_tracked_at = new Date(nowMs).toISOString();
+                        if (d.document_tracked_within_10_minutes >= MAX_ATTEMPTS) {
+                            d.device_blocked_until = new Date(nowMs + BLOCK_MS).toISOString();
+                        }
+                        saveDevice(d);
                     }
-                    saveDevice(d);
+                    window.showTrackingModal(
+                        'error',
+                        'Document Not Found',
+                        'The tracking number could not be found in the records system. Please check your tracking number and try again.',
+                        codeVal,
+                        true
+                    );
+                } else if (status === 'found') {
+                    if (d) {
+                        d.document_tracked_within_10_minutes = 0;
+                        d.device_blocked_until = null;
+                        saveDevice(d);
+                    }
+                    window.showTrackingModal(
+                        'success',
+                        'Document Found!',
+                        'Redirecting to transaction details and verification...',
+                        codeVal,
+                        false
+                    );
+                    setTimeout(() => {
+                        window.location.href = '{{ route('tracked') }}?number=' + encodeURIComponent(codeVal);
+                    }, 600);
+                } else if (status === 'rate-limited') {
+                    window.showTrackingModal(
+                        'warning',
+                        'Rate Limited',
+                        msg || 'Too many attempts from your network. Please wait a few minutes.',
+                        codeVal,
+                        true
+                    );
+                } else if (status === 'db-error') {
+                    window.showTrackingModal(
+                        'error',
+                        'Database Error',
+                        'Cannot connect to the records database server. Please try again later or contact the Records Office.',
+                        codeVal,
+                        true
+                    );
                 }
-                setStatus('Phase 2 — Result', 'Document Cannot Be Found. Please check your tracking number and try again.', 'error');
-            } else if (status === 'found') {
-                if (d) {
-                    d.document_tracked_within_10_minutes = 0;
-                    d.device_blocked_until = null;
-                    saveDevice(d);
-                }
-                setStatus('Phase 3', 'Document Found! Redirecting to results...', 'success');
-            } else if (status === 'rate-limited') {
-                setStatus('Rate Limited', msg || 'Too many attempts. Please wait a few minutes.', 'blocked');
-            } else if (status === 'db-error') {
-                setStatus('Phase 2 — Error', 'Cannot connect to the database server. Please try again later or contact the Records Office.', 'db-error');
-            }
-        });
+            });
+        }
+
+        if (typeof Livewire !== 'undefined') {
+            bindResultListener();
+        } else {
+            document.addEventListener('livewire:init', bindResultListener, { once: true });
+        }
 
         const trackingInput = document.getElementById('tracking-input');
         if (trackingInput && !trackingInput.dataset.enterBound) {
@@ -786,126 +1013,9 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         const submitBtn = document.getElementById('track-submit-btn');
         if (submitBtn && !submitBtn.dataset.clickBound) {
             submitBtn.dataset.clickBound = 'true';
-            submitBtn.addEventListener('click', async function (e) {
+            submitBtn.addEventListener('click', function (e) {
                 e.preventDefault();
-                if (submitting) return;
-
-                const inputEl = document.getElementById('tracking-input');
-                const codeVal = inputEl ? inputEl.value.trim() : '';
-                if (!codeVal) {
-                    if (inputEl) inputEl.focus();
-                    return;
-                }
-
-                submitting = true;
-                resetStatus();
-
-                // Phase 1 — read input
-                setStatus('Phase 1', 'Extracting input data...', 'checking');
-                await step();
-
-                // Phase 1.2 — check localStorage
-                setStatus('Phase 1.2', 'Checking device storage...', 'checking');
-                let d = initDevice();
-                await step();
-
-                // Phase 1.3 — verify device status
-                setStatus('Phase 1.3', 'Verifying device status...', 'checking');
-                await step();
-                const nowMs = Date.now();
-
-                // Unblock if block period has expired
-                if (d.device_blocked_until) {
-                    const blockedUntil = new Date(d.device_blocked_until).getTime();
-                    if (nowMs < blockedUntil) {
-                        const mins = Math.ceil((blockedUntil - nowMs) / 60000);
-                        setStatus('Blocked', 'Your device is temporarily rate-limited (' + mins + ' min remaining). <a href="#" id="reset-device-btn" style="color:#b45309;text-decoration:underline;margin-left:6px;font-weight:700;">Reset</a>', 'blocked');
-                        setTimeout(() => {
-                            const rBtn = document.getElementById('reset-device-btn');
-                            if (rBtn) {
-                                rBtn.onclick = (ev) => {
-                                    ev.preventDefault();
-                                    d.device_blocked_until = null;
-                                    d.document_tracked_within_10_minutes = 0;
-                                    saveDevice(d);
-                                    resetStatus();
-                                };
-                            }
-                        }, 50);
-                        submitting = false;
-                        return;
-                    }
-                    d.device_blocked_until = null;
-                    d.document_tracked_within_10_minutes = 0;
-                    d.last_document_tracked_at = null;
-                    saveDevice(d);
-                }
-
-                // Reset counter if 10-minute window expired
-                if (d.last_document_tracked_at) {
-                    const lastMs = new Date(d.last_document_tracked_at).getTime();
-                    if (nowMs - lastMs > WINDOW_MS) {
-                        d.document_tracked_within_10_minutes = 0;
-                        d.last_document_tracked_at = null;
-                        saveDevice(d);
-                    }
-                }
-
-                // Block if limit reached
-                if (d.document_tracked_within_10_minutes >= MAX_ATTEMPTS) {
-                    d.device_blocked_until = new Date(nowMs + BLOCK_MS).toISOString();
-                    saveDevice(d);
-                    setStatus('Blocked', 'Too many failed attempts. Your device has been blocked for 50 minutes. <a href="#" id="reset-device-btn" style="color:#b45309;text-decoration:underline;margin-left:6px;font-weight:700;">Reset</a>', 'blocked');
-                    setTimeout(() => {
-                        const rBtn = document.getElementById('reset-device-btn');
-                        if (rBtn) {
-                            rBtn.onclick = (ev) => {
-                                ev.preventDefault();
-                                d.device_blocked_until = null;
-                                d.document_tracked_within_10_minutes = 0;
-                                saveDevice(d);
-                                resetStatus();
-                            };
-                        }
-                    }, 50);
-                    submitting = false;
-                    return;
-                }
-
-                // Phase 1.4 — evaluate email domain
-                setStatus('Phase 1.4', 'Evaluating access permissions...', 'checking');
-                await step();
-                if (d.email_used_on_verification) {
-                    d.is_email_not_cspc = !CSPC_PATTERN.test(d.email_used_on_verification);
-                    saveDevice(d);
-                }
-
-                // Phase 2 — server validation
-                setStatus('Phase 2', 'Validating tracking number with the server...', 'checking');
-
-                let comp = null;
-                if (typeof @this !== 'undefined' && @this) {
-                    comp = @this;
-                } else {
-                    let livewireRoot = document.querySelector('.livewire-root');
-                    comp = (typeof Livewire !== 'undefined' && livewireRoot)
-                        ? Livewire.find(livewireRoot.getAttribute('wire:id'))
-                        : null;
-                }
-
-                if (comp) {
-                    try {
-                        await comp.set('trackingNumber', codeVal);
-                        await comp.set('deviceInfoJson', JSON.stringify(d));
-                        await comp.call('track');
-                    } catch (err) {
-                        submitting = false;
-                        setStatus('Phase 2 — Error', 'Validation request failed. Please check connection and try again.', 'error');
-                    }
-                } else {
-                    submitting = false;
-                    setStatus('Phase 2 — Error', 'Connection failed. Please refresh the page.', 'error');
-                }
+                window.submitTracking();
             });
         }
     }

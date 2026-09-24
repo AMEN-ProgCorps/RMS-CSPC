@@ -121,12 +121,40 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
         $this->verifiedGoogleAvatar = '';
         $this->showPasswordStep = false;
         $this->showDocumentData = false;
+        $this->showEmailErrorModal = false;
+        $this->emailErrorMessage = '';
+        $this->isUnauthorizedEmail = false;
         $this->resetErrorBag();
+    }
+
+    public bool $showEmailErrorModal = false;
+    public string $emailErrorMessage = '';
+    public bool $isUnauthorizedEmail = false;
+
+    public function closeEmailErrorModal(): void
+    {
+        $this->showEmailErrorModal = false;
+        $this->emailErrorMessage = '';
+        $this->isUnauthorizedEmail = false;
     }
 
     public function verifyEmail(): void
     {
-        $this->validate(['email' => ['required', 'email']]);
+        $validated = \Illuminate\Support\Facades\Validator::make(
+            ['email' => $this->email],
+            ['email' => ['required', 'email']],
+            [
+                'email.required' => 'The email field is required.',
+                'email.email'    => 'Please enter a valid email address.',
+            ]
+        );
+
+        if ($validated->fails()) {
+            $this->emailErrorMessage = $validated->errors()->first('email');
+            $this->isUnauthorizedEmail = false;
+            $this->showEmailErrorModal = true;
+            return;
+        }
 
         try {
             $code = $this->trackingNumber;
@@ -142,7 +170,9 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
 
             if ($transactionDetails && !empty($transactionDetails->allowed_email)) {
                 if (strtolower(trim($this->email)) !== strtolower(trim($transactionDetails->allowed_email))) {
-                    $this->addError('email', "The email '{$this->email}' is not authorized to track this document.");
+                    $this->emailErrorMessage = "The email '{$this->email}' is not authorized to track this document.";
+                    $this->isUnauthorizedEmail = true;
+                    $this->showEmailErrorModal = true;
                     return;
                 }
             }
@@ -167,7 +197,9 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
                 }
             }
         } catch (\Exception $e) {
-            $this->addError('email', 'Failed to verify email access: ' . $e->getMessage());
+            $this->emailErrorMessage = 'Failed to verify email access: ' . $e->getMessage();
+            $this->isUnauthorizedEmail = false;
+            $this->showEmailErrorModal = true;
         }
     }
 
@@ -281,9 +313,10 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
     @vite(['resources/css/login.css', 'resources/css/track-document.css'])
 @endpush
 
-<div class="salesskip-split-container" id="main-swipe-wrapper">
-    <!-- LEFT PANEL: Vibrant Royal Blue Hero with Curves, Welcome & Developers -->
-    <div class="hero-blue-pane" id="pane-blue">
+<div class="salesskip-viewport-root livewire-root" id="tracked-viewport-root">
+    <div class="salesskip-split-container" id="main-swipe-wrapper">
+        <!-- LEFT PANEL: Vibrant Royal Blue Hero with Curves, Welcome & Developers -->
+        <div class="hero-blue-pane" id="pane-blue">
         <!-- Curved wireframe contour lines in background -->
         <div class="wireframe-waves-bg" aria-hidden="true">
             <svg viewBox="0 0 700 800" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
@@ -380,20 +413,6 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
                     {{-- PHASE 1: EMAIL VERIFICATION --}}
                     @if (! $showPasswordStep && ! $showDocumentData)
                         <div class="tracked-form-container">
-                            @error('email')
-                                <div class="clean-alert-error" role="alert">
-                                    <svg class="alert-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-                                    </svg>
-                                    <div class="alert-msg">
-                                        <div>{{ $message }}</div>
-                                        <a href="{{ route('auth.google.track', ['number' => $trackingNumber]) }}" class="switch-account-link" style="padding-left:0; margin-top:4px; display:inline-block;">
-                                            Try signing in with a different Google account
-                                        </a>
-                                    </div>
-                                </div>
-                            @enderror
-
                             {{-- 1-Click Google SSO Verification --}}
                             <div>
                                 <a href="{{ route('auth.google.track', ['number' => $trackingNumber]) }}" class="google-sso-track-btn">
@@ -411,7 +430,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
                                 <span>or enter email manually</span>
                             </div>
 
-                            <form wire:submit="verifyEmail" class="tracked-field-group">
+                            <form wire:submit="verifyEmail" class="tracked-field-group" novalidate>
                                 <label for="email-input" class="tracked-field-label">Authorized Email Address:</label>
                                 <input
                                     wire:model="email"
@@ -421,7 +440,6 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
                                     id="email-input"
                                     class="tracked-input"
                                     placeholder="Enter your email"
-                                    required
                                 >
                                 @if ($emailStatus)
                                     <div class="form-error" style="color:#059669; font-size:13px;">{{ $emailStatus }}</div>
@@ -513,7 +531,41 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
             </div>
         </div>
     </div>
-</div>
+</div> <!-- /.salesskip-split-container -->
+
+{{-- Clean Email Error Modal (Rendered outside split-container to prevent desktop clipping) --}}
+@if ($showEmailErrorModal)
+    <div class="clean-modal-backdrop" wire:key="email-error-modal" wire:click.self="closeEmailErrorModal">
+        <div class="clean-modal-card">
+            <div class="clean-modal-icon-wrap error">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+            </div>
+
+            <h3 class="clean-modal-title">Verification Notice</h3>
+
+            <p class="clean-modal-body">
+                {{ $emailErrorMessage }}
+            </p>
+
+            @if ($isUnauthorizedEmail)
+                <div style="margin-top: 16px; width: 100%;">
+                    <a href="{{ route('auth.google.track', ['number' => $trackingNumber]) }}" class="switch-account-link" style="display: block; text-align: center; font-size: 13.5px; padding: 10px 14px; border-radius: 10px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; text-decoration: none; font-weight: 600;">
+                        Try signing in with a different Google account
+                    </a>
+                </div>
+            @endif
+
+            <button type="button" class="clean-modal-btn" wire:click="closeEmailErrorModal">
+                Understood
+            </button>
+        </div>
+    </div>
+@endif
+</div> <!-- /.salesskip-viewport-root -->
 
 @push('scripts')
 <script>

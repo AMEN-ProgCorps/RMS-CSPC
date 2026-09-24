@@ -53,9 +53,8 @@
 <body>
     {{ $slot }}
 
-    @stack('scripts')
-
     @livewireScripts
+    @stack('scripts')
 
     @auth
     @if(\DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'page_prewarming_enabled')->value('value') === 'true')

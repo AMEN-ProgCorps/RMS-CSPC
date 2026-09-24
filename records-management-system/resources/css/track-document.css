@@ -239,13 +239,29 @@
    PUBLIC QR SCANNER MODAL (Crisp, Modern Theme)
 ========================================================================== */
 
+.salesskip-viewport-root {
+    position: relative;
+    width: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
 .scanner-backdrop {
-    position: fixed;
-    inset: 0;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    width: 100vw !important;
+    height: 100% !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    inset: 0 !important;
     background: rgba(15, 23, 42, 0.7);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    z-index: 99999;
+    z-index: 99999999 !important;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -271,6 +287,10 @@
     display: flex;
     flex-direction: column;
     animation: popModal 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    z-index: 100000000;
+    margin: auto;
+    box-sizing: border-box;
 }
 
 @keyframes popModal {
@@ -851,4 +871,134 @@
     font-weight: 600;
     color: #0f172a;
     word-break: break-word;
+}
+
+/* ==========================================================================
+   CLEAN MODALS (Alerts, Tracking Progress, Verification Notices)
+========================================================================== */
+
+.clean-modal-backdrop {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    width: 100vw !important;
+    height: 100% !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    inset: 0 !important;
+    background: rgba(15, 23, 42, 0.65);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 99999999 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+    animation: fadeInModal 0.2s ease;
+}
+
+.clean-modal-card {
+    background: #ffffff;
+    border-radius: 20px;
+    max-width: 440px;
+    width: 100%;
+    margin: auto;
+    padding: 32px 26px;
+    text-align: center;
+    box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
+    border: 1px solid rgba(226, 232, 240, 0.8);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    box-sizing: border-box;
+    animation: popModal 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    z-index: 100000000;
+}
+
+.clean-modal-icon-wrap {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 6px;
+    flex-shrink: 0;
+}
+
+.clean-modal-icon-wrap.loading {
+    background: #eff6ff;
+    color: #2563eb;
+}
+
+.clean-modal-icon-wrap.error {
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+}
+
+.clean-modal-icon-wrap.warning {
+    background: #fffbeb;
+    color: #d97706;
+    border: 1px solid #fde68a;
+}
+
+.clean-modal-icon-wrap.success {
+    background: #f0fdf4;
+    color: #16a34a;
+    border: 1px solid #bbf7d0;
+}
+
+.clean-modal-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3.5px solid rgba(37, 99, 235, 0.2);
+    border-top-color: #1d4ed8;
+    border-radius: 50%;
+    animation: spin 0.75s linear infinite;
+}
+
+.clean-modal-title {
+    font-size: 19px;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 12px 0 0 0;
+}
+
+.clean-modal-body {
+    font-size: 14.5px;
+    color: #475569;
+    margin: 10px 0 0 0;
+    line-height: 1.5;
+}
+
+.clean-modal-btn {
+    margin-top: 24px;
+    width: 100%;
+    padding: 13px 20px;
+    background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+    color: #ffffff;
+    border: none;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(30, 64, 175, 0.25);
+    transition: all 0.2s ease;
+}
+
+.clean-modal-btn:hover {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(37, 99, 235, 0.35);
+}
+
+.clean-modal-btn:active {
+    transform: translateY(0);
 }

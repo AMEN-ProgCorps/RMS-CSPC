@@ -178,55 +178,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
     })();
 
     // ==========================================
-    // 2. TYPEWRITER EFFECT FOR "LOGIN" HEADING
-    // ==========================================
-    let typewriterTimeout = null;
-
-    function initTypewriter() {
-        if (typewriterTimeout) clearTimeout(typewriterTimeout);
-        const words = ["LOGIN", "WELCOME", "HELLO WORLD"];
-        const textEl = document.getElementById('typewriter-text');
-        if (!textEl) return;
-
-        let wordIndex = 0;
-        let charIndex = words[0].length;
-        let isDeleting = true; // Starts by deleting initial "LOGIN" after delay
-
-        function typeStep() {
-            const currentWord = words[wordIndex];
-
-            if (isDeleting) {
-                charIndex--;
-                textEl.textContent = currentWord.substring(0, charIndex);
-            } else {
-                charIndex++;
-                textEl.textContent = currentWord.substring(0, charIndex);
-            }
-
-            let typingSpeed = isDeleting ? 45 : 85;
-
-            if (!isDeleting && charIndex === currentWord.length) {
-                // Finished typing word, pause before erasing
-                isDeleting = true;
-                typewriterTimeout = setTimeout(typeStep, 2400);
-                return;
-            } else if (isDeleting && charIndex === 0) {
-                // Finished deleting, move to next word
-                isDeleting = false;
-                wordIndex = (wordIndex + 1) % words.length;
-                typewriterTimeout = setTimeout(typeStep, 150);
-                return;
-            }
-
-            typewriterTimeout = setTimeout(typeStep, typingSpeed);
-        }
-
-        // Initial delay before first deletion
-        typewriterTimeout = setTimeout(typeStep, 2600);
-    }
-
-    // ==========================================
-    // 3. MOBILE TOUCH SWIPE INTERACTION
+    // 2. MOBILE TOUCH SWIPE INTERACTION
     // ==========================================
     let currentActivePane = 'white';
 
@@ -248,7 +200,6 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
         const whitePane = document.getElementById('pane-white');
 
         initMobileSwipe();
-        initTypewriter();
 
         if (wrapper && !wrapper.dataset.scrollBound) {
             wrapper.dataset.scrollBound = "true";

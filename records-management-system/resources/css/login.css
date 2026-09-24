@@ -293,23 +293,6 @@ body {
     color: #0f172a;
     line-height: 1.2;
     white-space: nowrap;
-    min-height: 1.25em;
-    display: inline-flex;
-    align-items: center;
-}
-
-.typewriter-cursor {
-    display: inline-block;
-    color: #2563eb;
-    margin-left: 3px;
-    font-weight: 300;
-    opacity: 1;
-    animation: blink-cursor 0.75s step-start infinite;
-}
-
-@keyframes blink-cursor {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0; }
 }
 
 .welcome-subheading {

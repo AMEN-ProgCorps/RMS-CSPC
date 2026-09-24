@@ -80,7 +80,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
         <div class="white-top-bar">
             <div class="white-brand-header">
                 <img src="{{ asset('images/cspc.webp') }}" alt="CSPC Seal" class="white-brand-seal">
-                <span class="white-brand-name">CSPC RMS</span>
+                <span class="white-brand-name">RMS CSPC</span>
             </div>
 
             <a href="{{ route('track-document') }}" class="white-track-btn">

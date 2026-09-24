@@ -221,13 +221,13 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
                     </div>
                 @endif
 
-                <form id="track-form" class="track-form-box">
+                <form id="track-form" class="track-form-box" onsubmit="return false;">
                     <div class="track-input-wrapper">
                         <svg class="track-input-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="11" cy="11" r="8"></circle>
                             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                         </svg>
-                        <input wire:model.live.debounce.250ms="trackingNumber" id="tracking-input" type="text" placeholder="Enter tracking number" class="track-input-field" required autocomplete="off">
+                        <input wire:model="trackingNumber" id="tracking-input" type="text" placeholder="Enter tracking number" class="track-input-field" required autocomplete="off" @keydown.enter.prevent>
                     </div>
 
                     <div class="track-btn-row">
@@ -241,7 +241,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
                             <span>Scan QR</span>
                         </button>
 
-                        <button type="submit" class="track-submit-btn" wire:loading.attr="disabled">
+                        <button type="button" id="track-submit-btn" class="track-submit-btn" wire:loading.attr="disabled">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" wire:loading.remove wire:target="track">
                                 <circle cx="11" cy="11" r="8"></circle>
                                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -524,7 +524,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         } catch (err) {
             if (placeholder) {
                 placeholder.style.display = 'flex';
-                placeholder.innerHTML = '⚠️ Camera access unavailable or permission denied.<br><small style="margin-top:6px;opacity:0.8;">You can switch to the "Upload Image" tab to scan a QR image.</small>';
+                placeholder.innerHTML = 'Camera access unavailable or permission denied.<br><small style="margin-top:6px;opacity:0.8;">You can switch to the "Upload Image" tab to scan a QR image.</small>';
             }
             if (statusEl) statusEl.textContent = 'Camera unavailable';
         }
@@ -561,14 +561,6 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         }
 
         closeScannerModal();
-
-        // Automatically trigger full tracking validation pipeline
-        setTimeout(() => {
-            const form = getForm();
-            if (form) {
-                form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-            }
-        }, 150);
     }
 
     function setFileStatus(msg, type) {
@@ -774,40 +766,96 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
             }
         });
 
-        form.addEventListener('submit', async function (e) {
+        const trackingInput = document.getElementById('tracking-input');
+        if (trackingInput && !trackingInput.dataset.enterBound) {
+            trackingInput.dataset.enterBound = 'true';
+            trackingInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                }
+            });
+        }
+
+        form.addEventListener('submit', function (e) {
             e.preventDefault();
-            if (submitting) return;
+            return false;
+        });
 
-            const inputEl = document.getElementById('tracking-input');
-            const codeVal = inputEl ? inputEl.value.trim() : '';
-            if (!codeVal) {
-                if (inputEl) inputEl.focus();
-                return;
-            }
+        const submitBtn = document.getElementById('track-submit-btn');
+        if (submitBtn && !submitBtn.dataset.clickBound) {
+            submitBtn.dataset.clickBound = 'true';
+            submitBtn.addEventListener('click', async function (e) {
+                e.preventDefault();
+                if (submitting) return;
 
-            submitting = true;
-            resetStatus();
+                const inputEl = document.getElementById('tracking-input');
+                const codeVal = inputEl ? inputEl.value.trim() : '';
+                if (!codeVal) {
+                    if (inputEl) inputEl.focus();
+                    return;
+                }
 
-            // Phase 1 — read input
-            setStatus('Phase 1', 'Extracting input data...', 'checking');
-            await step();
+                submitting = true;
+                resetStatus();
 
-            // Phase 1.2 — check localStorage
-            setStatus('Phase 1.2', 'Checking device storage...', 'checking');
-            let d = initDevice();
-            await step();
+                // Phase 1 — read input
+                setStatus('Phase 1', 'Extracting input data...', 'checking');
+                await step();
 
-            // Phase 1.3 — verify device status
-            setStatus('Phase 1.3', 'Verifying device status...', 'checking');
-            await step();
-            const nowMs = Date.now();
+                // Phase 1.2 — check localStorage
+                setStatus('Phase 1.2', 'Checking device storage...', 'checking');
+                let d = initDevice();
+                await step();
 
-            // Unblock if block period has expired
-            if (d.device_blocked_until) {
-                const blockedUntil = new Date(d.device_blocked_until).getTime();
-                if (nowMs < blockedUntil) {
-                    const mins = Math.ceil((blockedUntil - nowMs) / 60000);
-                    setStatus('Blocked', 'Your device is temporarily rate-limited (' + mins + ' min remaining). <a href="#" id="reset-device-btn" style="color:#b45309;text-decoration:underline;margin-left:6px;font-weight:700;">Reset</a>', 'blocked');
+                // Phase 1.3 — verify device status
+                setStatus('Phase 1.3', 'Verifying device status...', 'checking');
+                await step();
+                const nowMs = Date.now();
+
+                // Unblock if block period has expired
+                if (d.device_blocked_until) {
+                    const blockedUntil = new Date(d.device_blocked_until).getTime();
+                    if (nowMs < blockedUntil) {
+                        const mins = Math.ceil((blockedUntil - nowMs) / 60000);
+                        setStatus('Blocked', 'Your device is temporarily rate-limited (' + mins + ' min remaining). <a href="#" id="reset-device-btn" style="color:#b45309;text-decoration:underline;margin-left:6px;font-weight:700;">Reset</a>', 'blocked');
+                        setTimeout(() => {
+                            const rBtn = document.getElementById('reset-device-btn');
+                            if (rBtn) {
+                                rBtn.onclick = (ev) => {
+                                    ev.preventDefault();
+                                    d.device_blocked_until = null;
+                                    d.document_tracked_within_10_minutes = 0;
+                                    saveDevice(d);
+                                    resetStatus();
+                                };
+                            }
+                        }, 50);
+                        submitting = false;
+                        return;
+                    }
+                    d.device_blocked_until = null;
+                    d.document_tracked_within_10_minutes = 0;
+                    d.last_document_tracked_at = null;
+                    saveDevice(d);
+                }
+
+                // Reset counter if 10-minute window expired
+                if (d.last_document_tracked_at) {
+                    const lastMs = new Date(d.last_document_tracked_at).getTime();
+                    if (nowMs - lastMs > WINDOW_MS) {
+                        d.document_tracked_within_10_minutes = 0;
+                        d.last_document_tracked_at = null;
+                        saveDevice(d);
+                    }
+                }
+
+                // Block if limit reached
+                if (d.document_tracked_within_10_minutes >= MAX_ATTEMPTS) {
+                    d.device_blocked_until = new Date(nowMs + BLOCK_MS).toISOString();
+                    saveDevice(d);
+                    setStatus('Blocked', 'Too many failed attempts. Your device has been blocked for 50 minutes. <a href="#" id="reset-device-btn" style="color:#b45309;text-decoration:underline;margin-left:6px;font-weight:700;">Reset</a>', 'blocked');
                     setTimeout(() => {
                         const rBtn = document.getElementById('reset-device-btn');
                         if (rBtn) {
@@ -823,78 +871,43 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
                     submitting = false;
                     return;
                 }
-                d.device_blocked_until = null;
-                d.document_tracked_within_10_minutes = 0;
-                d.last_document_tracked_at = null;
-                saveDevice(d);
-            }
 
-            // Reset counter if 10-minute window expired
-            if (d.last_document_tracked_at) {
-                const lastMs = new Date(d.last_document_tracked_at).getTime();
-                if (nowMs - lastMs > WINDOW_MS) {
-                    d.document_tracked_within_10_minutes = 0;
-                    d.last_document_tracked_at = null;
+                // Phase 1.4 — evaluate email domain
+                setStatus('Phase 1.4', 'Evaluating access permissions...', 'checking');
+                await step();
+                if (d.email_used_on_verification) {
+                    d.is_email_not_cspc = !CSPC_PATTERN.test(d.email_used_on_verification);
                     saveDevice(d);
                 }
-            }
 
-            // Block if limit reached
-            if (d.document_tracked_within_10_minutes >= MAX_ATTEMPTS) {
-                d.device_blocked_until = new Date(nowMs + BLOCK_MS).toISOString();
-                saveDevice(d);
-                setStatus('Blocked', 'Too many failed attempts. Your device has been blocked for 50 minutes. <a href="#" id="reset-device-btn" style="color:#b45309;text-decoration:underline;margin-left:6px;font-weight:700;">Reset</a>', 'blocked');
-                setTimeout(() => {
-                    const rBtn = document.getElementById('reset-device-btn');
-                    if (rBtn) {
-                        rBtn.onclick = (ev) => {
-                            ev.preventDefault();
-                            d.device_blocked_until = null;
-                            d.document_tracked_within_10_minutes = 0;
-                            saveDevice(d);
-                            resetStatus();
-                        };
-                    }
-                }, 50);
-                submitting = false;
-                return;
-            }
+                // Phase 2 — server validation
+                setStatus('Phase 2', 'Validating tracking number with the server...', 'checking');
 
-            // Phase 1.4 — evaluate email domain
-            setStatus('Phase 1.4', 'Evaluating access permissions...', 'checking');
-            await step();
-            if (d.email_used_on_verification) {
-                d.is_email_not_cspc = !CSPC_PATTERN.test(d.email_used_on_verification);
-                saveDevice(d);
-            }
-
-            // Phase 2 — server validation
-            setStatus('Phase 2', 'Validating tracking number with the server...', 'checking');
-
-            let comp = null;
-            if (typeof @this !== 'undefined' && @this) {
-                comp = @this;
-            } else {
-                let livewireRoot = document.querySelector('.livewire-root');
-                comp = (typeof Livewire !== 'undefined' && livewireRoot)
-                    ? Livewire.find(livewireRoot.getAttribute('wire:id'))
-                    : null;
-            }
-
-            if (comp) {
-                try {
-                    await comp.set('trackingNumber', codeVal);
-                    await comp.set('deviceInfoJson', JSON.stringify(d));
-                    await comp.call('track');
-                } catch (err) {
-                    submitting = false;
-                    setStatus('Phase 2 — Error', 'Validation request failed. Please check connection and try again.', 'error');
+                let comp = null;
+                if (typeof @this !== 'undefined' && @this) {
+                    comp = @this;
+                } else {
+                    let livewireRoot = document.querySelector('.livewire-root');
+                    comp = (typeof Livewire !== 'undefined' && livewireRoot)
+                        ? Livewire.find(livewireRoot.getAttribute('wire:id'))
+                        : null;
                 }
-            } else {
-                submitting = false;
-                setStatus('Phase 2 — Error', 'Connection failed. Please refresh the page.', 'error');
-            }
-        });
+
+                if (comp) {
+                    try {
+                        await comp.set('trackingNumber', codeVal);
+                        await comp.set('deviceInfoJson', JSON.stringify(d));
+                        await comp.call('track');
+                    } catch (err) {
+                        submitting = false;
+                        setStatus('Phase 2 — Error', 'Validation request failed. Please check connection and try again.', 'error');
+                    }
+                } else {
+                    submitting = false;
+                    setStatus('Phase 2 — Error', 'Connection failed. Please refresh the page.', 'error');
+                }
+            });
+        }
     }
 
     document.addEventListener('livewire:navigated', setup);

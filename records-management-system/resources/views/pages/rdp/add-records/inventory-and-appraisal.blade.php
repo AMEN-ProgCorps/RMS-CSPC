@@ -26,23 +26,46 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public bool $hasPredefinedRemarks = false;
     public bool $hasPredefinedRetention = false;
 
+    // Series Type Filter for Search
+    public mixed $selectedSeriesTypeFilter = null;
+
+    public function updatedSelectedSeriesTypeFilter($val): void
+    {
+        if (empty($val)) {
+            $this->selectedSeriesTypeFilter = null;
+        } else {
+            $this->selectedSeriesTypeFilter = (int)$val;
+        }
+        $this->selectedParentId = null;
+        $this->selectedParentTypeId = null;
+        $this->selectedParentOffice = null;
+    }
+
+    public function setSeriesTypeFilter(?int $typeId): void
+    {
+        $this->selectedSeriesTypeFilter = $typeId;
+        $this->selectedParentId = null;
+        $this->selectedParentTypeId = null;
+        $this->selectedParentOffice = null;
+    }
+
     // Predefined vs Custom Series Flag
     public bool $isCustomSeries = false;
 
-    // Period Covered Modal & Staged State (Deferred DB save)
-    public bool $showPeriodModal = false;
-    public array $periodsCovered = [];
+    // Selected Date Staged State (Deferred DB save)
+    public string $date_covered = '';
 
     // Form Input Properties
     public string $description = '';
-    public ?float $volume_amount = null;
-    public mixed $volume_unit = null;
     public string $volume = '';
     public ?int $records_medium = null;
     public ?string $restriction = null;
     public string $records_location = '';
     public ?string $frequence_use = null;
     public ?string $duplication = null;
+    public array $duplicate_offices = [];
+    public string $duplicate_search = '';
+    public bool $showDuplicateDropdown = false;
     public ?string $time_value = 'T';
     public array $utility_values = []; // Multi-choice array of selected utility IDs
     public string $retention_period = '';
@@ -124,19 +147,15 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         return $active . ' + ' . $storage;
     }
 
-    public function syncArchivalLocking(): void
+    public function syncArchivalAutoSelect(): void
     {
         $archivalId = DB::table('rdp_utility_medium')
             ->where('utility_name', 'like', '%Archival%')
             ->value('id');
 
-        if ($archivalId) {
-            if ($this->is_permanent || $this->time_value === 'P') {
-                if (!in_array($archivalId, $this->utility_values)) {
-                    $this->utility_values[] = $archivalId;
-                }
-            } else {
-                $this->utility_values = array_values(array_filter($this->utility_values, fn($id) => (int)$id !== (int)$archivalId));
+        if ($archivalId && ($this->is_permanent || $this->time_value === 'P')) {
+            if (!in_array($archivalId, $this->utility_values)) {
+                $this->utility_values[] = $archivalId;
             }
         }
     }
@@ -148,11 +167,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $this->active_period = '';
             $this->storage_period = '';
             $this->retention_period = 'Permanent';
+            $this->syncArchivalAutoSelect();
         } elseif ($val === 'T') {
             $this->is_permanent = false;
             $this->retention_period = $this->computeTotalPeriod($this->active_period, $this->storage_period, false);
         }
-        $this->syncArchivalLocking();
     }
 
     public function updatedIsPermanent($val): void
@@ -162,26 +181,58 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $this->active_period = '';
             $this->storage_period = '';
             $this->retention_period = 'Permanent';
+            $this->syncArchivalAutoSelect();
         } else {
             $this->time_value = 'T';
             $this->retention_period = $this->computeTotalPeriod($this->active_period, $this->storage_period, false);
         }
-        $this->syncArchivalLocking();
     }
 
     public function mount(): void
     {
         $this->time_value = $this->is_permanent ? 'P' : 'T';
+    }
 
-        // Default volume_unit to standard unit (e.g. Pages)
-        $defaultUnit = DB::table('rdp_volume_value')
-            ->where('cur_used_standard', true)
-            ->where('is_active', true)
-            ->value('volume_id');
-
-        if ($defaultUnit) {
-            $this->volume_unit = $defaultUnit;
+    public function addDuplicateOffice(?string $officeCode = null): void
+    {
+        $codeToAdd = strtoupper(trim($officeCode ?? $this->duplicate_search));
+        if (empty($codeToAdd)) {
+            return;
         }
+
+        $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $exists = DB::table($officeTable)
+            ->where('is_active', true)
+            ->where(function($q) use ($codeToAdd) {
+                $q->where('office_code', $codeToAdd)
+                  ->orWhere('office_name', 'ilike', $codeToAdd);
+            })
+            ->first();
+
+        if ($exists) {
+            $realCode = $exists->office_code;
+            if (!in_array($realCode, $this->duplicate_offices, true)) {
+                $this->duplicate_offices[] = $realCode;
+            }
+        }
+
+        $this->duplicate_search = '';
+        $this->showDuplicateDropdown = false;
+    }
+
+    public function removeDuplicateOffice(int $index): void
+    {
+        if (isset($this->duplicate_offices[$index])) {
+            unset($this->duplicate_offices[$index]);
+            $this->duplicate_offices = array_values($this->duplicate_offices);
+        }
+    }
+
+    public function clearDuplicateOffices(): void
+    {
+        $this->duplicate_offices = [];
+        $this->duplicate_search = '';
+        $this->showDuplicateDropdown = false;
     }
 
     // --- Record Series Modal Handlers ---
@@ -236,6 +287,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 'office.office_name as recorded_office_name',
             ])
             ->where('rdp_record_series.parent_id', $parentRecord->id);
+
+        if ($this->selectedSeriesTypeFilter) {
+            $query->where('rdp_record_series.series_type', $this->selectedSeriesTypeFilter);
+        }
 
         $currentSubInput = trim($this->subsections[$index] ?? '');
         if (!empty($currentSubInput)) {
@@ -305,6 +360,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $query = DB::table('rdp_record_series')->where('series_title', 'ilike', $t);
             if ($idx === 0) {
                 $query->whereNull('parent_id');
+                if ($this->selectedSeriesTypeFilter) {
+                    $query->where('series_type', $this->selectedSeriesTypeFilter);
+                }
             } elseif ($currentParentId) {
                 $query->where('parent_id', $currentParentId);
             }
@@ -375,135 +433,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $this->isCustomSeries = true;
         }
 
-        $this->syncArchivalLocking();
+        $this->syncArchivalAutoSelect();
 
         $this->showSeriesModal = false;
         $this->showParentDropdown = false;
         $this->activeSubDropdownIndex = null;
-    }
-
-    // --- Period Covered Handlers ---
-    public function openPeriodModal(): void
-    {
-        if (empty($this->periodsCovered)) {
-            $this->periodsCovered = [
-                ['start_day' => '', 'start_month' => date('Y-01'), 'end_day' => '', 'end_month' => date('Y-12')]
-            ];
-        }
-        $this->showPeriodModal = true;
-    }
-
-    public function closePeriodModal(): void
-    {
-        $this->showPeriodModal = false;
-    }
-
-    public function addPeriodRange(): void
-    {
-        $this->periodsCovered[] = [
-            'start_day'   => '',
-            'start_month' => '',
-            'end_day'     => '',
-            'end_month'   => ''
-        ];
-    }
-
-    public function removePeriodRange(int $index): void
-    {
-        if (isset($this->periodsCovered[$index])) {
-            unset($this->periodsCovered[$index]);
-            $this->periodsCovered = array_values($this->periodsCovered);
-        }
-    }
-
-    public function savePeriods(): void
-    {
-        $this->periodsCovered = array_values(array_filter($this->periodsCovered, function ($p) {
-            return !empty($p['start_month']) || !empty($p['end_month']);
-        }));
-        $this->showPeriodModal = false;
-    }
-
-    public function getFormattedPeriodsProperty(): array
-    {
-        $formatted = [];
-        foreach ($this->periodsCovered as $p) {
-            $startStr = '';
-            $endStr = '';
-            $startDay = !empty($p['start_day']) ? (int)$p['start_day'] : null;
-            $endDay = !empty($p['end_day']) ? (int)$p['end_day'] : null;
-
-            if (!empty($p['start_month'])) {
-                try {
-                    $dt = Carbon::createFromFormat('Y-m', $p['start_month']);
-                    if ($startDay && $startDay >= 1 && $startDay <= $dt->daysInMonth) {
-                        $startStr = $dt->format('M') . ' ' . $startDay . ', ' . $dt->format('Y');
-                    } else {
-                        $startStr = $dt->format('M Y');
-                    }
-                } catch (\Exception $e) {
-                    $startStr = $p['start_month'];
-                }
-            }
-
-            if (!empty($p['end_month'])) {
-                try {
-                    $dt = Carbon::createFromFormat('Y-m', $p['end_month']);
-                    if ($endDay && $endDay >= 1 && $endDay <= $dt->daysInMonth) {
-                        $endStr = $dt->format('M') . ' ' . $endDay . ', ' . $dt->format('Y');
-                    } else {
-                        $endStr = $dt->format('M Y');
-                    }
-                } catch (\Exception $e) {
-                    $endStr = $p['end_month'];
-                }
-            }
-
-            if ($startStr && $endStr) {
-                $formatted[] = mb_strtoupper($startStr . ' - ' . $endStr);
-            } elseif ($startStr) {
-                $formatted[] = mb_strtoupper('FROM ' . $startStr);
-            } elseif ($endStr) {
-                $formatted[] = mb_strtoupper('UNTIL ' . $endStr);
-            }
-        }
-        return $formatted;
-    }
-
-    public function calculateFormattedVolume(): string
-    {
-        if (empty($this->volume_amount) || $this->volume_amount <= 0) {
-            return '';
-        }
-
-        $standardUnitRecord = null;
-        if ($this->volume_unit) {
-            $standardUnitRecord = DB::table('rdp_volume_value')
-                ->where('volume_id', $this->volume_unit)
-                ->first();
-        }
-
-        $unitName = $standardUnitRecord ? $standardUnitRecord->value_standard : 'Pages';
-        $standardPart = $this->volume_amount . ' ' . $unitName;
-
-        $rule = DB::table('rdp_volume_conversion')
-            ->where('value_standard', $this->volume_unit)
-            ->where('is_active', true)
-            ->first();
-
-        if ($rule && $rule->amount_standard > 0) {
-            $convValueRecord = DB::table('rdp_volume_value')
-                ->where('volume_id', $rule->value_converted)
-                ->first();
-
-            $convUnitName = $convValueRecord ? $convValueRecord->value_standard : 'Folder';
-            $ratio = $rule->amount_converted / $rule->amount_standard;
-            $convertedAmount = round($this->volume_amount * $ratio, 2);
-
-            return mb_strtoupper($standardPart . ' (' . $convertedAmount . ' ' . $convUnitName . ')');
-        }
-
-        return mb_strtoupper($standardPart);
     }
 
     public function with(): array
@@ -522,6 +456,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 'office.office_name as recorded_office_name',
             ])
             ->whereNull('rdp_record_series.parent_id');
+
+        if ($this->selectedSeriesTypeFilter) {
+            $parentSuggestionsQuery->where('rdp_record_series.series_type', $this->selectedSeriesTypeFilter);
+        }
 
         if (!empty($term)) {
             $searchTerm = '%' . $term . '%';
@@ -557,27 +495,39 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
         $allSeriesSuggestions = DB::table('rdp_record_series')
             ->select('series_title')
+            ->when($this->selectedSeriesTypeFilter, fn($q) => $q->where('series_type', $this->selectedSeriesTypeFilter))
             ->when(!empty(trim($this->parentSeriesTitle)), fn($q) => $q->where('series_title', 'ilike', '%' . trim($this->parentSeriesTitle) . '%'))
             ->distinct()
             ->orderBy('series_title', 'asc')
             ->limit(10)
             ->get();
 
-        $availableUnits = DB::table('rdp_volume_value')
-            ->where('cur_used_standard', true)
+        $recordSeriesTypes = DB::table('rdp_record_series_type')
             ->where('is_active', true)
-            ->orderBy('value_standard', 'asc')
+            ->orderBy('id', 'asc')
             ->get();
+
+        $user = Auth::user();
+        $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $officesQuery = DB::table($officeTable)
+            ->where('is_active', true)
+            ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]']);
+        if ($userOfficeCode) {
+            $officesQuery->where('office_code', '!=', $userOfficeCode);
+        }
+        $officesList = $officesQuery->orderBy('office_name', 'asc')->get();
 
         return [
             'parentSuggestions'    => $parentSuggestions,
             'allSeriesSuggestions' => $allSeriesSuggestions,
-            'availableUnits'       => $availableUnits,
+            'recordSeriesTypes'    => $recordSeriesTypes,
             'mediaList'            => DB::table('rdp_recorded_value')->orderBy('medium_name', 'asc')->get(),
             'restrictionsList'     => DB::table('rdp_restriction_type')->orderBy('restriction_value', 'asc')->get(),
             'frequenciesList'      => DB::table('rdp_frequence_use')->orderBy('freq_type', 'asc')->get(),
             'timeValuesList'       => DB::table('rdp_time_value')->orderBy('char_value', 'asc')->get(),
             'utilityValuesList'    => DB::table('rdp_utility_medium')->orderBy('utility_name', 'asc')->get(),
+            'officesList'          => $officesList,
         ];
     }
 
@@ -603,17 +553,22 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
             $documentIdHandler = null;
 
-            $this->volume = $this->calculateFormattedVolume();
+            $formattedVolume = mb_strtoupper(trim($this->volume));
 
             $titles = explode(' ➔ ', $this->selectedSeriesTitle);
             $lastSeriesId = null;
 
             foreach ($titles as $idx => $title) {
                 $trimmed = mb_strtoupper(trim($title));
-                $existing = DB::table('rdp_record_series')
+                $existingQuery = DB::table('rdp_record_series')
                     ->where('series_title', 'ilike', $trimmed)
-                    ->where('parent_id', $lastSeriesId)
-                    ->first();
+                    ->where('parent_id', $lastSeriesId);
+
+                if ($idx === 0 && $this->selectedSeriesTypeFilter) {
+                    $existingQuery->where('series_type', $this->selectedSeriesTypeFilter);
+                }
+
+                $existing = $existingQuery->first();
 
                 if ($existing) {
                     $lastSeriesId = $existing->id;
@@ -621,6 +576,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     $lastSeriesId = DB::table('rdp_record_series')->insertGetId([
                         'series_title'       => $trimmed,
                         'parent_id'          => $lastSeriesId,
+                        'series_type'        => ($idx === 0) ? $this->selectedSeriesTypeFilter : null,
                         'recorded_at_office' => $userOfficeCode,
                         'created_at'         => now(),
                         'updated_at'         => now(),
@@ -655,7 +611,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 'record_series_id'       => $this->record_series_id,
                 'description'            => mb_strtoupper($this->description),
                 'period_id'              => $periodId,
-                'volume'                 => mb_strtoupper($this->volume),
+                'volume'                 => $formattedVolume,
                 'records_location'       => mb_strtoupper($this->records_location),
                 'restriction'            => $this->restriction,
                 'records_medium'         => $this->records_medium,
@@ -670,7 +626,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             ]);
 
             DB::table('rdp_record')->where('id', $recordId)->update([
-                'utility_value' => $recordId,
+                'utility_value'  => $recordId,
+                'duplication_id' => $recordId,
             ]);
 
             foreach ($this->utility_values as $uId) {
@@ -683,49 +640,22 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 ]);
             }
 
-            foreach ($this->periodsCovered as $p) {
-                $startAt = null;
-                $endsAt = null;
-                $startDay = !empty($p['start_day']) ? (int)$p['start_day'] : null;
-                $endDay = !empty($p['end_day']) ? (int)$p['end_day'] : null;
+            foreach ($this->duplicate_offices as $dupOffice) {
+                DB::table('rdp_duplication_section')->insert([
+                    'dup_id_manager' => $recordId,
+                    'office_code'    => $dupOffice,
+                    'created_at'     => now(),
+                    'updated_at'     => now(),
+                ]);
+            }
 
-                if (!empty($p['start_month'])) {
-                    try {
-                        $dt = Carbon::createFromFormat('Y-m', $p['start_month']);
-                        if ($startDay && $startDay >= 1 && $startDay <= $dt->daysInMonth) {
-                            $dt->day($startDay);
-                        } else {
-                            $dt->startOfMonth();
-                        }
-                        $startAt = $dt->startOfDay()->toDateTimeString();
-                    } catch (\Exception $e) {
-                        $startAt = null;
-                    }
-                }
-
-                if (!empty($p['end_month'])) {
-                    try {
-                        $dt = Carbon::createFromFormat('Y-m', $p['end_month']);
-                        if ($endDay && $endDay >= 1 && $endDay <= $dt->daysInMonth) {
-                            $dt->day($endDay);
-                        } else {
-                            $dt->endOfMonth();
-                        }
-                        $endsAt = $dt->endOfDay()->toDateTimeString();
-                    } catch (\Exception $e) {
-                        $endsAt = null;
-                    }
-                }
-
-                if ($startAt || $endsAt) {
-                    DB::table('rdp_period_covered')->insert([
-                        'period_owner' => $recordId,
-                        'start_at'     => $startAt,
-                        'ends_at'      => $endsAt,
-                        'created_at'   => now(),
-                        'updated_at'   => now(),
-                    ]);
-                }
+            if (!empty($this->date_covered)) {
+                DB::table('rdp_period_covered')->insert([
+                    'period_owner' => $recordId,
+                    'date_covered' => $this->date_covered,
+                    'created_at'   => now(),
+                    'modified_at'  => now(),
+                ]);
             }
 
             DB::commit();
@@ -765,17 +695,22 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
             $documentIdHandler = null;
 
-            $this->volume = $this->calculateFormattedVolume();
+            $formattedVolume = mb_strtoupper(trim($this->volume));
 
             $titles = explode(' ➔ ', $this->selectedSeriesTitle);
             $lastSeriesId = null;
 
             foreach ($titles as $idx => $title) {
                 $trimmed = mb_strtoupper(trim($title));
-                $existing = DB::table('rdp_record_series')
+                $existingQuery = DB::table('rdp_record_series')
                     ->where('series_title', 'ilike', $trimmed)
-                    ->where('parent_id', $lastSeriesId)
-                    ->first();
+                    ->where('parent_id', $lastSeriesId);
+
+                if ($idx === 0 && $this->selectedSeriesTypeFilter) {
+                    $existingQuery->where('series_type', $this->selectedSeriesTypeFilter);
+                }
+
+                $existing = $existingQuery->first();
 
                 if ($existing) {
                     $lastSeriesId = $existing->id;
@@ -783,6 +718,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     $lastSeriesId = DB::table('rdp_record_series')->insertGetId([
                         'series_title'       => $trimmed,
                         'parent_id'          => $lastSeriesId,
+                        'series_type'        => ($idx === 0) ? $this->selectedSeriesTypeFilter : null,
                         'recorded_at_office' => $userOfficeCode,
                         'created_at'         => now(),
                         'updated_at'         => now(),
@@ -817,7 +753,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 'record_series_id'       => $this->record_series_id,
                 'description'            => mb_strtoupper($this->description),
                 'period_id'              => $periodId,
-                'volume'                 => mb_strtoupper($this->volume),
+                'volume'                 => $formattedVolume,
                 'records_location'       => mb_strtoupper($this->records_location),
                 'restriction'            => $this->restriction,
                 'records_medium'         => $this->records_medium,
@@ -832,7 +768,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             ]);
 
             DB::table('rdp_record')->where('id', $recordId)->update([
-                'utility_value' => $recordId,
+                'utility_value'  => $recordId,
+                'duplication_id' => $recordId,
             ]);
 
             foreach ($this->utility_values as $uId) {
@@ -845,49 +782,22 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 ]);
             }
 
-            foreach ($this->periodsCovered as $p) {
-                $startAt = null;
-                $endsAt = null;
-                $startDay = !empty($p['start_day']) ? (int)$p['start_day'] : null;
-                $endDay = !empty($p['end_day']) ? (int)$p['end_day'] : null;
+            foreach ($this->duplicate_offices as $dupOffice) {
+                DB::table('rdp_duplication_section')->insert([
+                    'dup_id_manager' => $recordId,
+                    'office_code'    => $dupOffice,
+                    'created_at'     => now(),
+                    'updated_at'     => now(),
+                ]);
+            }
 
-                if (!empty($p['start_month'])) {
-                    try {
-                        $dt = Carbon::createFromFormat('Y-m', $p['start_month']);
-                        if ($startDay && $startDay >= 1 && $startDay <= $dt->daysInMonth) {
-                            $dt->day($startDay);
-                        } else {
-                            $dt->startOfMonth();
-                        }
-                        $startAt = $dt->startOfDay()->toDateTimeString();
-                    } catch (\Exception $e) {
-                        $startAt = null;
-                    }
-                }
-
-                if (!empty($p['end_month'])) {
-                    try {
-                        $dt = Carbon::createFromFormat('Y-m', $p['end_month']);
-                        if ($endDay && $endDay >= 1 && $endDay <= $dt->daysInMonth) {
-                            $dt->day($endDay);
-                        } else {
-                            $dt->endOfMonth();
-                        }
-                        $endsAt = $dt->endOfDay()->toDateTimeString();
-                    } catch (\Exception $e) {
-                        $endsAt = null;
-                    }
-                }
-
-                if ($startAt || $endsAt) {
-                    DB::table('rdp_period_covered')->insert([
-                        'period_owner' => $recordId,
-                        'start_at'     => $startAt,
-                        'ends_at'      => $endsAt,
-                        'created_at'   => now(),
-                        'updated_at'   => now(),
-                    ]);
-                }
+            if (!empty($this->date_covered)) {
+                DB::table('rdp_period_covered')->insert([
+                    'period_owner' => $recordId,
+                    'date_covered' => $this->date_covered,
+                    'created_at'   => now(),
+                    'modified_at'  => now(),
+                ]);
             }
 
             DB::commit();
@@ -906,7 +816,6 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->selectedSeriesTitle = null;
         $this->record_series_id = null;
         $this->description = '';
-        $this->volume_amount = null;
         $this->volume = '';
         $this->records_medium = null;
         $this->restriction = null;
@@ -921,9 +830,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->storage_period = '';
         $this->disposition_provision = '';
         $this->uploadedFile = null;
-        $this->periodsCovered = [];
+        $this->date_covered = '';
         $this->parentSeriesTitle = '';
         $this->subsections = [];
+        $this->duplicate_offices = [];
+        $this->duplicate_search = '';
+        $this->showDuplicateDropdown = false;
     }
 
     public function clearMessages(): void
@@ -938,14 +850,6 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         @vite(['resources/css/rdp/inventory-and-appraisal.css'])
     @endpush
 
-
-    <!-- Premium Header -->
-    <div class="ia-page-header">
-        <div>
-            <h2>Inventory and Appraisal — Add Record</h2>
-            <p>Create an official record entry linked to an approved or custom Record Series</p>
-        </div>
-    </div>
 
     <!-- Alert Messages -->
     @if ($successMessage)
@@ -1004,23 +908,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 <textarea class="ia-input" wire:model="description" rows="3" placeholder="ENTER RECORD DESCRIPTION OR SPECIFIC DETAILS..." style="font-family: inherit;"></textarea>
             </div>
 
-            <!-- Period Covered -->
+            <!-- Selected Date -->
             <div class="ia-form-row">
-                <span class="ia-label">Period Covered</span>
-                <div style="flex: 1; display: flex; align-items: center;">
-                    @if(!empty($this->formattedPeriods))
-                        <div class="ia-badge ia-badge-blue">
-                            <div class="ia-badge-icon">
-                                <span class="ia-badge-icon-circle">📅</span>
-                                <span>{{ implode('; ', $this->formattedPeriods) }}</span>
-                            </div>
-                            <button type="button" wire:click="openPeriodModal" class="ia-btn ia-btn-change">Modify Dates</button>
-                        </div>
-                    @else
-                        <button type="button" wire:click="openPeriodModal" class="ia-btn ia-btn-ghost">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                            Configure Dates
-                        </button>
+                <span class="ia-label">Selected Date</span>
+                <div style="flex: 1; display: flex; align-items: center; gap: 10px;">
+                    <input type="date" class="ia-input" wire:model.live="date_covered" style="max-width: 240px;">
+                    @if(!empty($date_covered))
+                        <button type="button" wire:click="$set('date_covered', '')" class="ia-btn ia-btn-secondary" style="padding: 6px 14px; font-size: 12px;">Clear Date</button>
                     @endif
                 </div>
             </div>
@@ -1028,25 +922,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             <!-- Volume Amount & Unit -->
             <div class="ia-form-row">
                 <span class="ia-label">Volume Amount & Unit</span>
-                <div style="flex: 1; display: flex; gap: 10px; align-items: center;">
-                    <input type="number" step="0.01" min="0" class="ia-input" wire:model.live.debounce.200ms="volume_amount" placeholder="E.G. 500" style="width: 140px; flex: 0 0 140px;">
-                    <select class="ia-input" wire:model.live="volume_unit" style="max-width: 240px;">
-                        @foreach($availableUnits as $unit)
-                            <option value="{{ $unit->volume_id }}">{{ mb_strtoupper($unit->value_standard) }}</option>
-                        @endforeach
-                    </select>
-                </div>
+                <input type="text" class="ia-input" wire:model="volume" placeholder="E.G. 1 BOX 20 PAPERS, 2 BUNDLES..." style="flex: 1;">
             </div>
-
-            <!-- Computed Formatted Volume -->
-            @if(!empty($volume_amount) && $volume_amount > 0)
-                <div class="ia-form-row">
-                    <span class="ia-label">Formatted Volume</span>
-                    <div class="ia-computed-box ia-computed-box-green">
-                        {{ $this->calculateFormattedVolume() }}
-                    </div>
-                </div>
-            @endif
 
             <!-- Records Medium -->
             <div class="ia-form-row">
@@ -1087,6 +964,76 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 </select>
             </div>
 
+            <!-- Duplicate -->
+            <div class="ia-form-row" style="align-items: flex-start;">
+                <span class="ia-label" style="margin-top: 10px;">Duplicate</span>
+                <div style="flex: 1; position: relative;" wire:click.outside="$set('showDuplicateDropdown', false)">
+                    @if(count($duplicate_offices) > 0)
+                        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
+                            @foreach($duplicate_offices as $index => $offCode)
+                                @php
+                                    $offObj = collect($officesList)->firstWhere('office_code', $offCode);
+                                    $offName = $offObj->office_name ?? $offCode;
+                                @endphp
+                                <span style="display: inline-flex; align-items: center; gap: 6px; background-color: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;">
+                                    <span><strong>{{ $offCode }}</strong> — {{ $offName }}</span>
+                                    <button type="button" wire:click="removeDuplicateOffice({{ $index }})" style="border: none; background: none; color: #1e40af; cursor: pointer; font-weight: 900; font-size: 14px; line-height: 1; padding: 0 2px;">&times;</button>
+                                </span>
+                            @endforeach
+                            <button type="button" wire:click="clearDuplicateOffices" class="ia-btn ia-btn-secondary" style="padding: 2px 10px; font-size: 11px; height: 26px; align-self: center;">Clear</button>
+                        </div>
+                    @endif
+
+                    <div style="position: relative;">
+                        <input type="text"
+                            class="ia-input"
+                            wire:model.live.debounce.150ms="duplicate_search"
+                            wire:focus="$set('showDuplicateDropdown', true)"
+                            wire:keydown.enter.prevent="addDuplicateOffice"
+                            placeholder="SEARCH OFFICE CODE OR NAME..."
+                            style="width: 100%;">
+
+                        @if($showDuplicateDropdown && !empty(trim($duplicate_search)))
+                            @php
+                                $searchLower = strtolower(trim($duplicate_search));
+                                $filteredOffices = collect($officesList)->filter(function($off) use ($searchLower, $duplicate_offices) {
+                                    return !in_array($off->office_code, $duplicate_offices, true) &&
+                                           (str_contains(strtolower($off->office_code), $searchLower) ||
+                                            str_contains(strtolower($off->office_name), $searchLower));
+                                })->take(8);
+                            @endphp
+
+                            <div class="ia-autocomplete-dropdown" style="top: 100%; left: 0; right: 0; z-index: 1050; max-height: 220px; overflow-y: auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); margin-top: 4px;">
+                                @if($filteredOffices->isNotEmpty())
+                                    @foreach($filteredOffices as $off)
+                                        <div wire:click="addDuplicateOffice('{{ $off->office_code }}')"
+                                             class="ia-autocomplete-item"
+                                             style="padding: 8px 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f1f5f9;">
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <span style="font-size: 10.5px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px;">
+                                                    {{ $off->office_code }}
+                                                </span>
+                                                <span style="font-size: 13px; font-weight: 600; color: #1e293b;">
+                                                    {{ $off->office_name }}
+                                                </span>
+                                            </div>
+                                            <span style="font-size: 11px; color: #2563eb; font-weight: 700;">+ Add</span>
+                                        </div>
+                                    @endforeach
+                                @else
+                                    <div style="padding: 10px 14px; font-size: 12px; color: #64748b; font-style: italic;">
+                                        No matching active offices found.
+                                    </div>
+                                @endif
+                            </div>
+                        @endif
+                    </div>
+                    <div style="font-size: 11.5px; color: #64748b; margin-top: 4px;">
+                        Selected offices will have visibility to this record.
+                    </div>
+                </div>
+            </div>
+
             <!-- Time Value -->
             <div class="ia-form-row">
                 <span class="ia-label">Time Value</span>
@@ -1108,26 +1055,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 <div style="flex: 1; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
                     @foreach($utilityValuesList as $uv)
                         @php
-                            $isArchival = str_contains(strtolower($uv->utility_name ?? ''), 'archival');
-                            $isPermanentActive = ($is_permanent || $time_value === 'P');
-                            $isLockedChecked = $isArchival && $isPermanentActive;
-                            $isDisabledUnchecked = $isArchival && !$isPermanentActive;
-                            $isChecked = in_array($uv->id, $utility_values) || $isLockedChecked;
-                            $chipClass = $isLockedChecked ? 'ia-chip-locked' : ($isDisabledUnchecked ? 'ia-chip-disabled' : ($isChecked ? 'ia-chip-active' : 'ia-chip-default'));
+                            $isChecked = in_array($uv->id, $utility_values);
+                            $chipClass = $isChecked ? 'ia-chip-active' : 'ia-chip-default';
                         @endphp
                         <label class="ia-chip {{ $chipClass }}">
                             <input type="checkbox"
                                    wire:model.live="utility_values"
-                                   value="{{ $uv->id }}"
-                                   {{ $isLockedChecked ? 'checked disabled' : '' }}
-                                   {{ $isDisabledUnchecked ? 'disabled' : '' }}>
+                                   value="{{ $uv->id }}">
                             <span>{{ mb_strtoupper($uv->utility_name) }}</span>
-                            @if($isLockedChecked)
-                                <span class="ia-chip-lock-badge">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                                    LOCKED
-                                </span>
-                            @endif
                         </label>
                     @endforeach
                 </div>
@@ -1225,6 +1160,19 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     <button wire:click="closeSeriesModal" class="ia-modal-close">&times;</button>
                 </div>
                 <div class="ia-modal-body">
+                    <!-- Record Series Type Dropdown -->
+                    <div style="margin-bottom: 18px;">
+                        <label class="ia-modal-label" style="display: block; margin-bottom: 8px;">Select Record Series Type:</label>
+                        <select class="ia-input" wire:model.live="selectedSeriesTypeFilter" style="width: 100%;">
+                            <option value="">All Types</option>
+                            @foreach($recordSeriesTypes as $typeItem)
+                                <option value="{{ $typeItem->id }}">
+                                    {{ $typeItem->shorted_type }} ({{ $typeItem->type_name }})
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+
                     <div style="margin-bottom: 16px; position: relative; z-index: 40;" wire:click.outside="$set('showParentDropdown', false)">
                         <label class="ia-modal-label">Parent Record Series Title *:</label>
                         <input type="text" class="ia-input" wire:model.live.debounce.150ms="parentSeriesTitle" wire:focus="$set('showParentDropdown', true)" placeholder="Search or type parent title..." style="width: 100%;">
@@ -1279,40 +1227,6 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 <div class="ia-modal-footer">
                     <button type="button" wire:click="closeSeriesModal" class="ia-btn ia-btn-secondary">Cancel</button>
                     <button type="button" wire:click="saveNewRecordSeries" class="ia-btn ia-btn-primary">Apply Series</button>
-                </div>
-            </div>
-        </div>
-    @endif
-
-    <!-- ═══════ Period Dates Modal ═══════ -->
-    @if($showPeriodModal)
-        <div class="ia-modal-overlay">
-            <div class="ia-modal-card">
-                <div class="ia-modal-header">
-                    <h3>Configure Period Covered Dates</h3>
-                    <button wire:click="closePeriodModal" class="ia-modal-close">&times;</button>
-                </div>
-                <div class="ia-modal-body">
-                    @foreach($periodsCovered as $idx => $p)
-                        <div style="display: flex; gap: 10px; margin-bottom: 12px; align-items: center;">
-                            <input type="number" min="1" max="31" class="ia-input" wire:model="periodsCovered.{{ $idx }}.start_day" placeholder="Day" style="width: 75px; flex: 0 0 75px;">
-                            <input type="month" class="ia-input" wire:model="periodsCovered.{{ $idx }}.start_month">
-                            <span style="font-weight: 700; color: var(--ia-slate-500); font-size: 12px;">TO</span>
-                            <input type="number" min="1" max="31" class="ia-input" wire:model="periodsCovered.{{ $idx }}.end_day" placeholder="Day" style="width: 75px; flex: 0 0 75px;">
-                            <input type="month" class="ia-input" wire:model="periodsCovered.{{ $idx }}.end_month">
-                            <button type="button" wire:click="removePeriodRange({{ $idx }})" class="ia-btn ia-btn-danger" style="padding: 0 10px;">&times;</button>
-                        </div>
-                    @endforeach
-                    <div style="margin-bottom: 8px;">
-                        <button type="button" wire:click="addPeriodRange" class="ia-btn ia-btn-ghost" style="border-style: dashed;">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
-                            Add Date Range
-                        </button>
-                    </div>
-                </div>
-                <div class="ia-modal-footer">
-                    <button type="button" wire:click="closePeriodModal" class="ia-btn ia-btn-secondary">Cancel</button>
-                    <button type="button" wire:click="savePeriods" class="ia-btn ia-btn-primary">Apply Dates</button>
                 </div>
             </div>
         </div>

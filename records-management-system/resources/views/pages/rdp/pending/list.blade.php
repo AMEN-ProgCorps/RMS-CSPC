@@ -153,7 +153,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 $recIds = array_column($items, 'id');
                 $periods = empty($recIds) ? collect() : DB::table('rdp_period_covered')
                     ->whereIn('period_owner', $recIds)
-                    ->orderBy('start_at', 'asc')
+                    ->orderBy('id', 'asc')
                     ->get()
                     ->groupBy('period_owner');
 
@@ -166,16 +166,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     ->get()
                     ->groupBy('record_holder');
 
+                $dupHolders = array_filter(array_column($items, 'duplication_id'));
+                $duplications = empty($dupHolders) ? collect() : DB::table('rdp_duplication_section')
+                    ->whereIn('dup_id_manager', $dupHolders)
+                    ->select('dup_id_manager', 'office_code')
+                    ->get()
+                    ->groupBy('dup_id_manager');
+
                 $uMap = ['Administrative' => 'Adm', 'Archival' => 'Arc', 'Fiscal' => 'F', 'Legal' => 'L'];
                 foreach ($items as $it) {
                     if (isset($periods[$it->id])) {
                         $pList = [];
                         foreach ($periods[$it->id] as $pRow) {
-                            $start = !empty($pRow->start_at) ? Carbon::parse($pRow->start_at)->format('Y') : '';
-                            $end = !empty($pRow->ends_at) ? Carbon::parse($pRow->ends_at)->format('Y') : 'Present';
-                            $str = trim($start . ' - ' . $end, ' -');
-                            if ($str) {
-                                $pList[] = $str;
+                            if (!empty($pRow->date_covered)) {
+                                $pList[] = $pRow->date_covered;
                             }
                         }
                         $it->period_covered = !empty($pList) ? implode(', ', array_unique($pList)) : '—';
@@ -189,6 +193,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         $it->utility_name_display = !empty($abbrs) ? implode(', ', $abbrs) : ($it->time_value === 'P' ? 'Arc' : 'Adm');
                     } else {
                         $it->utility_name_display = ($it->time_value === 'P' ? 'Arc' : 'Adm');
+                    }
+
+                    if (!empty($it->duplication_id) && isset($duplications[$it->duplication_id])) {
+                        $it->duplication = implode(', ', $duplications[$it->duplication_id]->pluck('office_code')->unique()->values()->all());
+                    } else {
+                        $it->duplication = '—';
                     }
                 }
             }
@@ -318,7 +328,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 ]);
 
             if (!$canViewAll && $userOffice) {
-                $qRec->where('rdp_pending_record.office', $userOffice);
+                $qRec->where(function($sub) use ($userOffice) {
+                    $sub->where('rdp_pending_record.office', $userOffice)
+                        ->orWhereExists(function($dupQ) use ($userOffice) {
+                            $dupQ->select(DB::raw(1))
+                                ->from('rdp_grouped_record')
+                                ->join('rdp_record', 'rdp_grouped_record.record_id', '=', 'rdp_record.id')
+                                ->join('rdp_duplication_section', 'rdp_duplication_section.dup_id_manager', '=', 'rdp_record.duplication_id')
+                                ->whereColumn('rdp_grouped_record.group_head', 'rdp_pending_record.cluster_id')
+                                ->where('rdp_duplication_section.office_code', $userOffice);
+                        });
+                });
             }
 
             if ($this->activeTab === 'nap1') {

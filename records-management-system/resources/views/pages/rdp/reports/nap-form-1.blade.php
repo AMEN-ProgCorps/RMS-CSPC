@@ -189,7 +189,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             if (!$isSadm && !(bool)($authPerms?->can_rdp_view_others_form_1 ?? false)) {
                 $userOffice = auth()->user()?->details?->office_code ?? null;
                 if ($userOffice) {
-                    $query->where('rdp_record_series.recorded_at_office', $userOffice);
+                    $query->where(function($sub) use ($userOffice) {
+                        $sub->where('rdp_record_series.recorded_at_office', $userOffice)
+                            ->orWhereExists(function($dupQ) use ($userOffice) {
+                                $dupQ->select(DB::raw(1))
+                                    ->from('rdp_record as rdp_rec_dup')
+                                    ->join('rdp_duplication_section', 'rdp_duplication_section.dup_id_manager', '=', 'rdp_rec_dup.duplication_id')
+                                    ->whereColumn('rdp_rec_dup.record_series_id', 'rdp_record_series.id')
+                                    ->where('rdp_duplication_section.office_code', $userOffice);
+                            });
+                    });
                 }
             }
 
@@ -255,14 +264,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             if (!empty($record->rdp_rec_id)) {
                 $pRows = DB::table('rdp_period_covered')
                     ->where('period_owner', $record->rdp_rec_id)
-                    ->orderBy('start_at', 'asc')
+                    ->orderBy('id', 'asc')
                     ->get();
                 $pList = [];
                 foreach ($pRows as $p) {
-                    $start = !empty($p->start_at) ? Carbon::parse($p->start_at)->format('Y') : '';
-                    $end = !empty($p->ends_at) ? Carbon::parse($p->ends_at)->format('Y') : 'Present';
-                    $str = trim($start . ' - ' . $end, ' -');
-                    if ($str) $pList[] = $str;
+                    if (!empty($p->date_covered)) {
+                        $pList[] = $p->date_covered;
+                    }
                 }
                 $record->rec_period_covered = !empty($pList) ? implode(', ', $pList) : '—';
             } else {
@@ -364,14 +372,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             if (!empty($record->rdp_rec_id)) {
                 $pRows = DB::table('rdp_period_covered')
                     ->where('period_owner', $record->rdp_rec_id)
-                    ->orderBy('start_at', 'asc')
+                    ->orderBy('id', 'asc')
                     ->get();
                 $pList = [];
                 foreach ($pRows as $p) {
-                    $start = !empty($p->start_at) ? Carbon::parse($p->start_at)->format('Y') : '';
-                    $end = !empty($p->ends_at) ? Carbon::parse($p->ends_at)->format('Y') : 'Present';
-                    $str = trim($start . ' - ' . $end, ' -');
-                    if ($str) $pList[] = $str;
+                    if (!empty($p->date_covered)) {
+                        $pList[] = $p->date_covered;
+                    }
                 }
                 $pCovered = !empty($pList) ? implode(', ', $pList) : null;
             }
@@ -581,7 +588,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         if (!$isSadm && !(bool)($authPerms?->can_rdp_view_others_form_1 ?? false)) {
             $userOffice = auth()->user()?->details?->office_code ?? null;
             if ($userOffice) {
-                $query->where('rdp_record_series.recorded_at_office', $userOffice);
+                $query->where(function($sub) use ($userOffice) {
+                    $sub->where('rdp_record_series.recorded_at_office', $userOffice)
+                        ->orWhereExists(function($dupQ) use ($userOffice) {
+                            $dupQ->select(DB::raw(1))
+                                ->from('rdp_record as rdp_rec_dup')
+                                ->join('rdp_duplication_section', 'rdp_duplication_section.dup_id_manager', '=', 'rdp_rec_dup.duplication_id')
+                                ->whereColumn('rdp_rec_dup.record_series_id', 'rdp_record_series.id')
+                                ->where('rdp_duplication_section.office_code', $userOffice);
+                        });
+                });
             }
         }
 
@@ -600,7 +616,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         $recordIds = $allFetched->pluck('record_id')->filter()->all();
         $periods = empty($recordIds) ? collect() : DB::table('rdp_period_covered')
             ->whereIn('period_owner', $recordIds)
-            ->orderBy('start_at', 'asc')
+            ->orderBy('id', 'asc')
             ->get()
             ->groupBy('period_owner');
 
@@ -687,11 +703,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             if (!empty($item->record_id) && isset($periods[$item->record_id])) {
                 $pList = [];
                 foreach ($periods[$item->record_id] as $pRow) {
-                    $start = !empty($pRow->start_at) ? Carbon::parse($pRow->start_at)->format('Y') : '';
-                    $end = !empty($pRow->ends_at) ? Carbon::parse($pRow->ends_at)->format('Y') : 'Present';
-                    $str = trim($start . ' - ' . $end, ' -');
-                    if ($str) {
-                        $pList[] = $str;
+                    if (!empty($pRow->date_covered)) {
+                        $pList[] = $pRow->date_covered;
                     }
                 }
                 $item->display_period_covered = !empty($pList) ? implode(', ', array_unique($pList)) : '—';

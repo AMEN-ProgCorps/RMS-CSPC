@@ -1953,7 +1953,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         </div>
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Medium</label>
-                            <select wire:model="editSubjectMedium" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                            <select wire:model.live="editSubjectMedium" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
                                 <option value="">Select Medium...</option>
                                 @foreach($mediaList as $med)
                                     <option value="{{ $med->id }}">{{ $med->medium_name }}</option>
@@ -1966,7 +1966,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Restriction / Access</label>
-                            <select wire:model="editSubjectRestriction" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                            <select wire:model.live="editSubjectRestriction" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
                                 <option value="">Select Restriction...</option>
                                 @foreach($restrictionsList as $rest)
                                     <option value="{{ $rest->restriction_value }}">{{ $rest->restriction_value }}</option>
@@ -1975,7 +1975,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         </div>
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Frequency of Use</label>
-                            <select wire:model="editSubjectFrequency" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                            <select wire:model.live="editSubjectFrequency" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
                                 <option value="">Select Frequency...</option>
                                 @foreach($frequenciesList as $freq)
                                     <option value="{{ $freq->freq_type }}">{{ $freq->freq_type }}</option>
@@ -1988,7 +1988,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Time Value (T/P)</label>
-                            <select wire:model="editSubjectTimeValue" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                            <select wire:model.live="editSubjectTimeValue" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
                                 @foreach($timeValuesList as $tv)
                                     <option value="{{ $tv->char_value }}">{{ $tv->char_value }} — {{ $tv->description }}</option>
                                 @endforeach

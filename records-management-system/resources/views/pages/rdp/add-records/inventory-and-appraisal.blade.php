@@ -1010,8 +1010,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             <!-- Records Medium -->
             <div class="ia-form-row">
                 <span class="ia-label">Records Medium</span>
-                <select class="ia-input" wire:model="records_medium">
-                    <option value="" selected disabled>Select Medium...</option>
+                <select class="ia-input" wire:model.live="records_medium">
+                    <option value="" disabled>Select Medium...</option>
                     @foreach($mediaList as $med)
                         <option value="{{ $med->id }}">{{ $med->medium_name }} ({{ $med->description }})</option>
                     @endforeach
@@ -1021,8 +1021,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             <!-- Restriction -->
             <div class="ia-form-row">
                 <span class="ia-label">Restriction / Access</span>
-                <select class="ia-input" wire:model="restriction">
-                    <option value="" selected disabled>Select Restriction Type...</option>
+                <select class="ia-input" wire:model.live="restriction">
+                    <option value="" disabled>Select Restriction Type...</option>
                     @foreach($restrictionsList as $rest)
                         <option value="{{ $rest->restriction_value }}">{{ $rest->restriction_value }}</option>
                     @endforeach
@@ -1038,8 +1038,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             <!-- Frequency of Use -->
             <div class="ia-form-row">
                 <span class="ia-label">Frequency of Use</span>
-                <select class="ia-input" wire:model="frequence_use">
-                    <option value="" selected disabled>Select Frequency...</option>
+                <select class="ia-input" wire:model.live="frequence_use">
+                    <option value="" disabled>Select Frequency...</option>
                     @foreach($frequenciesList as $freq)
                         <option value="{{ $freq->freq_type }}">{{ $freq->freq_type }}</option>
                     @endforeach

@@ -49,9 +49,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
     // Signatories (NAP Form 3 Revised 2012 Official PDF)
     public string $preparedBy = 'Gennica Aprille S. Penetrante';
-    public string $preparedPosition = 'Administrative Officer V / Records Officer';
-    public string $approvedBy = 'Dr. Charlito P. Cadag';
-    public string $approvedPosition = 'College President / Head of Agency';
+    public string $preparedPosition = '';
+    public string $approvedBy = '';
+    public string $approvedPosition = '';
+    public bool $includeDescriptionOnPrint = false;
 
     public function mount(): void
     {
@@ -83,10 +84,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 $this->preparedBy = $fullName;
                 $this->personInCharge = $fullName;
             }
-            if (!empty($details->designation)) {
-                $this->preparedPosition = $details->designation;
-            }
         }
+
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $this->includeDescriptionOnPrint = (\Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_include_description_on_print')->value('value') === 'true');
     }
 
     public function updatedSelectAll($value): void
@@ -237,6 +238,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             $this->errorMessage = 'You do not have clearance to print NAP Form 3.';
             return;
         }
+
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $this->includeDescriptionOnPrint = (\Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_include_description_on_print')->value('value') === 'true');
+
         $this->showPrintModal = true;
     }
 
@@ -455,6 +460,103 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return implode(', ', $unique);
     }
 
+    private function compileTimeValue(array $times): string
+    {
+        $valid = [];
+        foreach ($times as $t) {
+            $t = strtoupper(trim((string)$t));
+            if (!empty($t) && $t !== '—') {
+                $valid[] = $t;
+            }
+        }
+        $unique = array_values(array_unique($valid));
+        return !empty($unique) ? implode(', ', $unique) : 'T';
+    }
+
+    private function compileUtility(array $utilityNames): string
+    {
+        $map = [
+            'Administrative' => 'A',
+            'Archival'       => 'ARC',
+            'Fiscal'         => 'F',
+            'Legal'          => 'L',
+        ];
+        $abbrs = [];
+        foreach ($utilityNames as $n) {
+            $abbrs[] = $map[$n] ?? strtoupper(substr($n, 0, 3));
+        }
+        $unique = array_values(array_unique($abbrs));
+        return !empty($unique) ? implode(', ', $unique) : 'A';
+    }
+
+    private function formatItemUtility(array $utilityNames): string
+    {
+        $map = [
+            'Administrative' => 'A - Administrative',
+            'Archival'       => 'ARC - ARCHIVAL',
+            'Fiscal'         => 'F - FISCAL',
+            'Legal'          => 'L - LEGAL',
+        ];
+        $parts = [];
+        foreach ($utilityNames as $n) {
+            $parts[] = $map[$n] ?? $n;
+        }
+        $unique = array_values(array_unique($parts));
+        return !empty($unique) ? implode(', ', $unique) : '—';
+    }
+
+    private function compileMedium(array $mediums): string
+    {
+        $valid = [];
+        foreach ($mediums as $m) {
+            $m = trim((string)$m);
+            if (!empty($m) && $m !== '—') {
+                $valid[] = $m;
+            }
+        }
+        $unique = array_values(array_unique($valid));
+        return !empty($unique) ? implode(', ', $unique) : '—';
+    }
+
+    private function compileRestriction(array $restrictions): string
+    {
+        $valid = [];
+        foreach ($restrictions as $r) {
+            $r = trim((string)$r);
+            if (!empty($r) && $r !== '—') {
+                $valid[] = $r;
+            }
+        }
+        $unique = array_values(array_unique($valid));
+        return !empty($unique) ? implode(', ', $unique) : '—';
+    }
+
+    private function compileFrequency(array $freqs): string
+    {
+        $valid = [];
+        foreach ($freqs as $f) {
+            $f = trim((string)$f);
+            if (!empty($f) && $f !== '—') {
+                $valid[] = $f;
+            }
+        }
+        $unique = array_values(array_unique($valid));
+        return !empty($unique) ? implode(', ', $unique) : '—';
+    }
+
+    private function compileDuplication(array $dups): string
+    {
+        $valid = [];
+        foreach ($dups as $d) {
+            $d = trim((string)$d);
+            if (!empty($d) && $d !== '—') {
+                $valid[] = $d;
+            }
+        }
+        $unique = array_values(array_unique($valid));
+        return !empty($unique) ? implode(', ', $unique) : '—';
+    }
+
     private function formatItemDate(string $rawDate): string
     {
         $rawDate = trim($rawDate);
@@ -464,6 +566,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             return Carbon::parse($rawDate)->format('j_F_Y');
         }
         return $rawDate;
+    }
+
+    public function cleanVal($val): string
+    {
+        if ($val === null) return '';
+        $str = trim((string)$val);
+        if ($str === '—' || $str === '-' || $str === 'N/A' || $str === 'None' || $str === 'null') {
+            return '';
+        }
+        return $str;
     }
 
     public function with(): array
@@ -514,16 +626,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $allRecords = $recordsQuery->orderBy('id', 'asc')->get();
         $recordIds = $allRecords->pluck('id')->all();
 
+        $sysTable = Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $includeDescriptionOnPrint = DB::table($sysTable)
+            ->where('key', 'rdp_include_description_on_print')
+            ->value('value') === 'true';
+
         if ($allRecords->isEmpty()) {
             return [
-                'hierarchyTree'       => [],
-                'officesList'         => $officesList,
-                'totalItemsCount'     => 0,
-                'allCompiledLocation' => '—',
-                'allCompiledVolume'   => '—',
-                'userOfficeCode'      => $userOfficeCode,
-                'userOfficeName'      => $userOfficeName,
-                'isSadm'              => $isSadm,
+                'hierarchyTree'             => [],
+                'officesList'               => $officesList,
+                'totalItemsCount'           => 0,
+                'allCompiledLocation'       => '',
+                'allCompiledVolume'         => '',
+                'userOfficeCode'            => $userOfficeCode,
+                'userOfficeName'            => $userOfficeName,
+                'isSadm'                    => $isSadm,
+                'includeDescriptionOnPrint' => $includeDescriptionOnPrint,
+                'cleanVal'                  => fn($v) => $this->cleanVal($v),
             ];
         }
 
@@ -533,6 +652,25 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             ->orderBy('id', 'asc')
             ->get()
             ->groupBy('period_owner');
+
+        // Utilities
+        $utilities = DB::table('rdp_utility_manager')
+            ->join('rdp_utility_medium', 'rdp_utility_manager.utility_medium', '=', 'rdp_utility_medium.id')
+            ->whereIn('rdp_utility_manager.record_holder', $recordIds)
+            ->where('rdp_utility_manager.is_active', true)
+            ->select('rdp_utility_manager.record_holder', 'rdp_utility_medium.utility_name')
+            ->get()
+            ->groupBy('record_holder');
+
+        // Lookups for Medium and Duplications
+        $mediumsMap = DB::table('rdp_recorded_value')->pluck('medium_name', 'id')->all();
+
+        $dupHolders = $allRecords->pluck('duplication_id')->filter()->unique()->all();
+        $duplications = empty($dupHolders) ? collect() : DB::table('rdp_duplication_section')
+            ->whereIn('dup_id_manager', $dupHolders)
+            ->select('dup_id_manager', 'office_code')
+            ->get()
+            ->groupBy('dup_id_manager');
 
         $recordsBySeries = $allRecords->groupBy('record_series_id');
         $usedSeriesIds = $allRecords->pluck('record_series_id')->unique()->all();
@@ -603,6 +741,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 'shorted_type'  => $root->shorted_type,
                 'is_verified'   => $root->is_verified,
                 'office_name'   => $root->recorded_office_name ?? $root->recorded_at_office,
+                'remarks'       => $root->remarks ?? '',
                 'sub_series'    => [],
                 'direct_records'=> [],
                 'has_children'  => false,
@@ -619,23 +758,67 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 })->values();
 
                 $rootDates = [];
+                $rootVols = [];
+                $rootMediums = [];
+                $rootRestrictions = [];
+                $rootLocs = [];
+                $rootFreqs = [];
+                $rootDups = [];
+                $rootTimes = [];
+                $rootUtils = [];
+
                 foreach ($sortedSubs as $sub) {
                     $subRecs = $recordsBySeries[$sub->id] ?? collect();
                     if ($subRecs->isEmpty()) continue; // Only show if used in Form 3!
 
                     $compiledDates = [];
                     $compiledVols = [];
+                    $compiledMediums = [];
+                    $compiledRestrictions = [];
                     $compiledLocs = [];
+                    $compiledFreqs = [];
+                    $compiledDups = [];
+                    $compiledTimes = [];
+                    $compiledUtils = [];
                     $childItems = [];
 
                     foreach ($subRecs as $rec) {
                         $pRow = $periods[$rec->id]->first() ?? null;
                         $rawDate = $pRow->date_covered ?? '';
+                        $uRows = ($utilities[$rec->id] ?? collect())->pluck('utility_name')->all();
+
+                        $recMedium = '';
+                        if (!empty($rec->records_medium)) {
+                            $recMedium = $mediumsMap[$rec->records_medium] ?? (string)$rec->records_medium;
+                        }
+
+                        $recRestriction = !empty($rec->restriction) ? $rec->restriction : '';
+                        $recFreq = !empty($rec->frequence_use) ? $rec->frequence_use : '';
+
+                        $recDup = '';
+                        if (!empty($rec->duplication_id) && isset($duplications[$rec->duplication_id])) {
+                            $dupCodes = $duplications[$rec->duplication_id]->pluck('office_code')->unique()->values()->all();
+                            $recDup = !empty($dupCodes) ? implode(', ', $dupCodes) : '';
+                        }
 
                         $compiledDates[] = $rawDate;
                         $rootDates[] = $rawDate;
                         $compiledVols[] = $rec->volume;
+                        $rootVols[] = $rec->volume;
+                        $compiledMediums[] = $recMedium;
+                        $rootMediums[] = $recMedium;
+                        $compiledRestrictions[] = $recRestriction;
+                        $rootRestrictions[] = $recRestriction;
                         $compiledLocs[] = $rec->records_location;
+                        $rootLocs[] = $rec->records_location;
+                        $compiledFreqs[] = $recFreq;
+                        $rootFreqs[] = $recFreq;
+                        $compiledDups[] = $recDup;
+                        $rootDups[] = $recDup;
+                        $compiledTimes[] = $rec->time_value;
+                        $rootTimes[] = $rec->time_value;
+                        $compiledUtils = array_merge($compiledUtils, $uRows);
+                        $rootUtils = array_merge($rootUtils, $uRows);
 
                         $allLocs[] = $rec->records_location;
                         $allVols[] = $rec->volume;
@@ -645,33 +828,62 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             'series_id'    => $sub->id,
                             'description'  => $rec->description,
                             'date_covered' => $this->formatItemDate($rawDate),
-                            'volume'       => $rec->volume ?: '—',
-                            'location'     => $rec->records_location ?: '—',
+                            'volume'       => $rec->volume ?: '',
+                            'medium'       => $recMedium,
+                            'restriction'  => $recRestriction,
+                            'location'     => $rec->records_location ?: '',
+                            'frequence_use'=> $recFreq,
+                            'duplication'  => $recDup,
+                            'time_value'   => $rec->time_value ?: '',
+                            'utility'      => $this->formatItemUtility($uRows),
+                            'utility_abbr' => $this->compileUtility($uRows),
                         ];
                         $totalItemsCount++;
                     }
 
                     // Effective retention
-                    $effActive = $sub->active_period ?: ($root->active_period ?: '—');
+                    $isPerm = (bool)($sub->is_retention_period_permanent ?? false) || strtolower(trim($sub->total_period ?? '')) === 'permanent';
+                    $effActive = $sub->active_period ?: ($root->active_period ?: '');
                     $effStorage = $sub->storage_period ?: ($root->storage_period ?: '');
-                    $effTotal = $sub->total_period ?: ($root->total_period ?: '—');
+                    $effTotal = $sub->total_period ?: ($root->total_period ?: '');
 
                     $rootNode->sub_series[] = (object)[
-                        'id'               => $sub->id,
-                        'series_title'     => $sub->series_title,
-                        'shorted_type'     => $sub->shorted_type ?: $root->shorted_type,
-                        'compiled_period'  => $this->compilePeriodCovered($compiledDates),
-                        'compiled_volume'  => $this->compileVolume($compiledVols),
-                        'compiled_location'=> $this->compileLocation($compiledLocs),
-                        'active_period'    => $effActive,
-                        'storage_period'   => $effStorage,
-                        'total_period'     => $effTotal,
-                        'records'          => $childItems,
-                        'record_ids'       => array_column($childItems, 'id'),
+                        'id'                  => $sub->id,
+                        'series_title'        => $sub->series_title,
+                        'shorted_type'        => $sub->shorted_type ?: $root->shorted_type,
+                        'compiled_period'     => $this->compilePeriodCovered($compiledDates),
+                        'compiled_volume'     => $this->compileVolume($compiledVols),
+                        'compiled_medium'     => $this->compileMedium($compiledMediums),
+                        'compiled_restriction'=> $this->compileRestriction($compiledRestrictions),
+                        'compiled_location'   => $this->compileLocation($compiledLocs),
+                        'compiled_freq'       => $this->compileFrequency($compiledFreqs),
+                        'compiled_duplication'=> $this->compileDuplication($compiledDups),
+                        'compiled_time'       => $this->compileTimeValue($compiledTimes),
+                        'compiled_util'       => $this->compileUtility($compiledUtils),
+                        'active_period'       => $isPerm ? 'PERMANENT' : $effActive,
+                        'storage_period'      => $isPerm ? '' : $effStorage,
+                        'total_period'        => $isPerm ? 'PERMANENT' : $effTotal,
+                        'is_permanent'        => $isPerm,
+                        'remarks'             => $sub->remarks ?: ($root->remarks ?: ''),
+                        'records'             => $childItems,
+                        'record_ids'          => array_column($childItems, 'id'),
                     ];
                 }
 
-                $rootNode->compiled_period = $this->compilePeriodCovered($rootDates);
+                $isRootPerm = (bool)($root->is_retention_period_permanent ?? false) || strtolower(trim($root->total_period ?? '')) === 'permanent';
+                $rootNode->compiled_period      = $this->compilePeriodCovered($rootDates);
+                $rootNode->compiled_volume      = $this->compileVolume($rootVols);
+                $rootNode->compiled_medium      = $this->compileMedium($rootMediums);
+                $rootNode->compiled_restriction = $this->compileRestriction($rootRestrictions);
+                $rootNode->compiled_location    = $this->compileLocation($rootLocs);
+                $rootNode->compiled_freq        = $this->compileFrequency($rootFreqs);
+                $rootNode->compiled_duplication = $this->compileDuplication($rootDups);
+                $rootNode->compiled_time        = $this->compileTimeValue($rootTimes);
+                $rootNode->compiled_util        = $this->compileUtility($rootUtils);
+                $rootNode->active_period        = $isRootPerm ? 'PERMANENT' : ($root->active_period ?: '');
+                $rootNode->storage_period       = $isRootPerm ? '' : ($root->storage_period ?: '');
+                $rootNode->total_period         = $isRootPerm ? 'PERMANENT' : ($root->total_period ?: '');
+                $rootNode->is_permanent         = $isRootPerm;
             } else {
                 // Direct records under root
                 $directRecs = $recordsBySeries[$root->id] ?? collect();
@@ -679,16 +891,43 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
                 $compiledDates = [];
                 $compiledVols = [];
+                $compiledMediums = [];
+                $compiledRestrictions = [];
                 $compiledLocs = [];
+                $compiledFreqs = [];
+                $compiledDups = [];
+                $compiledTimes = [];
+                $compiledUtils = [];
                 $childItems = [];
 
                 foreach ($directRecs as $rec) {
                     $pRow = $periods[$rec->id]->first() ?? null;
                     $rawDate = $pRow->date_covered ?? '';
+                    $uRows = ($utilities[$rec->id] ?? collect())->pluck('utility_name')->all();
+
+                    $recMedium = '';
+                    if (!empty($rec->records_medium)) {
+                        $recMedium = $mediumsMap[$rec->records_medium] ?? (string)$rec->records_medium;
+                    }
+
+                    $recRestriction = !empty($rec->restriction) ? $rec->restriction : '';
+                    $recFreq = !empty($rec->frequence_use) ? $rec->frequence_use : '';
+
+                    $recDup = '';
+                    if (!empty($rec->duplication_id) && isset($duplications[$rec->duplication_id])) {
+                        $dupCodes = $duplications[$rec->duplication_id]->pluck('office_code')->unique()->values()->all();
+                        $recDup = !empty($dupCodes) ? implode(', ', $dupCodes) : '';
+                    }
 
                     $compiledDates[] = $rawDate;
                     $compiledVols[] = $rec->volume;
+                    $compiledMediums[] = $recMedium;
+                    $compiledRestrictions[] = $recRestriction;
                     $compiledLocs[] = $rec->records_location;
+                    $compiledFreqs[] = $recFreq;
+                    $compiledDups[] = $recDup;
+                    $compiledTimes[] = $rec->time_value;
+                    $compiledUtils = array_merge($compiledUtils, $uRows);
 
                     $allLocs[] = $rec->records_location;
                     $allVols[] = $rec->volume;
@@ -698,20 +937,36 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         'series_id'    => $root->id,
                         'description'  => $rec->description,
                         'date_covered' => $this->formatItemDate($rawDate),
-                        'volume'       => $rec->volume ?: '—',
-                        'location'     => $rec->records_location ?: '—',
+                        'volume'       => $rec->volume ?: '',
+                        'medium'       => $recMedium,
+                        'restriction'  => $recRestriction,
+                        'location'     => $rec->records_location ?: '',
+                        'frequence_use'=> $recFreq,
+                        'duplication'  => $recDup,
+                        'time_value'   => $rec->time_value ?: '',
+                        'utility'      => $this->formatItemUtility($uRows),
+                        'utility_abbr' => $this->compileUtility($uRows),
                     ];
                     $totalItemsCount++;
                 }
 
-                $rootNode->compiled_period   = $this->compilePeriodCovered($compiledDates);
-                $rootNode->compiled_volume   = $this->compileVolume($compiledVols);
-                $rootNode->compiled_location = $this->compileLocation($compiledLocs);
-                $rootNode->active_period     = $root->active_period ?: '—';
-                $rootNode->storage_period    = $root->storage_period ?: '';
-                $rootNode->total_period      = $root->total_period ?: '—';
-                $rootNode->direct_records    = $childItems;
-                $rootNode->record_ids        = array_column($childItems, 'id');
+                $isPerm = (bool)($root->is_retention_period_permanent ?? false) || strtolower(trim($root->total_period ?? '')) === 'permanent';
+
+                $rootNode->compiled_period      = $this->compilePeriodCovered($compiledDates);
+                $rootNode->compiled_volume      = $this->compileVolume($compiledVols);
+                $rootNode->compiled_medium      = $this->compileMedium($compiledMediums);
+                $rootNode->compiled_restriction = $this->compileRestriction($compiledRestrictions);
+                $rootNode->compiled_location    = $this->compileLocation($compiledLocs);
+                $rootNode->compiled_freq        = $this->compileFrequency($compiledFreqs);
+                $rootNode->compiled_duplication = $this->compileDuplication($compiledDups);
+                $rootNode->compiled_time        = $this->compileTimeValue($compiledTimes);
+                $rootNode->compiled_util        = $this->compileUtility($compiledUtils);
+                $rootNode->active_period        = $isPerm ? 'PERMANENT' : ($root->active_period ?: '');
+                $rootNode->storage_period       = $isPerm ? '' : ($root->storage_period ?: '');
+                $rootNode->total_period         = $isPerm ? 'PERMANENT' : ($root->total_period ?: '');
+                $rootNode->is_permanent         = $isPerm;
+                $rootNode->direct_records       = $childItems;
+                $rootNode->record_ids           = array_column($childItems, 'id');
             }
 
             // Only add root to tree if it actually has visible records
@@ -726,14 +981,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         }
 
         return [
-            'hierarchyTree'       => $tree,
-            'officesList'         => $officesList,
-            'totalItemsCount'     => $totalItemsCount,
-            'allCompiledLocation' => $this->compileLocation($allLocs),
-            'allCompiledVolume'   => $this->compileVolume($allVols),
-            'userOfficeCode'      => $userOfficeCode,
-            'userOfficeName'      => $userOfficeName,
-            'isSadm'              => $isSadm,
+            'hierarchyTree'             => $tree,
+            'officesList'               => $officesList,
+            'totalItemsCount'           => $totalItemsCount,
+            'allCompiledLocation'       => $this->compileLocation($allLocs),
+            'allCompiledVolume'         => $this->compileVolume($allVols),
+            'userOfficeCode'            => $userOfficeCode,
+            'userOfficeName'            => $userOfficeName,
+            'isSadm'                    => $isSadm,
+            'includeDescriptionOnPrint' => $includeDescriptionOnPrint,
+            'cleanVal'                  => fn($v) => $this->cleanVal($v),
         ];
     }
 };
@@ -781,16 +1038,36 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         .corner-symbol { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 14px; color: #dc2626; font-weight: 900; margin-right: 6px; }
         .sub-branch-line { font-family: ui-monospace, SFMono-Regular, monospace; color: #94a3b8; margin-right: 8px; font-weight: 700; }
 
-        /* Print Modal & Sheet Styles - NAP Form No. 3 (Revised 2012) */
+        .nap-chevron-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: 4px;
+            color: #64748b;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease-in-out;
+            line-height: 1;
+        }
+        .nap-chevron-btn:hover {
+            background: #e2e8f0;
+            color: #0f172a;
+        }
+
+        /* Print Modal & Sheet Styles - NAP Form No. 3 (Revised 2012 Portrait) */
         .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(4px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; }
-        .modal-content { background: #94a3b8; width: 100%; max-width: 1200px; max-height: 94vh; border-radius: 14px; overflow-y: auto; box-shadow: 0 20px 40px rgba(0,0,0,0.3); padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+        .modal-content { background: #94a3b8; width: 100%; max-width: 900px; max-height: 94vh; border-radius: 14px; overflow-y: auto; box-shadow: 0 20px 40px rgba(0,0,0,0.3); padding: 24px; display: flex; flex-direction: column; gap: 20px; }
         .modal-dialog { background: #ffffff; width: 100%; max-width: 600px; border-radius: 14px; box-shadow: 0 20px 40px rgba(0,0,0,0.2); padding: 24px; }
 
         .print-sheet {
             width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
             background: #ffffff;
             box-shadow: 0 10px 25px rgba(0,0,0,0.15);
-            padding: 30px;
+            padding: 36px 32px;
             box-sizing: border-box;
             color: #000000;
             font-family: Arial, Helvetica, sans-serif;
@@ -802,7 +1079,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             border-collapse: collapse;
             border: 2px solid #000000;
             font-size: 9px;
-            margin-top: 10px;
+            margin-top: 0;
+            table-layout: fixed;
         }
 
         .print-table th {
@@ -827,8 +1105,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             header, #navigation, .no-print, .nap-page-header, .nap-stat-grid, .nap-card, footer { display: none !important; }
             .modal-overlay { position: static !important; background: none !important; padding: 0 !important; display: block !important; }
             .modal-content { background: none !important; max-width: 100% !important; max-height: none !important; padding: 0 !important; box-shadow: none !important; overflow: visible !important; }
-            .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; }
-            @page { size: legal landscape; margin: 0.5in; }
+            .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; }
+            @page { size: legal portrait; margin: 0.5in; }
         }
     </style>
 
@@ -868,29 +1146,38 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         </div>
     @endif
 
-    <!-- Stat Summary Cards -->
-    <div class="nap-stat-grid">
-        <div class="nap-stat-card">
-            <div class="nap-stat-icon nap-stat-icon-red">🗑️</div>
-            <div>
-                <div class="nap-stat-value">{{ number_format($totalItemsCount) }}</div>
-                <div class="nap-stat-label">Expired Records Ready for Disposal</div>
-            </div>
-        </div>
-
-        <div class="nap-stat-card">
-            <div class="nap-stat-icon nap-stat-icon-blue">📦</div>
-            <div>
-                <div class="nap-stat-value">{{ count($selectedIds) }}</div>
-                <div class="nap-stat-label">Selected for Disposal Cluster</div>
-            </div>
-        </div>
-    </div>
-
     <!-- Filters & Table Card -->
-    <div class="nap-card">
+    <div class="nap-card" x-data="{
+        collapsedSubjects: {},
+        allSubjectsCollapsed: false,
+        collapsedRoots: {},
+        
+        toggleSubjects(key) {
+            this.collapsedSubjects[key] = !this.isSubjectsCollapsed(key);
+        },
+        isSubjectsCollapsed(key) {
+            if (this.collapsedSubjects[key] !== undefined) {
+                return this.collapsedSubjects[key];
+            }
+            return this.allSubjectsCollapsed;
+        },
+        toggleRoot(key) {
+            this.collapsedRoots[key] = !this.isRootCollapsed(key);
+        },
+        isRootCollapsed(key) {
+            return !!this.collapsedRoots[key];
+        },
+        collapseAll() {
+            this.allSubjectsCollapsed = true;
+            this.collapsedSubjects = {};
+        },
+        expandAll() {
+            this.allSubjectsCollapsed = false;
+            this.collapsedSubjects = {};
+        }
+    }">
         <div style="display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 20px;">
-            <div style="display: flex; gap: 12px; flex-wrap: wrap; flex: 1;">
+            <div style="display: flex; gap: 12px; flex-wrap: wrap; flex: 1; align-items: center;">
                 <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search expired record subject..." class="nap-input nap-search-input">
 
                 @if($isSadm)
@@ -902,7 +1189,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     </select>
                 @else
                     <div style="display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 700; color: #1e293b;">
-                        <span style="color: #2563eb;">🏢</span>
+                        <span style="color: #dc2626;">🏢</span>
                         <span>Office: {{ $userOfficeCode ?? 'N/A' }}</span>
                     </div>
                 @endif
@@ -912,6 +1199,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         Reset Filters
                     </button>
                 @endif
+
+                <div style="display: inline-flex; gap: 8px; align-items: center; margin-left: 4px;">
+                    <button type="button" @click="expandAll()" class="nap-btn nap-btn-secondary" style="padding: 7px 12px; font-size: 12px;" title="Expand all series to show subjects">
+                        🔽 Expand All
+                    </button>
+                    <button type="button" @click="collapseAll()" class="nap-btn nap-btn-secondary" style="padding: 7px 12px; font-size: 12px;" title="Collapse all series to show only compilation totals">
+                        ▶️ Collapse All
+                    </button>
+                </div>
             </div>
 
             @if(count($selectedIds) > 0)
@@ -921,59 +1217,98 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             @endif
         </div>
 
-        <!-- MAIN HIERARCHICAL NAP FORM 3 TABLE (WITH REQUIRED PERIOD COVERED) -->
+        <!-- MAIN HIERARCHICAL NAP FORM 3 TABLE (OFFICIAL 4-COLUMN MATRIX) -->
         <div style="overflow-x: auto;">
             <table class="nap-table">
                 <thead>
                     <tr>
-                        <th rowspan="2" style="width: 36px; text-align: center;">
-                            <input type="checkbox" wire:model.live="selectAll" style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;">
+                        <th style="width: 56px; text-align: center; padding: 8px 4px;">
+                            <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                                <input type="checkbox" wire:model.live="selectAll" style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select / Deselect All">
+                                <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                            </div>
                         </th>
-                        <th rowspan="2" style="width: 75px; text-align: center;">ITEM NO.</th>
-                        <th rowspan="2" style="min-width: 250px;">RECORD SERIES TITLE & DESCRIPTION</th>
-                        <th rowspan="2" style="width: 150px; text-align: center;">PERIOD COVERED</th>
-                        <th colspan="3" style="text-align: center; border-bottom: 1px solid #cbd5e1;">RETENTION PERIOD</th>
-                        <th rowspan="2" style="width: 110px; text-align: right;">ACTION</th>
-                    </tr>
-                    <tr>
-                        <th style="width: 80px; text-align: center; padding: 6px 4px; font-size: 11px;">ACTIVE</th>
-                        <th style="width: 80px; text-align: center; padding: 6px 4px; font-size: 11px;">STORAGE</th>
-                        <th style="width: 80px; text-align: center; padding: 6px 4px; font-size: 11px;">TOTAL</th>
+                        <th style="width: 110px; text-align: center;">GRDS/ RDS ITEM NO.</th>
+                        <th style="min-width: 260px;">RECORD SERIES TITLE AND DESCRIPTION</th>
+                        <th style="width: 160px; text-align: center;">PERIOD COVERED</th>
+                        <th style="width: 260px; text-align: center;">RETENTION PERIOD AND PROVISION/S COMPLIED (If Any)</th>
+                        <th style="width: 80px; text-align: right;">ACTION</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse($hierarchyTree as $root)
                         <!-- ROOT SERIES ROW -->
                         <tr class="root-series-row">
-                            <td style="text-align: center;">
-                                @if(!$root->has_children && !empty($root->record_ids))
-                                    @php
-                                        $strIds = array_map('strval', $root->record_ids);
-                                        $isAllSelected = count(array_intersect($strIds, $selectedIds)) === count($strIds);
-                                    @endphp
-                                    <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($root->record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;">
-                                @else
-                                    <span style="color: #94a3b8; font-size: 10px;">—</span>
-                                @endif
+                            <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
+                                <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                                    @if(!$root->has_children && !empty($root->record_ids))
+                                        @php
+                                            $strIds = array_map('strval', $root->record_ids);
+                                            $isAllSelected = count(array_intersect($strIds, $selectedIds)) === count($strIds);
+                                        @endphp
+                                        <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($root->record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select all in series">
+                                    @else
+                                        <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
+                                    @endif
+
+                                    @if(!$root->has_children)
+                                        @if(count($root->direct_records) > 0)
+                                            <button type="button" 
+                                                    @click.stop="toggleSubjects('root-{{ $root->id }}')" 
+                                                    class="nap-chevron-btn"
+                                                    :style="isSubjectsCollapsed('root-{{ $root->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'"
+                                                    title="Toggle subjects">
+                                                <svg style="width: 14px; height: 14px; stroke: currentColor; stroke-width: 2.2; fill: none; stroke-linecap: round; stroke-linejoin: round;" viewBox="0 0 24 24">
+                                                    <path d="M6 9l6 6 6-6"></path>
+                                                </svg>
+                                            </button>
+                                        @else
+                                            <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                        @endif
+                                    @else
+                                        <button type="button" 
+                                                @click.stop="toggleRoot('root-{{ $root->id }}')" 
+                                                class="nap-chevron-btn"
+                                                :style="isRootCollapsed('root-{{ $root->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'"
+                                                title="Toggle sub-series group">
+                                            <svg style="width: 14px; height: 14px; stroke: currentColor; stroke-width: 2.2; fill: none; stroke-linecap: round; stroke-linejoin: round;" viewBox="0 0 24 24">
+                                                <path d="M6 9l6 6 6-6"></path>
+                                            </svg>
+                                        </button>
+                                    @endif
+                                </div>
                             </td>
-                            <td style="text-align: center; font-weight: 800; font-size: 14px; color: #1e293b;">
-                                {{ $root->item_number ?: '0' }}
+                            <td style="text-align: center; font-weight: 800; font-size: 13.5px; color: #1e293b;">
+                                {{ $root->item_number ?: '—' }}
                             </td>
                             <td style="font-weight: 800; font-size: 13.5px; color: #0f172a; letter-spacing: 0.3px;">
-                                {{ $root->series_title }}
-                                @if($root->shorted_type)
-                                    <span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; margin-left: 6px; font-weight: 700;">
-                                        {{ $root->shorted_type }}
-                                    </span>
-                                @endif
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    @if(!$root->has_children)
+                                        <span @click="toggleSubjects('root-{{ $root->id }}')" style="cursor: pointer;" title="Click to hide/unhide subjects">{{ $root->series_title }}</span>
+                                        @if(count($root->direct_records) > 0)
+                                            <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($root->direct_records) }})</span>
+                                        @endif
+                                    @else
+                                        <span @click="toggleRoot('root-{{ $root->id }}')" style="cursor: pointer;" title="Click to hide/unhide group">{{ $root->series_title }}</span>
+                                        <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($root->sub_series) }} sub)</span>
+                                    @endif
+                                    @if($root->shorted_type)
+                                        <span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; font-weight: 700;">
+                                            {{ $root->shorted_type }}
+                                        </span>
+                                    @endif
+                                </div>
                             </td>
                             @if(!$root->has_children)
                                 <td style="text-align: center; font-weight: 600; color: #334155; font-size: 12px;">{{ $root->compiled_period }}</td>
-                                <td style="text-align: center; font-size: 12px; font-weight: 600;">{{ $root->active_period }}</td>
-                                <td style="text-align: center; font-size: 12px; font-weight: 600;">{{ $root->storage_period ?: '—' }}</td>
-                                <td style="text-align: center; font-size: 12px; font-weight: 800;">{{ $root->total_period }}</td>
+                                <td style="text-align: center; font-size: 12px; font-weight: 700; color: #0f172a;">
+                                    {{ $root->total_period }}
+                                    @if($root->remarks)
+                                        <span style="font-weight: normal; color: #64748b; font-size: 11px; display: block;">{{ $root->remarks }}</span>
+                                    @endif
+                                </td>
                             @else
-                                <td colspan="4" style="background: #f8fafc;"></td>
+                                <td colspan="2" style="background: #f8fafc;"></td>
                             @endif
                             <td style="text-align: right; white-space: nowrap;">
                                 <button type="button" wire:click="openEditModal({{ $root->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
@@ -985,33 +1320,51 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         <!-- SUB-SERIES ROWS (IF ANY) -->
                         @if($root->has_children)
                             @foreach($root->sub_series as $sub)
-                                <tr class="sub-series-row">
-                                    <td style="text-align: center;">
-                                        @if(!empty($sub->record_ids))
-                                            @php
-                                                $strIds = array_map('strval', $sub->record_ids);
-                                                $isAllSelected = count(array_intersect($strIds, $selectedIds)) === count($strIds);
-                                            @endphp
-                                            <input type="checkbox" wire:click="toggleSeriesSelection({{ $sub->id }}, {{ json_encode($sub->record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;">
-                                        @else
-                                            <span style="color: #94a3b8; font-size: 10px;">—</span>
-                                        @endif
+                                <tr class="sub-series-row" x-show="!isRootCollapsed('root-{{ $root->id }}')">
+                                    <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
+                                        <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                                            @if(!empty($sub->record_ids))
+                                                @php
+                                                    $strIds = array_map('strval', $sub->record_ids);
+                                                    $isAllSelected = count(array_intersect($strIds, $selectedIds)) === count($strIds);
+                                                @endphp
+                                                <input type="checkbox" wire:click="toggleSeriesSelection({{ $sub->id }}, {{ json_encode($sub->record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select all in sub-series">
+                                            @else
+                                                <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
+                                            @endif
+
+                                            @if(count($sub->records) > 0)
+                                                <button type="button" 
+                                                        @click.stop="toggleSubjects('sub-{{ $sub->id }}')" 
+                                                        class="nap-chevron-btn"
+                                                        :style="isSubjectsCollapsed('sub-{{ $sub->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'"
+                                                        title="Toggle subjects">
+                                                    <svg style="width: 14px; height: 14px; stroke: currentColor; stroke-width: 2.2; fill: none; stroke-linecap: round; stroke-linejoin: round;" viewBox="0 0 24 24">
+                                                        <path d="M6 9l6 6 6-6"></path>
+                                                    </svg>
+                                                </button>
+                                            @else
+                                                <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                            @endif
+                                        </div>
                                     </td>
-                                    <td style="text-align: center; color: #94a3b8; font-size: 12px;"></td>
+                                    <td style="text-align: center; color: #94a3b8; font-size: 12px;">—</td>
                                     <td style="padding-left: 20px; font-weight: 700; color: #0f172a;">
-                                        <span class="corner-symbol">└</span> {{ $sub->series_title }}
+                                        <div style="display: flex; align-items: center; gap: 6px;">
+                                            <span class="corner-symbol">└</span>
+                                            <span @click="toggleSubjects('sub-{{ $sub->id }}')" style="cursor: pointer;" title="Click to hide/unhide subjects">{{ $sub->series_title }}</span>
+                                            @if(count($sub->records) > 0)
+                                                <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($sub->records) }})</span>
+                                            @endif
+                                        </div>
                                     </td>
-                                    <td style="text-align: center; font-weight: 600; color: #1e293b; font-size: 12px;">
-                                        {{ $sub->compiled_period }}
-                                    </td>
-                                    <td style="text-align: center; font-size: 12px; font-weight: 600; color: #1e293b;">
-                                        {{ $sub->active_period }}
-                                    </td>
-                                    <td style="text-align: center; font-size: 12px; font-weight: 600; color: #1e293b;">
-                                        {{ $sub->storage_period ?: '—' }}
-                                    </td>
-                                    <td style="text-align: center; font-size: 12px; font-weight: 800; color: #1e293b;">
+                                    <td style="text-align: center; font-weight: 600; color: #1e293b; font-size: 12px;">{{ $sub->compiled_period }}</td>
+                                    <td style="text-align: center; font-size: 12px; font-weight: 700; color: #0f172a;">
                                         {{ $sub->total_period }}
+                                        @php $subRem = $sub->remarks ?: $root->remarks; @endphp
+                                        @if($subRem)
+                                            <span style="font-weight: normal; color: #64748b; font-size: 11px; display: block;">{{ $subRem }}</span>
+                                        @endif
                                     </td>
                                     <td style="text-align: right; white-space: nowrap;">
                                         <button type="button" wire:click="openEditModal({{ $sub->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
@@ -1026,9 +1379,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                         $recIdStr = (string)$rec->id;
                                         $isSelected = in_array($recIdStr, $selectedIds);
                                     @endphp
-                                    <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }}">
-                                        <td style="text-align: center;">
-                                            <input type="checkbox" wire:model.live="selectedIds" value="{{ $recIdStr }}" style="width: 14px; height: 14px; cursor: pointer; accent-color: #dc2626;">
+                                    <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
+                                        <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
+                                            <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                                                <input type="checkbox" wire:model.live="selectedIds" value="{{ $recIdStr }}" style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;">
+                                                <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                            </div>
                                         </td>
                                         <td></td>
                                         <td style="padding-left: 42px;">
@@ -1036,7 +1392,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                             <span style="font-weight: 600; color: #1e293b;">{{ $rec->description }}</span>
                                         </td>
                                         <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->date_covered }}</td>
-                                        <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
+                                        <td style="text-align: center; color: #cbd5e1;">—</td>
                                         <td style="text-align: right;">
                                             <a href="{{ route('rdp.add-records.inventory-and-appraisal') }}" style="font-size: 11px; color: #dc2626; text-decoration: none; font-weight: 600;">Manage</a>
                                         </td>
@@ -1044,15 +1400,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                 @endforeach
                             @endforeach
                         @else
-                            <!-- DIRECT CHILD RECORDS UNDER ROOT SERIES -->
+                            <!-- DIRECT CHILD RECORDS UNDER ROOT SERIES (IF NO SUBSERIES) -->
                             @foreach($root->direct_records as $rec)
                                 @php
                                     $recIdStr = (string)$rec->id;
                                     $isSelected = in_array($recIdStr, $selectedIds);
                                 @endphp
-                                <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }}">
-                                    <td style="text-align: center;">
-                                        <input type="checkbox" wire:model.live="selectedIds" value="{{ $recIdStr }}" style="width: 14px; height: 14px; cursor: pointer; accent-color: #dc2626;">
+                                <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
+                                    <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
+                                        <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                                            <input type="checkbox" wire:model.live="selectedIds" value="{{ $recIdStr }}" style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;">
+                                            <span style="width: 20px; height: 20px; display: inline-block;"></span>
+                                        </div>
                                     </td>
                                     <td></td>
                                     <td style="padding-left: 28px;">
@@ -1060,7 +1419,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                         <span style="font-weight: 600; color: #1e293b;">{{ $rec->description }}</span>
                                     </td>
                                     <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->date_covered }}</td>
-                                    <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
+                                    <td style="text-align: center; color: #cbd5e1;">—</td>
                                     <td style="text-align: right;">
                                         <a href="{{ route('rdp.add-records.inventory-and-appraisal') }}" style="font-size: 11px; color: #dc2626; text-decoration: none; font-weight: 600;">Manage</a>
                                     </td>
@@ -1069,7 +1428,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         @endif
                     @empty
                         <tr>
-                            <td colspan="8" style="padding: 36px; text-align: center; color: #64748b;">
+                            <td colspan="6" style="padding: 36px; text-align: center; color: #64748b;">
                                 No expired records ready for disposal found matching filter criteria.
                             </td>
                         </tr>
@@ -1081,150 +1440,251 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
     <!-- PRINT PREVIEW MODAL (OFFICIAL NAP FORM 3 REVISED 2012 PDF LAYOUT) -->
     @if($showPrintModal)
+        @php
+            $cleanVal = function($val) {
+                if ($val === null) return '';
+                $str = trim((string)$val);
+                if ($str === '—' || $str === '-' || $str === 'N/A' || $str === 'None' || $str === 'null') {
+                    return '';
+                }
+                return $str;
+            };
+
+            $flattenedItems = [];
+            foreach ($hierarchyTree as $root) {
+                if (!$root->has_children) {
+                    $flattenedItems[] = [
+                        'type' => 'root_standalone',
+                        'root' => $root,
+                    ];
+                    if ($includeDescriptionOnPrint) {
+                        foreach ($root->direct_records as $rec) {
+                            $flattenedItems[] = [
+                                'type'   => 'record',
+                                'rec'    => $rec,
+                                'indent' => 20,
+                            ];
+                        }
+                    }
+                } else {
+                    $flattenedItems[] = [
+                        'type' => 'root_header',
+                        'root' => $root,
+                    ];
+                    foreach ($root->sub_series as $sub) {
+                        $flattenedItems[] = [
+                            'type'   => 'sub_series',
+                            'sub'    => $sub,
+                            'root'   => $root,
+                            'indent' => 14,
+                        ];
+                        if ($includeDescriptionOnPrint) {
+                            foreach ($sub->records as $rec) {
+                                $flattenedItems[] = [
+                                    'type'   => 'record',
+                                    'rec'    => $rec,
+                                    'indent' => 28,
+                                ];
+                            }
+                        }
+                    }
+                }
+            }
+
+            $totalItems = count($flattenedItems);
+            $pages = [];
+            $maxRowsFinalPage = 10;
+            $maxRowsOtherPages = 15;
+
+            if ($totalItems <= $maxRowsFinalPage) {
+                $pages = [ $flattenedItems ];
+            } else {
+                $remaining = $flattenedItems;
+                while (!empty($remaining)) {
+                    if (count($remaining) <= $maxRowsFinalPage) {
+                        $pages[] = $remaining;
+                        break;
+                    }
+                    $chunkSize = min($maxRowsOtherPages, max(1, count($remaining) - 1));
+                    $chunk = array_splice($remaining, 0, $chunkSize);
+                    $pages[] = $chunk;
+                }
+            }
+            $totalPages = count($pages);
+        @endphp
         <div class="modal-overlay" wire:click.self="closePrintModal">
             <div class="modal-content">
                 <div style="display: flex; justify-content: space-between; align-items: center;" class="no-print">
-                    <div style="color: #ffffff; font-size: 16px; font-weight: 800;">
-                        Print Preview: NAP Form No. 3 (Revised 2012)
+                    <div>
+                        <div style="color: #ffffff; font-size: 16px; font-weight: 800;">
+                            Print Preview: NAP Form No. 3 (Revised 2012)
+                        </div>
+                        <div style="color: #cbd5e1; font-size: 12px; margin-top: 2px;">
+                            Official Request for Authority to Dispose of Records Preview. Official document printing is managed in the Pending / List section.
+                        </div>
                     </div>
-                    <div style="display: flex; gap: 10px;">
-                        <button type="button" onclick="window.print()" class="nap-btn nap-btn-primary" style="background: #16a34a;">
-                            🖨️ Print Document
-                        </button>
-                        <button type="button" wire:click="closePrintModal" class="nap-btn nap-btn-secondary">
-                            ✕ Close
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button type="button" wire:click="closePrintModal" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700;">
+                            ✕ Close Preview
                         </button>
                     </div>
                 </div>
 
-                <!-- Printable Sheet Matching the Official PDF Layout -->
-                <div class="print-sheet">
-                    <!-- Top Form ID Line -->
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; font-size: 8.5px;">
-                        <div>
-                            <div style="font-weight: bold;">NAP Form No. 3</div>
-                            <div style="font-style: italic;">Revised 2012</div>
+                @foreach($pages as $pageIndex => $pageItems)
+                    @php
+                        $isLastPage = ($pageIndex + 1) === $totalPages;
+                        $cellBorder = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;";
+                        $computedFiller = $isLastPage 
+                            ? max(60, 480 - (count($pageItems) * 22)) 
+                            : max(60, 680 - (count($pageItems) * 22));
+                    @endphp
+                    <!-- Printable Sheet Matching the Official PDF Layout -->
+                    <div class="print-sheet">
+                        <!-- Top Form ID Line -->
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; font-size: 8.5px; font-family: Arial, sans-serif;">
+                            <div>
+                                <div style="font-weight: bold;">NAP Form No. 3</div>
+                                <div style="font-style: italic;">Revised 2012</div>
+                            </div>
+                            <div style="font-style: italic; font-size: 8.5px;">
+                                Accomplish in 3 copies
+                            </div>
                         </div>
-                        <div style="font-style: italic; font-size: 8.5px;">
-                            Accomplish in 3 copies
-                        </div>
-                    </div>
 
-                    <!-- Header Box -->
-                    <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 9px;">
-                        <tr>
-                            <td rowspan="2" style="width: 50%; border: 1px solid #000; text-align: center; padding: 10px 8px; vertical-align: middle;">
-                                <div style="font-weight: bold; font-size: 11px; text-transform: uppercase;">NATIONAL ARCHIVES OF THE PHILIPPINES</div>
-                                <div style="font-size: 9px; font-style: italic;">Pambansang Sinupan ng Pilipinas</div>
-                                <div style="font-weight: 800; font-size: 11.5px; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.5px;">
-                                    REQUEST FOR AUTHORITY TO DISPOSE OF RECORDS
-                                </div>
-                            </td>
-                            <td style="width: 50%; border: 1px solid #000; padding: 6px 8px; vertical-align: top;">
-                                <div><strong>AGENCY NAME:</strong> <span style="text-transform: uppercase;">{{ $agencyName }}</span></div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td style="border: 1px solid #000; padding: 6px 8px; vertical-align: top;">
-                                <div><strong>ADDRESS:</strong> {{ $agencyAddress }}</div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td style="border: 1px solid #000; padding: 6px 8px;">
-                                <strong>DATE:</strong> {{ $datePrepared }}
-                            </td>
-                            <td style="border: 1px solid #000; padding: 6px 8px;">
-                                <strong>TELEPHONE NUMBER:</strong> {{ $telephoneNumber }}
-                            </td>
-                        </tr>
-                    </table>
-
-                    <!-- Official Table (Revised 2012) -->
-                    <table class="print-table">
-                        <thead>
+                        <!-- Header Box -->
+                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 9px; font-family: Arial, sans-serif; table-layout: fixed;">
                             <tr>
-                                <th style="width: 12%;">GRDS/ RDS ITEM NO.</th>
-                                <th style="width: 48%;">RECORD SERIES TITLE AND DESCRIPTION</th>
-                                <th style="width: 20%;">PERIOD COVERED</th>
-                                <th style="width: 20%;">RETENTION PERIOD AND PROVISION/S COMPLIED (If Any)</th>
+                                <td rowspan="2" style="width: 50%; border: 1px solid #000; text-align: center; padding: 6px; vertical-align: middle;">
+                                    <div style="border: 1.5px solid #000; padding: 8px 6px; margin: 2px;">
+                                        <div style="font-weight: bold; font-size: 10px; text-transform: uppercase;">NATIONAL ARCHIVES OF THE PHILIPPINES</div>
+                                        <div style="font-size: 8.5px; font-style: italic; margin: 2px 0 6px 0;">Pambansang Sinupan ng Pilipinas</div>
+                                        <div style="font-weight: 800; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.5px;">
+                                            REQUEST FOR AUTHORITY TO DISPOSE<br>OF RECORDS
+                                        </div>
+                                    </div>
+                                </td>
+                                <td style="width: 50%; border: 1px solid #000; padding: 6px 8px; vertical-align: top;">
+                                    <div><strong>AGENCY NAME:</strong> <span style="text-transform: uppercase;">{{ $cleanVal($agencyName) }}</span></div>
+                                </td>
                             </tr>
-                        </thead>
-                        <tbody>
-                            @foreach($hierarchyTree as $root)
-                                <!-- Root Series Header Row -->
-                                <tr style="background: #e5e5e5; font-weight: bold;">
-                                    <td style="text-align: center;">{{ $root->item_number ?: '' }}</td>
-                                    <td>{{ $root->series_title }}</td>
-                                    <td style="text-align: center;">{{ $root->compiled_period }}</td>
-                                    <td style="text-align: center;">{{ $root->total_period }}</td>
+                            <tr>
+                                <td style="border: 1px solid #000; padding: 6px 8px; vertical-align: top;">
+                                    <div><strong>ADDRESS:</strong> {{ $cleanVal($agencyAddress) }}</div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="border: 1px solid #000; padding: 6px 8px;">
+                                    <strong>DATE:</strong> {{ $cleanVal($datePrepared) }}
+                                </td>
+                                <td style="border: 1px solid #000; padding: 6px 8px;">
+                                    <strong>TELEPHONE NUMBER:</strong>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <!-- Official Table (Revised 2012) -->
+                        <table class="print-table" style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 9px; margin-top: 0; border-top: none; table-layout: fixed;">
+                            <thead>
+                                <tr>
+                                    <th style="width: 12%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">GRDS/ RDS ITEM NO.</th>
+                                    <th style="width: 48%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">RECORD SERIES TITLE AND DESCRIPTION</th>
+                                    <th style="width: 20%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">PERIOD COVERED</th>
+                                    <th style="width: 20%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">RETENTION PERIOD AND PROVISION/S COMPLIED (If Any)</th>
                                 </tr>
-
-                                @if($root->has_children)
-                                    @foreach($root->sub_series as $sub)
-                                        <tr style="font-weight: bold; background: #fafafa;">
-                                            <td></td>
-                                            <td style="padding-left: 14px;">└ {{ $sub->series_title }}</td>
-                                            <td style="text-align: center;">{{ $sub->compiled_period }}</td>
-                                            <td style="text-align: center;">{{ $sub->total_period }}</td>
+                            </thead>
+                            <tbody>
+                                @foreach($pageItems as $item)
+                                    @if($item['type'] === 'root_standalone')
+                                        @php $root = $item['root']; @endphp
+                                        <tr style="vertical-align: top;">
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($root->item_number) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px; font-weight: bold;">{{ strtoupper($cleanVal($root->series_title)) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($root->compiled_period) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal(trim($root->total_period . ($root->remarks ? ' / ' . $root->remarks : ''))) }}</td>
                                         </tr>
-
-                                        @foreach($sub->records as $rec)
-                                            <tr>
-                                                <td></td>
-                                                <td style="padding-left: 28px;">{{ $rec->description }}</td>
-                                                <td style="text-align: center;">{{ $rec->date_covered }}</td>
-                                                <td style="text-align: center; color: #999;">—</td>
-                                            </tr>
-                                        @endforeach
-                                    @endforeach
-                                @else
-                                    @foreach($root->direct_records as $rec)
-                                        <tr>
-                                            <td></td>
-                                            <td style="padding-left: 20px;">{{ $rec->description }}</td>
-                                            <td style="text-align: center;">{{ $rec->date_covered }}</td>
-                                            <td style="text-align: center; color: #999;">—</td>
+                                    @elseif($item['type'] === 'root_header')
+                                        @php $root = $item['root']; @endphp
+                                        <tr style="vertical-align: top;">
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($root->item_number) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px; font-weight: bold;">{{ strtoupper($cleanVal($root->series_title)) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;"></td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;"></td>
                                         </tr>
-                                    @endforeach
-                                @endif
-                            @endforeach
-                        </tbody>
-                    </table>
+                                    @elseif($item['type'] === 'sub_series')
+                                        @php $sub = $item['sub']; @endphp
+                                        <tr style="vertical-align: top;">
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;"></td>
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 4px {{ $item['indent'] ?? 14 }}px; font-weight: normal;">
+                                                └ {{ $cleanVal($sub->series_title) }}
+                                            </td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($sub->compiled_period) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal(trim($sub->total_period . (($sub->remarks ?: $root->remarks) ? ' / ' . ($sub->remarks ?: $root->remarks) : ''))) }}</td>
+                                        </tr>
+                                    @elseif($item['type'] === 'record')
+                                        @php $rec = $item['rec']; @endphp
+                                        <tr style="vertical-align: top;">
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 3px 6px;"></td>
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 3px 6px 3px {{ $item['indent'] ?? 20 }}px; font-size: 8.5px;">
+                                                {{ $cleanVal($rec->description) }}
+                                            </td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 3px 6px;">{{ $cleanVal($rec->date_covered) }}</td>
+                                            <td style="{{ $cellBorder }} text-align: center; padding: 3px 6px;"></td>
+                                        </tr>
+                                    @endif
+                                @endforeach
 
-                    <!-- Official Footer Blocks (Revised 2012) -->
-                    <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-top: none; font-size: 8.5px; page-break-inside: avoid;">
-                        <tr>
-                            <td style="width: 50%; border: 1px solid #000; padding: 8px;">
-                                <strong>LOCATION OF RECORDS:</strong> {{ $allCompiledLocation }}
-                            </td>
-                            <td style="width: 50%; border: 1px solid #000; padding: 8px;">
-                                <strong>VOLUME IN CUBIC METER:</strong> {{ $allCompiledVolume }}
-                            </td>
-                        </tr>
-                        <tr>
-                            <td style="width: 50%; border: 1px solid #000; padding: 8px;">
-                                <strong>PREPARED BY:</strong> {{ $preparedBy }}
-                            </td>
-                            <td style="width: 50%; border: 1px solid #000; padding: 8px;">
-                                <strong>POSITION:</strong> {{ $preparedPosition }}
-                            </td>
-                        </tr>
-                        <tr>
-                            <td colspan="2" style="border: 1px solid #000; padding: 14px 10px; vertical-align: top;">
-                                <strong>CERTIFIED AND APPROVED BY:</strong>
-                                <div style="font-size: 8px; margin-top: 6px; font-style: italic; line-height: 1.4;">
-                                    This is to certify that the above mentioned records are no longer needed and not involved nor connected in any administrative or judicial cases.
-                                </div>
-                                <div style="margin-top: 36px; text-align: center; border-bottom: 1px solid #000; width: 50%; margin-left: auto; margin-right: auto; font-weight: bold; font-size: 9px;">
-                                    {{ $approvedBy }}
-                                </div>
-                                <div style="text-align: center; font-size: 8px; margin-top: 3px;">
-                                    Name and Signature of Agency Head or Duly Authorized Representative
-                                </div>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
+                                <!-- Tall vertical column lines extending to bottom table border -->
+                                <tr style="height: {{ $computedFiller }}px;">
+                                    <td style="{{ $cellBorder }}">&nbsp;</td>
+                                    <td style="{{ $cellBorder }}">&nbsp;</td>
+                                    <td style="{{ $cellBorder }}">&nbsp;</td>
+                                    <td style="{{ $cellBorder }}">&nbsp;</td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <!-- Official Footer Blocks (Revised 2012) -->
+                        @if($isLastPage)
+                            <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-top: none; font-size: 8.5px; page-break-inside: avoid; font-family: Arial, sans-serif;">
+                                <tr>
+                                    <td style="width: 50%; border: 1px solid #000; padding: 8px;">
+                                        <strong>LOCATION OF RECORDS:</strong> {{ $cleanVal($allCompiledLocation) }}
+                                    </td>
+                                    <td style="width: 50%; border: 1px solid #000; padding: 8px;">
+                                        <strong>VOLUME IN CUBIC METER:</strong> {{ $cleanVal($allCompiledVolume) }}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="width: 50%; border: 1px solid #000; padding: 8px;">
+                                        <strong>PREPARED BY:</strong> {{ $cleanVal($preparedBy) }}
+                                    </td>
+                                    <td style="width: 50%; border: 1px solid #000; padding: 8px;">
+                                        <strong>POSITION:</strong>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td colspan="2" style="border: 1px solid #000; padding: 14px 10px; vertical-align: top;">
+                                        <strong>CERTIFIED AND APPROVED BY:</strong>
+                                        <div style="font-size: 8px; margin-top: 6px; text-align: center; line-height: 1.4;">
+                                            This is to certify that the above mentioned records are no longer needed and<br>not involved nor connected in any administrative or judicial cases.
+                                        </div>
+                                        <div style="margin-top: 36px; text-align: center; border-bottom: 1px solid #000; width: 45%; margin-left: auto; margin-right: 40px; font-weight: bold; font-size: 9px; min-height: 13px;">
+                                            {{ $cleanVal($approvedBy) }}
+                                        </div>
+                                        <div style="text-align: center; font-size: 8px; margin-top: 3px; width: 45%; margin-left: auto; margin-right: 40px; line-height: 1.3;">
+                                            Name and Signature of Agency Head<br>or Duly Authorized Representative
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        @endif
+
+                        <!-- BOTTOM PAGE NUMBER -->
+                        <div style="text-align: right; font-size: 8px; font-family: Arial, sans-serif; margin-top: 10px;">
+                            Page {{ $pageIndex + 1 }} of {{ $totalPages }} {{ $totalPages === 1 ? 'Page' : 'Pages' }}
+                        </div>
+                    </div>
+                @endforeach
             </div>
         </div>
     @endif

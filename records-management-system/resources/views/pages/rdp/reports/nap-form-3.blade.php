@@ -15,6 +15,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     
     // Checkbox selections & feedback messages
     public array $selectedIds = [];
+    public array $seriesSelectionMode = [];
+    public array $selectedSubjectIds = [];
     public bool $selectAll = false;
     public string $errorMessage = '';
     public string $successMessage = '';
@@ -126,22 +128,80 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 });
             }
 
-            $allIds = $query->pluck('rdp_record.id')->toArray();
-            $this->selectedIds = array_map('strval', $allIds);
+            $allRecords = $query->select('rdp_record.id', 'rdp_record.record_series_id')->get();
+            $this->selectedIds = array_map('strval', $allRecords->pluck('id')->toArray());
+
+            // Mark all series as 'series' mode
+            $this->seriesSelectionMode = [];
+            foreach ($allRecords->pluck('record_series_id')->filter()->unique() as $sId) {
+                $this->seriesSelectionMode[(string)$sId] = 'series';
+            }
+            $this->selectedSubjectIds = [];
         } else {
             $this->selectedIds = [];
+            $this->seriesSelectionMode = [];
+            $this->selectedSubjectIds = [];
         }
     }
 
     public function toggleSeriesSelection(int $seriesId, array $childRecordIds): void
     {
-        $stringIds = array_map('strval', $childRecordIds);
-        $allSelected = count(array_intersect($stringIds, $this->selectedIds)) === count($stringIds);
+        $strChildIds = array_map('strval', $childRecordIds);
+        $seriesKey = (string)$seriesId;
 
-        if ($allSelected) {
-            $this->selectedIds = array_values(array_diff($this->selectedIds, $stringIds));
+        // Check if currently selected either via 'series' mode or any child
+        $isCurrentlyChecked = ($this->seriesSelectionMode[$seriesKey] ?? null) === 'series'
+            || !empty(array_intersect($strChildIds, $this->selectedIds));
+
+        if ($isCurrentlyChecked) {
+            // Deselect series and all child records
+            $this->selectedIds = array_values(array_diff($this->selectedIds, $strChildIds));
+            unset($this->seriesSelectionMode[$seriesKey]);
+            foreach ($strChildIds as $id) {
+                unset($this->selectedSubjectIds[$id]);
+            }
         } else {
-            $this->selectedIds = array_values(array_unique(array_merge($this->selectedIds, $stringIds)));
+            // Select whole series: all records included in cluster, but on print preview only series will be visible
+            $this->selectedIds = array_values(array_unique(array_merge($this->selectedIds, $strChildIds)));
+            $this->seriesSelectionMode[$seriesKey] = 'series';
+            foreach ($strChildIds as $id) {
+                unset($this->selectedSubjectIds[$id]);
+            }
+        }
+    }
+
+    public function toggleSubjectSelection(int $recordId, int $seriesId, array $allSeriesRecordIds = []): void
+    {
+        $recIdStr = (string)$recordId;
+        $seriesKey = (string)$seriesId;
+        $isRecSelected = in_array($recIdStr, $this->selectedIds, true);
+
+        if ($isRecSelected) {
+            // If the series was previously in whole 'series' mode, preserve remaining records as explicit subjects
+            if (($this->seriesSelectionMode[$seriesKey] ?? null) === 'series' && !empty($allSeriesRecordIds)) {
+                foreach ($allSeriesRecordIds as $rid) {
+                    $ridStr = (string)$rid;
+                    if ($ridStr !== $recIdStr && in_array($ridStr, $this->selectedIds, true)) {
+                        $this->selectedSubjectIds[$ridStr] = true;
+                    }
+                }
+            }
+
+            $this->selectedIds = array_values(array_diff($this->selectedIds, [$recIdStr]));
+            unset($this->selectedSubjectIds[$recIdStr]);
+
+            $strChildIds = array_map('strval', $allSeriesRecordIds);
+            if (empty(array_intersect($strChildIds, $this->selectedIds))) {
+                unset($this->seriesSelectionMode[$seriesKey]);
+            } else {
+                $this->seriesSelectionMode[$seriesKey] = 'subjects';
+            }
+        } else {
+            $this->selectedIds[] = $recIdStr;
+            $this->selectedIds = array_values(array_unique($this->selectedIds));
+            $this->selectedSubjectIds[$recIdStr] = true;
+            // Record series is automatically checked in 'subjects' mode
+            $this->seriesSelectionMode[$seriesKey] = 'subjects';
         }
     }
 
@@ -223,6 +283,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
             $this->successMessage = 'Disposal Authority cluster created successfully! It is now available under Pending / List for disposal verification.';
             $this->selectedIds = [];
+            $this->seriesSelectionMode = [];
+            $this->selectedSubjectIds = [];
             $this->selectAll = false;
             $this->closeClusterModal();
         } catch (\Exception $e) {
@@ -306,6 +368,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
         $this->officeFilter = $userOffice ?? '';
         $this->selectedIds = [];
+        $this->seriesSelectionMode = [];
+        $this->selectedSubjectIds = [];
         $this->selectAll = false;
     }
 
@@ -991,6 +1055,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             'isSadm'                    => $isSadm,
             'includeDescriptionOnPrint' => $includeDescriptionOnPrint,
             'cleanVal'                  => fn($v) => $this->cleanVal($v),
+            'seriesSelectionMode'       => $this->seriesSelectionMode,
+            'selectedSubjectIds'        => $this->selectedSubjectIds,
+            'compileLocationHelper'     => fn(array $locs) => $this->compileLocation($locs),
+            'compileVolumeHelper'       => fn(array $vols) => $this->compileVolume($vols),
         ];
     }
 };
@@ -1149,8 +1217,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     <!-- Filters & Table Card -->
     <div class="nap-card" x-data="{
         collapsedSubjects: {},
-        allSubjectsCollapsed: false,
+        allSubjectsCollapsed: true,
         collapsedRoots: {},
+        allRootsCollapsed: false,
         
         toggleSubjects(key) {
             this.collapsedSubjects[key] = !this.isSubjectsCollapsed(key);
@@ -1165,15 +1234,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             this.collapsedRoots[key] = !this.isRootCollapsed(key);
         },
         isRootCollapsed(key) {
-            return !!this.collapsedRoots[key];
+            if (this.collapsedRoots[key] !== undefined) {
+                return this.collapsedRoots[key];
+            }
+            return this.allRootsCollapsed;
         },
         collapseAll() {
             this.allSubjectsCollapsed = true;
+            this.allRootsCollapsed = false;
             this.collapsedSubjects = {};
+            this.collapsedRoots = {};
         },
         expandAll() {
             this.allSubjectsCollapsed = false;
+            this.allRootsCollapsed = false;
             this.collapsedSubjects = {};
+            this.collapsedRoots = {};
         }
     }">
         <div style="display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 20px;">
@@ -1244,9 +1320,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                     @if(!$root->has_children && !empty($root->record_ids))
                                         @php
                                             $strIds = array_map('strval', $root->record_ids);
-                                            $isAllSelected = count(array_intersect($strIds, $selectedIds)) === count($strIds);
+                                            $isSeriesChecked = (($seriesSelectionMode[(string)$root->id] ?? null) === 'series')
+                                                || !empty(array_intersect($strIds, $selectedIds));
                                         @endphp
-                                        <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($root->record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select all in series">
+                                        <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($root->record_ids) }})" {{ $isSeriesChecked ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select record series">
+                                    @elseif($root->has_children)
+                                        @php
+                                            $allRootChildIds = [];
+                                            foreach ($root->sub_series as $s) {
+                                                foreach ($s->record_ids as $rid) {
+                                                    $allRootChildIds[] = $rid;
+                                                }
+                                            }
+                                            $strRootIds = array_map('strval', $allRootChildIds);
+                                            $isRootChecked = (($seriesSelectionMode[(string)$root->id] ?? null) === 'series')
+                                                || !empty(array_intersect($strRootIds, $selectedIds));
+                                        @endphp
+                                        @if(!empty($allRootChildIds))
+                                            <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($allRootChildIds) }})" {{ $isRootChecked ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select record series group">
+                                        @else
+                                            <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
+                                        @endif
                                     @else
                                         <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
                                     @endif
@@ -1326,9 +1420,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                             @if(!empty($sub->record_ids))
                                                 @php
                                                     $strIds = array_map('strval', $sub->record_ids);
-                                                    $isAllSelected = count(array_intersect($strIds, $selectedIds)) === count($strIds);
+                                                    $isSeriesChecked = (($seriesSelectionMode[(string)$sub->id] ?? null) === 'series')
+                                                        || !empty(array_intersect($strIds, $selectedIds));
                                                 @endphp
-                                                <input type="checkbox" wire:click="toggleSeriesSelection({{ $sub->id }}, {{ json_encode($sub->record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select all in sub-series">
+                                                <input type="checkbox" wire:click="toggleSeriesSelection({{ $sub->id }}, {{ json_encode($sub->record_ids) }})" {{ $isSeriesChecked ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select record series">
                                             @else
                                                 <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
                                             @endif
@@ -1377,12 +1472,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                 @foreach($sub->records as $rec)
                                     @php
                                         $recIdStr = (string)$rec->id;
-                                        $isSelected = in_array($recIdStr, $selectedIds);
+                                        $isSelected = in_array($recIdStr, $selectedIds, true);
                                     @endphp
                                     <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
                                         <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                             <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                                <input type="checkbox" wire:model.live="selectedIds" value="{{ $recIdStr }}" style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;">
+                                                <input type="checkbox" wire:click="toggleSubjectSelection({{ $rec->id }}, {{ $sub->id }}, {{ json_encode($sub->record_ids) }})" {{ $isSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select subject">
                                                 <span style="width: 20px; height: 20px; display: inline-block;"></span>
                                             </div>
                                         </td>
@@ -1404,12 +1499,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             @foreach($root->direct_records as $rec)
                                 @php
                                     $recIdStr = (string)$rec->id;
-                                    $isSelected = in_array($recIdStr, $selectedIds);
+                                    $isSelected = in_array($recIdStr, $selectedIds, true);
                                 @endphp
                                 <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
                                     <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                         <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                            <input type="checkbox" wire:model.live="selectedIds" value="{{ $recIdStr }}" style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;">
+                                            <input type="checkbox" wire:click="toggleSubjectSelection({{ $rec->id }}, {{ $root->id }}, {{ json_encode($root->record_ids) }})" {{ $isSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select subject">
                                             <span style="width: 20px; height: 20px; display: inline-block;"></span>
                                         </div>
                                     </td>
@@ -1450,41 +1545,92 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 return $str;
             };
 
+            $hasSelection = !empty($selectedIds);
             $flattenedItems = [];
-            foreach ($hierarchyTree as $root) {
-                if (!$root->has_children) {
-                    $flattenedItems[] = [
-                        'type' => 'root_standalone',
-                        'root' => $root,
-                    ];
-                    if ($includeDescriptionOnPrint) {
-                        foreach ($root->direct_records as $rec) {
-                            $flattenedItems[] = [
-                                'type'   => 'record',
-                                'rec'    => $rec,
-                                'indent' => 20,
-                            ];
+            $previewLocs = [];
+            $previewVols = [];
+
+            if ($hasSelection) {
+                foreach ($hierarchyTree as $root) {
+                    if (!$root->has_children) {
+                        $rootChildStrIds = array_map('strval', $root->record_ids);
+                        $seriesMode = $seriesSelectionMode[(string)$root->id] ?? null;
+                        $isSeriesSelected = ($seriesMode === 'series') || !empty(array_intersect($rootChildStrIds, $selectedIds));
+
+                        if (!$isSeriesSelected) {
+                            continue;
                         }
-                    }
-                } else {
-                    $flattenedItems[] = [
-                        'type' => 'root_header',
-                        'root' => $root,
-                    ];
-                    foreach ($root->sub_series as $sub) {
+
                         $flattenedItems[] = [
-                            'type'   => 'sub_series',
-                            'sub'    => $sub,
-                            'root'   => $root,
-                            'indent' => 14,
+                            'type' => 'root_standalone',
+                            'root' => $root,
                         ];
-                        if ($includeDescriptionOnPrint) {
-                            foreach ($sub->records as $rec) {
-                                $flattenedItems[] = [
-                                    'type'   => 'record',
-                                    'rec'    => $rec,
-                                    'indent' => 28,
+                        if (!empty($root->compiled_location)) $previewLocs[] = $root->compiled_location;
+                        if (!empty($root->compiled_volume)) $previewVols[] = $root->compiled_volume;
+
+                        // Conditional inclusion for subjects:
+                        // If user selected the series directly, only the series is visible.
+                        // If user selected specific subject(s), only those specific subject(s) are visible.
+                        if ($seriesMode !== 'series') {
+                            foreach ($root->direct_records as $rec) {
+                                $recIdStr = (string)$rec->id;
+                                if (!empty($selectedSubjectIds[$recIdStr]) || in_array($recIdStr, $selectedIds, true)) {
+                                    $flattenedItems[] = [
+                                        'type'   => 'record',
+                                        'rec'    => $rec,
+                                        'indent' => 20,
+                                    ];
+                                }
+                            }
+                        }
+                    } else {
+                        $selectedSubs = [];
+                        foreach ($root->sub_series as $sub) {
+                            $subChildStrIds = array_map('strval', $sub->record_ids);
+                            $subMode = $seriesSelectionMode[(string)$sub->id] ?? null;
+                            $isSubSelected = ($subMode === 'series') || !empty(array_intersect($subChildStrIds, $selectedIds));
+
+                            if ($isSubSelected) {
+                                $selectedSubs[] = [
+                                    'sub'     => $sub,
+                                    'subMode' => $subMode,
                                 ];
+                            }
+                        }
+
+                        if (empty($selectedSubs)) {
+                            continue;
+                        }
+
+                        $flattenedItems[] = [
+                            'type' => 'root_header',
+                            'root' => $root,
+                        ];
+
+                        foreach ($selectedSubs as $subData) {
+                            $sub = $subData['sub'];
+                            $subMode = $subData['subMode'];
+
+                            $flattenedItems[] = [
+                                'type'   => 'sub_series',
+                                'sub'    => $sub,
+                                'root'   => $root,
+                                'indent' => 14,
+                            ];
+                            if (!empty($sub->compiled_location)) $previewLocs[] = $sub->compiled_location;
+                            if (!empty($sub->compiled_volume)) $previewVols[] = $sub->compiled_volume;
+
+                            if ($subMode !== 'series') {
+                                foreach ($sub->records as $rec) {
+                                    $recIdStr = (string)$rec->id;
+                                    if (!empty($selectedSubjectIds[$recIdStr]) || in_array($recIdStr, $selectedIds, true)) {
+                                        $flattenedItems[] = [
+                                            'type'   => 'record',
+                                            'rec'    => $rec,
+                                            'indent' => 28,
+                                        ];
+                                    }
+                                }
                             }
                         }
                     }
@@ -1496,7 +1642,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             $maxRowsFinalPage = 10;
             $maxRowsOtherPages = 15;
 
-            if ($totalItems <= $maxRowsFinalPage) {
+            if ($totalItems === 0) {
+                // When no data selected, show no data rows, only the blank official template
+                $pages = [ [] ];
+            } elseif ($totalItems <= $maxRowsFinalPage) {
                 $pages = [ $flattenedItems ];
             } else {
                 $remaining = $flattenedItems;
@@ -1511,6 +1660,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 }
             }
             $totalPages = count($pages);
+
+            $effectivePrintLocation = ($hasSelection && !empty($previewLocs)) ? $compileLocationHelper($previewLocs) : '';
+            $effectivePrintVolume = ($hasSelection && !empty($previewVols)) ? $compileVolumeHelper($previewVols) : '';
         @endphp
         <div class="modal-overlay" wire:click.self="closePrintModal">
             <div class="modal-content">
@@ -1520,7 +1672,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             Print Preview: NAP Form No. 3 (Revised 2012)
                         </div>
                         <div style="color: #cbd5e1; font-size: 12px; margin-top: 2px;">
-                            Official Request for Authority to Dispose of Records Preview. Official document printing is managed in the Pending / List section.
+                            @if($hasSelection)
+                                Showing only selected Record Series / Subjects ({{ count($selectedIds) }} records selected).
+                            @else
+                                Official Request for Authority to Dispose of Records Preview (No records selected — Blank Template).
+                            @endif
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
@@ -1648,10 +1804,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-top: none; font-size: 8.5px; page-break-inside: avoid; font-family: Arial, sans-serif;">
                                 <tr>
                                     <td style="width: 50%; border: 1px solid #000; padding: 8px;">
-                                        <strong>LOCATION OF RECORDS:</strong> {{ $cleanVal($allCompiledLocation) }}
+                                        <strong>LOCATION OF RECORDS:</strong> {{ $cleanVal($effectivePrintLocation) }}
                                     </td>
                                     <td style="width: 50%; border: 1px solid #000; padding: 8px;">
-                                        <strong>VOLUME IN CUBIC METER:</strong> {{ $cleanVal($allCompiledVolume) }}
+                                        <strong>VOLUME IN CUBIC METER:</strong> {{ $cleanVal($effectivePrintVolume) }}
                                     </td>
                                 </tr>
                                 <tr>

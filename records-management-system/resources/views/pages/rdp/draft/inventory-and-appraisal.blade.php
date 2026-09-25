@@ -140,7 +140,15 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
             ->where('rdp_record.is_draft', true);
 
         if ($userOffice) {
-            $query->where('rdp_record.office_own', $userOffice);
+            $query->where(function($q) use ($userOffice) {
+                $q->where('rdp_record.office_own', $userOffice)
+                  ->orWhereExists(function($sub) use ($userOffice) {
+                      $sub->select(DB::raw(1))
+                          ->from('rdp_duplication_section')
+                          ->whereColumn('rdp_duplication_section.dup_id_manager', 'rdp_record.duplication_id')
+                          ->where('rdp_duplication_section.office_code', $userOffice);
+                  });
+            });
         }
 
         if (!empty(trim($this->search))) {

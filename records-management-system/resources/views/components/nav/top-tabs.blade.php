@@ -160,6 +160,22 @@
                 ],
             ];
         }
+        // Received Documents Section
+        elseif (request()->routeIs('rdp.received-documents.*')) {
+            $sectionTitle = 'Received Documents';
+            $tabs = [
+                [
+                    'label' => 'Document Tracking System',
+                    'url' => route('rdp.received-documents.dts'),
+                    'active' => request()->routeIs('rdp.received-documents.dts') || request()->routeIs('rdp.received-documents.index'),
+                ],
+                [
+                    'label' => 'Document Control System',
+                    'url' => route('rdp.received-documents.dcs'),
+                    'active' => request()->routeIs('rdp.received-documents.dcs'),
+                ],
+            ];
+        }
         // 2. Add Records Section
         elseif (request()->routeIs('rdp.add-records.*')) {
             $sectionTitle = 'Add Records';

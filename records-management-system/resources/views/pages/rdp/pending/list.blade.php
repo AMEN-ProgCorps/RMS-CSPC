@@ -19,6 +19,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
     // Print Modal & Fill-up Properties
     public bool $showPrintModal = false;
+    public bool $includeDescriptionOnPrint = false;
     public ?object $printCluster = null;
     public array $printItems = [];
     public string $agencyName = 'Camarines Sur Polytechnic Colleges';
@@ -35,8 +36,21 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     public string $preparedPosition = 'Administrative Officer V / Records Officer';
     public string $assistedBy = '';
     public string $assistedPosition = 'NAP Records Management Analyst';
-    public string $approvedBy = 'Dr. Luningning Q. Bregala';
+    public string $recommendingBy = '';
+    public string $recommendingPosition = 'Vice President for Administration';
+    public string $approvedBy = '';
     public string $approvedPosition = 'Chief of Division / Department Head';
+    public string $committeeChairmanName = '';
+    public string $committeeChairmanTitle = 'Chairman, Records Management Committee';
+    public string $executiveDirectorName = '';
+    public string $executiveDirectorTitle = 'Executive Director, National Archives of the Philippines';
+
+    // Print Config & Hierarchy
+    public string $rdpPrintFontFamily = 'Arial, sans-serif';
+    public string $rdpPrintFontSize = '8.5pt';
+    public array $printHierarchy = [];
+    public string $effectivePrintLocation = '';
+    public string $effectivePrintVolume = '';
 
     public function mount(): void
     {
@@ -51,6 +65,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             $fullName = trim(($details->first_name ?? '') . ' ' . ($details->last_name ?? ''));
             $this->preparedBy = $fullName ?: (Auth::user()->username ?? 'Records Officer');
         }
+
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $fontFam = DB::table($sysTable)->where('key', 'rdp_print_font_family')->value('value');
+        if ($fontFam) $this->rdpPrintFontFamily = $fontFam;
+        $fontSize = DB::table($sysTable)->where('key', 'rdp_print_font_size')->value('value');
+        if ($fontSize) $this->rdpPrintFontSize = $fontSize;
     }
 
     public function toggleLayout(): void
@@ -153,7 +173,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 $recIds = array_column($items, 'id');
                 $periods = empty($recIds) ? collect() : DB::table('rdp_period_covered')
                     ->whereIn('period_owner', $recIds)
-                    ->orderBy('start_at', 'asc')
+                    ->orderBy('id', 'asc')
                     ->get()
                     ->groupBy('period_owner');
 
@@ -166,16 +186,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     ->get()
                     ->groupBy('record_holder');
 
+                $dupHolders = array_filter(array_column($items, 'duplication_id'));
+                $duplications = empty($dupHolders) ? collect() : DB::table('rdp_duplication_section')
+                    ->whereIn('dup_id_manager', $dupHolders)
+                    ->select('dup_id_manager', 'office_code')
+                    ->get()
+                    ->groupBy('dup_id_manager');
+
                 $uMap = ['Administrative' => 'Adm', 'Archival' => 'Arc', 'Fiscal' => 'F', 'Legal' => 'L'];
                 foreach ($items as $it) {
                     if (isset($periods[$it->id])) {
                         $pList = [];
                         foreach ($periods[$it->id] as $pRow) {
-                            $start = !empty($pRow->start_at) ? Carbon::parse($pRow->start_at)->format('Y') : '';
-                            $end = !empty($pRow->ends_at) ? Carbon::parse($pRow->ends_at)->format('Y') : 'Present';
-                            $str = trim($start . ' - ' . $end, ' -');
-                            if ($str) {
-                                $pList[] = $str;
+                            if (!empty($pRow->date_covered)) {
+                                $pList[] = $pRow->date_covered;
                             }
                         }
                         $it->period_covered = !empty($pList) ? implode(', ', array_unique($pList)) : '—';
@@ -189,6 +213,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         $it->utility_name_display = !empty($abbrs) ? implode(', ', $abbrs) : ($it->time_value === 'P' ? 'Arc' : 'Adm');
                     } else {
                         $it->utility_name_display = ($it->time_value === 'P' ? 'Arc' : 'Adm');
+                    }
+
+                    if (!empty($it->duplication_id) && isset($duplications[$it->duplication_id])) {
+                        $it->duplication = implode(', ', $duplications[$it->duplication_id]->pluck('office_code')->unique()->values()->all());
+                    } else {
+                        $it->duplication = '—';
                     }
                 }
             }
@@ -214,6 +244,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $this->printCluster = $this->selectedCluster;
         $this->printItems = $this->clusterItems;
 
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $this->includeDescriptionOnPrint = (\Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_include_description_on_print')->value('value') === 'true');
+        $this->rdpPrintFontFamily = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_print_font_family')->value('value') ?: 'Arial, sans-serif';
+        $this->rdpPrintFontSize = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_print_font_size')->value('value') ?: '8.5pt';
+
         if ($this->printCluster) {
             if (!empty($this->printCluster->office_name)) {
                 $this->agencyName = $this->printCluster->office_name;
@@ -225,6 +260,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             $this->datePrepared = \Carbon\Carbon::parse($this->printCluster->created_at ?? now())->format('m/d/Y');
         }
 
+        $formCode = strtolower($this->printCluster->form_code ?? '');
+        $formLabel = strtolower($this->printCluster->form_label ?? '');
+        $isNap2 = $formCode === 'nap2' || str_contains($formLabel, 'form 2');
+        $isNap3 = $formCode === 'nap3' || str_contains($formLabel, 'form 3');
+
+        if ($isNap2) {
+            $this->datePrepared = \Carbon\Carbon::parse($this->printCluster->created_at ?? now())->format('F d, Y');
+            $this->printItems = $this->buildNap2Tree($this->clusterItems);
+        } else {
+            $treeData = $this->buildNapRecordTree($clusterId, $isNap3);
+            $this->printHierarchy = $treeData['tree'];
+            $this->effectivePrintLocation = $treeData['location'];
+            $this->effectivePrintVolume = $treeData['volume'];
+            if ($isNap3) {
+                $this->datePrepared = \Carbon\Carbon::parse($this->printCluster->created_at ?? now())->format('F d, Y');
+            }
+        }
+
         $this->showPrintModal = true;
     }
 
@@ -233,6 +286,714 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $this->showPrintModal = false;
         $this->printCluster = null;
         $this->printItems = [];
+        $this->printHierarchy = [];
+        $this->effectivePrintLocation = '';
+        $this->effectivePrintVolume = '';
+    }
+
+    private function resolveEffectiveRetention(array $allSeriesMap, object $record): object
+    {
+        $current = $record;
+        $visited = [];
+
+        while ($current) {
+            $hasActive = !empty(trim($current->active_period ?? ''));
+            $hasStorage = !empty(trim($current->storage_period ?? ''));
+            $hasTotal = !empty(trim($current->total_period ?? ''));
+            $isPerm = (bool)($current->is_retention_period_permanent ?? false)
+                || (strtolower(trim($current->total_period ?? '')) === 'permanent');
+
+            if ($isPerm || $hasActive || $hasStorage || $hasTotal) {
+                return (object)[
+                    'active_period'                 => $current->active_period,
+                    'storage_period'                => $current->storage_period,
+                    'total_period'                  => $current->total_period,
+                    'is_retention_period_permanent' => $isPerm,
+                    'inherited'                     => $current->id !== $record->id,
+                ];
+            }
+
+            if (in_array($current->id, $visited, true)) {
+                break;
+            }
+            $visited[] = $current->id;
+
+            $pId = $current->parent_id ?? null;
+            $current = ($pId && isset($allSeriesMap[$pId])) ? $allSeriesMap[$pId] : null;
+        }
+
+        return (object)[
+            'active_period'                 => null,
+            'storage_period'                => null,
+            'total_period'                  => null,
+            'is_retention_period_permanent' => false,
+            'inherited'                     => false,
+        ];
+    }
+
+    private function buildTreeHierarchy(array $records): array
+    {
+        $allParentIds = [];
+        foreach ($records as $r) {
+            if (!empty($r->parent_id)) {
+                $allParentIds[] = (int)$r->parent_id;
+            }
+        }
+
+        $recordsById = [];
+        foreach ($records as $r) {
+            $recordsById[(int)$r->id] = $r;
+        }
+
+        $missingParentIds = array_diff(array_unique($allParentIds), array_keys($recordsById));
+        if (!empty($missingParentIds)) {
+            $missingParents = DB::table('rdp_record_series')
+                ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+                ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
+                ->select([
+                    'rdp_record_series.*',
+                    'rdp_retention_period.active_period',
+                    'rdp_retention_period.storage_period',
+                    'rdp_retention_period.total_period',
+                    'parent.series_title as parent_title',
+                ])
+                ->whereIn('rdp_record_series.id', $missingParentIds)
+                ->get();
+
+            foreach ($missingParents as $mp) {
+                $mp->is_parent_context = true;
+                $recordsById[(int)$mp->id] = $mp;
+            }
+        }
+
+        $allRecords = array_values($recordsById);
+        $byParent = [];
+        foreach ($allRecords as $r) {
+            $pId = (int)($r->parent_id ?? 0);
+            $byParent[$pId][] = $r;
+        }
+
+        $ordered = [];
+        $flatten = function ($parentId, $depth, $rootId) use (&$flatten, &$ordered, $byParent) {
+            if (!isset($byParent[$parentId])) {
+                return;
+            }
+            foreach ($byParent[$parentId] as $item) {
+                $item->depth = $depth;
+                $currentRootId = ($depth === 0) ? (int)$item->id : (int)$rootId;
+                $item->root_id = $currentRootId;
+                $item->has_children = isset($byParent[$item->id]) && count($byParent[$item->id]) > 0;
+                $ordered[] = $item;
+                $flatten((int)$item->id, $depth + 1, $currentRootId);
+            }
+        };
+
+        $flatten(0, 0, null);
+
+        $addedIds = array_column($ordered, 'id');
+        foreach ($allRecords as $r) {
+            if (!in_array($r->id, $addedIds, true)) {
+                $r->depth = 0;
+                $r->root_id = (int)$r->id;
+                $r->has_children = isset($byParent[$r->id]) && count($byParent[$r->id]) > 0;
+                $ordered[] = $r;
+            }
+        }
+
+        return $ordered;
+    }
+
+    private function buildNap2Tree(array $items): array
+    {
+        if (empty($items)) {
+            return [];
+        }
+
+        $allFetchedMap = DB::table('rdp_record_series')
+            ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+            ->select([
+                'rdp_record_series.*',
+                'rdp_retention_period.active_period',
+                'rdp_retention_period.storage_period',
+                'rdp_retention_period.total_period'
+            ])
+            ->get()
+            ->keyBy('id')
+            ->all();
+
+        $treeOrdered = $this->buildTreeHierarchy($items);
+
+        foreach ($treeOrdered as $item) {
+            $eff = $this->resolveEffectiveRetention($allFetchedMap, $item);
+            $item->effective_active = $eff->active_period;
+            $item->effective_storage = $eff->storage_period;
+            $item->effective_total = $eff->total_period;
+            $item->effective_is_permanent = $eff->is_retention_period_permanent;
+            $item->is_inherited = $eff->inherited;
+            $item->is_root_parent = empty($item->parent_id);
+
+            $isRegistered = (bool)($item->is_verified ?? false);
+            if ($isRegistered && !empty($item->item_number)) {
+                $item->display_item_no = (string)$item->item_number;
+            } else {
+                $item->display_item_no = '';
+            }
+        }
+
+        return $treeOrdered;
+    }
+
+    private function compilePeriodCovered(array $dates): string
+    {
+        $years = [];
+        $rawList = [];
+        foreach ($dates as $d) {
+            $d = trim((string)$d);
+            if (empty($d) || $d === '—') continue;
+            if (preg_match('/(19\d\d|20\d\d)/', $d, $m)) {
+                $years[] = (int)$m[1];
+            } else {
+                $rawList[] = $d;
+            }
+        }
+        $years = array_values(array_unique($years));
+        rsort($years);
+
+        if (empty($years)) {
+            return !empty($rawList) ? implode(', ', array_unique($rawList)) : '—';
+        }
+
+        $groups = [];
+        $currentGroup = [];
+        foreach ($years as $y) {
+            if (empty($currentGroup)) {
+                $currentGroup[] = $y;
+            } else {
+                $last = end($currentGroup);
+                if ($last - 1 === $y) {
+                    $currentGroup[] = $y;
+                } else {
+                    $groups[] = $currentGroup;
+                    $currentGroup = [$y];
+                }
+            }
+        }
+        if (!empty($currentGroup)) {
+            $groups[] = $currentGroup;
+        }
+
+        $formattedGroups = [];
+        foreach ($groups as $grp) {
+            if (count($grp) >= 2) {
+                $formattedGroups[] = $grp[0] . '-' . end($grp);
+            } else {
+                $formattedGroups[] = (string)$grp[0];
+            }
+        }
+
+        $res = implode(', ', $formattedGroups);
+        if (!empty($rawList)) {
+            $res .= ', ' . implode(', ', array_unique($rawList));
+        }
+        return $res;
+    }
+
+    private function compileVolume(array $volumes): string
+    {
+        $totals = [];
+        $unmatched = [];
+
+        foreach ($volumes as $v) {
+            $v = trim((string)$v);
+            if (empty($v) || $v === '—') continue;
+
+            $parts = preg_split('/[,+&]|\band\b/i', $v);
+            foreach ($parts as $part) {
+                $part = trim($part);
+                if (empty($part)) continue;
+
+                if (preg_match('/^(\d+(?:\.\d+)?)\s*([a-zA-Z\s\.]+)/', $part, $m)) {
+                    $amount = (float)$m[1];
+                    $unit = strtolower(trim($m[2]));
+                    if (str_starts_with($unit, 'paper') || str_starts_with($unit, 'sheet') || str_starts_with($unit, 'page')) {
+                        $normUnit = 'papers';
+                    } elseif (str_starts_with($unit, 'folder')) {
+                        $normUnit = 'folders';
+                    } elseif (str_starts_with($unit, 'box')) {
+                        $normUnit = 'boxes';
+                    } elseif (str_starts_with($unit, 'bundle')) {
+                        $normUnit = 'bundles';
+                    } elseif (str_starts_with($unit, 'cu') || str_contains($unit, 'meter') || str_contains($unit, 'm.')) {
+                        $normUnit = 'cu. m.';
+                    } else {
+                        $normUnit = $unit;
+                    }
+                    $totals[$normUnit] = ($totals[$normUnit] ?? 0) + $amount;
+                } else {
+                    $unmatched[] = $part;
+                }
+            }
+        }
+
+        $compiledParts = [];
+        $preferredOrder = ['folders', 'boxes', 'papers', 'bundles', 'cu. m.'];
+        foreach ($preferredOrder as $u) {
+            if (isset($totals[$u])) {
+                $cnt = $totals[$u];
+                if ($u === 'folders') {
+                    $compiledParts[] = $cnt . ' ' . ($cnt == 1 ? 'folder' : 'folders');
+                } elseif ($u === 'papers') {
+                    $compiledParts[] = $cnt . ' ' . ($cnt == 1 ? 'paper' : 'papers');
+                } elseif ($u === 'boxes') {
+                    $compiledParts[] = $cnt . ' ' . ($cnt == 1 ? 'box' : 'boxes');
+                } elseif ($u === 'bundles') {
+                    $compiledParts[] = $cnt . ' ' . ($cnt == 1 ? 'bundle' : 'bundles');
+                } else {
+                    $compiledParts[] = $cnt . ' ' . $u;
+                }
+                unset($totals[$u]);
+            }
+        }
+        foreach ($totals as $u => $cnt) {
+            $compiledParts[] = $cnt . ' ' . $u;
+        }
+        foreach (array_unique($unmatched) as $um) {
+            $compiledParts[] = $um;
+        }
+
+        return !empty($compiledParts) ? implode(', ', $compiledParts) : '—';
+    }
+
+    private function compileLocation(array $locations): string
+    {
+        $locs = [];
+        foreach ($locations as $l) {
+            $l = trim((string)$l);
+            if (!empty($l) && $l !== '—') {
+                $locs[] = $l;
+            }
+        }
+        $unique = array_values(array_unique($locs));
+        if (empty($unique)) return '—';
+
+        $hasCabinet = true;
+        $cabSub = [];
+        foreach ($unique as $item) {
+            if (preg_match('/^Cabinet\s+(.+)$/i', $item, $m)) {
+                $cabSub[] = $m[1];
+            } else {
+                $hasCabinet = false;
+            }
+        }
+
+        if ($hasCabinet && count($cabSub) > 1) {
+            return 'Cabinet ' . implode(', ', $cabSub);
+        }
+
+        return implode(', ', $unique);
+    }
+
+    private function compileTimeValue(array $times): string
+    {
+        $valid = [];
+        foreach ($times as $t) {
+            $t = strtoupper(trim((string)$t));
+            if (!empty($t) && $t !== '—') {
+                $valid[] = $t;
+            }
+        }
+        $unique = array_values(array_unique($valid));
+        return !empty($unique) ? implode(', ', $unique) : 'T';
+    }
+
+    private function compileUtility(array $utilityNames): string
+    {
+        $map = [
+            'Administrative' => 'A',
+            'Archival'       => 'ARC',
+            'Fiscal'         => 'F',
+            'Legal'          => 'L',
+        ];
+        $abbrs = [];
+        foreach ($utilityNames as $n) {
+            $abbrs[] = $map[$n] ?? strtoupper(substr($n, 0, 3));
+        }
+        $unique = array_values(array_unique($abbrs));
+        return !empty($unique) ? implode(', ', $unique) : 'A';
+    }
+
+    private function formatItemUtility(array $utilityNames): string
+    {
+        $map = [
+            'Administrative' => 'A - Administrative',
+            'Archival'       => 'ARC - ARCHIVAL',
+            'Fiscal'         => 'F - FISCAL',
+            'Legal'          => 'L - LEGAL',
+        ];
+        $parts = [];
+        foreach ($utilityNames as $n) {
+            $parts[] = $map[$n] ?? $n;
+        }
+        $unique = array_values(array_unique($parts));
+        return !empty($unique) ? implode(', ', $unique) : '—';
+    }
+
+    private function compileMedium(array $mediums): string
+    {
+        $valid = [];
+        foreach ($mediums as $m) {
+            $m = trim((string)$m);
+            if (!empty($m) && $m !== '—') {
+                $valid[] = $m;
+            }
+        }
+        $unique = array_values(array_unique($valid));
+        return !empty($unique) ? implode(', ', $unique) : '—';
+    }
+
+    private function compileRestriction(array $restrictions): string
+    {
+        $valid = [];
+        foreach ($restrictions as $r) {
+            $r = trim((string)$r);
+            if (!empty($r) && $r !== '—') {
+                $valid[] = $r;
+            }
+        }
+        $unique = array_values(array_unique($valid));
+        return !empty($unique) ? implode(', ', $unique) : '—';
+    }
+
+    private function compileFrequency(array $freqs): string
+    {
+        $valid = [];
+        foreach ($freqs as $f) {
+            $f = trim((string)$f);
+            if (!empty($f) && $f !== '—') {
+                $valid[] = $f;
+            }
+        }
+        $unique = array_values(array_unique($valid));
+        return !empty($unique) ? implode(', ', $unique) : '—';
+    }
+
+    private function compileDuplication(array $dups): string
+    {
+        $valid = [];
+        foreach ($dups as $d) {
+            $d = trim((string)$d);
+            if (!empty($d) && $d !== '—') {
+                $valid[] = $d;
+            }
+        }
+        $unique = array_values(array_unique($valid));
+        return !empty($unique) ? implode(', ', $unique) : '—';
+    }
+
+    private function buildNapRecordTree(int $clusterId, bool $isNap3): array
+    {
+        $records = DB::table('rdp_grouped_record')
+            ->join('rdp_record', 'rdp_grouped_record.record_id', '=', 'rdp_record.id')
+            ->where('rdp_grouped_record.group_head', $clusterId)
+            ->select('rdp_record.*')
+            ->orderBy('rdp_record.id', 'asc')
+            ->get();
+
+        if ($records->isEmpty()) {
+            return ['tree' => [], 'location' => '', 'volume' => ''];
+        }
+
+        $recordIds = $records->pluck('id')->all();
+
+        $periods = DB::table('rdp_period_covered')
+            ->whereIn('period_owner', $recordIds)
+            ->orderBy('id', 'asc')
+            ->get()
+            ->groupBy('period_owner');
+
+        $utilities = DB::table('rdp_utility_manager')
+            ->join('rdp_utility_medium', 'rdp_utility_manager.utility_medium', '=', 'rdp_utility_medium.id')
+            ->whereIn('rdp_utility_manager.record_holder', $recordIds)
+            ->where('rdp_utility_manager.is_active', true)
+            ->select('rdp_utility_manager.record_holder', 'rdp_utility_medium.utility_name')
+            ->get()
+            ->groupBy('record_holder');
+
+        $dupHolders = array_filter($records->pluck('duplication_id')->all());
+        $duplications = empty($dupHolders) ? collect() : DB::table('rdp_duplication_section')
+            ->whereIn('dup_id_manager', $dupHolders)
+            ->select('dup_id_manager', 'office_code')
+            ->get()
+            ->groupBy('dup_id_manager');
+
+        $mediumsMap = DB::table('rdp_recorded_value')->pluck('medium_name', 'id')->all();
+
+        $recordsBySeries = $records->groupBy('record_series_id');
+        $directSeriesIds = array_keys($recordsBySeries->all());
+
+        $directSeries = DB::table('rdp_record_series')
+            ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+            ->whereIn('rdp_record_series.id', $directSeriesIds)
+            ->select([
+                'rdp_record_series.*',
+                'rdp_retention_period.active_period',
+                'rdp_retention_period.storage_period',
+                'rdp_retention_period.total_period',
+            ])
+            ->get();
+
+        $neededParentIds = array_unique(array_filter($directSeries->pluck('parent_id')->all()));
+        $parentSeries = collect();
+        if (!empty($neededParentIds)) {
+            $parentSeries = DB::table('rdp_record_series')
+                ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+                ->whereIn('rdp_record_series.id', $neededParentIds)
+                ->select([
+                    'rdp_record_series.*',
+                    'rdp_retention_period.active_period',
+                    'rdp_retention_period.storage_period',
+                    'rdp_retention_period.total_period',
+                ])
+                ->get();
+        }
+
+        $allRoots = $parentSeries->concat($directSeries->whereNull('parent_id'))->unique('id');
+        $subSeriesByParent = $directSeries->whereNotNull('parent_id')->groupBy('parent_id');
+
+        $sortedRoots = $allRoots->sortBy(function($root) use ($subSeriesByParent, $recordsBySeries) {
+            $minId = PHP_INT_MAX;
+            if (isset($recordsBySeries[$root->id])) {
+                $minId = min($minId, $recordsBySeries[$root->id]->min('id'));
+            }
+            if (isset($subSeriesByParent[$root->id])) {
+                foreach ($subSeriesByParent[$root->id] as $sub) {
+                    if (isset($recordsBySeries[$sub->id])) {
+                        $minId = min($minId, $recordsBySeries[$sub->id]->min('id'));
+                    }
+                }
+            }
+            return $minId;
+        })->values();
+
+        $tree = [];
+        $allLocs = [];
+        $allVols = [];
+
+        foreach ($sortedRoots as $root) {
+            $rootNode = (object)[
+                'id'             => $root->id,
+                'item_number'    => ((bool)($root->is_verified ?? false) && !empty($root->item_number)) ? $root->item_number : '',
+                'series_title'   => $root->series_title,
+                'remarks'        => $root->remarks ?? '',
+                'sub_series'     => [],
+                'direct_records' => [],
+                'has_children'   => false,
+            ];
+
+            $subs = $subSeriesByParent[$root->id] ?? collect();
+
+            if ($subs->isNotEmpty()) {
+                $rootNode->has_children = true;
+                $sortedSubs = $subs->sortBy(function($sub) use ($recordsBySeries) {
+                    return isset($recordsBySeries[$sub->id]) ? $recordsBySeries[$sub->id]->min('id') : PHP_INT_MAX;
+                })->values();
+
+                foreach ($sortedSubs as $sub) {
+                    $subRecs = $recordsBySeries[$sub->id] ?? collect();
+                    if ($subRecs->isEmpty()) continue;
+
+                    $compiledDates = [];
+                    $compiledVols = [];
+                    $compiledMediums = [];
+                    $compiledRestrictions = [];
+                    $compiledLocs = [];
+                    $compiledFreqs = [];
+                    $compiledDups = [];
+                    $compiledTimes = [];
+                    $compiledUtils = [];
+                    $childItems = [];
+
+                    foreach ($subRecs as $rec) {
+                        $pRow = $periods[$rec->id]->first() ?? null;
+                        $rawDate = $pRow->date_covered ?? '';
+                        $uRows = ($utilities[$rec->id] ?? collect())->pluck('utility_name')->all();
+
+                        $recMedium = '—';
+                        if (!empty($rec->records_medium)) {
+                            $recMedium = $mediumsMap[$rec->records_medium] ?? (string)$rec->records_medium;
+                        }
+
+                        $recRestriction = !empty($rec->restriction) ? $rec->restriction : '—';
+                        $recFreq = !empty($rec->frequence_use) ? $rec->frequence_use : '—';
+
+                        if (!empty($rec->duplication_id) && isset($duplications[$rec->duplication_id])) {
+                            $dupCodes = $duplications[$rec->duplication_id]->pluck('office_code')->unique()->values()->all();
+                            $recDup = !empty($dupCodes) ? implode(', ', $dupCodes) : '—';
+                        } else {
+                            $recDup = '—';
+                        }
+
+                        $compiledDates[] = $rawDate;
+                        $compiledVols[] = $rec->volume;
+                        $compiledMediums[] = $recMedium;
+                        $compiledRestrictions[] = $recRestriction;
+                        $compiledLocs[] = $rec->records_location;
+                        $compiledFreqs[] = $recFreq;
+                        $compiledDups[] = $recDup;
+                        $compiledTimes[] = $rec->time_value;
+                        foreach ($uRows as $un) $compiledUtils[] = $un;
+
+                        $allLocs[] = $rec->records_location;
+                        $allVols[] = $rec->volume;
+
+                        $childItems[] = (object)[
+                            'id'            => $rec->id,
+                            'description'   => $rec->description,
+                            'date_covered'  => $rawDate ?: '—',
+                            'volume'        => $rec->volume ?: '—',
+                            'medium'        => $recMedium,
+                            'restriction'   => $recRestriction,
+                            'location'      => $rec->records_location ?: '—',
+                            'frequence_use' => $recFreq,
+                            'duplication'   => $recDup,
+                            'time_value'    => $rec->time_value ?: 'T',
+                            'utility'       => $this->formatItemUtility($uRows),
+                        ];
+                    }
+
+                    $isPerm = strtolower(trim($sub->total_period ?? '')) === 'permanent' || strtolower(trim($sub->active_period ?? '')) === 'permanent';
+
+                    $subNode = (object)[
+                        'id'                   => $sub->id,
+                        'series_title'         => $sub->series_title,
+                        'compiled_period'      => $this->compilePeriodCovered($compiledDates),
+                        'compiled_volume'      => $this->compileVolume($compiledVols),
+                        'compiled_medium'      => $this->compileMedium($compiledMediums),
+                        'compiled_restriction' => $this->compileRestriction($compiledRestrictions),
+                        'compiled_location'    => $this->compileLocation($compiledLocs),
+                        'compiled_freq'        => $this->compileFrequency($compiledFreqs),
+                        'compiled_duplication' => $this->compileDuplication($compiledDups),
+                        'compiled_time'        => $this->compileTimeValue($compiledTimes),
+                        'compiled_util'        => $this->compileUtility($compiledUtils),
+                        'active_period'        => $isPerm ? 'PERMANENT' : ($sub->active_period ?: '—'),
+                        'storage_period'       => $isPerm ? '' : ($sub->storage_period ?: ''),
+                        'total_period'         => $isPerm ? 'PERMANENT' : ($sub->total_period ?: '—'),
+                        'is_permanent'         => $isPerm,
+                        'remarks'              => $sub->remarks ?? '',
+                        'records'              => $childItems,
+                        'record_ids'           => array_column($childItems, 'id'),
+                    ];
+
+                    $rootNode->sub_series[] = $subNode;
+                }
+            } else {
+                $rootRecs = $recordsBySeries[$root->id] ?? collect();
+                if ($rootRecs->isEmpty()) continue;
+
+                $compiledDates = [];
+                $compiledVols = [];
+                $compiledMediums = [];
+                $compiledRestrictions = [];
+                $compiledLocs = [];
+                $compiledFreqs = [];
+                $compiledDups = [];
+                $compiledTimes = [];
+                $compiledUtils = [];
+                $childItems = [];
+
+                foreach ($rootRecs as $rec) {
+                    $pRow = $periods[$rec->id]->first() ?? null;
+                    $rawDate = $pRow->date_covered ?? '';
+                    $uRows = ($utilities[$rec->id] ?? collect())->pluck('utility_name')->all();
+
+                    $recMedium = '—';
+                    if (!empty($rec->records_medium)) {
+                        $recMedium = $mediumsMap[$rec->records_medium] ?? (string)$rec->records_medium;
+                    }
+
+                    $recRestriction = !empty($rec->restriction) ? $rec->restriction : '—';
+                    $recFreq = !empty($rec->frequence_use) ? $rec->frequence_use : '—';
+
+                    if (!empty($rec->duplication_id) && isset($duplications[$rec->duplication_id])) {
+                        $dupCodes = $duplications[$rec->duplication_id]->pluck('office_code')->unique()->values()->all();
+                        $recDup = !empty($dupCodes) ? implode(', ', $dupCodes) : '—';
+                    } else {
+                        $recDup = '—';
+                    }
+
+                    $compiledDates[] = $rawDate;
+                    $compiledVols[] = $rec->volume;
+                    $compiledMediums[] = $recMedium;
+                    $compiledRestrictions[] = $recRestriction;
+                    $compiledLocs[] = $rec->records_location;
+                    $compiledFreqs[] = $recFreq;
+                    $compiledDups[] = $recDup;
+                    $compiledTimes[] = $rec->time_value;
+                    foreach ($uRows as $un) $compiledUtils[] = $un;
+
+                    $allLocs[] = $rec->records_location;
+                    $allVols[] = $rec->volume;
+
+                    $childItems[] = (object)[
+                        'id'            => $rec->id,
+                        'description'   => $rec->description,
+                        'date_covered'  => $rawDate ?: '—',
+                        'volume'        => $rec->volume ?: '—',
+                        'medium'        => $recMedium,
+                        'restriction'   => $recRestriction,
+                        'location'      => $rec->records_location ?: '—',
+                        'frequence_use' => $recFreq,
+                        'duplication'   => $recDup,
+                        'time_value'    => $rec->time_value ?: 'T',
+                        'utility'       => $this->formatItemUtility($uRows),
+                    ];
+                }
+
+                $isPerm = strtolower(trim($root->total_period ?? '')) === 'permanent' || strtolower(trim($root->active_period ?? '')) === 'permanent';
+
+                $rootNode->compiled_period      = $this->compilePeriodCovered($compiledDates);
+                $rootNode->compiled_volume      = $this->compileVolume($compiledVols);
+                $rootNode->compiled_medium      = $this->compileMedium($compiledMediums);
+                $rootNode->compiled_restriction = $this->compileRestriction($compiledRestrictions);
+                $rootNode->compiled_location    = $this->compileLocation($compiledLocs);
+                $rootNode->compiled_freq        = $this->compileFrequency($compiledFreqs);
+                $rootNode->compiled_duplication = $this->compileDuplication($compiledDups);
+                $rootNode->compiled_time        = $this->compileTimeValue($compiledTimes);
+                $rootNode->compiled_util        = $this->compileUtility($compiledUtils);
+                $rootNode->active_period        = $isPerm ? 'PERMANENT' : ($root->active_period ?: '—');
+                $rootNode->storage_period       = $isPerm ? '' : ($root->storage_period ?: '');
+                $rootNode->total_period         = $isPerm ? 'PERMANENT' : ($root->total_period ?: '—');
+                $rootNode->is_permanent         = $isPerm;
+                $rootNode->remarks              = $root->remarks ?? '';
+                $rootNode->direct_records       = $childItems;
+                $rootNode->record_ids           = array_column($childItems, 'id');
+            }
+
+            if ($rootNode->has_children && empty($rootNode->sub_series)) {
+                continue;
+            }
+            if (!$rootNode->has_children && empty($rootNode->direct_records)) {
+                continue;
+            }
+
+            $tree[] = $rootNode;
+        }
+
+        return [
+            'tree'     => $tree,
+            'location' => $this->compileLocation($allLocs),
+            'volume'   => $this->compileVolume($allVols),
+        ];
+    }
+
+    public function cleanVal($val): string
+    {
+        if ($val === null) return '';
+        $str = trim((string)$val);
+        if ($str === '—' || $str === '-' || $str === 'N/A' || $str === 'None' || $str === 'null') {
+            return '';
+        }
+        return $str;
     }
 
     public function with(): array
@@ -318,7 +1079,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 ]);
 
             if (!$canViewAll && $userOffice) {
-                $qRec->where('rdp_pending_record.office', $userOffice);
+                $qRec->where(function($sub) use ($userOffice) {
+                    $sub->where('rdp_pending_record.office', $userOffice)
+                        ->orWhereExists(function($dupQ) use ($userOffice) {
+                            $dupQ->select(DB::raw(1))
+                                ->from('rdp_grouped_record')
+                                ->join('rdp_record', 'rdp_grouped_record.record_id', '=', 'rdp_record.id')
+                                ->join('rdp_duplication_section', 'rdp_duplication_section.dup_id_manager', '=', 'rdp_record.duplication_id')
+                                ->whereColumn('rdp_grouped_record.group_head', 'rdp_pending_record.cluster_id')
+                                ->where('rdp_duplication_section.office_code', $userOffice);
+                        });
+                });
             }
 
             if ($this->activeTab === 'nap1') {
@@ -1002,29 +1773,96 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             $formCode = strtolower($printCluster->form_code ?? '');
             $formLabel = strtolower($printCluster->form_label ?? '');
             $isNap1 = $formCode === 'nap1' || str_contains($formLabel, 'form 1');
+            $isNap2 = $formCode === 'nap2' || str_contains($formLabel, 'form 2');
+            $isNap3 = $formCode === 'nap3' || str_contains($formLabel, 'form 3');
+            $cleanVal = function($val) {
+                if ($val === null) return '';
+                $str = trim((string)$val);
+                if ($str === '—' || $str === '-' || $str === 'N/A' || $str === 'None' || $str === 'null') {
+                    return '';
+                }
+                return $str;
+            };
         @endphp
         <style>
+            :root {
+                --rdp-print-font: {{ $rdpPrintFontFamily ?: 'Arial, sans-serif' }};
+                --rdp-print-size: {{ $rdpPrintFontSize ?: '8.5pt' }};
+            }
+            .print-sheet {
+                width: 100%;
+                background: #ffffff;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+                padding: 24px 28px;
+                box-sizing: border-box;
+                color: #000000;
+                font-family: var(--rdp-print-font), Arial, Helvetica, sans-serif !important;
+                font-size: var(--rdp-print-size) !important;
+                margin-bottom: 24px;
+            }
+            .print-sheet table, .print-sheet th, .print-sheet td, .print-sheet div, .print-sheet span, .print-sheet strong {
+                font-family: var(--rdp-print-font), Arial, Helvetica, sans-serif !important;
+            }
+            .print-table {
+                width: 100%;
+                border-collapse: collapse;
+                border: 2px solid #000000;
+                font-size: var(--rdp-print-size) !important;
+                margin-top: 0;
+                background: #ffffff;
+            }
+            .print-table th {
+                border: 1px solid #000000;
+                padding: 4px 2px;
+                background: #ffffff;
+                text-align: center;
+                font-weight: bold;
+                font-size: var(--rdp-print-size) !important;
+                vertical-align: middle;
+                color: #000000;
+            }
+            .print-table td {
+                border-left: 1px solid #000000;
+                border-right: 1px solid #000000;
+                border-top: none;
+                border-bottom: none;
+                padding: 3px 4px;
+                vertical-align: top;
+                font-size: var(--rdp-print-size) !important;
+                color: #000000;
+                background: #ffffff;
+            }
             @media print {
+                body { background: #ffffff !important; margin: 0 !important; padding: 0 !important; }
+                header, #navigation, .no-print, .modal-overlay > :not(.modal-card), footer { display: none !important; }
+                .modal-overlay { position: static !important; background: none !important; padding: 0 !important; display: block !important; }
+                .modal-card { background: none !important; max-width: 100% !important; max-height: none !important; padding: 0 !important; box-shadow: none !important; overflow: visible !important; width: 100% !important; border: none !important; }
+                .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; margin-bottom: 0 !important; page-break-after: always; break-after: page; }
+                .print-sheet:last-child { page-break-after: auto; break-after: auto; }
                 @page {
-                    size: {{ $isNap1 ? '13in 8.5in landscape' : '8.5in 13in portrait' }};
-                    margin: 10px !important;
+                    size: {{ $isNap1 ? 'legal landscape' : 'legal portrait' }};
+                    margin: {{ $isNap1 ? '0.4in' : '0.5in' }};
                 }
             }
         </style>
         <div class="modal-overlay" style="overflow-y: auto;">
-            <div class="modal-card" style="width: 1050px; max-width: 95%; max-height: 90vh; overflow-y: auto; padding: 24px;">
+            <div class="modal-card" style="width: {{ $isNap1 ? '1280px' : '980px' }}; max-width: 96%; max-height: 94vh; overflow-y: auto; padding: 24px; background: #94a3b8;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;" class="no-print">
                     <div>
-                        <h3 style="font-size: 18px; font-weight: 700; color: #0f172a; margin: 0;">Print Preview — {{ $printCluster->cluster_name }}</h3>
-                        <p style="margin: 2px 0 0 0; font-size: 12px; color: #64748b;">Configure header details (Fields 1-8) and signatures before printing.</p>
+                        <h3 style="font-size: 18px; font-weight: 800; color: #ffffff; margin: 0;">
+                            Print Preview — {{ $printCluster->cluster_name }}
+                        </h3>
+                        <p style="margin: 2px 0 0 0; font-size: 12px; color: #f1f5f9;">
+                            Form: <strong>{{ $printCluster->form_label }}</strong> &bull; Print Font: <strong>{{ $rdpPrintFontFamily }}</strong> (<strong>{{ $rdpPrintFontSize }}</strong>) &bull; Configure details and signatures before printing.
+                        </p>
                     </div>
                     <div>
                         <button onclick="window.print()" class="btn-print" style="padding: 8px 18px; margin-right: 8px; font-weight: 700; background: #16a34a; color: #fff; border: none; border-radius: 6px; cursor: pointer;">🖨️ Print Now</button>
-                        <button wire:click="closePrintModal" class="btn-view" style="padding: 8px 16px;">Close</button>
+                        <button wire:click="closePrintModal" class="btn-view" style="padding: 8px 16px; background: #ffffff; color: #0f172a; font-weight: 700; border: none; border-radius: 6px; cursor: pointer;">✕ Close</button>
                     </div>
                 </div>
 
-                @if(strtolower($printCluster->form_code ?? '') === 'nap1' || str_contains(strtolower($printCluster->form_label ?? ''), 'form 1'))
+                @if($isNap1)
                     <!-- FILL-UP FORM PANEL (Fields 1 to 8 + Signatures) - NO-PRINT -->
                     <div class="no-print" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 18px; margin-bottom: 24px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
                         <h4 style="margin: 0 0 14px 0; font-size: 13px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
@@ -1089,461 +1927,909 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             </div>
                         </div>
                     </div>
+                @elseif($isNap2)
+                    <!-- FILL-UP FORM PANEL FOR NAP FORM 2 - NO-PRINT -->
+                    <div class="no-print" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 18px; margin-bottom: 24px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+                        <h4 style="margin: 0 0 14px 0; font-size: 13px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
+                            📋 RDS Header & Details (Boxes 1 – 4)
+                        </h4>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;">
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">1. AGENCY NAME</label>
+                                <input type="text" wire:model.live="agencyName" class="form-control" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                            </div>
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">2. ADDRESS</label>
+                                <input type="text" wire:model.live="agencyAddress" class="form-control" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                            </div>
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">4. DATE PREPARED</label>
+                                <input type="text" wire:model.live="datePrepared" class="form-control" placeholder="e.g. August 03, 2026" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                            </div>
+                        </div>
+
+                        <h4 style="margin: 14px 0 12px 0; font-size: 13px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
+                            ✍️ Signatures & Approvals (Page 2)
+                        </h4>
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">9. PREPARED BY</label>
+                                <input type="text" wire:model.live="preparedBy" class="form-control" placeholder="Name" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px;">
+                                <input type="text" wire:model.live="preparedPosition" class="form-control" placeholder="Position" style="width: 100%; padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11px;">
+                            </div>
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">11. RECOMMENDING APPROVAL</label>
+                                <input type="text" wire:model.live="recommendingBy" class="form-control" placeholder="Name" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px;">
+                                <input type="text" wire:model.live="recommendingPosition" class="form-control" placeholder="Position" style="width: 100%; padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11px;">
+                            </div>
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">10. ASSISTED BY</label>
+                                <input type="text" wire:model.live="assistedBy" class="form-control" placeholder="Name" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px;">
+                                <input type="text" wire:model.live="assistedPosition" class="form-control" placeholder="Position" style="width: 100%; padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11px;">
+                            </div>
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">12. APPROVED</label>
+                                <input type="text" wire:model.live="approvedBy" class="form-control" placeholder="Name" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px;">
+                                <input type="text" wire:model.live="approvedPosition" class="form-control" placeholder="Position" style="width: 100%; padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11px;">
+                            </div>
+                        </div>
+                    </div>
+                @else
+                    <!-- FILL-UP FORM PANEL FOR NAP FORM 3 - NO-PRINT -->
+                    <div class="no-print" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 18px; margin-bottom: 24px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
+                        <h4 style="margin: 0 0 14px 0; font-size: 13px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
+                            📋 Request Header Information
+                        </h4>
+                        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px;">
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">AGENCY NAME</label>
+                                <input type="text" wire:model.live="agencyName" class="form-control" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                            </div>
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">ADDRESS</label>
+                                <input type="text" wire:model.live="agencyAddress" class="form-control" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                            </div>
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">DATE</label>
+                                <input type="text" wire:model.live="datePrepared" class="form-control" placeholder="e.g. August 03, 2026" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                            </div>
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">TELEPHONE NUMBER</label>
+                                <input type="text" wire:model.live="telephoneNumber" class="form-control" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                            </div>
+                        </div>
+
+                        <h4 style="margin: 14px 0 12px 0; font-size: 13px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
+                            ✍️ Signatures & Certifications
+                        </h4>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">PREPARED BY (Name & Position)</label>
+                                <input type="text" wire:model.live="preparedBy" class="form-control" placeholder="Name" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px;">
+                                <input type="text" wire:model.live="preparedPosition" class="form-control" placeholder="Position" style="width: 100%; padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11px;">
+                            </div>
+                            <div>
+                                <label style="font-size: 11.5px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">CERTIFIED AND APPROVED BY (Agency Head)</label>
+                                <input type="text" wire:model.live="approvedBy" class="form-control" placeholder="Agency Head Name" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; margin-bottom: 4px;">
+                                <input type="text" wire:model.live="approvedPosition" class="form-control" placeholder="Position / Designation" style="width: 100%; padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11px;">
+                            </div>
+                        </div>
+                    </div>
                 @endif
 
-                <div class="printable-report-area" style="background: #ffffff; padding: 10px; font-family: Arial, sans-serif; font-size: 12px; color: #000000;">
-                    @if(strtolower($printCluster->form_code ?? '') === 'nap1' || str_contains(strtolower($printCluster->form_label ?? ''), 'form 1'))
-                        <!-- OFFICIAL 2024 NAP FORM 1: RECORDS INVENTORY AND APPRAISAL -->
-                        <div style="font-size: 9px; margin-bottom: 2px; font-weight: bold;">NAP Records Inventory and Appraisal Form</div>
-                        <div style="font-size: 9px; margin-bottom: 6px; font-weight: bold;">2024</div>
+                {{-- DOCUMENT PRINT SHEETS --}}
+                @if($isNap1)
+                    @php
+                        $flattenedItems = [];
+                        foreach ($printHierarchy as $root) {
+                            if (!$root->has_children) {
+                                $flattenedItems[] = [
+                                    'type' => 'root_standalone',
+                                    'root' => $root,
+                                ];
+                                if ($includeDescriptionOnPrint) {
+                                    foreach ($root->direct_records as $rec) {
+                                        $flattenedItems[] = [
+                                            'type'   => 'record',
+                                            'rec'    => $rec,
+                                            'indent' => 20,
+                                        ];
+                                    }
+                                }
+                            } else {
+                                $flattenedItems[] = [
+                                    'type' => 'root_header',
+                                    'root' => $root,
+                                ];
+                                foreach ($root->sub_series as $sub) {
+                                    $flattenedItems[] = [
+                                        'type'   => 'sub_series',
+                                        'sub'    => $sub,
+                                        'root'   => $root,
+                                        'indent' => 16,
+                                    ];
+                                    if ($includeDescriptionOnPrint) {
+                                        foreach ($sub->records as $rec) {
+                                            $flattenedItems[] = [
+                                                'type'   => 'record',
+                                                'rec'    => $rec,
+                                                'indent' => 26,
+                                            ];
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
-                        <!-- TOP HEADER GRID BOX (Fields 1 to 8) -->
-                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-bottom: none; font-size: 8.5px; text-align: left; table-layout: fixed;">
-                            <tr>
-                                <td rowspan="3" style="width: 27.5%; border: 1px solid #000; text-align: center; vertical-align: middle; padding: 4px;">
-                                    <div style="border: 1.5px solid #000; padding: 10px 6px; margin: 2px;">
-                                        <div style="font-weight: bold; font-size: 10.5px; font-family: Arial, sans-serif; text-align: center;">NATIONAL ARCHIVES OF THE PHILIPPINES</div>
-                                        <div style="font-style: italic; font-size: 9px; margin: 3px 0 10px 0; font-family: Arial, sans-serif; text-align: center;">Pambansang Sinupan ng Pilipinas</div>
-                                        <div style="font-weight: bold; font-size: 10.5px; font-family: Arial, sans-serif; text-align: center;">RECORDS INVENTORY AND APPRAISAL</div>
-                                    </div>
-                                </td>
-                                <td rowspan="2" style="width: 27%; border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>1. NAME OF OFFICE:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $agencyName }}</div>
-                                </td>
-                                <td style="width: 17.5%; border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>2. DEPARTMENT/DIVISION:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $departmentDivision }}</div>
-                                </td>
-                                <td style="width: 28%; border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>4. TELEPHONE NO.:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $telephoneNumber }}</div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>3. SECTION/UNIT:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $sectionUnit }}</div>
-                                </td>
-                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>5. EMAIL ADDRESS.:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $emailAddress }}</div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>6. ADDRESS:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $agencyAddress }}</div>
-                                </td>
-                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>7. PERSON-IN-CHARGE OF FILES:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $personInCharge }}</div>
-                                </td>
-                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>8. DATE PREPARED:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $datePrepared ?: \Carbon\Carbon::parse($printCluster->created_at)->format('m/d/Y') }}</div>
-                                </td>
-                            </tr>
-                        </table>
+                        $totalItems = count($flattenedItems);
+                        $pages = [];
+                        $maxRowsFinalPage = 10;
+                        $maxRowsOtherPages = 15;
 
-                        <!-- MAIN DATA TABLE (Columns 9 to 20) -->
-                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 8px; text-align: center; table-layout: fixed;">
-                            <thead>
-                                <tr style="font-weight: bold;">
-                                    <th rowspan="2" style="border: 1px solid #000; width: 15%; padding: 4px; text-align: left;">9. RECORDS SERIES TITLE AND DESCRIPTION</th>
-                                    <th rowspan="2" style="border: 1px solid #000; width: 8%; padding: 4px;">10. PERIOD COVERED / INCLUSIVE DATES</th>
-                                    <th rowspan="2" style="border: 1px solid #000; width: 4.5%; padding: 4px;">11. VOLUME</th>
-                                    <th rowspan="2" style="border: 1px solid #000; width: 6.5%; padding: 4px;">12. RECORDS MEDIUM</th>
-                                    <th rowspan="2" style="border: 1px solid #000; width: 6.5%; padding: 4px;">13. RESTRICTION/S</th>
-                                    <th rowspan="2" style="border: 1px solid #000; width: 7.5%; padding: 4px;">14. LOCATION OF RECORDS</th>
-                                    <th rowspan="2" style="border: 1px solid #000; width: 6.5%; padding: 4px;">15. FREQUENCY OF USE</th>
-                                    <th rowspan="2" style="border: 1px solid #000; width: 5.5%; padding: 4px;">16. DUPLICATION</th>
-                                    <th rowspan="2" style="border: 1px solid #000; width: 5%; padding: 4px;">17. TIME VALUE (T/P)</th>
-                                    <th rowspan="2" style="border: 1px solid #000; width: 6.5%; padding: 4px;">18. UTILITY VALUE Adm/F/L/Arc</th>
-                                    <th colspan="3" style="border: 1px solid #000; width: 11%; padding: 4px;">19. RETENTION PERIOD</th>
-                                    <th rowspan="2" style="border: 1px solid #000; width: 11.5%; padding: 4px;">20. DISPOSITION PROVISION</th>
-                                </tr>
-                                <tr style="font-weight: bold;">
-                                    <th style="border: 1px solid #000; width: 3.6%; padding: 3px;">Active</th>
-                                    <th style="border: 1px solid #000; width: 3.6%; padding: 3px;">Storage</th>
-                                    <th style="border: 1px solid #000; width: 3.8%; padding: 3px;">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach($printItems as $idx => $pi)
-                                    @php
-                                        $isPerm = (bool)($pi->effective_is_permanent ?? false) || strtolower(trim($pi->total_period ?? '')) === 'permanent';
-                                        $borderBottom = $loop->last ? 'border-bottom: 2px solid #000;' : 'border-bottom: none;';
-                                        $cellStyle = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; {$borderBottom}";
-                                    @endphp
-                                    <tr>
-                                        <td style="{{ $cellStyle }} text-align: left; padding: 4px 5px; vertical-align: top;">
-                                            <div style="font-weight: bold;">{{ $pi->series_title ?? $pi->doc_name ?? 'Untitled' }}</div>
-                                            @if(!empty($pi->description))
-                                                <div style="font-style: italic; font-size: 7.5px; color: #333; margin-top: 1px;">{{ $pi->description }}</div>
-                                            @endif
-                                        </td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">
-                                            {{ $pi->period_covered ?? (!empty($pi->start_at ?? null) ? (\Carbon\Carbon::parse($pi->start_at)->format('Y') . (!empty($pi->ends_at ?? null) ? ' - ' . \Carbon\Carbon::parse($pi->ends_at)->format('Y') : '')) : '') }}
-                                        </td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->volume ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->records_medium ?? $pi->medium_name ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->restriction ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->records_location ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->frequence_use ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->duplication ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold;">{{ $pi->time_value ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold;">{{ $pi->utility_name_display ?? ($pi->time_value === 'P' ? 'Arc' : 'Adm') }}</td>
-                                        
-                                        @if($isPerm)
-                                            <td colspan="3" style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold; color: #dc2626;">PERMANENT</td>
-                                        @else
-                                            <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->active_period ?? '' }}</td>
-                                            <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->storage_period ?? '' }}</td>
-                                            <td style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold;">{{ $pi->total_period ?? '' }}</td>
-                                        @endif
+                        if ($totalItems === 0) {
+                            $pages = [ [] ];
+                        } elseif ($totalItems <= $maxRowsFinalPage) {
+                            $pages = [ $flattenedItems ];
+                        } else {
+                            $remaining = $flattenedItems;
+                            while (!empty($remaining)) {
+                                if (count($remaining) <= $maxRowsFinalPage) {
+                                    $pages[] = $remaining;
+                                    break;
+                                }
+                                $chunkSize = min($maxRowsOtherPages, max(1, count($remaining) - 1));
+                                $chunk = array_splice($remaining, 0, $chunkSize);
+                                $pages[] = $chunk;
+                            }
+                        }
+                        $totalPages = count($pages);
+                    @endphp
 
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->disposition_provision ?? $pi->remarks ?? '' }}</td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-
-                        <!-- FOOTER LEGEND SECTION -->
-                        <div style="font-size: 8.5px; font-weight: bold; margin-top: 10px; margin-bottom: 16px;">
-                            <div>LEGEND:</div>
-                            <div style="display: flex; gap: 60px; margin-top: 4px; font-size: 8px;">
-                                <div>
-                                    <span style="display: inline-block; width: 90px;">TIME VALUE:</span>
-                                    <strong>T</strong> - Temporary &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>P</strong> - Permanent
-                                </div>
-                                <div>
-                                    <span style="display: inline-block; width: 90px;">UTILITY VALUE:</span>
-                                    <strong>Adm</strong> - Administrative &nbsp;&nbsp;&nbsp; <strong>F</strong> - Fiscal &nbsp;&nbsp;&nbsp; <strong>L</strong> - Legal &nbsp;&nbsp;&nbsp; <strong>Arc</strong> - Archival
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- SIGNATURES BLOCK -->
-                        <div style="display: flex; justify-content: space-between; margin-top: 30px; font-size: 8.5px; text-transform: uppercase;">
-                            <div style="width: 30%;">
-                                <div style="font-weight: bold; margin-bottom: 35px;">PREPARED BY:</div>
-                                <div style="border-bottom: 1.5px solid #000; width: 90%; text-align: center; font-weight: bold; font-size: 9.5px; padding-bottom: 2px;">
-                                    {{ $preparedBy }}
-                                </div>
-                                <div style="text-align: center; font-size: 8px; margin-top: 3px; width: 90%; text-transform: none;">{{ $preparedPosition ?: 'Name and Position' }}</div>
+                    @foreach($pages as $pageIndex => $pageItems)
+                        @php
+                            $isLastPage = ($pageIndex + 1) === $totalPages;
+                            $cellBorder = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;";
+                            $computedFiller = $isLastPage 
+                                ? max(60, 360 - (count($pageItems) * 22)) 
+                                : max(60, 460 - (count($pageItems) * 22));
+                        @endphp
+                        <div class="print-sheet">
+                            <!-- Top Form Identifier -->
+                            <div style="font-size: 8px; font-weight: normal; margin-bottom: 3px; line-height: 1.25;">
+                                NAP Records Inventory and Appraisal Form<br>2024
                             </div>
 
-                            <div style="width: 35%;">
-                                <div style="font-weight: bold; margin-bottom: 35px;">ASSISTED BY:</div>
-                                <div style="border-bottom: 1.5px solid #000; width: 90%; text-align: center; font-weight: bold; font-size: 9.5px; padding-bottom: 2px;">
-                                    {{ $assistedBy ?: ' ' }}
-                                </div>
-                                <div style="text-align: center; font-size: 8px; margin-top: 3px; width: 90%; text-transform: none;">{{ $assistedPosition ?: 'NAP Records Management Analyst' }}</div>
-                            </div>
-
-                            <div style="width: 30%;">
-                                <div style="font-weight: bold; margin-bottom: 35px;">APPROVED BY:</div>
-                                <div style="border-bottom: 1.5px solid #000; width: 90%; text-align: center; font-weight: bold; font-size: 9.5px; padding-bottom: 2px;">
-                                    {{ $approvedBy }}
-                                </div>
-                                <div style="text-align: center; font-size: 8px; margin-top: 3px; width: 90%; text-transform: none;">{{ $approvedPosition ?: 'Chief of the Division/Department' }}</div>
-                            </div>
-                        </div>
-
-                        <!-- BOTTOM PAGE NUMBER -->
-                        <div style="text-align: right; font-size: 8px; margin-top: 20px;">
-                            Page ___ of ___ Pages
-                        </div>
-                    @elseif(strtolower($printCluster->form_code ?? '') === 'nap2' || str_contains(strtolower($printCluster->form_label ?? ''), 'form 2'))
-                        <div class="nap-form-2-print" style="font-family: Arial, sans-serif; font-size: 12px; padding: 10px; color: #000000;">
-                        <!-- OFFICIAL NAP FORM 2: RECORDS DISPOSITION SCHEDULE -->
-                        <div style="font-size: 9px; margin-bottom: 2px; font-weight: bold;">NAP Form 2</div>
-                        <div style="font-size: 9px; margin-bottom: 6px; font-weight: bold;">2008</div>
-
-                        <!-- PAGE 1 TOP HEADER GRID BOX -->
-                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 8.5px; text-align: left; table-layout: fixed;">
-                            <tr>
-                                <td rowspan="2" style="width: 48%; border: 1px solid #000; text-align: center; vertical-align: middle; padding: 4px;">
-                                    <div style="border: 1.5px solid #000; padding: 8px 6px; margin: 2px;">
-                                        <div style="font-weight: bold; font-size: 10.5px;">NATIONAL ARCHIVES OF THE PHILIPPINES</div>
-                                        <div style="font-style: italic; font-size: 9px; margin: 2px 0 6px 0;">Pambansang Sinupan ng Pilipinas</div>
-                                        <div style="font-weight: bold; font-size: 10.5px;">RECORDS DISPOSITION SCHEDULE</div>
-                                    </div>
-                                </td>
-                                <td style="width: 52%; border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>1. AGENCY NAME:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $agencyName }}</div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>2. ADDRESS:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $agencyAddress }}</div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>3. SCHEDULE NO.:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $printCluster->cluster_id ?? '' }}</div>
-                                </td>
-                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>4. DATE PREPARED:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $datePrepared ?: \Carbon\Carbon::parse($printCluster->created_at)->format('m/d/Y') }}</div>
-                                </td>
-                            </tr>
-                        </table>
-
-                        <!-- PAGE 1 MAIN DATA TABLE -->
-                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-top: none; font-size: 8.5px; text-align: center; table-layout: fixed;">
-                            <thead>
-                                <tr style="font-weight: bold;">
-                                    <th rowspan="2" style="border: 1px solid #000; width: 11%; padding: 4px;">5. ITEM NO.:</th>
-                                    <th rowspan="2" style="border: 1px solid #000; width: 39%; padding: 4px; text-align: left;">6. RECORD SERIES TITLE AND DESCRIPTION</th>
-                                    <th colspan="3" style="border: 1px solid #000; width: 35%; padding: 4px;">7. RETENTION PERIOD</th>
-                                    <th rowspan="2" style="border: 1px solid #000; width: 15%; padding: 4px;">8. REMARKS</th>
-                                </tr>
-                                <tr style="font-weight: bold;">
-                                    <th style="border: 1px solid #000; width: 11.5%; padding: 3px;">Active</th>
-                                    <th style="border: 1px solid #000; width: 11.5%; padding: 3px;">Storage</th>
-                                    <th style="border: 1px solid #000; width: 12%; padding: 3px;">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach($printItems as $idx => $pi)
-                                    @php
-                                        $isPerm = (bool)($pi->effective_is_permanent ?? false) || strtolower(trim($pi->total_period ?? '')) === 'permanent';
-                                        $borderBottom = $loop->last ? 'border-bottom: 2px solid #000;' : 'border-bottom: none;';
-                                        $cellStyle = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; {$borderBottom}";
-                                    @endphp
-                                    <tr>
-                                        <td style="{{ $cellStyle }} padding: 4px;">{{ $pi->item_number ?? ($idx + 1) }}</td>
-                                        <td style="{{ $cellStyle }} text-align: left; padding: 4px 6px;">
-                                            <div style="font-weight: bold;">{{ $pi->series_title ?? $pi->doc_name ?? 'Untitled' }}</div>
-                                            @if(!empty($pi->description))
-                                                <div style="font-style: italic; font-size: 8px; color: #333; margin-top: 1px;">{{ $pi->description }}</div>
-                                            @endif
-                                        </td>
-                                        @if($isPerm)
-                                            <td colspan="3" style="{{ $cellStyle }} padding: 4px; font-weight: bold; color: #dc2626;">PERMANENT</td>
-                                        @else
-                                            <td style="{{ $cellStyle }} padding: 4px;">{{ $pi->active_period ?? '' }}</td>
-                                            <td style="{{ $cellStyle }} padding: 4px;">{{ $pi->storage_period ?? '' }}</td>
-                                            <td style="{{ $cellStyle }} padding: 4px; font-weight: bold;">{{ $pi->total_period ?? '' }}</td>
-                                        @endif
-                                        <td style="{{ $cellStyle }} padding: 4px;">{{ $pi->remarks ?? $pi->disposition_provision ?? '' }}</td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-
-                        <!-- PAGE 1 BOTTOM NOTICE -->
-                        <div style="font-size: 8px; margin-top: 12px; margin-bottom: 12px; line-height: 1.4;">
-                            <strong>IMPORTANT:</strong> Pursuant to Section 18, Article III, RA 9470 s. 2007, "No government department, bureau, agency and instrumentality shall dispose of, destroy or authorize the disposal or destruction of any public records, which are in the custody or under its control except with the prior written authority of the executive director."
-                        </div>
-                        <!-- PAGE 2 SIGNATURES & APPROVAL SECTION (Always clean final page) -->
-                        <div class="print-signatures-block" style="page-break-before: always; break-before: page; page-break-inside: avoid; break-inside: avoid; padding-top: 12px;">
-                            <div style="font-size: 9px; margin-bottom: 4px; font-weight: bold;">NAP Form 2</div>
-                            <div style="font-size: 9px; margin-bottom: 8px; font-weight: bold;">2008</div>
-
-                            <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 8.5px;">
+                            <!-- TOP HEADER GRID BOX (Fields 1 to 8) -->
+                            <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-bottom: none; font-size: 8px; text-align: left; table-layout: fixed;">
                                 <tr>
-                                    <td style="width: 50%; border: 1px solid #000; padding: 12px; vertical-align: top;">
-                                        <strong>9. Prepared by:</strong>
-                                        <div style="margin-top: 35px; text-align: center; border-bottom: 1px solid #000; width: 80%; margin-left: auto; margin-right: auto; font-weight: bold; font-size: 9.5px;">
-                                            {{ $preparedBy }}
+                                    <td rowspan="3" style="width: 27.5%; border: 1px solid #000; text-align: center; vertical-align: middle; padding: 4px;">
+                                        <div style="border: 1.5px solid #000; padding: 8px 6px; margin: 2px;">
+                                            <div style="font-weight: bold; font-size: 10px; text-align: center;">NATIONAL ARCHIVES OF THE PHILIPPINES</div>
+                                            <div style="font-style: italic; font-size: 8.5px; margin: 2px 0 8px 0; text-align: center;">Pambansang Sinupan ng Pilipinas</div>
+                                            <div style="font-weight: bold; font-size: 10px; text-align: center;">RECORDS INVENTORY AND APPRAISAL</div>
                                         </div>
-                                        <div style="text-align: center; font-size: 8px; margin-top: 2px;">Name</div>
-                                        <div style="margin-top: 15px; text-align: center; border-bottom: 1px solid #000; width: 80%; margin-left: auto; margin-right: auto; font-size: 8.5px;">
-                                            {{ $preparedPosition }}
-                                        </div>
-                                        <div style="text-align: center; font-size: 8px; margin-top: 2px;">Position</div>
                                     </td>
-                                    <td style="width: 50%; border: 1px solid #000; padding: 12px; vertical-align: top;">
-                                        <strong>11. Recommending Approval:</strong>
-                                        <div style="margin-top: 35px; text-align: center; border-bottom: 1px solid #000; width: 80%; margin-left: auto; margin-right: auto; font-weight: bold; font-size: 9.5px;">
-                                            {{ $assistedBy }}
-                                        </div>
-                                        <div style="text-align: center; font-size: 8px; margin-top: 2px;">Name</div>
-                                        <div style="margin-top: 15px; text-align: center; border-bottom: 1px solid #000; width: 80%; margin-left: auto; margin-right: auto; font-size: 8.5px;">
-                                            {{ $assistedPosition }}
-                                        </div>
-                                        <div style="text-align: center; font-size: 8px; margin-top: 2px;">Position</div>
+                                    <td rowspan="2" style="width: 27%; border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                        <strong>1. NAME OF OFFICE:</strong>
+                                        <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ $cleanVal($agencyName) }}</div>
+                                    </td>
+                                    <td style="width: 17.5%; border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                        <strong>2. DEPARTMENT/DIVISION:</strong>
+                                        <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ $cleanVal($departmentDivision) }}</div>
+                                    </td>
+                                    <td style="width: 28%; border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                        <strong>4. TELEPHONE NO.:</strong>
+                                        <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ $cleanVal($telephoneNumber) }}</div>
                                     </td>
                                 </tr>
                                 <tr>
-                                    <td style="border: 1px solid #000; padding: 12px; vertical-align: top;">
-                                        <strong>10. Assisted by:</strong>
-                                        <div style="margin-top: 35px; text-align: center; border-bottom: 1px solid #000; width: 80%; margin-left: auto; margin-right: auto; font-weight: bold; font-size: 9.5px;">
-                                            
-                                        </div>
-                                        <div style="text-align: center; font-size: 8px; margin-top: 2px;">Name</div>
-                                        <div style="margin-top: 15px; text-align: center; border-bottom: 1px solid #000; width: 80%; margin-left: auto; margin-right: auto; font-size: 8.5px;">
-                                            
-                                        </div>
-                                        <div style="text-align: center; font-size: 8px; margin-top: 2px;">Position</div>
+                                    <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                        <strong>3. SECTION/UNIT:</strong>
+                                        <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ $cleanVal($sectionUnit) }}</div>
                                     </td>
-                                    <td style="border: 1px solid #000; padding: 12px; vertical-align: top;">
-                                        <strong>12. Approved:</strong>
-                                        <div style="margin-top: 35px; text-align: center; border-bottom: 1px solid #000; width: 80%; margin-left: auto; margin-right: auto; font-weight: bold; font-size: 9.5px;">
-                                            {{ $approvedBy }}
-                                        </div>
-                                        <div style="text-align: center; font-size: 8px; margin-top: 2px;">Name</div>
-                                        <div style="margin-top: 15px; text-align: center; border-bottom: 1px solid #000; width: 80%; margin-left: auto; margin-right: auto; font-size: 8.5px;">
-                                            {{ $approvedPosition }}
-                                        </div>
-                                        <div style="text-align: center; font-size: 8px; margin-top: 2px;">Position</div>
+                                    <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                        <strong>5. EMAIL ADDRESS.:</strong>
+                                        <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ $cleanVal($emailAddress) }}</div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                        <strong>6. ADDRESS:</strong>
+                                        <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ $cleanVal($agencyAddress) }}</div>
+                                    </td>
+                                    <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                        <strong>7. PERSON-IN-CHARGE OF FILES:</strong>
+                                        <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ $cleanVal($personInCharge) }}</div>
+                                    </td>
+                                    <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                        <strong>8. DATE PREPARED:</strong>
+                                        <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ $cleanVal($datePrepared) }}</div>
                                     </td>
                                 </tr>
                             </table>
 
-                            <div style="border: 2px solid #000; border-top: none; padding: 12px;">
-                                <div style="text-align: center; font-weight: bold; font-size: 9px; text-transform: uppercase; border-bottom: 1.5px solid #000; padding-bottom: 4px; margin-bottom: 14px;">
-                                    TO BE ACCOMPLISHED BY THE NATIONAL ARCHIVES OF THE PHILIPPINES
-                                </div>
-                                <div style="font-size: 8.5px; margin-bottom: 12px;">This Records Disposition Schedule</div>
-                                <div style="font-size: 8.5px; margin-left: 20px; margin-bottom: 6px;">[ &nbsp; ] is being returned for improvement / correction</div>
-                                <div style="font-size: 8.5px; margin-left: 20px; margin-bottom: 25px;">[ &nbsp; ] is being recommended for approval</div>
-
-                                <div style="display: flex; justify-content: space-between; font-size: 8.5px;">
-                                    <div style="width: 40%; text-align: center;">
-                                        <div style="border-bottom: 1px solid #000; font-weight: bold; padding-bottom: 2px;">Chairman</div>
-                                        <div style="font-size: 8px; margin-top: 2px;">Records Management Evaluation Committee</div>
-                                        <div style="margin-top: 15px; border-bottom: 1px solid #000; width: 60%; margin-left: auto; margin-right: auto;"></div>
-                                        <div style="font-size: 8px; margin-top: 2px;">Date</div>
-                                    </div>
-
-                                    <div style="width: 40%; text-align: center;">
-                                        <div style="font-weight: bold; margin-bottom: 10px;">APPROVED:</div>
-                                        <div style="border-bottom: 1px solid #000; font-weight: bold; padding-bottom: 2px; margin-top: 15px;">Executive Director</div>
-                                        <div style="font-size: 8px; margin-top: 2px;">Executive Director</div>
-                                        <div style="margin-top: 15px; border-bottom: 1px solid #000; width: 60%; margin-left: auto; margin-right: auto;"></div>
-                                        <div style="font-size: 8px; margin-top: 2px;">Date</div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div style="text-align: right; font-size: 8px; font-weight: bold; margin-top: 16px;">Page 2 of 2 Pages</div>
-                        </div>
-
-                    @else
-                        <div class="nap-form-3-print" style="font-family: Arial, sans-serif; font-size: 12px; padding: 10px; color: #000000;">
-                        <!-- OFFICIAL NAP FORM 3: REQUEST FOR AUTHORITY TO DISPOSE OF RECORDS -->
-                        <div style="display: flex; justify-content: space-between; font-size: 9px; font-weight: bold; margin-bottom: 6px;">
-                            <div>
-                                <div>NAP Form No. 3</div>
-                                <div>Revised 2012</div>
-                            </div>
-                            <div>Accomplish in 3 copies</div>
-                        </div>
-
-                        <!-- TOP HEADER GRID BOX -->
-                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 8.5px; text-align: left; table-layout: fixed;">
-                            <tr>
-                                <td rowspan="2" style="width: 48%; border: 1px solid #000; text-align: center; vertical-align: middle; padding: 4px;">
-                                    <div style="border: 1.5px solid #000; padding: 8px 6px; margin: 2px;">
-                                        <div style="font-weight: bold; font-size: 10.5px;">NATIONAL ARCHIVES OF THE PHILIPPINES</div>
-                                        <div style="font-style: italic; font-size: 9px; margin: 2px 0 6px 0;">Pambansang Sinupan ng Pilipinas</div>
-                                        <div style="font-weight: bold; font-size: 10.5px;">REQUEST FOR AUTHORITY TO DISPOSE OF RECORDS</div>
-                                    </div>
-                                </td>
-                                <td style="width: 52%; border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>AGENCY NAME:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $agencyName }}</div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>ADDRESS:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $agencyAddress }}</div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>DATE:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $datePrepared ?: \Carbon\Carbon::parse($printCluster->created_at)->format('m/d/Y') }}</div>
-                                </td>
-                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
-                                    <strong>TELEPHONE NUMBER:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $telephoneNumber }}</div>
-                                </td>
-                            </tr>
-                        </table>
-
-                        <!-- MAIN DATA TABLE -->
-                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-top: none; font-size: 8.5px; text-align: center; table-layout: fixed;">
-                            <thead>
-                                <tr style="font-weight: bold;">
-                                    <th style="border: 1px solid #000; width: 14%; padding: 6px 4px;">GRDS / RDS ITEM NO.</th>
-                                    <th style="border: 1px solid #000; width: 44%; padding: 6px 4px; text-align: left;">RECORD SERIES TITLE AND DESCRIPTION</th>
-                                    <th style="border: 1px solid #000; width: 17%; padding: 6px 4px;">PERIOD COVERED</th>
-                                    <th style="border: 1px solid #000; width: 25%; padding: 6px 4px;">RETENTION PERIOD AND PROVISION/S COMPLIED (If Any)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach($printItems as $idx => $pi)
-                                    @php
-                                        $borderBottom = $loop->last ? 'border-bottom: 2px solid #000;' : 'border-bottom: none;';
-                                        $cellStyle = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; {$borderBottom}";
-                                    @endphp
-                                    <tr>
-                                        <td style="{{ $cellStyle }} padding: 4px;">{{ $pi->item_number ?? ($idx + 1) }}</td>
-                                        <td style="{{ $cellStyle }} text-align: left; padding: 4px 6px;">
-                                            <div style="font-weight: bold;">{{ $pi->series_title ?? $pi->doc_name ?? 'Untitled' }}</div>
-                                            @if(!empty($pi->description))
-                                                <div style="font-style: italic; font-size: 8px; color: #333; margin-top: 1px;">{{ $pi->description }}</div>
-                                            @endif
-                                        </td>
-                                        <td style="{{ $cellStyle }} padding: 4px;">
-                                            {{ $pi->period_covered ?? (!empty($pi->start_at ?? null) ? (\Carbon\Carbon::parse($pi->start_at)->format('Y') . (!empty($pi->ends_at ?? null) ? ' - ' . \Carbon\Carbon::parse($pi->ends_at)->format('Y') : '')) : '') }}
-                                        </td>
-                                        <td style="{{ $cellStyle }} padding: 4px;">{{ $pi->retention_period ?? $pi->total_period ?? $pi->disposition_provision ?? '' }}</td>
+                            <!-- MAIN DATA TABLE (Columns 9 to 20) -->
+                            <table class="print-table" style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 8px; text-align: center; table-layout: fixed;">
+                                <thead>
+                                    <tr style="font-weight: bold;">
+                                        <th rowspan="2" style="border: 1px solid #000; width: 17%; padding: 4px 2px; text-align: center;">9. RECORDS SERIES TITLE AND DESCRIPTION</th>
+                                        <th rowspan="2" style="border: 1px solid #000; width: 8%; padding: 4px 2px; text-align: center;">10. PERIOD COVERED / INCLUSIVE DATES</th>
+                                        <th rowspan="2" style="border: 1px solid #000; width: 5%; padding: 4px 2px; text-align: center;">11. VOLUME</th>
+                                        <th rowspan="2" style="border: 1px solid #000; width: 6.5%; padding: 4px 2px; text-align: center;">12. RECORDS MEDIUM</th>
+                                        <th rowspan="2" style="border: 1px solid #000; width: 6.5%; padding: 4px 2px; text-align: center;">13. RESTRICTION/S</th>
+                                        <th rowspan="2" style="border: 1px solid #000; width: 7.5%; padding: 4px 2px; text-align: center;">14. LOCATION OF RECORDS</th>
+                                        <th rowspan="2" style="border: 1px solid #000; width: 6.5%; padding: 4px 2px; text-align: center;">15. FREQUENCY OF USE</th>
+                                        <th rowspan="2" style="border: 1px solid #000; width: 5.5%; padding: 4px 2px; text-align: center;">16. DUPLICATION</th>
+                                        <th rowspan="2" style="border: 1px solid #000; width: 5%; padding: 4px 2px; text-align: center;">17. TIME VALUE (T/P)</th>
+                                        <th rowspan="2" style="border: 1px solid #000; width: 6.5%; padding: 4px 2px; text-align: center;">18. UTILITY VALUE Adm/F/L/Arc</th>
+                                        <th colspan="3" style="border: 1px solid #000; width: 11%; padding: 4px 2px; text-align: center;">19. RETENTION PERIOD</th>
+                                        <th rowspan="2" style="border: 1px solid #000; width: 15%; padding: 4px 2px; text-align: center;">20. DISPOSITION PROVISION</th>
                                     </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
+                                    <tr style="font-weight: bold;">
+                                        <th style="border: 1px solid #000; width: 3.6%; padding: 3px 2px; text-align: center;">Active</th>
+                                        <th style="border: 1px solid #000; width: 3.6%; padding: 3px 2px; text-align: center;">Storage</th>
+                                        <th style="border: 1px solid #000; width: 3.8%; padding: 3px 2px; text-align: center;">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach($pageItems as $item)
+                                        @if($item['type'] === 'root_standalone')
+                                            @php $root = $item['root']; @endphp
+                                            <tr style="vertical-align: top;">
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 3px 6px; font-weight: bold; font-size: 8.5px;">
+                                                    {{ strtoupper($cleanVal($root->series_title)) }}
+                                                </td>
+                                                <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center;">{{ $cleanVal($root->compiled_period) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center;">{{ $cleanVal($root->compiled_volume) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center;">{{ $cleanVal($root->compiled_medium) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center;">{{ $cleanVal($root->compiled_restriction) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center;">{{ $cleanVal($root->compiled_location) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center;">{{ $cleanVal($root->compiled_freq) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center;">{{ $cleanVal($root->compiled_duplication) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center; font-weight: bold;">{{ $cleanVal($root->compiled_time) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center; font-weight: bold;">{{ $cleanVal($root->compiled_util) }}</td>
+                                                @if($root->is_permanent)
+                                                    <td colspan="3" style="{{ $cellBorder }} padding: 3px 2px; text-align: center; font-weight: bold;">PERMANENT</td>
+                                                @else
+                                                    <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center;">{{ $cleanVal($root->active_period) }}</td>
+                                                    <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center;">{{ $cleanVal($root->storage_period) }}</td>
+                                                    <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center; font-weight: bold;">{{ $cleanVal($root->total_period) }}</td>
+                                                @endif
+                                                <td style="{{ $cellBorder }} padding: 3px 4px; text-align: left;">{{ $cleanVal($root->remarks) }}</td>
+                                            </tr>
+                                        @elseif($item['type'] === 'root_header')
+                                            @php $root = $item['root']; @endphp
+                                            <tr style="vertical-align: top;">
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 2px 6px; font-weight: bold; font-size: 8.5px;">
+                                                    {{ strtoupper($cleanVal($root->series_title)) }}
+                                                </td>
+                                                <td style="{{ $cellBorder }} padding: 2px;"></td>
+                                                <td style="{{ $cellBorder }} padding: 2px;"></td>
+                                                <td style="{{ $cellBorder }} padding: 2px;"></td>
+                                                <td style="{{ $cellBorder }} padding: 2px;"></td>
+                                                <td style="{{ $cellBorder }} padding: 2px;"></td>
+                                                <td style="{{ $cellBorder }} padding: 2px;"></td>
+                                                <td style="{{ $cellBorder }} padding: 2px;"></td>
+                                                <td style="{{ $cellBorder }} padding: 2px;"></td>
+                                                <td style="{{ $cellBorder }} padding: 2px;"></td>
+                                                <td style="{{ $cellBorder }} padding: 2px;"></td>
+                                                <td style="{{ $cellBorder }} padding: 2px;"></td>
+                                                <td style="{{ $cellBorder }} padding: 2px;"></td>
+                                                <td style="{{ $cellBorder }} padding: 2px;"></td>
+                                            </tr>
+                                        @elseif($item['type'] === 'sub_series')
+                                            @php 
+                                                $sub = $item['sub']; 
+                                                $root = $item['root']; 
+                                            @endphp
+                                            <tr style="vertical-align: top;">
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 3px {{ $item['indent'] ?? 16 }}px; font-weight: normal; font-size: 8.5px;">
+                                                    {{ $cleanVal($sub->series_title) }}
+                                                </td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($sub->compiled_period) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($sub->compiled_volume) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($sub->compiled_medium) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($sub->compiled_restriction) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($sub->compiled_location) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($sub->compiled_freq) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($sub->compiled_duplication) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center; font-weight: bold;">{{ $cleanVal($sub->compiled_time) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center; font-weight: bold;">{{ $cleanVal($sub->compiled_util) }}</td>
+                                                @if($sub->is_permanent)
+                                                    <td colspan="3" style="{{ $cellBorder }} padding: 2px; text-align: center; font-weight: bold;">PERMANENT</td>
+                                                @else
+                                                    <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($sub->active_period) }}</td>
+                                                    <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($sub->storage_period) }}</td>
+                                                    <td style="{{ $cellBorder }} padding: 2px; text-align: center; font-weight: bold;">{{ $cleanVal($sub->total_period) }}</td>
+                                                @endif
+                                                <td style="{{ $cellBorder }} padding: 2px 4px; text-align: left;">{{ $cleanVal($sub->remarks ?: $root->remarks) }}</td>
+                                            </tr>
+                                        @elseif($item['type'] === 'record')
+                                            @php $rec = $item['rec']; @endphp
+                                            <tr style="vertical-align: top;">
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 2px {{ $item['indent'] ?? 20 }}px; font-size: 8px;">
+                                                    {{ $cleanVal($rec->description) }}
+                                                </td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($rec->date_covered) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($rec->volume) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($rec->medium) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($rec->restriction) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($rec->location) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($rec->frequence_use) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($rec->duplication) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($rec->time_value) }}</td>
+                                                <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($rec->utility) }}</td>
+                                                <td colspan="3" style="{{ $cellBorder }} padding: 2px;"></td>
+                                                <td style="{{ $cellBorder }} padding: 2px;"></td>
+                                            </tr>
+                                        @endif
+                                    @endforeach
 
-                        <!-- FOOTER INFO GRID -->
-                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-top: none; font-size: 8.5px; text-align: left; table-layout: fixed;">
-                            <tr>
-                                <td style="width: 55%; border: 1px solid #000; padding: 6px;">
-                                    <strong>LOCATION OF RECORDS:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $printItems->first()->records_location ?? '' }}</div>
-                                </td>
-                                <td style="width: 45%; border: 1px solid #000; padding: 6px;">
-                                    <strong>VOLUME IN CUBIC METER:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $printItems->first()->volume ?? '' }}</div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td style="border: 1px solid #000; padding: 6px;">
-                                    <strong>PREPARED BY:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $preparedBy }}</div>
-                                </td>
-                                <td style="border: 1px solid #000; padding: 6px;">
-                                    <strong>POSITION:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $preparedPosition }}</div>
-                                </td>
-                            </tr>
-                        </table>
+                                    <!-- Tall vertical column lines extending to bottom table border -->
+                                    <tr style="height: {{ $computedFiller }}px;">
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                    </tr>
+                                </tbody>
+                            </table>
 
-                        <!-- CERTIFICATION AND APPROVAL BOX -->
-                        <div style="border: 2px solid #000; border-top: none; padding: 14px; font-size: 8.5px;">
-                            <div style="font-weight: bold; text-transform: uppercase; margin-bottom: 8px;">CERTIFIED AND APPROVED BY:</div>
-                            <div style="text-align: center; margin-top: 10px; margin-bottom: 30px; line-height: 1.4;">
-                                This is to certify that the above mentioned records are no longer needed and<br>
-                                not involved nor connected in any administrative or judicial cases.
-                            </div>
-                            <div style="text-align: right;">
-                                <div style="border-bottom: 1.5px solid #000; width: 45%; margin-left: auto; text-align: center; font-weight: bold; font-size: 9.5px; padding-bottom: 2px;">
-                                    {{ $approvedBy }}
+                            <!-- LEGEND SECTION (Visible on every page) -->
+                            <div style="font-size: 8px; margin-top: 6px; line-height: 1.35;">
+                                <div style="font-weight: bold;">LEGEND:</div>
+                                <div style="display: flex; gap: 30px; margin-top: 1px;">
+                                    <div style="display: flex; gap: 15px;">
+                                        <span style="font-weight: bold; width: 90px;">TIME VALUE:</span>
+                                        <span><strong>T</strong> - Temporary &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>P</strong> - Permanent</span>
+                                    </div>
                                 </div>
-                                <div style="text-align: center; width: 45%; margin-left: auto; font-size: 8px; margin-top: 3px;">
-                                    Name and Signature of Agency Head<br>or Duly Authorized Representative
+                                <div style="display: flex; gap: 30px; margin-top: 1px;">
+                                    <div style="display: flex; gap: 15px;">
+                                        <span style="font-weight: bold; width: 90px;">UTILITY VALUE:</span>
+                                        <span><strong>Adm</strong> - Administrative &nbsp;&nbsp;&nbsp;&nbsp; <strong>F</strong> - Fiscal &nbsp;&nbsp;&nbsp;&nbsp; <strong>L</strong> - Legal &nbsp;&nbsp;&nbsp;&nbsp; <strong>Arc</strong> - Archival</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- SIGNATURE BLOCK (Visible on the last page) -->
+                            @if($isLastPage)
+                                <div style="display: flex; justify-content: space-between; font-size: 8.5px; margin-top: 20px;">
+                                    <div style="width: 30%; text-align: center;">
+                                        <div style="font-weight: bold; text-align: left; margin-bottom: 25px;">PREPARED BY:</div>
+                                        <div style="border-bottom: 1.5px solid #000; width: 90%; margin: 0 auto; font-weight: bold; font-size: 9px; min-height: 13px;">
+                                            {{ $cleanVal($preparedBy) }}
+                                        </div>
+                                        <div style="font-size: 8px; margin-top: 3px;">
+                                            {{ $cleanVal($preparedPosition) ?: 'Name and Position' }}
+                                        </div>
+                                    </div>
+                                    <div style="width: 30%; text-align: center;">
+                                        <div style="font-weight: bold; text-align: left; margin-bottom: 25px;">ASSISTED BY:</div>
+                                        <div style="border-bottom: 1.5px solid #000; width: 90%; margin: 0 auto; font-weight: bold; font-size: 9px; min-height: 13px;">
+                                            {{ $cleanVal($assistedBy) }}
+                                        </div>
+                                        <div style="font-size: 8px; margin-top: 3px;">
+                                            {{ $cleanVal($assistedPosition) ?: 'NAP Records Management Analyst' }}
+                                        </div>
+                                    </div>
+                                    <div style="width: 30%; text-align: center;">
+                                        <div style="font-weight: bold; text-align: left; margin-bottom: 25px;">APPROVED BY:</div>
+                                        <div style="border-bottom: 1.5px solid #000; width: 90%; margin: 0 auto; font-weight: bold; font-size: 9px; min-height: 13px;">
+                                            {{ $cleanVal($approvedBy) }}
+                                        </div>
+                                        <div style="font-size: 8px; margin-top: 3px;">
+                                            {{ $cleanVal($approvedPosition) ?: 'Chief of the Division/Department' }}
+                                        </div>
+                                    </div>
+                                </div>
+                            @endif
+
+                            <!-- BOTTOM PAGE NUMBER -->
+                            <div style="text-align: right; font-size: 8px; margin-top: 10px;">
+                                Page {{ $pageIndex + 1 }} of {{ $totalPages }} {{ $totalPages === 1 ? 'Page' : 'Pages' }}
+                            </div>
+                        </div>
+                    @endforeach
+                @elseif($isNap2)
+                    @php
+                        $totalPrintItems = count($printItems);
+                        $rowsPerPage = 16;
+                        if ($totalPrintItems === 0) {
+                            $dataPages = [ [] ];
+                        } else {
+                            $dataPages = array_chunk($printItems, $rowsPerPage);
+                        }
+                        $totalPages = count($dataPages) + 1; // Dedicated final Signatures & NAP Approval Sheet
+                    @endphp
+
+                    <!-- DATA PAGES (Page 1 .. N) -->
+                    @foreach($dataPages as $pageIndex => $pageItems)
+                        @php
+                            $pageNumber = $pageIndex + 1;
+                            $fillerHeight = empty($pageItems) ? 650 : max(40, 650 - (count($pageItems) * 26));
+                        @endphp
+                        <div class="print-sheet">
+                            <!-- Top Form Identifier -->
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+                                <div style="font-size: 10px; font-weight: normal; line-height: 1.25;">
+                                    NAP Form 2<br>2008
+                                </div>
+                            </div>
+
+                            <!-- Header Box (Outer Border) -->
+                            <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; margin-bottom: 0;">
+                                <tr>
+                                    <td style="width: 50%; border-right: 2px solid #000; padding: 10px 12px; text-align: center; vertical-align: middle;">
+                                        <div style="font-size: 11px; font-weight: bold; letter-spacing: 0.3px;">NATIONAL ARCHIVES OF THE PHILIPPINES</div>
+                                        <div style="font-size: 9.5px; font-style: italic; margin-top: 2px; margin-bottom: 8px;">Pambansang Sinupan ng Pilipinas</div>
+                                        <div style="font-size: 12px; font-weight: bold; letter-spacing: 0.5px;">RECORDS DISPOSITION SCHEDULE</div>
+                                    </td>
+                                    <td style="width: 50%; padding: 0; vertical-align: top;">
+                                        <div style="padding: 7px 10px; border-bottom: 1px solid #000; font-size: 9px; line-height: 1.4;">
+                                            <strong>1. AGENCY NAME:</strong>
+                                            <div style="font-size: 10px; font-weight: bold; margin-top: 2px;">{{ $agencyName }}</div>
+                                        </div>
+                                        <div style="padding: 7px 10px; font-size: 9px; line-height: 1.4;">
+                                            <strong>2. ADDRESS:</strong>
+                                            <div style="font-size: 10px; font-weight: bold; margin-top: 2px;">{{ $agencyAddress }}</div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="width: 50%; border-right: 2px solid #000; border-top: 2px solid #000; padding: 6px 10px; font-size: 9px;">
+                                        <strong>3. SCHEDULE NO.:</strong> <span style="font-weight: bold; font-size: 10px; margin-left: 4px;">{{ $printCluster->cluster_id ?? '' }}</span>
+                                    </td>
+                                    <td style="width: 50%; border-top: 2px solid #000; padding: 6px 10px; font-size: 9px;">
+                                        <strong>4. DATE PREPARED:</strong> <span style="font-weight: bold; font-size: 10px; margin-left: 4px;">{{ $datePrepared }}</span>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Data Table (Boxes 5 - 8) -->
+                            <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-top: none; font-size: 9px; table-layout: fixed;">
+                                <thead>
+                                    <tr style="background: #ffffff;">
+                                        <th rowspan="2" style="width: 11%; border: 1px solid #000; border-top: 2px solid #000; padding: 6px 4px; text-align: center; font-weight: bold; vertical-align: middle;">
+                                            5. ITEM NO.:
+                                        </th>
+                                        <th rowspan="2" style="width: 47%; border: 1px solid #000; border-top: 2px solid #000; padding: 6px 6px; text-align: center; font-weight: bold; vertical-align: middle;">
+                                            6. RECORD SERIES TITLE AND DESCRIPTION
+                                        </th>
+                                        <th colspan="3" style="width: 24%; border: 1px solid #000; border-top: 2px solid #000; padding: 4px; text-align: center; font-weight: bold;">
+                                            7. RETENTION PERIOD
+                                        </th>
+                                        <th rowspan="2" style="width: 18%; border: 1px solid #000; border-top: 2px solid #000; padding: 6px 6px; text-align: center; font-weight: bold; vertical-align: middle;">
+                                            8. REMARKS
+                                        </th>
+                                    </tr>
+                                    <tr style="background: #ffffff;">
+                                        <th style="width: 8%; border: 1px solid #000; padding: 4px; text-align: center; font-weight: bold;">Active</th>
+                                        <th style="width: 8%; border: 1px solid #000; padding: 4px; text-align: center; font-weight: bold;">Storage</th>
+                                        <th style="width: 8%; border: 1px solid #000; padding: 4px; text-align: center; font-weight: bold;">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach($pageItems as $item)
+                                        @php
+                                            $isPermSeries = (bool)($item->effective_is_permanent) || 
+                                                            (strtolower(trim($item->effective_total ?? '')) === 'permanent') ||
+                                                            (strtolower(trim($item->effective_active ?? '')) === 'permanent' && strtolower(trim($item->effective_storage ?? '')) === 'permanent');
+                                        @endphp
+                                        <tr>
+                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top; font-weight: bold;">
+                                                {{ $item->display_item_no }}
+                                            </td>
+                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 6px; vertical-align: top; padding-left: {{ (($item->depth ?? 0) * 14) + 6 }}px;">
+                                                <span style="{{ ($item->depth ?? 0) === 0 ? 'font-weight: bold;' : 'font-weight: 500;' }}">
+                                                    {{ $item->series_title }}
+                                                </span>
+                                            </td>
+                                            @if($isPermSeries)
+                                                <td colspan="3" style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top; font-weight: bold;">
+                                                    PERMANENT
+                                                </td>
+                                            @else
+                                                <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top;">
+                                                    {{ $item->effective_active }}
+                                                </td>
+                                                <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top;">
+                                                    {{ $item->effective_storage }}
+                                                </td>
+                                                <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 4px; text-align: center; vertical-align: top; font-weight: bold;">
+                                                    {{ $item->effective_total }}
+                                                </td>
+                                            @endif
+                                            <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; padding: 5px 6px; vertical-align: top; font-size: 8.5px;">
+                                                {{ $item->remarks }}
+                                            </td>
+                                        </tr>
+                                    @endforeach
+
+                                    <!-- Filler row to extend column borders to bottom -->
+                                    <tr>
+                                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none; height: {{ $fillerHeight }}px;"></td>
+                                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;"></td>
+                                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;"></td>
+                                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;"></td>
+                                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;"></td>
+                                        <td style="border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;"></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <!-- Bottom Statutory Notice -->
+                            <div style="border-top: 2px solid #000; padding-top: 6px; margin-top: 0; font-size: 8px; line-height: 1.35; text-align: justify;">
+                                <strong>IMPORTANT:</strong> Pursuant to Section 18, Article III, RA 9470 s. 2007, "No government department, bureau, agency and instrumentality shall dispose of, destroy or authorize the disposal or destruction of any public records, which are in the custody or under its control except with the prior written authority of the executive director."
+                            </div>
+
+                            <!-- Bottom Page Number -->
+                            <div style="text-align: right; font-size: 9px; margin-top: 8px;">
+                                Page {{ $pageNumber }} of {{ $totalPages }} Pages
+                            </div>
+                        </div>
+                    @endforeach
+
+                    <!-- SIGNATURES & NAP APPROVAL PAGE (FINAL PAGE) -->
+                    <div class="print-sheet">
+                        <!-- Top Form Identifier -->
+                        <div style="font-size: 10px; font-weight: normal; line-height: 1.25; margin-bottom: 8px;">
+                            NAP Form 2<br>2008
+                        </div>
+
+                        <!-- Signatures Table (Box 9, 11, 10, 12) -->
+                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 9px;">
+                            <tr>
+                                <!-- 9. Prepared by -->
+                                <td style="width: 50%; border: 1px solid #000; padding: 12px 16px; vertical-align: top; height: 160px; box-sizing: border-box;">
+                                    <div style="font-weight: bold; font-size: 9.5px; margin-bottom: 25px;">9. Prepared by:</div>
+                                    <div style="display: flex; flex-direction: column; align-items: center; width: 85%; margin: 0 auto;">
+                                        <div style="border-bottom: 1px solid #000; width: 100%; text-align: center; font-weight: bold; font-size: 10px; min-height: 16px; padding-bottom: 2px;">
+                                            {{ $preparedBy }}
+                                        </div>
+                                        <div style="font-size: 8.5px; color: #000; margin-top: 2px; margin-bottom: 15px;">Name</div>
+
+                                        <div style="border-bottom: 1px solid #000; width: 100%; text-align: center; font-weight: bold; font-size: 10px; min-height: 16px; padding-bottom: 2px;">
+                                            {{ $preparedPosition }}
+                                        </div>
+                                        <div style="font-size: 8.5px; color: #000; margin-top: 2px;">Position</div>
+                                    </div>
+                                </td>
+
+                                <!-- 11. Recommending Approval -->
+                                <td style="width: 50%; border: 1px solid #000; padding: 12px 16px; vertical-align: top; height: 160px; box-sizing: border-box;">
+                                    <div style="font-weight: bold; font-size: 9.5px; margin-bottom: 25px;">11. Recommending Approval:</div>
+                                    <div style="display: flex; flex-direction: column; align-items: center; width: 85%; margin: 0 auto;">
+                                        <div style="border-bottom: 1px solid #000; width: 100%; text-align: center; font-weight: bold; font-size: 10px; min-height: 16px; padding-bottom: 2px;">
+                                            {{ $recommendingBy }}
+                                        </div>
+                                        <div style="font-size: 8.5px; color: #000; margin-top: 2px; margin-bottom: 15px;">Name</div>
+
+                                        <div style="border-bottom: 1px solid #000; width: 100%; text-align: center; font-weight: bold; font-size: 10px; min-height: 16px; padding-bottom: 2px;">
+                                            {{ $recommendingPosition }}
+                                        </div>
+                                        <div style="font-size: 8.5px; color: #000; margin-top: 2px;">Position</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <!-- 10. Assisted by -->
+                                <td style="width: 50%; border: 1px solid #000; padding: 12px 16px; vertical-align: top; height: 160px; box-sizing: border-box;">
+                                    <div style="font-weight: bold; font-size: 9.5px; margin-bottom: 25px;">10. Assisted by:</div>
+                                    <div style="display: flex; flex-direction: column; align-items: center; width: 85%; margin: 0 auto;">
+                                        <div style="border-bottom: 1px solid #000; width: 100%; text-align: center; font-weight: bold; font-size: 10px; min-height: 16px; padding-bottom: 2px;">
+                                            {{ $assistedBy }}
+                                        </div>
+                                        <div style="font-size: 8.5px; color: #000; margin-top: 2px; margin-bottom: 15px;">Name</div>
+
+                                        <div style="border-bottom: 1px solid #000; width: 100%; text-align: center; font-weight: bold; font-size: 10px; min-height: 16px; padding-bottom: 2px;">
+                                            {{ $assistedPosition }}
+                                        </div>
+                                        <div style="font-size: 8.5px; color: #000; margin-top: 2px;">Position</div>
+                                    </div>
+                                </td>
+
+                                <!-- 12. Approved -->
+                                <td style="width: 50%; border: 1px solid #000; padding: 12px 16px; vertical-align: top; height: 160px; box-sizing: border-box;">
+                                    <div style="font-weight: bold; font-size: 9.5px; margin-bottom: 25px;">12. Approved</div>
+                                    <div style="display: flex; flex-direction: column; align-items: center; width: 85%; margin: 0 auto;">
+                                        <div style="border-bottom: 1px solid #000; width: 100%; text-align: center; font-weight: bold; font-size: 10px; min-height: 16px; padding-bottom: 2px;">
+                                            {{ $approvedBy }}
+                                        </div>
+                                        <div style="font-size: 8.5px; color: #000; margin-top: 2px; margin-bottom: 15px;">Name</div>
+
+                                        <div style="border-bottom: 1px solid #000; width: 100%; text-align: center; font-weight: bold; font-size: 10px; min-height: 16px; padding-bottom: 2px;">
+                                            {{ $approvedPosition }}
+                                        </div>
+                                        <div style="font-size: 8.5px; color: #000; margin-top: 2px;">Position</div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <!-- NAP Accomplishment Section -->
+                        <div style="border: 2px solid #000; margin-top: 14px; font-size: 9.5px; flex-grow: 1; display: flex; flex-direction: column;">
+                            <div style="border-bottom: 2px solid #000; padding: 6px; text-align: center; font-weight: bold; font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase;">
+                                TO BE ACCOMPLISHED BY THE NATIONAL ARCHIVES OF THE PHILIPPINES
+                            </div>
+                            <div style="padding: 16px 20px; flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between;">
+                                <div>
+                                    <div style="margin-bottom: 14px; font-size: 9.5px;">This Records Disposition Schedule</div>
+                                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding-left: 20px;">
+                                        <span style="display: inline-block; width: 14px; height: 14px; border: 1.5px solid #000;"></span>
+                                        <span>is being returned for improvement / correction</span>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 10px; padding-left: 20px;">
+                                        <span style="display: inline-block; width: 14px; height: 14px; border: 1.5px solid #000;"></span>
+                                        <span>is being recommended for approval</span>
+                                    </div>
+                                </div>
+
+                                <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 50px; padding: 0 20px 20px 20px;">
+                                    <!-- Chairman block -->
+                                    <div style="text-align: center; width: 42%;">
+                                        <div style="border-bottom: 1px solid #000; width: 100%; min-height: 20px; margin-bottom: 4px; font-weight: bold; font-size: 10px;">
+                                            {{ $committeeChairmanName }}
+                                        </div>
+                                        <div style="font-weight: bold; font-size: 9.5px;">Chairman</div>
+                                        <div style="font-size: 8.5px; margin-top: 1px;">Records Management Evaluation Committee</div>
+                                        <div style="margin-top: 16px; text-align: left; font-size: 9px;">
+                                            Date: <span style="display: inline-block; border-bottom: 1px solid #000; width: 130px;"></span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Executive Director block -->
+                                    <div style="text-align: center; width: 42%;">
+                                        <div style="font-weight: bold; font-size: 9.5px; margin-bottom: 6px;">APPROVED:</div>
+                                        <div style="border-bottom: 1px solid #000; width: 100%; min-height: 20px; margin-bottom: 4px; font-weight: bold; font-size: 10px;">
+                                            {{ $executiveDirectorName }}
+                                        </div>
+                                        <div style="font-weight: bold; font-size: 9.5px;">Executive Director</div>
+                                        <div style="margin-top: 16px; text-align: left; font-size: 9px;">
+                                            Date: <span style="display: inline-block; border-bottom: 1px solid #000; width: 130px;"></span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    @endif
-                </div>
+
+                        <!-- Bottom Page Number -->
+                        <div style="text-align: right; font-size: 9px; margin-top: 8px;">
+                            Page {{ $totalPages }} of {{ $totalPages }} Pages
+                        </div>
+                    </div>
+                @else
+                    @php
+                        $flattenedItems = [];
+                        foreach ($printHierarchy as $root) {
+                            if (!$root->has_children) {
+                                $flattenedItems[] = [
+                                    'type' => 'root_standalone',
+                                    'root' => $root,
+                                ];
+                                if ($includeDescriptionOnPrint) {
+                                    foreach ($root->direct_records as $rec) {
+                                        $flattenedItems[] = [
+                                            'type'   => 'record',
+                                            'rec'    => $rec,
+                                            'indent' => 20,
+                                        ];
+                                    }
+                                }
+                            } else {
+                                $flattenedItems[] = [
+                                    'type' => 'root_header',
+                                    'root' => $root,
+                                ];
+                                foreach ($root->sub_series as $sub) {
+                                    $flattenedItems[] = [
+                                        'type'   => 'sub_series',
+                                        'sub'    => $sub,
+                                        'root'   => $root,
+                                        'indent' => 14,
+                                    ];
+                                    if ($includeDescriptionOnPrint) {
+                                        foreach ($sub->records as $rec) {
+                                            $flattenedItems[] = [
+                                                'type'   => 'record',
+                                                'rec'    => $rec,
+                                                'indent' => 20,
+                                            ];
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        $totalItems = count($flattenedItems);
+                        $pages = [];
+                        $maxRowsFinalPage = 10;
+                        $maxRowsOtherPages = 15;
+
+                        if ($totalItems === 0) {
+                            $pages = [ [] ];
+                        } elseif ($totalItems <= $maxRowsFinalPage) {
+                            $pages = [ $flattenedItems ];
+                        } else {
+                            $remaining = $flattenedItems;
+                            while (!empty($remaining)) {
+                                if (count($remaining) <= $maxRowsFinalPage) {
+                                    $pages[] = $remaining;
+                                    break;
+                                }
+                                $chunkSize = min($maxRowsOtherPages, max(1, count($remaining) - 1));
+                                $chunk = array_splice($remaining, 0, $chunkSize);
+                                $pages[] = $chunk;
+                            }
+                        }
+                        $totalPages = count($pages);
+                    @endphp
+
+                    @foreach($pages as $pageIndex => $pageItems)
+                        @php
+                            $isLastPage = ($pageIndex + 1) === $totalPages;
+                            $cellBorder = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;";
+                            $computedFiller = $isLastPage 
+                                ? max(60, 480 - (count($pageItems) * 22)) 
+                                : max(60, 680 - (count($pageItems) * 22));
+                        @endphp
+                        <div class="print-sheet">
+                            <!-- Top Form ID Line -->
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; font-size: 8.5px;">
+                                <div>
+                                    <div style="font-weight: bold;">NAP Form No. 3</div>
+                                    <div style="font-style: italic;">Revised 2012</div>
+                                </div>
+                                <div style="font-style: italic; font-size: 8.5px;">
+                                    Accomplish in 3 copies
+                                </div>
+                            </div>
+
+                            <!-- Header Box -->
+                            <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 9px; table-layout: fixed;">
+                                <tr>
+                                    <td rowspan="2" style="width: 50%; border: 1px solid #000; text-align: center; padding: 6px; vertical-align: middle;">
+                                        <div style="border: 1.5px solid #000; padding: 8px 6px; margin: 2px;">
+                                            <div style="font-weight: bold; font-size: 10px; text-transform: uppercase;">NATIONAL ARCHIVES OF THE PHILIPPINES</div>
+                                            <div style="font-size: 8.5px; font-style: italic; margin: 2px 0 6px 0;">Pambansang Sinupan ng Pilipinas</div>
+                                            <div style="font-weight: 800; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.5px;">
+                                                REQUEST FOR AUTHORITY TO DISPOSE<br>OF RECORDS
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td style="width: 50%; border: 1px solid #000; padding: 6px 8px; vertical-align: top;">
+                                        <div><strong>AGENCY NAME:</strong> <span style="text-transform: uppercase;">{{ $cleanVal($agencyName) }}</span></div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="border: 1px solid #000; padding: 6px 8px; vertical-align: top;">
+                                        <div><strong>ADDRESS:</strong> {{ $cleanVal($agencyAddress) }}</div>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="border: 1px solid #000; padding: 6px 8px;">
+                                        <strong>DATE:</strong> {{ $cleanVal($datePrepared) }}
+                                    </td>
+                                    <td style="border: 1px solid #000; padding: 6px 8px;">
+                                        <strong>TELEPHONE NUMBER:</strong> {{ $cleanVal($telephoneNumber) }}
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Official Table (Revised 2012) -->
+                            <table class="print-table" style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 9px; margin-top: 0; border-top: none; table-layout: fixed;">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 12%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">GRDS/ RDS ITEM NO.</th>
+                                        <th style="width: 48%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">RECORD SERIES TITLE AND DESCRIPTION</th>
+                                        <th style="width: 20%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">PERIOD COVERED</th>
+                                        <th style="width: 20%; border: 1px solid #000; padding: 6px 5px; text-align: center; font-weight: bold;">RETENTION PERIOD AND PROVISION/S COMPLIED (If Any)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach($pageItems as $item)
+                                        @if($item['type'] === 'root_standalone')
+                                            @php $root = $item['root']; @endphp
+                                            <tr style="vertical-align: top;">
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($root->item_number) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px; font-weight: bold;">{{ strtoupper($cleanVal($root->series_title)) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($root->compiled_period) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal(trim($root->total_period . ($root->remarks ? ' / ' . $root->remarks : ''))) }}</td>
+                                            </tr>
+                                        @elseif($item['type'] === 'root_header')
+                                            @php $root = $item['root']; @endphp
+                                            <tr style="vertical-align: top;">
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($root->item_number) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px; font-weight: bold;">{{ strtoupper($cleanVal($root->series_title)) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;"></td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;"></td>
+                                            </tr>
+                                        @elseif($item['type'] === 'sub_series')
+                                            @php $sub = $item['sub']; @endphp
+                                            <tr style="vertical-align: top;">
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;"></td>
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 4px {{ $item['indent'] ?? 14 }}px; font-weight: normal;">
+                                                    └ {{ $cleanVal($sub->series_title) }}
+                                                </td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal($sub->compiled_period) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 4px 6px;">{{ $cleanVal(trim($sub->total_period . (($sub->remarks ?: $root->remarks) ? ' / ' . ($sub->remarks ?: $root->remarks) : ''))) }}</td>
+                                            </tr>
+                                        @elseif($item['type'] === 'record')
+                                            @php $rec = $item['rec']; @endphp
+                                            <tr style="vertical-align: top;">
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 3px 6px;"></td>
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 3px 6px 3px {{ $item['indent'] ?? 20 }}px; font-size: 8.5px;">
+                                                    {{ $cleanVal($rec->description) }}
+                                                </td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 3px 6px;">{{ $cleanVal($rec->date_covered) }}</td>
+                                                <td style="{{ $cellBorder }} text-align: center; padding: 3px 6px;"></td>
+                                            </tr>
+                                        @endif
+                                    @endforeach
+
+                                    <!-- Tall vertical column lines extending to bottom table border -->
+                                    <tr style="height: {{ $computedFiller }}px;">
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                        <td style="{{ $cellBorder }}">&nbsp;</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <!-- Official Footer Blocks (Revised 2012) -->
+                            @if($isLastPage)
+                                <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-top: none; font-size: 8.5px; page-break-inside: avoid;">
+                                    <tr>
+                                        <td style="width: 50%; border: 1px solid #000; padding: 8px;">
+                                            <strong>LOCATION OF RECORDS:</strong> {{ $cleanVal($effectivePrintLocation) }}
+                                        </td>
+                                        <td style="width: 50%; border: 1px solid #000; padding: 8px;">
+                                            <strong>VOLUME IN CUBIC METER:</strong> {{ $cleanVal($effectivePrintVolume) }}
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td style="width: 50%; border: 1px solid #000; padding: 8px;">
+                                            <strong>PREPARED BY:</strong> {{ $cleanVal($preparedBy) }}
+                                        </td>
+                                        <td style="width: 50%; border: 1px solid #000; padding: 8px;">
+                                            <strong>POSITION:</strong> {{ $cleanVal($preparedPosition) }}
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="2" style="border: 1px solid #000; padding: 14px 10px; vertical-align: top;">
+                                            <strong>CERTIFIED AND APPROVED BY:</strong>
+                                            <div style="font-size: 8px; margin-top: 6px; text-align: center; line-height: 1.4;">
+                                                This is to certify that the above mentioned records are no longer needed and<br>not involved nor connected in any administrative or judicial cases.
+                                            </div>
+                                            <div style="margin-top: 36px; text-align: center; border-bottom: 1px solid #000; width: 45%; margin-left: auto; margin-right: 40px; font-weight: bold; font-size: 9px; min-height: 13px;">
+                                                {{ $cleanVal($approvedBy) }}
+                                            </div>
+                                            <div style="text-align: center; font-size: 8px; margin-top: 3px; width: 45%; margin-left: auto; margin-right: 40px; line-height: 1.3;">
+                                                Name and Signature of Agency Head<br>or Duly Authorized Representative
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </table>
+                            @endif
+
+                            <!-- BOTTOM PAGE NUMBER -->
+                            <div style="text-align: right; font-size: 8px; margin-top: 10px;">
+                                Page {{ $pageIndex + 1 }} of {{ $totalPages }} {{ $totalPages === 1 ? 'Page' : 'Pages' }}
+                            </div>
+                        </div>
+                    @endforeach
+                @endif
             </div>
         </div>
     @endif

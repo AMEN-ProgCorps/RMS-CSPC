@@ -803,20 +803,10 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
                 window.showTrackingModal(
                     'warning',
                     'Device Rate-Limited',
-                    'Your device is temporarily rate-limited (' + mins + ' min remaining). <br><a href="#" id="reset-device-btn" style="color:#b45309;text-decoration:underline;margin-top:8px;display:inline-block;font-weight:700;">Reset lockout now</a>',
+                    'Your device is temporarily rate-limited (' + mins + ' min remaining).',
                     codeVal,
                     true
                 );
-                setTimeout(() => {
-                    const rBtn = document.getElementById('reset-device-btn');
-                    if (rBtn) {
-                        rBtn.onclick = (ev) => {
-                            ev.preventDefault();
-                            window.resetTrackingDevice();
-                            window.hideTrackingModal();
-                        };
-                    }
-                }, 50);
                 return;
             }
             d.device_blocked_until = null;
@@ -842,20 +832,10 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
             window.showTrackingModal(
                 'warning',
                 'Device Rate-Limited',
-                'Too many failed attempts. Your device has been blocked for 50 minutes. <br><a href="#" id="reset-device-btn" style="color:#b45309;text-decoration:underline;margin-top:8px;display:inline-block;font-weight:700;">Reset lockout now</a>',
+                'Too many failed attempts. Your device has been blocked for 50 minutes.',
                 codeVal,
                 true
             );
-            setTimeout(() => {
-                const rBtn = document.getElementById('reset-device-btn');
-                if (rBtn) {
-                    rBtn.onclick = (ev) => {
-                        ev.preventDefault();
-                        window.resetTrackingDevice();
-                        window.hideTrackingModal();
-                    };
-                }
-            }, 50);
             return;
         }
 

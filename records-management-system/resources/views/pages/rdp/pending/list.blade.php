@@ -1351,7 +1351,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                         $cellStyle = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; {$borderBottom}";
                                     @endphp
                                     <tr>
-                                        <td style="{{ $cellStyle }} padding: 4px;">{{ $pi->item_number ?? ($idx + 1) }}</td>
+                                        <td style="{{ $cellStyle }} padding: 4px;">{{ ((bool)($pi->is_verified ?? false) && !empty($pi->item_number)) ? $pi->item_number : '' }}</td>
                                         <td style="{{ $cellStyle }} text-align: left; padding: 4px 6px;">
                                             <div style="font-weight: bold;">{{ $pi->series_title ?? $pi->doc_name ?? 'Untitled' }}</div>
                                             @if(!empty($pi->description))

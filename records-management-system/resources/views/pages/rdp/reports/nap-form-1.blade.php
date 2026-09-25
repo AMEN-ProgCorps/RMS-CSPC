@@ -1220,10 +1220,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
             <button type="button" wire:click="openPrintModal" class="nap-btn nap-btn-secondary">
-                🖨️ Print Preview
+                Print Preview
             </button>
             <button type="button" wire:click="openClusterModal" class="nap-btn nap-btn-primary" {{ empty($selectedIds) ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : '' }}>
-                📦 Create Cluster ({{ count($selectedIds) }})
+                Create Cluster ({{ count($selectedIds) }})
             </button>
         </div>
     </div>

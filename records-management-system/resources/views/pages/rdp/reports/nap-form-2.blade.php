@@ -95,7 +95,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         }
     }
 
-    // Print Modal Properties
+    // Print Preview Modal Properties
     public bool $showPrintModal = false;
 
     // View Modal Properties
@@ -110,13 +110,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     public string $editRemarks = '';
     public bool $isRootParentForEdit = false;
 
-    // Printable Custom Header & Signature Fields
+    // Preview Header & Signature Fields
     public string $agencyName = 'Camarines Sur Polytechnic Colleges';
     public string $agencyAddress = 'San Miguel, Nabua, Camarines Sur';
     public string $scheduleNo = 'RDS-2024-001';
     public string $datePrepared = '';
 
-    // Signature Block Fields (Page 2 of Printout)
+    // Signature Block Fields (Page 2 of Preview)
     public string $preparedBy = '';
     public string $preparedPosition = 'Records Officer / Custodian';
     public string $assistedBy = '';
@@ -142,7 +142,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $details = $user?->details;
         
         $this->datePrepared = Carbon::now()->format('F d, Y');
-        
+
         $userOffice = $details?->office_code ?? $details?->office?->office_code ?? null;
         if ($userOffice) {
             $this->officeFilter = $userOffice;
@@ -153,6 +153,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             $this->preparedBy = $fullName ?: ($user->username ?? 'Records Officer');
             $this->preparedPosition = $details->designation ?? 'Records Officer';
         }
+    }
+
+    public function openPrintModal(array $specificIds = []): void
+    {
+        if (!empty($specificIds)) {
+            $this->selectedIds = array_map('strval', $specificIds);
+        }
+        $this->showPrintModal = true;
+    }
+
+    public function closePrintModal(): void
+    {
+        $this->showPrintModal = false;
     }
 
     public function updatedSelectAll($value): void
@@ -192,23 +205,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         }
     }
 
-    public function openPrintModal(array $specificIds = []): void
-    {
-        $perms = Auth::user()?->permissions;
-        if (!($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_print_form_2 ?? true)) {
-            $this->errorMessage = 'You do not have clearance to print NAP Form 2.';
-            return;
-        }
-        if (!empty($specificIds)) {
-            $this->selectedIds = array_map('strval', $specificIds);
-        }
-        $this->showPrintModal = true;
-    }
-
-    public function closePrintModal(): void
-    {
-        $this->showPrintModal = false;
-    }
 
     public function openViewModal(int $id): void
     {
@@ -542,19 +538,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             });
         }
 
-        // Selected items for print document
+        // Selected items for preview document
         $printItems = [];
-        // Print-others clearance
-        $canPrintOthers = $isSadm || (bool)($authPerms?->can_rdp_print_others_form_2 ?? false);
-        $userOfficeForPrint = auth()->user()?->details?->office_code ?? null;
-
         if (!empty($this->selectedIds)) {
             $selectedInts = array_map('intval', $this->selectedIds);
             foreach ($treeOrdered as $item) {
                 if (in_array((int)$item->id, $selectedInts, true)) {
-                    if (!$canPrintOthers && $userOfficeForPrint && $item->recorded_at_office !== $userOfficeForPrint) {
-                        continue;
-                    }
                     $printItems[] = $item;
                 }
             }
@@ -706,58 +695,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             display: flex;
             flex-direction: column;
         }
-
-        @page {
-            size: legal portrait;
-            margin: 0.5in;
-        }
-
-        @media print {
-            body { background: #ffffff !important; margin: 0 !important; padding: 0 !important; }
-            header, #navigation, .no-print, .toolbar, .nap-card, .nap-btn, .nap-page-header,
-            footer, .modal-header-actions, .chatify-widget, #chatify-global-widget,
-            #chatify-widget-card, #chatify-widget-btn, [id^="chatify"], .rdp-fab-nav { display: none !important; opacity: 0 !important; visibility: hidden !important; }
-            #article-container > div > *:not(.modal-overlay) { display: none !important; }
-            .modal-overlay { 
-                position: static !important; 
-                background: none !important; 
-                padding: 0 !important; 
-                display: block !important; 
-            }
-            .modal-content { 
-                background: none !important; 
-                max-width: 100% !important; 
-                max-height: none !important; 
-                padding: 0 !important; 
-                box-shadow: none !important; 
-                overflow: visible !important; 
-            }
-            .print-sheet { 
-                box-shadow: none !important; 
-                border: none !important; 
-                width: 100% !important; 
-                max-width: 100% !important;
-                margin: 0 !important; 
-                padding: 6mm 10mm !important; 
-                min-height: auto !important;
-                page-break-after: always; 
-            }
-            .print-sheet:last-child { page-break-after: auto; }
-        }
     </style>
 
     <!-- Header Section -->
     <div class="nap-page-header">
         <div>
             <h1 class="nap-page-title">NAP Form 2: Records Disposition Schedule</h1>
-            <p class="nap-page-subtitle">Official audit report & disposition retention schedule for verified record series.</p>
+            <p class="nap-page-subtitle">Schedule of custom and unverified record series added by your office.</p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
             <button type="button" wire:click="openPrintModal" class="nap-btn nap-btn-secondary" style="background: #ffffff; border: 1px solid #cbd5e1; color: #0f172a; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                🖨️ Print Preview @if(count($selectedIds) > 0) ({{ count($selectedIds) }}) @endif
+                Print Preview @if(count($selectedIds) > 0) ({{ count($selectedIds) }}) @endif
             </button>
             <button type="button" wire:click="openClusterModal" class="nap-btn nap-btn-primary" {{ empty($selectedIds) ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : '' }}>
-                📦 Create Cluster ({{ count($selectedIds) }})
+                Create RDS Cluster ({{ count($selectedIds) }})
             </button>
         </div>
     </div>
@@ -1131,7 +1082,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         </div>
     @endif
 
-    <!-- PRINT PREVIEW MODAL (OFFICIAL NAP FORM 2: 2008 PDF) -->
+    <!-- PRINT PREVIEW MODAL (OFFICIAL NAP FORM 2: 2008 PDF - PREVIEW ONLY, NO PRINT BUTTON) -->
     @if($showPrintModal)
         @php
             $hasSelection = !empty($selectedIds);
@@ -1148,86 +1099,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         @endphp
         <div class="modal-overlay" wire:click.self="closePrintModal">
             <div class="modal-content">
-                <!-- Modal Toolbar (Hidden on Print) -->
-                <div style="display: flex; justify-content: space-between; align-items: center;" class="no-print">
+                <!-- Modal Toolbar (Preview Only — No Printing Here) -->
+                <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <div style="color: #ffffff; font-size: 16px; font-weight: 800;">
-                            Print Preview: NAP Form 2 (Records Disposition Schedule)
+                        <div style="color: #ffffff; font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 8px;">
+                            <span>Print Preview: NAP Form 2 (Records Disposition Schedule)</span>
+                            <span style="font-size: 11px; background: rgba(255,255,255,0.2); color: #f1f5f9; padding: 2px 8px; border-radius: 6px; font-weight: 600;">Preview Mode</span>
                         </div>
                         <div style="color: #cbd5e1; font-size: 12px; margin-top: 2px;">
                             @if($hasSelection)
-                                Showing only selected Record Series ({{ count($selectedIds) }} records selected).
+                                Showing schedule document preview ({{ count($selectedIds) }} records selected). Official printing is available once clustered in Pending / List.
                             @else
-                                Official Records Disposition Schedule Preview (No records selected — Blank Template).
+                                Official NAP Form 2 Blank Template Preview. Official printing is available once clustered in Pending / List.
                             @endif
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <button type="button" onclick="window.print()" class="nap-btn nap-btn-primary" style="background: #2563eb; color: #ffffff;">
-                            🖨️ Print Document
-                        </button>
                         <button type="button" wire:click="closePrintModal" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700;">
                             ✕ Close Preview
                         </button>
                     </div>
                 </div>
 
-                <!-- Header & Signatories Customization (Hidden on Print) -->
-                <details class="no-print" style="background: #ffffff; border-radius: 10px; padding: 12px 16px; font-size: 13px; box-shadow: 0 2px 6px rgba(0,0,0,0.08);">
-                    <summary style="font-weight: 700; color: #0f172a; cursor: pointer;">
-                        ⚙️ Customize Header & Signatories
-                    </summary>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 14px; font-size: 12px;">
-                        <div>
-                            <label style="font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Agency Name</label>
-                            <input type="text" wire:model="agencyName" class="nap-input" style="width: 100%;">
-                        </div>
-                        <div>
-                            <label style="font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Agency Address</label>
-                            <input type="text" wire:model="agencyAddress" class="nap-input" style="width: 100%;">
-                        </div>
-                        <div>
-                            <label style="font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">3. Schedule No.</label>
-                            <input type="text" wire:model="scheduleNo" class="nap-input" style="width: 100%;">
-                        </div>
-                        <div>
-                            <label style="font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">4. Date Prepared</label>
-                            <input type="text" wire:model="datePrepared" class="nap-input" style="width: 100%;">
-                        </div>
-                        <div>
-                            <label style="font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">9. Prepared by (Name)</label>
-                            <input type="text" wire:model="preparedBy" class="nap-input" style="width: 100%;">
-                        </div>
-                        <div>
-                            <label style="font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">9. Prepared by (Position)</label>
-                            <input type="text" wire:model="preparedPosition" class="nap-input" style="width: 100%;">
-                        </div>
-                        <div>
-                            <label style="font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">11. Recommending Approval (Name)</label>
-                            <input type="text" wire:model="recommendingBy" class="nap-input" style="width: 100%;">
-                        </div>
-                        <div>
-                            <label style="font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">11. Recommending (Position)</label>
-                            <input type="text" wire:model="recommendingPosition" class="nap-input" style="width: 100%;">
-                        </div>
-                        <div>
-                            <label style="font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">10. Assisted by (Name)</label>
-                            <input type="text" wire:model="assistedBy" class="nap-input" style="width: 100%;">
-                        </div>
-                        <div>
-                            <label style="font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">10. Assisted by (Position)</label>
-                            <input type="text" wire:model="assistedPosition" class="nap-input" style="width: 100%;">
-                        </div>
-                        <div>
-                            <label style="font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">12. Approved (Name)</label>
-                            <input type="text" wire:model="approvedBy" class="nap-input" style="width: 100%;">
-                        </div>
-                        <div>
-                            <label style="font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">12. Approved (Position)</label>
-                            <input type="text" wire:model="approvedPosition" class="nap-input" style="width: 100%;">
-                        </div>
-                    </div>
-                </details>
 
                 <!-- DATA PAGES (Page 1 .. N) -->
                 @foreach($dataPages as $pageIndex => $pageItems)
@@ -1487,4 +1380,5 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             </div>
         </div>
     @endif
+
 </div>

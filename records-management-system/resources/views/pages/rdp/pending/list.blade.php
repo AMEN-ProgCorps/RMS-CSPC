@@ -1116,6 +1116,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 @endif
 
                 <div class="printable-report-area" style="background: #ffffff; padding: 10px; font-family: Arial, sans-serif; font-size: 12px; color: #000000;">
+                    @php
+                        $cleanVal = function($val) {
+                            if ($val === null) return '';
+                            $str = trim((string)$val);
+                            if ($str === '—' || $str === '-' || $str === 'N/A' || $str === 'None' || $str === 'null') {
+                                return '';
+                            }
+                            return $str;
+                        };
+                    @endphp
                     @if(strtolower($printCluster->form_code ?? '') === 'nap1' || str_contains(strtolower($printCluster->form_label ?? ''), 'form 1'))
                         <!-- OFFICIAL 2024 NAP FORM 1: RECORDS INVENTORY AND APPRAISAL -->
                         <div style="font-size: 9px; margin-bottom: 2px; font-weight: bold;">NAP Records Inventory and Appraisal Form</div>
@@ -1133,39 +1143,39 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                 </td>
                                 <td rowspan="2" style="width: 27%; border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
                                     <strong>1. NAME OF OFFICE:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $agencyName }}</div>
+                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $cleanVal($agencyName) }}</div>
                                 </td>
                                 <td style="width: 17.5%; border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
                                     <strong>2. DEPARTMENT/DIVISION:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $departmentDivision }}</div>
+                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $cleanVal($departmentDivision) }}</div>
                                 </td>
                                 <td style="width: 28%; border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
                                     <strong>4. TELEPHONE NO.:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $telephoneNumber }}</div>
+                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px; min-height: 12px;"></div>
                                 </td>
                             </tr>
                             <tr>
                                 <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
                                     <strong>3. SECTION/UNIT:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $sectionUnit }}</div>
+                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $cleanVal($sectionUnit) }}</div>
                                 </td>
                                 <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
                                     <strong>5. EMAIL ADDRESS.:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $emailAddress }}</div>
+                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px; min-height: 12px;"></div>
                                 </td>
                             </tr>
                             <tr>
                                 <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
                                     <strong>6. ADDRESS:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $agencyAddress }}</div>
+                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $cleanVal($agencyAddress) }}</div>
                                 </td>
                                 <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
                                     <strong>7. PERSON-IN-CHARGE OF FILES:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $personInCharge }}</div>
+                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $cleanVal($personInCharge) }}</div>
                                 </td>
                                 <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
                                     <strong>8. DATE PREPARED:</strong>
-                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $datePrepared ?: \Carbon\Carbon::parse($printCluster->created_at)->format('m/d/Y') }}</div>
+                                    <div style="font-size: 9.5px; font-weight: bold; margin-top: 2px;">{{ $cleanVal($datePrepared ?: \Carbon\Carbon::parse($printCluster->created_at)->format('m/d/Y')) }}</div>
                                 </td>
                             </tr>
                         </table>
@@ -1202,32 +1212,32 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                     @endphp
                                     <tr>
                                         <td style="{{ $cellStyle }} text-align: left; padding: 4px 5px; vertical-align: top;">
-                                            <div style="font-weight: bold;">{{ $pi->series_title ?? $pi->doc_name ?? 'Untitled' }}</div>
+                                            <div style="font-weight: bold;">{{ $cleanVal($pi->series_title ?? $pi->doc_name ?? 'Untitled') }}</div>
                                             @if($includeDescriptionOnPrint && !empty($pi->description))
-                                                <div style="font-style: italic; font-size: 7.5px; color: #333; margin-top: 1px;">{{ $pi->description }}</div>
+                                                <div style="font-style: italic; font-size: 7.5px; color: #333; margin-top: 1px;">{{ $cleanVal($pi->description) }}</div>
                                             @endif
                                         </td>
                                         <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">
-                                            {{ $pi->period_covered ?? (!empty($pi->start_at ?? null) ? (\Carbon\Carbon::parse($pi->start_at)->format('Y') . (!empty($pi->ends_at ?? null) ? ' - ' . \Carbon\Carbon::parse($pi->ends_at)->format('Y') : '')) : '') }}
+                                            {{ $cleanVal($pi->period_covered ?? (!empty($pi->start_at ?? null) ? (\Carbon\Carbon::parse($pi->start_at)->format('Y') . (!empty($pi->ends_at ?? null) ? ' - ' . \Carbon\Carbon::parse($pi->ends_at)->format('Y') : '')) : '')) }}
                                         </td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->volume ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->records_medium ?? $pi->medium_name ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->restriction ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->records_location ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->frequence_use ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->duplication ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold;">{{ $pi->time_value ?? '' }}</td>
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold;">{{ $pi->utility_name_display ?? ($pi->time_value === 'P' ? 'Arc' : 'Adm') }}</td>
+                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $cleanVal($pi->volume ?? '') }}</td>
+                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $cleanVal($pi->records_medium ?? $pi->medium_name ?? '') }}</td>
+                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $cleanVal($pi->restriction ?? '') }}</td>
+                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $cleanVal($pi->records_location ?? '') }}</td>
+                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $cleanVal($pi->frequence_use ?? '') }}</td>
+                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $cleanVal($pi->duplication ?? '') }}</td>
+                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold;">{{ $cleanVal($pi->time_value ?? '') }}</td>
+                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold;">{{ $cleanVal($pi->utility_name_display ?? ($pi->time_value === 'P' ? 'Arc' : 'Adm')) }}</td>
                                         
                                         @if($isPerm)
                                             <td colspan="3" style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold; color: #dc2626;">PERMANENT</td>
                                         @else
-                                            <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->active_period ?? '' }}</td>
-                                            <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->storage_period ?? '' }}</td>
-                                            <td style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold;">{{ $pi->total_period ?? '' }}</td>
+                                            <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $cleanVal($pi->active_period ?? '') }}</td>
+                                            <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $cleanVal($pi->storage_period ?? '') }}</td>
+                                            <td style="{{ $cellStyle }} padding: 4px; vertical-align: top; font-weight: bold;">{{ $cleanVal($pi->total_period ?? '') }}</td>
                                         @endif
 
-                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $pi->disposition_provision ?? $pi->remarks ?? '' }}</td>
+                                        <td style="{{ $cellStyle }} padding: 4px; vertical-align: top;">{{ $cleanVal($pi->disposition_provision ?? $pi->remarks ?? '') }}</td>
                                     </tr>
                                 @endforeach
                             </tbody>

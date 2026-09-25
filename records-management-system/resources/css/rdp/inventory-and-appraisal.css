@@ -1018,6 +1018,19 @@ textarea.ia-input {
     transform: scale(0.95);
 }
 
+.ia-side-add-btn.is-cancel {
+    border-color: #ef4444;
+    color: #dc2626;
+    box-shadow: 0 4px 14px rgba(239, 68, 68, 0.22);
+}
+
+.ia-side-add-btn.is-cancel:hover {
+    background: #fef2f2;
+    border-color: #dc2626;
+    color: #b91c1c;
+    box-shadow: 0 6px 20px rgba(239, 68, 68, 0.35);
+}
+
 .ia-side-tooltip {
     position: absolute;
     left: calc(100% + 10px);
@@ -1078,6 +1091,19 @@ textarea.ia-input {
 [data-theme="dark"] .ia-side-add-btn:hover {
     background: #312e81;
     border-color: #a5b4fc;
+    color: #ffffff;
+}
+
+[data-theme="dark"] .ia-side-add-btn.is-cancel {
+    background: #1e293b;
+    border-color: #f87171;
+    color: #fca5a5;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="dark"] .ia-side-add-btn.is-cancel:hover {
+    background: #450a0a;
+    border-color: #fca5a5;
     color: #ffffff;
 }
 

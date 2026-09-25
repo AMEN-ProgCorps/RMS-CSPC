@@ -341,6 +341,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             if (!in_array($realCode, $this->duplicate_offices, true)) {
                 $this->duplicate_offices[] = $realCode;
             }
+        } elseif (!empty($officeCode) && !in_array($officeCode, $this->duplicate_offices, true)) {
+            $this->duplicate_offices[] = $officeCode;
         }
 
         $this->duplicate_search = '';
@@ -640,12 +642,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $officesQuery = DB::table($officeTable)
             ->where('is_active', true)
             ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]']);
-        if ($userOfficeCode) {
-            $officesQuery->where('office_code', '!=', $userOfficeCode);
-        }
         $officesList = $officesQuery->orderBy('office_name', 'asc')->get();
 
         return [
+            'userOfficeCode'       => $userOfficeCode,
             'parentSuggestions'    => $parentSuggestions,
             'allSeriesSuggestions' => $allSeriesSuggestions,
             'recordSeriesTypes'    => $recordSeriesTypes,
@@ -663,11 +663,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $rateCheck = \App\Services\RateLimiterService::check('rdp_create');
         if (!$rateCheck['allowed']) {
             $this->errorMessage = $rateCheck['message'];
+            $this->dispatch('scroll-to-top');
             return;
         }
 
         if (empty($this->selectedSeriesTitle)) {
             $this->errorMessage = 'Please select or stage a Record Series first to save draft.';
+            $this->dispatch('scroll-to-top');
             return;
         }
 
@@ -767,6 +769,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             if (empty($itemsToProcess)) {
                 $this->errorMessage = 'Please provide at least one record subject/description to save draft.';
+                $this->dispatch('scroll-to-top');
                 return;
             }
 
@@ -842,9 +845,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $this->successMessage = $count > 1 
                 ? "Inventory and Appraisal draft for {$count} records saved successfully!" 
                 : "Inventory and Appraisal draft saved successfully!";
+            $this->dispatch('scroll-to-top');
         } catch (\Exception $e) {
             DB::rollBack();
             $this->errorMessage = 'Failed to save draft: ' . $e->getMessage();
+            $this->dispatch('scroll-to-top');
         }
     }
 
@@ -853,17 +858,20 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $rateCheck = \App\Services\RateLimiterService::check('rdp_create');
         if (!$rateCheck['allowed']) {
             $this->errorMessage = $rateCheck['message'];
+            $this->dispatch('scroll-to-top');
             return;
         }
 
         if (empty($this->selectedSeriesTitle)) {
             $this->errorMessage = 'Please select or configure a Record Series first.';
+            $this->dispatch('scroll-to-top');
             return;
         }
 
         $requiredUpload = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'rdp_required_upload_file')->value('value') === 'true';
         if ($requiredUpload && !$this->uploadedFile) {
             $this->errorMessage = 'Uploading a file is required to create a record according to system settings.';
+            $this->dispatch('scroll-to-top');
             return;
         }
 
@@ -968,6 +976,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             if (empty($itemsToProcess)) {
                 $this->errorMessage = 'Please provide at least one record subject/description.';
+                $this->dispatch('scroll-to-top');
                 return;
             }
 
@@ -1048,6 +1057,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         } catch (\Exception $e) {
             DB::rollBack();
             $this->errorMessage = 'Failed to create record: ' . $e->getMessage();
+            $this->dispatch('scroll-to-top');
         }
     }
 
@@ -1078,6 +1088,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->duplicate_offices = [];
         $this->duplicate_search = '';
         $this->showDuplicateDropdown = false;
+        $this->dispatch('scroll-to-top');
     }
 
     public function clearMessages(): void
@@ -1087,10 +1098,32 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     }
 }; ?>
 
-<div class="inventory-appraisal-form" style="padding: 24px; max-width: 1200px; margin: 0 auto;">
+<div class="inventory-appraisal-form" x-data @scroll-to-top.window="rdpScrollToTop()" style="padding: 24px; max-width: 1200px; margin: 0 auto;">
     @push('styles')
         @vite(['resources/css/rdp/inventory-and-appraisal.css'])
     @endpush
+
+    <script>
+        function rdpScrollToTop() {
+            const article = document.getElementById('article-container') || document.querySelector('.article-container');
+            if (article) {
+                article.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        if (window.Livewire) {
+            Livewire.on('scroll-to-top', () => {
+                setTimeout(rdpScrollToTop, 50);
+            });
+        } else {
+            document.addEventListener('livewire:init', () => {
+                Livewire.on('scroll-to-top', () => {
+                    setTimeout(rdpScrollToTop, 50);
+                });
+            });
+        }
+    </script>
 
 
     <!-- Received Document Intake Banner -->
@@ -1135,19 +1168,33 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     <!-- Form Card Wrapper (Anchors the Side (+) Action Button) -->
     <div class="ia-form-card-wrapper">
-        <!-- Side Action: Add More Records Button -->
+        <!-- Side Action: Add More / Cancel Batch Mode Button -->
         <div class="ia-side-action-rail">
-            <button type="button" 
-                    wire:click="addBatchItem" 
-                    class="ia-side-add-btn" 
-                    aria-label="Add more"
-                    title="Add more">
-                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="12" y1="5" x2="12" y2="19"></line>
-                    <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg>
-                <span class="ia-side-tooltip">Add more</span>
-            </button>
+            @if($isBatchMode)
+                <button type="button" 
+                        wire:click="switchToSingleMode" 
+                        class="ia-side-add-btn is-cancel" 
+                        aria-label="Cancel mode"
+                        title="Cancel mode">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                    <span class="ia-side-tooltip">Cancel mode</span>
+                </button>
+            @else
+                <button type="button" 
+                        wire:click="addBatchItem" 
+                        class="ia-side-add-btn" 
+                        aria-label="Add more"
+                        title="Add more">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    <span class="ia-side-tooltip">Add more</span>
+                </button>
+            @endif
         </div>
 
         <!-- Main Form Card -->
@@ -1188,27 +1235,6 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 </div>
 
                 @if($isBatchMode)
-                    <!-- BATCH MODE BANNER & REPEATER -->
-                    <div style="background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%); border: 1.5px solid #c4b5fd; border-radius: 12px; padding: 14px 18px; margin-bottom: 22px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <div style="width: 38px; height: 38px; border-radius: 50%; background: #6366f1; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 800; flex-shrink: 0; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);">
-                                📋
-                            </div>
-                            <div>
-                                <div style="font-size: 14px; font-weight: 800; color: #3730a3;">Batch Mode Active ({{ count($batchItems) }} Records)</div>
-                                <div style="font-size: 12px; color: #5b21b6; margin-top: 2px;">Each record below will be created under this Record Series with shared retention settings.</div>
-                            </div>
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <button type="button" wire:click="addBatchItem" class="ia-btn" style="background: #4f46e5; color: #ffffff; padding: 6px 14px; font-size: 12px;">
-                                + Add Another Record
-                            </button>
-                            <button type="button" wire:click="switchToSingleMode" class="ia-btn" style="background: #ffffff; color: #64748b; border: 1px solid #cbd5e1; padding: 6px 12px; font-size: 12px;">
-                                Switch to Single Mode
-                            </button>
-                        </div>
-                    </div>
-
                     <!-- Batch Items List -->
                     <div class="ia-batch-list" style="display: flex; flex-direction: column; gap: 18px; margin-bottom: 26px;">
                         @foreach($batchItems as $bIdx => $bItem)
@@ -1560,11 +1586,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 </label>
             @endif
 
-            <button type="button" wire:click="resetFormFields" class="ia-btn ia-btn-secondary">CLEAR FORM</button>
-            <button type="button" wire:click="saveDraft" class="ia-btn ia-btn-secondary">
+            <button type="button" wire:click="resetFormFields" onclick="rdpScrollToTop()" class="ia-btn ia-btn-secondary">CLEAR FORM</button>
+            <button type="button" wire:click="saveDraft" onclick="rdpScrollToTop()" class="ia-btn ia-btn-secondary">
                 {{ $isBatchMode && count($batchItems) > 1 ? 'SAVE DRAFT (' . count($batchItems) . ' RECORDS)' : 'SAVE DRAFT' }}
             </button>
-            <button type="button" wire:click="createRecord" class="ia-btn ia-btn-primary ia-btn-lg">
+            <button type="button" wire:click="createRecord" onclick="rdpScrollToTop()" class="ia-btn ia-btn-primary ia-btn-lg">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                 {{ $isBatchMode && count($batchItems) > 1 ? 'CREATE ' . count($batchItems) . ' RECORDS' : 'CREATE RECORD' }}
             </button>

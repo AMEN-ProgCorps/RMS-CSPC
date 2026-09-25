@@ -33,13 +33,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     public bool $showViewModal = false;
     public ?object $viewSeriesData = null;
 
-    // Edit Modal Properties
-    public bool $showEditModal = false;
-    public ?int $editingSeriesId = null;
-    public string $editSeriesTitle = '';
-    public ?string $editItemNumber = '';
-    public string $editRemarks = '';
-    public bool $isRootParentForEdit = false;
+    // Edit Subject Modal Properties
+    public bool $showEditSubjectModal = false;
+    public ?int $editingSubjectId = null;
+    public string $editSubjectDescription = '';
+    public string $editSubjectDateCovered = '';
+    public string $editSubjectVolume = '';
+    public string $editSubjectLocation = '';
+    public ?int $editSubjectMedium = null;
+    public ?string $editSubjectRestriction = null;
+    public ?string $editSubjectFrequency = null;
+    public string $editSubjectTimeValue = 'T';
+    public array $editSubjectUtilities = [];
 
     // Printable Custom Header & Signature Fields (NAP Form 3 Revised 2012)
     public string $agencyName = 'Camarines Sur Polytechnic Colleges';
@@ -312,52 +317,106 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $this->showPrintModal = false;
     }
 
-    public function openEditModal(int $id): void
+    public function openEditSubjectModal(int $id): void
     {
-        $series = DB::table('rdp_record_series')->where('id', $id)->first();
-        if ($series) {
-            $this->editingSeriesId = $series->id;
-            $this->editSeriesTitle = $series->series_title ?? '';
-            $this->editItemNumber = $series->item_number !== null ? (string)$series->item_number : '';
-            $this->editRemarks = $series->remarks ?? '';
-            $this->isRootParentForEdit = empty($series->parent_id);
-            $this->showEditModal = true;
+        $rec = DB::table('rdp_record')->where('id', $id)->first();
+        if ($rec) {
+            $this->editingSubjectId = $rec->id;
+            $this->editSubjectDescription = $rec->description ?? '';
+            $this->editSubjectVolume = $rec->volume ?? '';
+            $this->editSubjectLocation = $rec->records_location ?? '';
+            $this->editSubjectMedium = $rec->records_medium ? (int)$rec->records_medium : null;
+            $this->editSubjectRestriction = $rec->restriction ?? null;
+            $this->editSubjectFrequency = $rec->frequence_use ?? null;
+            $this->editSubjectTimeValue = $rec->time_value ?: 'T';
+
+            // Period covered
+            $period = DB::table('rdp_period_covered')->where('period_owner', $id)->orderBy('id', 'desc')->first();
+            $this->editSubjectDateCovered = $period->date_covered ?? '';
+
+            // Utilities
+            $this->editSubjectUtilities = DB::table('rdp_utility_manager')
+                ->where('record_holder', $id)
+                ->where('is_active', true)
+                ->pluck('utility_medium')
+                ->map(fn($v) => (int)$v)
+                ->all();
+
+            $this->showEditSubjectModal = true;
         }
     }
 
-    public function closeEditModal(): void
+    public function closeEditSubjectModal(): void
     {
-        $this->showEditModal = false;
-        $this->editingSeriesId = null;
+        $this->showEditSubjectModal = false;
+        $this->editingSubjectId = null;
     }
 
-    public function saveEditSeries(): void
+    public function saveEditSubject(): void
     {
-        if (!$this->editingSeriesId) return;
+        if (!$this->editingSubjectId) return;
 
-        $series = DB::table('rdp_record_series')->where('id', $this->editingSeriesId)->first();
-        if (!$series) return;
+        $cleanDesc = trim($this->editSubjectDescription);
+        if (empty($cleanDesc)) {
+            $this->errorMessage = 'Subject description cannot be empty.';
+            return;
+        }
 
-        $updateData = [
-            'series_title' => mb_strtoupper(trim($this->editSeriesTitle)),
-            'remarks'      => trim($this->editRemarks) ?: null,
-        ];
+        try {
+            DB::beginTransaction();
 
-        if (empty($series->parent_id)) {
-            $itemNumStr = trim((string)$this->editItemNumber);
-            if ($itemNumStr !== '') {
-                $updateData['item_number'] = (int)$itemNumStr;
-                $updateData['is_verified'] = true;
-            } else {
-                $updateData['item_number'] = null;
-                $updateData['is_verified'] = false;
+            DB::table('rdp_record')
+                ->where('id', $this->editingSubjectId)
+                ->update([
+                    'description'      => mb_strtoupper($cleanDesc),
+                    'volume'           => mb_strtoupper(trim($this->editSubjectVolume)),
+                    'records_location' => mb_strtoupper(trim($this->editSubjectLocation)),
+                    'records_medium'   => $this->editSubjectMedium ?: null,
+                    'restriction'      => $this->editSubjectRestriction ?: null,
+                    'frequence_use'    => $this->editSubjectFrequency ?: null,
+                    'time_value'       => $this->editSubjectTimeValue ?: 'T',
+                    'updated_at'       => Carbon::now(),
+                ]);
+
+            // Update or insert period covered
+            $existingPeriod = DB::table('rdp_period_covered')->where('period_owner', $this->editingSubjectId)->orderBy('id', 'desc')->first();
+            if ($existingPeriod) {
+                DB::table('rdp_period_covered')
+                    ->where('id', $existingPeriod->id)
+                    ->update([
+                        'date_covered' => trim($this->editSubjectDateCovered),
+                        'modified_at'  => Carbon::now(),
+                    ]);
+            } elseif (!empty(trim($this->editSubjectDateCovered))) {
+                DB::table('rdp_period_covered')->insert([
+                    'period_owner' => $this->editingSubjectId,
+                    'date_covered' => trim($this->editSubjectDateCovered),
+                    'created_at'   => Carbon::now(),
+                    'modified_at'  => Carbon::now(),
+                ]);
             }
+
+            // Update utility manager
+            DB::table('rdp_utility_manager')->where('record_holder', $this->editingSubjectId)->delete();
+            foreach ($this->editSubjectUtilities as $uId) {
+                if (empty($uId)) continue;
+                DB::table('rdp_utility_manager')->insert([
+                    'record_holder'  => $this->editingSubjectId,
+                    'utility_medium' => (int)$uId,
+                    'is_active'      => true,
+                    'created_at'     => Carbon::now(),
+                    'updated_at'     => Carbon::now(),
+                ]);
+            }
+
+            DB::commit();
+
+            $this->successMessage = "Record subject updated successfully.";
+            $this->closeEditSubjectModal();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->errorMessage = 'Failed to update record: ' . $e->getMessage();
         }
-
-        DB::table('rdp_record_series')->where('id', $this->editingSeriesId)->update($updateData);
-
-        $this->successMessage = "Record series '{$this->editSeriesTitle}' updated successfully.";
-        $this->closeEditModal();
     }
 
     public function clearFilters(): void
@@ -707,6 +766,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 'isSadm'                    => $isSadm,
                 'includeDescriptionOnPrint' => $includeDescriptionOnPrint,
                 'cleanVal'                  => fn($v) => $this->cleanVal($v),
+                'mediaList'                 => DB::table('rdp_recorded_value')->orderBy('medium_name', 'asc')->get(),
+                'restrictionsList'          => DB::table('rdp_restriction_type')->orderBy('restriction_value', 'asc')->get(),
+                'frequenciesList'           => DB::table('rdp_frequence_use')->orderBy('freq_type', 'asc')->get(),
+                'timeValuesList'            => DB::table('rdp_time_value')->orderBy('char_value', 'asc')->get(),
+                'utilityValuesList'         => DB::table('rdp_utility_medium')->orderBy('utility_name', 'asc')->get(),
             ];
         }
 
@@ -1059,6 +1123,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             'selectedSubjectIds'        => $this->selectedSubjectIds,
             'compileLocationHelper'     => fn(array $locs) => $this->compileLocation($locs),
             'compileVolumeHelper'       => fn(array $vols) => $this->compileVolume($vols),
+            'mediaList'                 => DB::table('rdp_recorded_value')->orderBy('medium_name', 'asc')->get(),
+            'restrictionsList'          => DB::table('rdp_restriction_type')->orderBy('restriction_value', 'asc')->get(),
+            'frequenciesList'           => DB::table('rdp_frequence_use')->orderBy('freq_type', 'asc')->get(),
+            'timeValuesList'            => DB::table('rdp_time_value')->orderBy('char_value', 'asc')->get(),
+            'utilityValuesList'         => DB::table('rdp_utility_medium')->orderBy('utility_name', 'asc')->get(),
         ];
     }
 };
@@ -1405,9 +1474,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                 <td colspan="2" style="background: #f8fafc;"></td>
                             @endif
                             <td style="text-align: right; white-space: nowrap;">
-                                <button type="button" wire:click="openEditModal({{ $root->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
-                                    ✏️ Edit
-                                </button>
+                                <span style="color: #94a3b8; font-size: 11px;">—</span>
                             </td>
                         </tr>
 
@@ -1462,9 +1529,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                         @endif
                                     </td>
                                     <td style="text-align: right; white-space: nowrap;">
-                                        <button type="button" wire:click="openEditModal({{ $sub->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
-                                            ✏️ Edit
-                                        </button>
+                                        <span style="color: #94a3b8; font-size: 11px;">—</span>
                                     </td>
                                 </tr>
 
@@ -1488,8 +1553,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                         </td>
                                         <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->date_covered }}</td>
                                         <td style="text-align: center; color: #cbd5e1;">—</td>
-                                        <td style="text-align: right;">
-                                            <a href="{{ route('rdp.add-records.inventory-and-appraisal') }}" style="font-size: 11px; color: #dc2626; text-decoration: none; font-weight: 600;">Manage</a>
+                                        <td style="text-align: right; white-space: nowrap;">
+                                            <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
+                                                ✏️ Edit
+                                            </button>
                                         </td>
                                     </tr>
                                 @endforeach
@@ -1515,8 +1582,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                     </td>
                                     <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->date_covered }}</td>
                                     <td style="text-align: center; color: #cbd5e1;">—</td>
-                                    <td style="text-align: right;">
-                                        <a href="{{ route('rdp.add-records.inventory-and-appraisal') }}" style="font-size: 11px; color: #dc2626; text-decoration: none; font-weight: 600;">Manage</a>
+                                    <td style="text-align: right; white-space: nowrap;">
+                                        <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
+                                            ✏️ Edit
+                                        </button>
                                     </td>
                                 </tr>
                             @endforeach
@@ -1845,35 +1914,101 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         </div>
     @endif
 
-    <!-- EDIT SERIES MODAL -->
-    @if($showEditModal)
-        <div class="modal-overlay" wire:click.self="closeEditModal">
-            <div class="modal-dialog">
+    <!-- EDIT SUBJECT MODAL -->
+    @if($showEditSubjectModal)
+        <div class="modal-overlay" wire:click.self="closeEditSubjectModal">
+            <div class="modal-dialog" style="max-width: 680px; width: 100%;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
-                    <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">Edit Record Series</h3>
-                    <button type="button" wire:click="closeEditModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
+                    <div>
+                        <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">Edit Record Subject</h3>
+                        <p style="margin: 2px 0 0 0; font-size: 12px; color: #64748b;">Update and fix details, typos, or classifications for this record.</p>
+                    </div>
+                    <button type="button" wire:click="closeEditSubjectModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
                 </div>
 
-                <form wire:submit.prevent="saveEditSeries" style="display: flex; flex-direction: column; gap: 14px;">
+                <form wire:submit.prevent="saveEditSubject" style="display: flex; flex-direction: column; gap: 14px;">
+                    <!-- Subject Description -->
                     <div>
-                        <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Series Title</label>
-                        <input type="text" wire:model="editSeriesTitle" style="width: 100%; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;" required>
+                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Subject / Description</label>
+                        <textarea wire:model="editSubjectDescription" rows="2" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;" placeholder="Enter record subject title or description" required></textarea>
                     </div>
 
-                    @if($isRootParentForEdit)
+                    <!-- Row 1: Period Covered & Volume -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
-                            <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Item Number</label>
-                            <input type="number" wire:model="editItemNumber" placeholder="e.g. 5" style="width: 100%; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;">
+                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Period Covered / Inclusive Dates</label>
+                            <input type="text" wire:model="editSubjectDateCovered" placeholder="e.g. 2020-2024 or 2023" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;">
                         </div>
-                    @endif
-
-                    <div>
-                        <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Remarks & Provisions</label>
-                        <textarea wire:model="editRemarks" rows="3" placeholder="Disposal notes, authority references..." style="width: 100%; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;"></textarea>
+                        <div>
+                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Volume Amount & Unit</label>
+                            <input type="text" wire:model="editSubjectVolume" placeholder="e.g. 2 papers, 1 box, 2 bundles" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;">
+                        </div>
                     </div>
 
-                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
-                        <button type="button" wire:click="closeEditModal" class="nap-btn nap-btn-secondary">Cancel</button>
+                    <!-- Row 2: Location & Medium -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div>
+                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Location of Records</label>
+                            <input type="text" wire:model="editSubjectLocation" placeholder="e.g. Cabinet 2L, Shelf 3" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;">
+                        </div>
+                        <div>
+                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Medium</label>
+                            <select wire:model="editSubjectMedium" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                                <option value="">Select Medium...</option>
+                                @foreach($mediaList as $med)
+                                    <option value="{{ $med->id }}">{{ $med->medium_name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Row 3: Restriction & Frequency of Use -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div>
+                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Restriction / Access</label>
+                            <select wire:model="editSubjectRestriction" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                                <option value="">Select Restriction...</option>
+                                @foreach($restrictionsList as $rest)
+                                    <option value="{{ $rest->restriction_value }}">{{ $rest->restriction_value }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Frequency of Use</label>
+                            <select wire:model="editSubjectFrequency" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                                <option value="">Select Frequency...</option>
+                                @foreach($frequenciesList as $freq)
+                                    <option value="{{ $freq->freq_type }}">{{ $freq->freq_type }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Row 4: Time Value & Utility Value -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div>
+                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Time Value (T/P)</label>
+                            <select wire:model="editSubjectTimeValue" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                                @foreach($timeValuesList as $tv)
+                                    <option value="{{ $tv->char_value }}">{{ $tv->char_value }} — {{ $tv->description }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Utility Value</label>
+                            <div style="display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px;">
+                                @foreach($utilityValuesList as $uv)
+                                    <label style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: #334155; background: #f8fafc; border: 1px solid #cbd5e1; padding: 4px 8px; border-radius: 6px; cursor: pointer;">
+                                        <input type="checkbox" wire:model="editSubjectUtilities" value="{{ $uv->id }}" style="accent-color: #dc2626;">
+                                        <span>{{ $uv->utility_name }}</span>
+                                    </label>
+                                @endforeach
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
+                        <button type="button" wire:click="closeEditSubjectModal" class="nap-btn nap-btn-secondary">Cancel</button>
                         <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
                     </div>
                 </form>

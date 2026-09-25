@@ -36,7 +36,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     public string $preparedPosition = 'Administrative Officer V / Records Officer';
     public string $assistedBy = '';
     public string $assistedPosition = 'NAP Records Management Analyst';
-    public string $approvedBy = 'Dr. Luningning Q. Bregala';
+    public string $approvedBy = '';
     public string $approvedPosition = 'Chief of Division / Department Head';
 
     public function mount(): void

@@ -398,6 +398,50 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         }
     }
 
+    public function cancelRecord(): void
+    {
+        if (!$this->editingSubjectId) return;
+
+        $perms = Auth::user()?->permissions;
+        $isSadm = (bool)($perms->is_sadm ?? false);
+        if (!$isSadm && !(bool)($perms->can_rdp_modify_form_1 ?? true)) {
+            $this->errorMessage = 'You do not have clearance to cancel records on NAP Form 1.';
+            return;
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $record = DB::table('rdp_record')->where('id', $this->editingSubjectId)->first();
+            if (!$record) {
+                $this->errorMessage = 'Record not found.';
+                return;
+            }
+
+            DB::table('rdp_record')->where('id', $this->editingSubjectId)->update([
+                'is_active'  => false,
+                'updated_at' => Carbon::now(),
+            ]);
+
+            // Audit Log
+            $adminId = auth()->id() ?? 1;
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
+                'admin_id'     => $adminId,
+                'changes'      => 'Canceled Subject Record via NAP Form 1: "' . ($record->description ?? '') . '" (ID: ' . $this->editingSubjectId . ')',
+                'what_system'  => 2,
+                'when_changes' => now(),
+            ]);
+
+            DB::commit();
+
+            $this->successMessage = 'Record canceled successfully.';
+            $this->closeEditSubjectModal();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->errorMessage = 'Failed to cancel record: ' . $e->getMessage();
+        }
+    }
+
     public function clearFilters(): void
     {
         $this->search = '';
@@ -1313,10 +1357,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
                 <div style="display: inline-flex; gap: 8px; align-items: center; margin-left: 4px;">
                     <button type="button" @click="expandAll()" class="nap-btn nap-btn-secondary" style="padding: 7px 12px; font-size: 12px;" title="Expand all series to show subjects">
-                        🔽 Expand All
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                        Expand All
                     </button>
                     <button type="button" @click="collapseAll()" class="nap-btn nap-btn-secondary" style="padding: 7px 12px; font-size: 12px;" title="Collapse all series to show only compilation totals">
-                        ▶️ Collapse All
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(-90deg);">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                        Collapse All
                     </button>
                 </div>
             </div>
@@ -1398,8 +1448,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                                     class="nap-chevron-btn"
                                                     :style="isSubjectsCollapsed('root-{{ $root->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'"
                                                     title="Toggle subjects">
-                                                <svg style="width: 14px; height: 14px; stroke: currentColor; stroke-width: 2.2; fill: none; stroke-linecap: round; stroke-linejoin: round;" viewBox="0 0 24 24">
-                                                    <path d="M6 9l6 6 6-6"></path>
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polyline points="6 9 12 15 18 9"></polyline>
                                                 </svg>
                                             </button>
                                         @else
@@ -1411,8 +1461,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                                 class="nap-chevron-btn"
                                                 :style="isRootCollapsed('root-{{ $root->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'"
                                                 title="Toggle sub-series group">
-                                            <svg style="width: 14px; height: 14px; stroke: currentColor; stroke-width: 2.2; fill: none; stroke-linecap: round; stroke-linejoin: round;" viewBox="0 0 24 24">
-                                                <path d="M6 9l6 6 6-6"></path>
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="6 9 12 15 18 9"></polyline>
                                             </svg>
                                         </button>
                                     @endif
@@ -1486,8 +1536,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                                         class="nap-chevron-btn"
                                                         :style="isSubjectsCollapsed('sub-{{ $sub->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'"
                                                         title="Toggle subjects">
-                                                    <svg style="width: 14px; height: 14px; stroke: currentColor; stroke-width: 2.2; fill: none; stroke-linecap: round; stroke-linejoin: round;" viewBox="0 0 24 24">
-                                                        <path d="M6 9l6 6 6-6"></path>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                        <polyline points="6 9 12 15 18 9"></polyline>
                                                     </svg>
                                                 </button>
                                             @else
@@ -1556,7 +1606,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         <td style="text-align: center; color: #cbd5e1;">—</td>
                                         <td style="text-align: right; white-space: nowrap;">
                                             <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
-                                                ✏️ Edit
+                                                Edit
                                             </button>
                                         </td>
                                     </tr>
@@ -1593,7 +1643,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     <td style="text-align: center; color: #cbd5e1;">—</td>
                                     <td style="text-align: right; white-space: nowrap;">
                                         <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
-                                            ✏️ Edit
+                                            Edit
                                         </button>
                                     </td>
                                 </tr>
@@ -2088,9 +2138,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         </div>
                     </div>
 
-                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
-                        <button type="button" wire:click="closeEditSubjectModal" class="nap-btn nap-btn-secondary">Cancel</button>
-                        <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
+                        <button type="button" wire:click="cancelRecord" wire:confirm="Are you sure you want to cancel this record? This will remove it from NAP Form 1." class="nap-btn" style="background: #fee2e2; color: #dc2626; border: 1px solid #fecaca;">
+                            Cancel Record
+                        </button>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" wire:click="closeEditSubjectModal" class="nap-btn nap-btn-secondary">Close</button>
+                            <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                        </div>
                     </div>
                 </form>
             </div>

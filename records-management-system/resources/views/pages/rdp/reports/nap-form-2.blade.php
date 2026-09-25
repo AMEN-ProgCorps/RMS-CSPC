@@ -109,6 +109,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     public ?string $editItemNumber = '';
     public string $editRemarks = '';
     public bool $isRootParentForEdit = false;
+    public bool $isSeriesUsedInNap1 = false;
 
     // Preview Header & Signature Fields
     public string $agencyName = 'Camarines Sur Polytechnic Colleges';
@@ -271,6 +272,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             $this->editRemarks = $record->remarks ?? '';
             $this->isRootParentForEdit = empty($record->parent_id);
 
+            // Check if this record series (or any of its child series) is currently used in NAP Form 1 (rdp_record)
+            $checkIds = [$record->id];
+            $childIds = DB::table('rdp_record_series')
+                ->where('parent_id', $record->id)
+                ->where('is_active', true)
+                ->pluck('id')
+                ->toArray();
+            if (!empty($childIds)) {
+                $checkIds = array_merge($checkIds, $childIds);
+            }
+
+            $this->isSeriesUsedInNap1 = DB::table('rdp_record')
+                ->whereIn('record_series_id', $checkIds)
+                ->where('is_active', true)
+                ->exists();
+
             $this->showEditModal = true;
         }
     }
@@ -279,6 +296,75 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     {
         $this->showEditModal = false;
         $this->editingSeriesId = null;
+        $this->isSeriesUsedInNap1 = false;
+    }
+
+    public function cancelRecordSeries(): void
+    {
+        if (!$this->editingSeriesId) return;
+
+        $perms = Auth::user()?->permissions;
+        $isSadm = (bool)($perms->is_sadm ?? false);
+        if (!$isSadm && !(bool)($perms->can_rdp_modify_form_2 ?? true)) {
+            $this->errorMessage = 'You do not have clearance to cancel records on NAP Form 2.';
+            return;
+        }
+
+        // Safety check: cannot cancel if used in NAP Form 1
+        $checkIds = [$this->editingSeriesId];
+        $childIds = DB::table('rdp_record_series')
+            ->where('parent_id', $this->editingSeriesId)
+            ->where('is_active', true)
+            ->pluck('id')
+            ->toArray();
+        if (!empty($childIds)) {
+            $checkIds = array_merge($checkIds, $childIds);
+        }
+
+        $isUsed = DB::table('rdp_record')
+            ->whereIn('record_series_id', $checkIds)
+            ->where('is_active', true)
+            ->exists();
+
+        if ($isUsed) {
+            $this->errorMessage = 'Cannot cancel this record series because it is currently used in NAP Form 1.';
+            return;
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $series = DB::table('rdp_record_series')->where('id', $this->editingSeriesId)->first();
+            if (!$series) {
+                $this->errorMessage = 'Record series not found.';
+                return;
+            }
+
+            // Deactivate this record series and any children
+            DB::table('rdp_record_series')
+                ->whereIn('id', $checkIds)
+                ->update([
+                    'is_active'   => false,
+                    'updated_at'  => Carbon::now(),
+                ]);
+
+            // Audit Log
+            $adminId = auth()->id() ?? 1;
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
+                'admin_id'     => $adminId,
+                'changes'      => 'Canceled Record Series via NAP Form 2: "' . ($series->series_title ?? '') . '" (ID: ' . $this->editingSeriesId . ')',
+                'what_system'  => 2,
+                'when_changes' => now(),
+            ]);
+
+            DB::commit();
+
+            $this->successMessage = 'Record series canceled successfully.';
+            $this->closeEditModal();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->errorMessage = 'Failed to cancel record series: ' . $e->getMessage();
+        }
     }
 
     public function saveEditSeries(): void
@@ -768,10 +854,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
                 <div style="display: inline-flex; gap: 8px; align-items: center; margin-left: 4px;">
                     <button type="button" @click="expandAll()" class="nap-btn nap-btn-secondary" style="padding: 7px 12px; font-size: 12px;" title="Expand all parent series">
-                        🔽 Expand All
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                        Expand All
                     </button>
                     <button type="button" @click="collapseAll()" class="nap-btn nap-btn-secondary" style="padding: 7px 12px; font-size: 12px;" title="Collapse all parent series">
-                        ▶️ Collapse All
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(-90deg);">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                        Collapse All
                     </button>
                 </div>
             </div>
@@ -841,8 +933,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                                                 class="nap-chevron-btn"
                                                 :style="isRootCollapsed('root-{{ $item->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'"
                                                 title="Toggle sub-series group">
-                                            <svg style="width: 14px; height: 14px; stroke: currentColor; stroke-width: 2.2; fill: none; stroke-linecap: round; stroke-linejoin: round;" viewBox="0 0 24 24">
-                                                <path d="M6 9l6 6 6-6"></path>
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="6 9 12 15 18 9"></polyline>
                                             </svg>
                                         </button>
                                     @else
@@ -913,11 +1005,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                             @endif
                             <td style="font-size: 12.5px; color: #64748b;">{{ $item->remarks ?: '' }}</td>
                             <td style="text-align: right; white-space: nowrap;">
-                                <button type="button" wire:click="openViewModal({{ $item->id }})" class="nap-btn nap-btn-secondary" style="padding: 5px 10px; font-size: 12px; margin-right: 4px;">
-                                    👁️ View
-                                </button>
-                                <button type="button" wire:click="openEditModal({{ $item->id }})" class="nap-btn nap-btn-primary" style="padding: 5px 10px; font-size: 12px;">
-                                    ✏️ Edit
+                                <button type="button" wire:click="openEditModal({{ $item->id }})" class="nap-btn nap-btn-primary" style="padding: 5px 12px; font-size: 12px;">
+                                    Edit
                                 </button>
                             </td>
                         </tr>
@@ -1045,9 +1134,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                         <textarea wire:model="editRemarks" rows="3" placeholder="Additional disposition notes, remarks..." style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box;"></textarea>
                     </div>
 
-                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
-                        <button type="button" wire:click="closeEditModal" class="nap-btn nap-btn-secondary">Cancel</button>
-                        <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
+                        @if($isSeriesUsedInNap1)
+                            <div style="display: inline-flex; align-items: center; gap: 8px;">
+                                <button type="button" disabled class="nap-btn" style="background: #f1f5f9; color: #94a3b8; border: 1px solid #cbd5e1; cursor: not-allowed; opacity: 0.7;" title="Cannot be canceled: this record series is currently used in NAP Form 1">
+                                    Cancel Series
+                                </button>
+                                <span style="font-size: 11.5px; color: #dc2626; font-weight: 600;">(Cannot cancel: currently used in NAP Form 1)</span>
+                            </div>
+                        @else
+                            <button type="button" wire:click="cancelRecordSeries" wire:confirm="Are you sure you want to cancel this record series? This will remove it from NAP Form 2." class="nap-btn" style="background: #fee2e2; color: #dc2626; border: 1px solid #fecaca;">
+                                Cancel Series
+                            </button>
+                        @endif
+
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" wire:click="closeEditModal" class="nap-btn nap-btn-secondary">Close</button>
+                            <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                        </div>
                     </div>
                 </form>
             </div>

@@ -36,6 +36,13 @@
 
     const chatHeaderTitle = document.getElementById('chatHeaderTitle');
     const chatHeaderAvatar = document.getElementById('chatHeaderAvatar');
+    if (chatHeaderAvatar) {
+      chatHeaderAvatar.setAttribute('draggable', 'false');
+      chatHeaderAvatar.addEventListener('dragstart', function(e) {
+        e.preventDefault();
+        return false;
+      });
+    }
     const sidebar         = document.getElementById('sidebar');
     const backButton      = document.getElementById('backButton');
 
@@ -2489,7 +2496,7 @@
     // text as the inner content of a .user-avatar / .message-avatar circle.
     function avatarInnerHtml(avatarUrl, initials) {
       if (avatarUrl) {
-        return `<img src="${escapeHtml(avatarUrl)}" class="avatar-img" alt="" loading="eager" referrerpolicy="no-referrer">`;
+        return `<img src="${escapeHtml(avatarUrl)}" class="avatar-img" alt="" loading="eager" referrerpolicy="no-referrer" draggable="false" ondragstart="return false;">`;
       }
       return escapeHtml(initials);
     }

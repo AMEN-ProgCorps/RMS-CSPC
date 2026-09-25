@@ -13,8 +13,15 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
     public bool $isProcessing = false;
     public string $deviceInfoJson = '';
 
-    public function track(): void
+    public function track(?string $code = null, ?string $deviceInfo = null): void
     {
+        if (!empty($code)) {
+            $this->trackingNumber = trim($code);
+        }
+        if (!empty($deviceInfo)) {
+            $this->deviceInfoJson = $deviceInfo;
+        }
+
         $this->validate([
             'trackingNumber' => ['required', 'string'],
         ]);
@@ -96,8 +103,9 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
             }
 
             // Phase 3: Redirect to tracked results page
+            session(['tracking_target_number' => $code]);
             $this->dispatch('track-result', status: 'found');
-            $this->redirect(route('tracked') . '?number=' . urlencode($code), navigate: true);
+            $this->redirect(route('tracked', ['number' => $code]), navigate: true);
 
         } catch (\Illuminate\Database\QueryException $e) {
             $this->dispatch('track-result', status: 'db-error');
@@ -107,133 +115,158 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
 ?>
 
 @push('styles')
-    @vite(['resources/css/td.css'])
-    <style>
-        @keyframes si-slidein {
-            from { opacity: 0; transform: translateY(-6px); }
-            to   { opacity: 1; transform: translateY(0); }
+    <script>
+        if (window.self !== window.top) {
+            window.top.location.href = window.location.href;
         }
-        @keyframes si-pulse {
-            0%, 100% { opacity: 1; }
-            50%       { opacity: 0.55; }
-        }
-        @keyframes si-shake {
-            0%, 100% { transform: translateX(0); }
-            20%       { transform: translateX(-5px); }
-            40%       { transform: translateX(5px); }
-            60%       { transform: translateX(-4px); }
-            80%       { transform: translateX(4px); }
-        }
-        #status_indicator {
-            display: none;
-            margin: 0.75rem 0;
-            padding: 0.75rem 1rem;
-            border-radius: 0.5rem;
-            border-left: 4px solid currentColor;
-            animation: si-slidein 0.2s ease;
-        }
-        #status_indicator[data-type="checking"] {
-            background: #EFF6FF;
-            color: #1D4ED8;
-            animation: si-slidein 0.2s ease, si-pulse 1.4s ease-in-out infinite;
-        }
-        #status_indicator[data-type="blocked"] {
-            background: #FFFBEB;
-            color: #92400E;
-            border-color: #D97706;
-            animation: si-slidein 0.2s ease, si-shake 0.45s ease;
-        }
-        #status_indicator[data-type="error"] {
-            background: #FEF2F2;
-            color: #B91C1C;
-            border-color: #EF4444;
-            animation: si-slidein 0.2s ease, si-shake 0.45s ease;
-        }
-        #status_indicator[data-type="success"] {
-            background: #F0FDF4;
-            color: #15803D;
-            border-color: #22C55E;
-            animation: si-slidein 0.2s ease;
-        }
-        #status_indicator[data-type="db-error"] {
-            background: #FDF4FF;
-            color: #7E22CE;
-            border-color: #A855F7;
-            animation: si-slidein 0.2s ease, si-shake 0.45s ease;
-        }
-        #status_indicator .si-phase {
-            font-size: 0.68rem;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            opacity: 0.7;
-            margin-bottom: 0.2rem;
-        }
-        #status_indicator .si-message {
-            font-size: 0.9rem;
-            font-weight: 600;
-        }
-    </style>
+    </script>
+    @vite(['resources/css/login.css', 'resources/css/track-document.css'])
 @endpush
 
-<div class="livewire-root">
-<header>
-    <div class="logo">
-        <img src="{{ asset('images/cspc.png') }}" alt="CSPC Logo">
-    </div>
-    <span>Records and Freedom of Information Office</span>
-</header>
-<section>
-    <div class="login">
-        <a href="{{ route('login') }}" class="log">
-            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="24" viewBox="0 0 48 24">
-                <path fill="currentColor" d="M46,13V11H8L13.5,5.5L12.08,4.08L4.16,12L12.08,19.92L13.5,18.5L8,13H46Z" />
+<div class="salesskip-viewport-root livewire-root" id="track-document-viewport-root">
+    <div class="salesskip-split-container" id="main-swipe-wrapper">
+        <!-- LEFT PANEL: Vibrant Royal Blue Hero with Curves, Welcome & Developers -->
+        <div class="hero-blue-pane" id="pane-blue">
+        <!-- Curved wireframe contour lines in background -->
+        <div class="wireframe-waves-bg" aria-hidden="true">
+            <svg viewBox="0 0 700 800" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+                <g opacity="0.25" stroke="url(#hero-wave-glow)" stroke-width="1.8">
+                    <path d="M-60,90 C180,40 320,260 560,140 C740,40 840,280 1020,220" />
+                    <path d="M-60,160 C200,110 340,330 590,210 C770,110 870,350 1050,290" />
+                    <path d="M-60,230 C220,180 360,400 620,280 C800,180 900,420 1080,360" />
+                    <path d="M-60,300 C240,250 380,470 650,350 C830,250 930,490 1110,430" />
+                    <path d="M-60,370 C260,320 400,540 680,420 C860,320 960,560 1140,500" />
+                    <path d="M-60,440 C280,390 420,610 710,490 C890,390 990,630 1170,570" />
+                    <path d="M-60,510 C300,460 440,680 740,560 C920,460 1020,700 1200,640" />
+                    <path d="M-60,580 C320,530 460,750 770,630 C950,530 1050,770 1230,710" />
+                </g>
+                <defs>
+                    <linearGradient id="hero-wave-glow" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.9" />
+                        <stop offset="50%" stop-color="#60A5FA" stop-opacity="0.5" />
+                        <stop offset="100%" stop-color="#2563EB" stop-opacity="0.1" />
+                    </linearGradient>
+                </defs>
             </svg>
-            Back
-        </a>
-    </div>
-    <div class="container">
-        <div class="td-label">
-            <span class="top">Track Document</span>
-            <span class="subtitle">Enter your tracking number to view your document status without login</span>
         </div>
-        @if (session('error'))
-            <div style="background:#FEF2F2;border:1px solid #F87171;color:#991B1B;padding:0.75rem 1rem;border-radius:0.5rem;font-size:0.875rem;margin-bottom:0.5rem;text-align:center;">
-                {{ session('error') }}
+
+        <div class="hero-inner-content">
+            <!-- Middle: Main Heading, Welcome & Developers -->
+            <div class="hero-middle-section">
+                <h1 class="hero-heading">
+                    CSPC<br>
+                    <span>Records Management System</span>
+                </h1>
+
+                <p class="hero-welcome-text">
+                    Welcome to the centralized portal for the Records Management System (RMS) at Camarines Sur Polytechnic Colleges (CSPC). Developed under the leadership of the Records and Freedom of Information Unit (RFIU) in collaboration with the Information and Communications Technology Unit (ICTU), this modernized web application platform enhances institutional transparency, document traceability, and operational accountability across all campus administrative offices.
+                </p>
+
+                <!-- Developers Section -->
+                <div class="developers-plain-section">
+                    <div class="developers-plain-tag">Developers</div>
+                    <ul class="developers-plain-names">
+                        <li>John Albert T. Lagriada</li>
+                        <li>Jan Russel S. Luce&ntilde;a</li>
+                        <li>Shanice R. Magbanua</li>
+                        <li>Jeroboam T. Oliveros</li>
+                        <li>Kurt Gabrielle B. Zabala</li>
+                    </ul>
+                </div>
             </div>
-        @endif
-        <form id="track-form" class="td-search">
-            <div class="search-container">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-                    <path fill="currentColor" d="M9.5,3A6.5,6.5,0,1,0,16,9.5,6.51,6.51,0,0,0,9.5,3Zm0,11A4.5,4.5,0,1,1,14,9.5,4.51,4.51,0,0,1,9.5,14ZM20.71,19.29l-3.4-3.39a1,1,0,1,0-1.42,1.42l3.4,3.39a1,1,0,0,0,1.42-1.42Z" />
-                </svg>
-                <input wire:model="trackingNumber" id="tracking-input" type="text" placeholder="Enter Tracking Number" required>
+
+            <!-- Bottom Copyright -->
+            <div class="hero-bottom-section">
+                <span>&copy; {{ date('Y') }} CSPC Records Management System. All rights reserved.</span>
             </div>
-            <div class="search-btn-group">
-                <button type="button" id="open-public-scanner-btn" class="scan-btn" title="Scan QR Code">
-                    Scan QR
-                </button>
-                <button type="submit" class="search-btn" wire:loading.attr="disabled">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-                        <path fill="currentColor" d="M9.5,3A6.5,6.5,0,1,0,16,9.5,6.51,6.51,0,0,0,9.5,3Zm0,11A4.5,4.5,0,1,1,14,9.5,4.51,4.51,0,0,1,9.5,14ZM20.71,19.29l-3.4-3.39a1,1,0,1,0-1.42,1.42l3.4,3.39a1,1,0,0,0,1.42-1.42Z" />
-                    </svg>
-                    <span wire:loading.remove wire:target="track">Track</span>
-                    <span wire:loading wire:target="track">Searching…</span>
-                </button>
-            </div>
-            <div id="status_indicator" wire:ignore>
-                <div class="si-phase"></div>
-                <div class="si-message"></div>
-            </div>
-            @error('trackingNumber')
-                <span class="form-error">{{ $message }}</span>
-            @enderror
-        </form>
+        </div>
     </div>
-    <span class="Empty">
-        Please Enter the tracking number to view your document transaction status. If you don't have a tracking number,<br>
-        please contact the Records and Freedom of Information Office for assistance.
-    </span>
+
+    <!-- RIGHT PANEL: Clean White Minimalist Form (Default view on mobile) -->
+    <div class="form-white-pane" id="pane-white">
+        <!-- Top Header: Brand Name + Back to Login -->
+        <div class="white-top-bar">
+            <div class="white-brand-header">
+                <img src="{{ asset('images/cspc.webp') }}" alt="CSPC Seal" class="white-brand-seal">
+                <span class="white-brand-name">RMS CSPC</span>
+            </div>
+
+            <a href="{{ route('login') }}" class="white-track-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="19" y1="12" x2="5" y2="12"></line>
+                    <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+                <span>Login</span>
+            </a>
+        </div>
+
+        <!-- Center Tracking Area -->
+        <div class="white-center-area">
+            <div class="white-form-box">
+                <div class="welcome-header-group">
+                    <h2 class="welcome-heading">TRACK DOCUMENT</h2>
+                    <p class="welcome-subheading">
+                        Enter your tracking number or scan QR code to check your document status without logging in.
+                    </p>
+                </div>
+
+                @if(session('error') || session('status') || session('warning') || $errors->any())
+                    <div class="clean-alert-error" role="alert">
+                        <svg class="alert-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="20" height="20">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                        </svg>
+                        <div class="alert-msg">
+                            @if(session('error'))
+                                <span>{{ session('error') }}</span>
+                            @elseif(session('warning'))
+                                <span>{{ session('warning') }}</span>
+                            @elseif(session('status'))
+                                <span>{{ session('status') }}</span>
+                            @elseif($errors->any())
+                                <span>{{ $errors->first() }}</span>
+                            @endif
+                        </div>
+                    </div>
+                @endif
+
+                <form id="track-form" class="track-form-box" onsubmit="return false;">
+                    <div class="track-input-wrapper">
+                        <svg class="track-input-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input wire:model="trackingNumber" id="tracking-input" type="text" placeholder="Enter tracking number" class="track-input-field" required autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();event.stopPropagation();return false;}">
+                    </div>
+
+                    <div class="track-btn-row">
+                        <button type="button" id="open-public-scanner-btn" class="track-scan-btn" title="Scan QR Code">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="7" height="7"></rect>
+                                <rect x="14" y="3" width="7" height="7"></rect>
+                                <rect x="14" y="14" width="7" height="7"></rect>
+                                <rect x="3" y="14" width="7" height="7"></rect>
+                            </svg>
+                            <span>Scan QR</span>
+                        </button>
+
+                        <button type="button" id="track-submit-btn" class="track-submit-btn" onclick="window.submitTracking();">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                            <span>Track Document</span>
+                        </button>
+                    </div>
+                </form>
+
+                <div class="bottom-support-info">
+                    <p class="unit-text">Records and Freedom of Information Unit (RFIU)</p>
+                    <p class="college-text">Camarines Sur Polytechnic Colleges</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    </div> <!-- /.salesskip-split-container -->
 
     <!-- Public QR Scanner Modal -->
     <div id="public-scanner-modal" class="scanner-backdrop" style="display: none;" wire:ignore>
@@ -284,10 +317,119 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
             </div>
         </div>
     </div>
-</section>
+
+    <!-- Tracking Progress & Result Modal -->
+    <div id="tracking-status-modal" class="clean-modal-backdrop" style="display: none;" wire:ignore>
+        <div class="clean-modal-card">
+            <div id="tsm-icon-wrap" class="clean-modal-icon-wrap loading">
+                <div id="tsm-spinner" class="clean-modal-spinner"></div>
+                <svg id="tsm-icon-success" style="display: none;" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <svg id="tsm-icon-error" style="display: none;" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+            </div>
+
+            <h3 id="tsm-title" class="clean-modal-title">Tracking Document</h3>
+
+            <div id="tsm-code-badge" style="margin-top: 10px; display: none;">
+                <span class="tracked-code-pill" id="tsm-code-val"></span>
+            </div>
+
+            <p id="tsm-message" class="clean-modal-body">Searching and verifying document transaction...</p>
+
+            <button type="button" id="tsm-close-btn" class="clean-modal-btn" style="display: none;">Close</button>
+        </div>
+    </div>
 </div>
 
 @push('scripts')
+<script>
+    // ==========================================
+    // 1. PREVENT PINCH ZOOM & DOUBLE-TAP ZOOM
+    // ==========================================
+    (function preventPinchZoom() {
+        const metaViewport = document.querySelector('meta[name="viewport"]');
+        if (metaViewport) {
+            metaViewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+        }
+
+        // Prevent multi-touch gestures (pinch zoom)
+        document.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 1) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+
+        // Prevent fast double-tap zooming on iOS Safari & mobile Chrome
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', (e) => {
+            const now = Date.now();
+            if (now - lastTouchEnd <= 300) {
+                e.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, { passive: false });
+
+        // Prevent iOS Safari gesture zoom events
+        document.addEventListener('gesturestart', (e) => e.preventDefault());
+        document.addEventListener('gesturechange', (e) => e.preventDefault());
+        document.addEventListener('gestureend', (e) => e.preventDefault());
+    })();
+
+    // ==========================================
+    // 2. MOBILE TOUCH SWIPE INTERACTION
+    // ==========================================
+    let currentActivePane = 'white';
+
+    function isMobile() {
+        return window.innerWidth <= 992;
+    }
+
+    function initMobileSwipe() {
+        const wrapper = document.getElementById('main-swipe-wrapper');
+        const whitePane = document.getElementById('pane-white');
+        if (isMobile() && wrapper && whitePane) {
+            wrapper.scrollTo({ left: whitePane.offsetLeft, behavior: 'instant' });
+            currentActivePane = 'white';
+        }
+    }
+
+    function setupSwipe() {
+        const wrapper = document.getElementById('main-swipe-wrapper');
+        const whitePane = document.getElementById('pane-white');
+
+        initMobileSwipe();
+
+        if (wrapper && !wrapper.dataset.scrollBound) {
+            wrapper.dataset.scrollBound = "true";
+            wrapper.addEventListener('scroll', () => {
+                if (isMobile() && whitePane) {
+                    currentActivePane = (wrapper.scrollLeft < whitePane.offsetLeft / 2) ? 'blue' : 'white';
+                }
+            }, { passive: true });
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', setupSwipe);
+    document.addEventListener('livewire:navigated', setupSwipe);
+
+    window.addEventListener('resize', () => {
+        const wrapper = document.getElementById('main-swipe-wrapper');
+        if (!isMobile()) {
+            if (wrapper) wrapper.scrollTo({ left: 0, behavior: 'instant' });
+        } else {
+            const whitePane = document.getElementById('pane-white');
+            if (wrapper && whitePane) {
+                const targetLeft = (currentActivePane === 'blue') ? 0 : whitePane.offsetLeft;
+                wrapper.scrollTo({ left: targetLeft, behavior: 'instant' });
+            }
+        }
+    });
+</script>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 (function() {
@@ -408,7 +550,7 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         } catch (err) {
             if (placeholder) {
                 placeholder.style.display = 'flex';
-                placeholder.innerHTML = '⚠️ Camera access unavailable or permission denied.<br><small style="margin-top:6px;opacity:0.8;">You can switch to the "Upload Image" tab to scan a QR image.</small>';
+                placeholder.innerHTML = 'Camera access unavailable or permission denied.<br><small style="margin-top:6px;opacity:0.8;">You can switch to the "Upload Image" tab to scan a QR image.</small>';
             }
             if (statusEl) statusEl.textContent = 'Camera unavailable';
         }
@@ -445,14 +587,6 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         }
 
         closeScannerModal();
-
-        // Automatically trigger full tracking validation pipeline
-        setTimeout(() => {
-            const form = getForm();
-            if (form) {
-                form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-            }
-        }, 150);
     }
 
     function setFileStatus(msg, type) {
@@ -597,19 +731,161 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
         return d;
     }
 
-    function setStatus(phase, message, type) {
-        const el = document.getElementById('status_indicator');
-        if (!el) return;
-        el.dataset.type = type;
-        el.style.display = '';
-        el.querySelector('.si-phase').textContent = phase;
-        el.querySelector('.si-message').textContent = message;
-    }
+    window.showTrackingModal = function (type, title, message, code = '', showClose = false) {
+        const modalEl = document.getElementById('tracking-status-modal');
+        const iconWrapEl = document.getElementById('tsm-icon-wrap');
+        const spinnerEl = document.getElementById('tsm-spinner');
+        const iconSuccessEl = document.getElementById('tsm-icon-success');
+        const iconErrorEl = document.getElementById('tsm-icon-error');
+        const titleEl = document.getElementById('tsm-title');
+        const codeBadgeEl = document.getElementById('tsm-code-badge');
+        const codeValEl = document.getElementById('tsm-code-val');
+        const messageEl = document.getElementById('tsm-message');
+        const closeBtnEl = document.getElementById('tsm-close-btn');
 
-    function resetStatus() {
-        const el = document.getElementById('status_indicator');
-        if (el) el.style.display = 'none';
-    }
+        if (!modalEl) return;
+        modalEl.style.display = 'flex';
+        if (iconWrapEl) iconWrapEl.className = 'clean-modal-icon-wrap ' + type;
+        if (spinnerEl) spinnerEl.style.display = (type === 'loading') ? '' : 'none';
+        if (iconSuccessEl) iconSuccessEl.style.display = (type === 'success') ? '' : 'none';
+        if (iconErrorEl) iconErrorEl.style.display = (type === 'error' || type === 'warning') ? '' : 'none';
+        if (titleEl) titleEl.textContent = title;
+        if (code && codeValEl && codeBadgeEl) {
+            codeBadgeEl.style.display = '';
+            codeValEl.textContent = code;
+        } else if (codeBadgeEl) {
+            codeBadgeEl.style.display = 'none';
+        }
+        if (messageEl) messageEl.innerHTML = message;
+        if (closeBtnEl) {
+            closeBtnEl.style.display = showClose ? 'block' : 'none';
+            closeBtnEl.onclick = window.hideTrackingModal;
+        }
+        modalEl.onclick = function (e) {
+            if (e.target === modalEl && showClose) {
+                window.hideTrackingModal();
+            }
+        };
+    };
+
+    window.hideTrackingModal = function () {
+        const modalEl = document.getElementById('tracking-status-modal');
+        if (modalEl) modalEl.style.display = 'none';
+        submitting = false;
+        window.isTrackingSubmitting = false;
+    };
+
+    window.submitTracking = async function () {
+        if (submitting || window.isTrackingSubmitting) return;
+
+        const inputEl = document.getElementById('tracking-input');
+        const codeVal = inputEl ? inputEl.value.trim() : '';
+        if (!codeVal) {
+            window.showTrackingModal(
+                'warning',
+                'Tracking Number Required',
+                'Please enter or scan a valid tracking number to track your document.',
+                '',
+                true
+            );
+            if (inputEl) inputEl.focus();
+            return;
+        }
+
+        let d = initDevice();
+        const nowMs = Date.now();
+
+        // Unblock if block period has expired
+        if (d.device_blocked_until) {
+            const blockedUntil = new Date(d.device_blocked_until).getTime();
+            if (nowMs < blockedUntil) {
+                const mins = Math.ceil((blockedUntil - nowMs) / 60000);
+                window.showTrackingModal(
+                    'warning',
+                    'Device Rate-Limited',
+                    'Your device is temporarily rate-limited (' + mins + ' min remaining).',
+                    codeVal,
+                    true
+                );
+                return;
+            }
+            d.device_blocked_until = null;
+            d.document_tracked_within_10_minutes = 0;
+            d.last_document_tracked_at = null;
+            saveDevice(d);
+        }
+
+        // Reset counter if 10-minute window expired
+        if (d.last_document_tracked_at) {
+            const lastMs = new Date(d.last_document_tracked_at).getTime();
+            if (nowMs - lastMs > WINDOW_MS) {
+                d.document_tracked_within_10_minutes = 0;
+                d.last_document_tracked_at = null;
+                saveDevice(d);
+            }
+        }
+
+        // Block if limit reached
+        if (d.document_tracked_within_10_minutes >= MAX_ATTEMPTS) {
+            d.device_blocked_until = new Date(nowMs + BLOCK_MS).toISOString();
+            saveDevice(d);
+            window.showTrackingModal(
+                'warning',
+                'Device Rate-Limited',
+                'Too many failed attempts. Your device has been blocked for 50 minutes.',
+                codeVal,
+                true
+            );
+            return;
+        }
+
+        // Phase 1.4 — evaluate email domain
+        if (d.email_used_on_verification) {
+            d.is_email_not_cspc = !CSPC_PATTERN.test(d.email_used_on_verification);
+            saveDevice(d);
+        }
+
+        submitting = true;
+        window.isTrackingSubmitting = true;
+
+        // Show loading modal immediately
+        window.showTrackingModal(
+            'loading',
+            'Tracking Document',
+            'Searching and validating tracking number with the server...',
+            codeVal,
+            false
+        );
+
+        let comp = null;
+        const rootEl = document.getElementById('track-document-viewport-root');
+        if (rootEl && typeof Livewire !== 'undefined') {
+            comp = Livewire.find(rootEl.getAttribute('wire:id'));
+        }
+        if (!comp) {
+            const wireEl = document.querySelector('[wire\\:id]');
+            if (wireEl && typeof Livewire !== 'undefined') {
+                comp = Livewire.find(wireEl.getAttribute('wire:id'));
+            }
+        }
+        if (!comp && typeof @this !== 'undefined') {
+            comp = @this;
+        }
+
+        if (comp) {
+            try {
+                await comp.call('track', codeVal, JSON.stringify(d));
+            } catch (err) {
+                submitting = false;
+                window.isTrackingSubmitting = false;
+                window.showTrackingModal('error', 'Validation Request Failed', 'Please check your connection and try again.', codeVal, true);
+            }
+        } else {
+            submitting = false;
+            window.isTrackingSubmitting = false;
+            window.showTrackingModal('error', 'Connection Error', 'Tracking service could not be initialized. Please refresh the page.', codeVal, true);
+        }
+    };
 
     function setup() {
         const form = document.getElementById('track-form');
@@ -617,104 +893,111 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
 
         initDevice();
 
-        // Remove any previously registered track-result listener
-        if (cleanupTrackResult) { cleanupTrackResult(); cleanupTrackResult = null; }
+        function bindResultListener() {
+            if (typeof Livewire === 'undefined') return;
+            if (cleanupTrackResult) { cleanupTrackResult(); cleanupTrackResult = null; }
 
-        cleanupTrackResult = Livewire.on('track-result', function (data) {
-            submitting = false;
-            let status = null;
-            let msg = null;
-            if (typeof data === 'string') {
-                status = data;
-            } else if (data && typeof data === 'object') {
-                status = data.status || (data[0] && (data[0].status || data[0])) || null;
-                msg = data.message || (data[0] && data[0].message) || null;
-            }
-
-            if (status === 'not-found') {
-                setStatus('Phase 2 — Result', 'Document Cannot Be Found. Please check your tracking number and try again.', 'error');
-            } else if (status === 'found') {
-                setStatus('Phase 3', 'Document Found! Redirecting to results...', 'success');
-            } else if (status === 'rate-limited') {
-                setStatus('Rate Limited', msg || 'Too many attempts. Please wait a few minutes.', 'blocked');
-            } else if (status === 'db-error') {
-                setStatus('Phase 2 — Error', 'Cannot connect to the database server. Please try again later or contact the Records Office.', 'db-error');
-            }
-        });
-
-        form.addEventListener('submit', async function (e) {
-            e.preventDefault();
-            if (submitting) return;
-            submitting = true;
-            resetStatus();
-
-            // Phase 1 — read input
-            setStatus('Phase 1', 'Extracting input data...', 'checking');
-            await step();
-
-            // Phase 1.2 — check localStorage
-            setStatus('Phase 1.2', 'Checking device storage...', 'checking');
-            let d = initDevice();
-            await step();
-
-            // Phase 1.3 — verify device status
-            setStatus('Phase 1.3', 'Verifying device status...', 'checking');
-            await step();
-            const nowMs = Date.now();
-
-            // Unblock if block period has expired
-            if (d.device_blocked_until) {
-                const blockedUntil = new Date(d.device_blocked_until).getTime();
-                if (nowMs < blockedUntil) {
-                    const mins = Math.ceil((blockedUntil - nowMs) / 60000);
-                    setStatus('Blocked', 'Your device is currently blocked due to excessive attempts. Please try again in ' + mins + ' minute(s).', 'blocked');
-                    submitting = false;
-                    return;
-                }
-                d.device_blocked_until = null;
-                d.document_tracked_within_10_minutes = 0;
-                d.last_document_tracked_at = null;
-                saveDevice(d);
-            }
-
-            // Reset counter if 10-minute window expired
-            if (d.last_document_tracked_at) {
-                const lastMs = new Date(d.last_document_tracked_at).getTime();
-                if (nowMs - lastMs > WINDOW_MS) {
-                    d.document_tracked_within_10_minutes = 0;
-                    d.last_document_tracked_at = null;
-                    saveDevice(d);
-                }
-            }
-
-            // Block if limit reached on this attempt
-            if (d.document_tracked_within_10_minutes >= MAX_ATTEMPTS) {
-                d.device_blocked_until = new Date(nowMs + BLOCK_MS).toISOString();
-                saveDevice(d);
-                setStatus('Blocked', 'Too many attempts. Your device has been blocked for 50 minutes.', 'blocked');
+            cleanupTrackResult = Livewire.on('track-result', function (data) {
                 submitting = false;
-                return;
-            }
+                window.isTrackingSubmitting = false;
 
-            // Record this attempt
-            d.document_tracked_within_10_minutes += 1;
-            d.last_document_tracked_at = new Date(nowMs).toISOString();
-            saveDevice(d);
+                let status = null;
+                let msg = null;
+                if (typeof data === 'string') {
+                    status = data;
+                } else if (data && typeof data === 'object') {
+                    status = data.status || (data[0] && (data[0].status || data[0])) || null;
+                    msg = data.message || (data[0] && data[0].message) || null;
+                }
 
-            // Phase 1.4 — evaluate email domain
-            setStatus('Phase 1.4', 'Evaluating access permissions...', 'checking');
-            await step();
-            if (d.email_used_on_verification) {
-                d.is_email_not_cspc = !CSPC_PATTERN.test(d.email_used_on_verification);
-                saveDevice(d);
-            }
+                let d = getDevice();
+                const inputEl = document.getElementById('tracking-input');
+                const codeVal = inputEl ? inputEl.value.trim() : '';
 
-            // Phase 2 — server validation
-            setStatus('Phase 2', 'Validating tracking number with the server...', 'checking');
-            @this.set('deviceInfoJson', JSON.stringify(d)).then(function () {
-                @this.call('track');
+                if (status === 'not-found') {
+                    if (d && typeof d === 'object') {
+                        const nowMs = Date.now();
+                        d.document_tracked_within_10_minutes = (d.document_tracked_within_10_minutes ?? 0) + 1;
+                        d.last_document_tracked_at = new Date(nowMs).toISOString();
+                        if (d.document_tracked_within_10_minutes >= MAX_ATTEMPTS) {
+                            d.device_blocked_until = new Date(nowMs + BLOCK_MS).toISOString();
+                        }
+                        saveDevice(d);
+                    }
+                    window.showTrackingModal(
+                        'error',
+                        'Document Not Found',
+                        'The tracking number could not be found in the records system. Please check your tracking number and try again.',
+                        codeVal,
+                        true
+                    );
+                } else if (status === 'found') {
+                    if (d) {
+                        d.document_tracked_within_10_minutes = 0;
+                        d.device_blocked_until = null;
+                        saveDevice(d);
+                    }
+                    window.showTrackingModal(
+                        'success',
+                        'Document Found!',
+                        'Redirecting to transaction details and verification...',
+                        codeVal,
+                        false
+                    );
+                    setTimeout(() => {
+                        window.location.href = '{{ route('tracked') }}?number=' + encodeURIComponent(codeVal);
+                    }, 600);
+                } else if (status === 'rate-limited') {
+                    window.showTrackingModal(
+                        'warning',
+                        'Rate Limited',
+                        msg || 'Too many attempts from your network. Please wait a few minutes.',
+                        codeVal,
+                        true
+                    );
+                } else if (status === 'db-error') {
+                    window.showTrackingModal(
+                        'error',
+                        'Database Error',
+                        'Cannot connect to the records database server. Please try again later or contact the Records Office.',
+                        codeVal,
+                        true
+                    );
+                }
             });
+        }
+
+        if (typeof Livewire !== 'undefined') {
+            bindResultListener();
+        } else {
+            document.addEventListener('livewire:init', bindResultListener, { once: true });
+        }
+
+        const trackingInput = document.getElementById('tracking-input');
+        if (trackingInput && !trackingInput.dataset.enterBound) {
+            trackingInput.dataset.enterBound = 'true';
+            trackingInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return false;
+                }
+            });
+        }
+
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            return false;
         });
+
+        const submitBtn = document.getElementById('track-submit-btn');
+        if (submitBtn && !submitBtn.dataset.clickBound) {
+            submitBtn.dataset.clickBound = 'true';
+            submitBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                window.submitTracking();
+            });
+        }
     }
 
     document.addEventListener('livewire:navigated', setup);
@@ -752,6 +1035,12 @@ window.checkDeviceStatus = function () {
     console.groupEnd();
 
     return d;
+};
+window.resetTrackingDevice = function () {
+    const KEY = 'rms_tracking_device';
+    localStorage.removeItem(KEY);
+    console.log('%c[RMS] Device tracking state reset.', 'color:#16a34a;font-weight:700;');
+    return true;
 };
 </script>
 @endpush

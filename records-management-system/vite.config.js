@@ -16,6 +16,7 @@ export default defineConfig({
                 'resources/css/accesspoint.css',
                 'resources/css/mobileaccesspoint.css',
                 'resources/css/td.css',
+                'resources/css/track-document.css',
                 'resources/css/profile/personal_details.css',
                 'resources/css/admin/accounts_users.css',
                 'resources/css/admin/accounts_roles.css',

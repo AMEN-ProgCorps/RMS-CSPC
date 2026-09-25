@@ -6,6 +6,7 @@
 
     $enableTopTabs = auth()->user()?->enableTopTabs() ?? true;
 
+    $defaultReceivedDocsRoute = route('rdp.received-documents.dts');
     $defaultAddRecordsRoute = route('rdp.add-records.inventory-and-appraisal');
     $defaultDraftRoute = route('rdp.draft.inventory-and-appraisal');
     $defaultPendingRoute = route('rdp.pending.list');
@@ -23,6 +24,35 @@
         <div class="button-label">
             <span>Dashboard</span>
         </div>
+    </div>
+</div>
+
+<div id="rdp-received-documents-id" class="button-section-container {{ (request()->routeIs('rdp.received-documents.*') && !$enableTopTabs) ? 'show' : '' }}">
+    <div class="button-container {{ request()->routeIs('rdp.received-documents.*') ? 'force-active' : '' }}" 
+         onclick="{{ $enableTopTabs ? "proccedto('{$defaultReceivedDocsRoute}')" : "showButtonSection('rdp-received-documents-id')" }}">
+        <div class="button-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none">
+                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14.5l-4.5-4.5 1.41-1.41L11 13.67V7h2v6.67l2.09-2.08 1.41 1.41L12 17.5z" fill="#4F4F4F"/>
+            </svg>
+        </div>
+        <div class="button-label">
+            <span>Received Documents</span>
+        </div>
+        @if(!$enableTopTabs)
+        <div class="show-arrow">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="11" viewBox="0 0 18 11" fill="none">
+                <path d="M2.03223 9.76953L2.20898 9.59277L8.8125 2.98828L15.418 9.59375L15.5947 9.77148L15.7715
+                9.59375L17.0967 8.26758L17.2734 8.09082L17.0967 7.91406L9.875 0.69043H9.87402C9.73533 0.551169
+                9.57112 0.439765 9.38965 0.364258C9.20774 0.28857 9.01246 0.250036 8.81543 0.25C8.61847 0.25
+                8.42308 0.28866 8.24121 0.364258C8.05943 0.439892 7.89373 0.550835 7.75488 0.69043L0.530273
+                7.91406L0.353516 8.09082L2.03223 9.76953Z" fill="#646464" stroke="#646464" stroke-width="0.5"/>
+            </svg>
+        </div>
+        @endif
+    </div>
+    <div class="functions-container">
+        <div class="function-button {{ request()->routeIs('rdp.received-documents.dts') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.received-documents.dts') }}')">Document Tracking System</div>
+        <div class="function-button {{ request()->routeIs('rdp.received-documents.dcs') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.received-documents.dcs') }}')">Document Control System</div>
     </div>
 </div>
 

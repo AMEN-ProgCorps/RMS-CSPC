@@ -417,13 +417,33 @@ class Auth
                 // let Chatify treat a session as alive/dead in a way that
                 // doesn't actually match RMS's own idea of session validity.
                 $lifetime = ((int) getEnvValue('SESSION_LIFETIME', '120')) * 60;
-                if (time() - (int)$row['last_activity'] > $lifetime) {
-                    return null;
+                if (time() - (int)$row['last_activity'] <= $lifetime && $row['user_id'] !== null) {
+                    return (int)$row['user_id'];
                 }
-                return $row['user_id'] !== null ? (int)$row['user_id'] : null;
             }
         } catch (Throwable $e) {
             // DB connection error or missing table
+        }
+
+        // 2. Fallback: check file-based session driver (storage/framework/sessions/{id})
+        if (defined('LARAVEL_PATH') && LARAVEL_PATH) {
+            $sessionFile = rtrim(LARAVEL_PATH, '/\\') . '/storage/framework/sessions/' . $sessionId;
+            if (file_exists($sessionFile)) {
+                $lifetime = ((int) getEnvValue('SESSION_LIFETIME', '120')) * 60;
+                if (time() - filemtime($sessionFile) <= $lifetime) {
+                    $content = @file_get_contents($sessionFile);
+                    if ($content) {
+                        $data = @unserialize($content);
+                        if (is_array($data)) {
+                            foreach ($data as $key => $val) {
+                                if (str_starts_with($key, 'login_web_') && is_numeric($val) && (int)$val > 0) {
+                                    return (int)$val;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         return null;

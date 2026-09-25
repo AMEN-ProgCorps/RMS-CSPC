@@ -16,6 +16,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $autoForwardCreatedTransaction = true;
     public bool $dtsQrIncludeCodeDefault = false;
     public bool $rdpRequiredUploadFile = false;
+    public bool $rdpIncludeDescriptionOnPrint = false;
+    public string $rdpPrintFontFamily = 'Arial, sans-serif';
+    public string $rdpPrintFontSize = '8.5pt';
     public bool $dtsRequiredUploadFile = false;
     public int $tabCloseIdleTimeoutMinutes = 15;
     public string $dcsRecycleDeleteCode = '';
@@ -326,6 +329,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $rdpReq = \DB::table('sys_system_settings')->where('key', 'rdp_required_upload_file')->value('value');
         $this->rdpRequiredUploadFile = ($rdpReq === 'true');
+
+        $rdpDesc = \DB::table($sysTable)->where('key', 'rdp_include_description_on_print')->value('value');
+        $this->rdpIncludeDescriptionOnPrint = ($rdpDesc === 'true');
+
+        $fontFam = \DB::table($sysTable)->where('key', 'rdp_print_font_family')->value('value');
+        $this->rdpPrintFontFamily = $fontFam ?: 'Arial, sans-serif';
+
+        $fontSize = \DB::table($sysTable)->where('key', 'rdp_print_font_size')->value('value');
+        $this->rdpPrintFontSize = $fontSize ?: '8.5pt';
 
         $dtsReq = \DB::table('sys_system_settings')->where('key', 'dts_required_upload_file')->value('value');
         $this->dtsRequiredUploadFile = ($dtsReq === 'true');
@@ -667,6 +679,30 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'rdp_include_description_on_print'],
+                    [
+                        'value' => $this->rdpIncludeDescriptionOnPrint ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'rdp_print_font_family'],
+                    [
+                        'value' => $this->rdpPrintFontFamily ?: 'Arial, sans-serif',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'rdp_print_font_size'],
+                    [
+                        'value' => $this->rdpPrintFontSize ?: '8.5pt',
+                        'updated_at' => now(),
+                    ]
+                );
+
                 \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'dts_required_upload_file'],
                     [
@@ -754,6 +790,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                              ", IntEmail: " . ($this->emailAccessRequiredInternal ? 'true' : 'false') .
                              ", ManualBtn: " . ($this->allowManualCompletionButton ? 'true' : 'false') .
                              ", RDPReq: " . ($this->rdpRequiredUploadFile ? 'true' : 'false') .
+                             ", RDPDescPrint: " . ($this->rdpIncludeDescriptionOnPrint ? 'true' : 'false') .
                              ", DTSReq: " . ($this->dtsRequiredUploadFile ? 'true' : 'false') .
                              ", InactivityTimeout: " . $this->tabCloseIdleTimeoutMinutes . " mins" .
                              ", DcsDeleteCode: " . (trim($this->dcsRecycleDeleteCode) !== '' ? 'set' : 'cleared') .
@@ -1848,6 +1885,64 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             <input type="checkbox" wire:model="dtsRequiredUploadFile">
                             <span class="slider"></span>
                         </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 4: Records Disposition Program (RDP) Settings -->
+            <div class="settings-card">
+                <div>
+                    <div class="settings-card-header">
+                        <i class="fa-solid fa-folder-tree"></i>
+                        <h3>Records Disposition Program (RDP) Settings</h3>
+                    </div>
+
+                    <!-- Setting: RDP Include Description on Print -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Include Description on Print</span>
+                            <span class="setting-desc">Enables granular subject item rows and descriptions to be included in RDP print preview and printed documents (such as NAP Form 1). When disabled (default), only compiled record series totals are printed.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="rdpIncludeDescriptionOnPrint">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Setting: RDP Print Font Family -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Print Document Font Family</span>
+                            <span class="setting-desc">Sets the primary font face used when generating and printing official RDP forms (NAP Forms 1, 2, and 3).</span>
+                        </div>
+                        <div>
+                            <select wire:model="rdpPrintFontFamily" class="form-input" style="max-width: 240px; font-size: 13px; font-weight: 600; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; cursor: pointer; background: #ffffff;">
+                                <option value="Arial, sans-serif">Arial (Default / NAP Standard)</option>
+                                <option value="'Times New Roman', Times, serif">Times New Roman (Serif)</option>
+                                <option value="'Calibri', 'Segoe UI', sans-serif">Calibri (Clean Sans)</option>
+                                <option value="'Inter', -apple-system, sans-serif">Inter (Modern Sans)</option>
+                                <option value="'Courier New', Courier, monospace">Courier New (Monospace)</option>
+                                <option value="'Helvetica Neue', Helvetica, Arial, sans-serif">Helvetica</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Setting: RDP Print Data Font Size -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Print Data Table Font Size</span>
+                            <span class="setting-desc">Configures the base font size for data rows and items within the printable document sheets.</span>
+                        </div>
+                        <div>
+                            <select wire:model="rdpPrintFontSize" class="form-input" style="max-width: 240px; font-size: 13px; font-weight: 600; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; cursor: pointer; background: #ffffff;">
+                                <option value="8pt">8pt (Ultra Compact - for very large rosters)</option>
+                                <option value="8.5pt">8.5pt (NAP Form 1 Standard)</option>
+                                <option value="9pt">9pt (NAP Forms 2 & 3 Standard)</option>
+                                <option value="9.5pt">9.5pt (Medium-Large)</option>
+                                <option value="10pt">10pt (Large / High-Legibility)</option>
+                                <option value="11pt">11pt (Extra Large)</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
             </div>

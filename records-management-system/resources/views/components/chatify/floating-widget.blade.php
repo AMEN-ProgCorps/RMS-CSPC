@@ -418,11 +418,29 @@
         }
 
         updateUnreadBadge();
-        setInterval(updateUnreadBadge, 5000);
+        // No manual setInterval needed — updateUnreadBadge reschedules itself via .finally()
+    }
+
+    // --- Inflight guard: only one unread-count request at a time ---
+    let _unreadAbortController = null;
+    let _unreadPollTimeout = null;
+
+    function scheduleUnreadPoll(delayMs) {
+        // Default: 5 seconds. Pass shorter value for event-triggered refreshes.
+        clearTimeout(_unreadPollTimeout);
+        _unreadPollTimeout = setTimeout(updateUnreadBadge, delayMs ?? 5000);
     }
 
     function updateUnreadBadge() {
+        // Cancel any in-flight request before starting a new one.
+        if (_unreadAbortController) {
+            _unreadAbortController.abort();
+        }
+        _unreadAbortController = new AbortController();
+        const signal = _unreadAbortController.signal;
+
         fetch('{{ route("chat.unread-count") }}', {
+            signal,
             headers: {
                 'Accept': 'application/json',
                 'X-Requested-With': 'XMLHttpRequest'
@@ -430,6 +448,7 @@
         })
         .then(res => res.json())
         .then(data => {
+            _unreadAbortController = null;
             const chatCount = parseInt(data.chat_unread !== undefined ? data.chat_unread : (data.unread || 0), 10);
             const systemCount = parseInt(data.system_unread || 0, 10);
             const totalCount = parseInt(data.total_unread !== undefined ? data.total_unread : (chatCount + systemCount), 10);
@@ -444,7 +463,15 @@
 
             applyUnreadCounts(chatCount, systemCount);
         })
-        .catch(() => {});
+        .catch(err => {
+            _unreadAbortController = null;
+            // Ignore aborts (we triggered them intentionally); still reschedule.
+        })
+        .finally(() => {
+            // Only reschedule when this call was the poll cycle (not event-triggered).
+            // Event-triggered calls explicitly pass their own reschedule.
+            scheduleUnreadPoll(5000);
+        });
     }
 
     function applyUnreadCounts(chatCount, systemCount) {
@@ -488,7 +515,8 @@
         updateFaviconBadge(totalCount);
     }
 
-    window.updateChatifyUnreadBadge = updateUnreadBadge;
+    // Expose via scheduleUnreadPoll so external callers also go through the inflight guard.
+    window.updateChatifyUnreadBadge = () => scheduleUnreadPoll(0);
 
     window.addEventListener('message', function(event) {
         if (!event.data) return;
@@ -498,9 +526,8 @@
                 applyUnreadCounts(event.data.unread_count, lastSystemUnread);
             }
             playNotificationSound();
-            updateUnreadBadge();
-            setTimeout(updateUnreadBadge, 400);
-            setTimeout(updateUnreadBadge, 1200);
+            // Single debounced refresh — AbortController cancels any in-flight request.
+            scheduleUnreadPoll(300);
         } else if (event.data.type === 'CHATIFY_PLAY_SOUND') {
             playNotificationSound();
         } else if (event.data.type === 'CHATIFY_USER_INTERACTION') {
@@ -509,14 +536,12 @@
             if (typeof event.data.unread_count === 'number') {
                 applyUnreadCounts(event.data.unread_count, lastSystemUnread);
             }
-            updateUnreadBadge();
-            setTimeout(updateUnreadBadge, 500);
+            scheduleUnreadPoll(300);
         }
     });
 
     window.addEventListener('rms-notification-updated', function() {
-        updateUnreadBadge();
-        setTimeout(updateUnreadBadge, 500);
+        scheduleUnreadPoll(300);
     });
 
     document.addEventListener('livewire:init', function() {
@@ -539,9 +564,8 @@
         isOpen = !isOpen;
         sessionStorage.setItem('chatify_widget_open', isOpen);
         setWidgetVisibility(isOpen, true);
-        updateUnreadBadge();
-        setTimeout(updateUnreadBadge, 500);
-        setTimeout(updateUnreadBadge, 1500);
+        // Single refresh — no need for multiple setTimeouts.
+        scheduleUnreadPoll(200);
     };
 
     window.reloadChatifyIframe = function() {
@@ -552,10 +576,8 @@
             if (loader) loader.style.display = 'flex';
             iframe.src = iframe.getAttribute('data-src') + '?t=' + new Date().getTime();
         }
-        updateUnreadBadge();
-        setTimeout(updateUnreadBadge, 400);
-        setTimeout(updateUnreadBadge, 1000);
-        setTimeout(updateUnreadBadge, 2000);
+        // Single debounced refresh after reload — no stacking.
+        scheduleUnreadPoll(500);
     };
 
     function disableChatifySearchAutoInput() {

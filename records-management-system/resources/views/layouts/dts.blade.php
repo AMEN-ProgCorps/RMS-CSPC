@@ -98,7 +98,7 @@
                     </div>
                     <div id="nav-contexts" class="subsystem-indicator">
                         <div class="subsystem-name">Document Tracking System</div>
-                        <div class="subsystem-version">Version: {{ \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')->where('subsystem_name', 'Document Tracking System')->value('subsystem_version') ?? 'N/A' }}</div>
+                        <div class="subsystem-version">Version: {{ \Illuminate\Support\Facades\Cache::remember('subsystem_ver_dts', 3600, fn() => \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems')->where('subsystem_name', 'Document Tracking System')->value('subsystem_version') ?? 'N/A') }}</div>
                     </div>
                 </div>
                 <hr>
@@ -107,6 +107,9 @@
                 </div>
                 <div class="account-container">
                     <div class="account-label">
+                        @if(\App\Services\ServerManagementService::isMultiServerActive())
+                            <span class="account-server-label">{{ \App\Services\ServerManagementService::getServerLabel() }}</span>
+                        @endif
                         <span class="account-email">{{ auth()->user()?->details?->email }}</span>
                     </div>
                 </div>

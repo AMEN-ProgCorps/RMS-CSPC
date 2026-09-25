@@ -34,7 +34,10 @@
             "Database\\Factories\\": "database/factories/",
             "Database\\Seeders\\": "database/seeders/",
             "Google\\": "vendor/google/apiclient/src/"
-        }
+        },
+        "files": [
+            "resources/views/pages/dcs/logic/bootstrap.blade.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {

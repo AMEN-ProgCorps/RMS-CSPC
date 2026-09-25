@@ -1,6 +1,14 @@
 @import url("./fonts.css");
 
-* {
+/* ==========================================================================
+   RMS CSPC Modern Split-Screen Login Page
+   Inspired by SalesSkip Reference Design
+   Optimized for both Desktop & Mobile (Touch Swipe Interaction)
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
@@ -9,616 +17,625 @@
 html,
 body {
     width: 100%;
-    overflow-x: hidden;
-    user-select: none;
-}
-
-body {
+    min-height: 100vh;
     min-height: 100dvh;
-    background-position: center;
-    background-repeat: no-repeat;
-    background-size: cover;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #0f172a;
+    background-color: #ffffff;
+    overflow-x: hidden;
+    touch-action: pan-x pan-y;
+}
+
+/* ==========================================================================
+   Main Split Layout Container
+========================================================================== */
+
+.salesskip-split-container {
     display: flex;
-    justify-content: center;
-    align-items: center;
-    padding: 20px;
+    flex-direction: row;
+    width: 100vw;
+    min-height: 100vh;
+    min-height: 100dvh;
+    touch-action: pan-x pan-y;
 }
 
-/* ===========================
-   MAIN LAYOUT
-=========================== */
+/* ==========================================================================
+   LEFT PANE: Vibrant Royal Blue Hero (Desktop Side / Mobile Swipe-Revealed)
+========================================================================== */
 
-.body-container {
-    width: 100%;
-    max-width: 1200px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-/* ===========================
-   HEADER
-=========================== */
-
-.header-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    margin-bottom: 20px;
-    font-family: "Inter", sans-serif;
-}
-
-.institute {
-    font-size: clamp(48px, 8vw, 86px);
-    font-weight: 700;
-    color: #00A6FF;
-    text-shadow: 0 4px 4px rgba(0, 0, 0, .25);
-    line-height: 1;
-}
-
-.system {
-    font-size: clamp(14px, 2vw, 26px);
-    font-weight: 400;
-    color: #FFFFFF;
-    text-shadow: 0 4px 4px rgba(0, 0, 0, .25);
-    margin-top: 5px;
-}
-
-/* ===========================
-   TRACK DOCUMENT BUTTON
-=========================== */
-
-.td-container {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    z-index: 100;
-}
-
-.td-button {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    text-decoration: none;
-    color: #FFFFFF;
-    padding: 10px 16px;
-    border-radius: 6px;
-    transition: .3s;
-}
-
-.td-button svg {
-    transition: .3s;
+.hero-blue-pane {
     position: relative;
-    top: 2px; /* lowered slightly */
-}
-
-.td-button:hover {
-    gap: 10px;
-}
-
-.td-button:hover svg {
-    transform: translateX(5px);
-    color: #FFB200;
-}
-
-/* ===========================
-   LOGIN CARD
-=========================== */
-
-.login-container {
-    position: relative;
-    width: 100%;
-    max-width: 500px;
-    min-height: 578px;
-
-    background: rgba(0, 89, 255, 0.54);
-
-    border-radius: 12px;
-
-    box-shadow:
-        0 4px 15px rgba(0, 0, 0, .25);
-
+    flex: 1.15;
+    background: 
+        radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.55), transparent 45%),
+        radial-gradient(circle at 85% 85%, rgba(29, 78, 216, 0.6), transparent 50%),
+        linear-gradient(145deg, #1d4ed8 0%, #1e40af 50%, #172554 100%);
+    color: #ffffff;
     display: flex;
     flex-direction: column;
-    align-items: center;
-
+    justify-content: space-between;
     overflow: hidden;
-}
-
-.login-body-wrapper {
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    flex: 1;
-    margin: 15px 0;
-}
-
-/* ===========================
-   LOGO
-=========================== */
-
-.logo-container {
-    width: 150px;
-    height: 150px;
-
-    background-color: rgba(255, 255, 255, 0.5);
-
-    display: flex;
-    justify-content: center;
-    align-items: center;
-
-    border-radius: 0 0 100px 100px;
-}
-
-.logo {
-    width: 75px;
-    height: 75px;
-
-    border-radius: 50%;
-
-    box-shadow:
-        0 0 15px 10px #00A6FF;
-
-    position: relative;
-}
-
-.logo img {
-    position: absolute;
-    left: -15%;
-    bottom: -15%;
-    width: 100px;
-}
-
-/* ===========================
-   LOGIN TEXT
-=========================== */
-
-.lo-login {
-    margin-top: 20px;
-
-    font-size: clamp(24px, 4vw, 30px);
-    font-weight: 600;
-
-    color: #FFFFFF;
-
-    font-family: "Roboto", sans-serif;
-}
-
-.lo-instruction {
-    margin-top: 5px;
-
-    padding: 0 20px;
-
-    text-align: center;
-
-    color: #D3D3D3;
-
-    font-size: clamp(10px, 2vw, 12px);
-
-    font-family: "Roboto", sans-serif;
-    font-weight: 400;
-}
-
-/* ===========================
-   FORM
-=========================== */
-
-.lo-form {
-    width: 80%;
-
-    display: flex;
-    flex-direction: column;
-
-    gap: 20px;
-
-    margin-top: 25px;
-}
-
-.form-group {
-    position: relative;
-    width: 100%;
-}
-
-.icon-usr,
-.icon-psk {
-    position: absolute;
-    top: 50%;
-    left: 10px;
-
-    transform: translateY(-50%);
-
-    color: #D3D3D3;
-}
-
-.toggle-password {
-    position: absolute;
-    top: 50%;
-    right: 10px;
-    transform: translateY(-50%);
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    color: #D3D3D3;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 4px;
-    transition: color .2s ease, opacity .2s ease;
-    z-index: 10;
-}
-
-.toggle-password:hover {
-    color: #00A6FF;
-}
-
-.form-group input {
-    width: 100%;
-
-    padding: 12px 40px 12px 40px;
-
-    background: transparent;
-
-    color: gold;
-
-    border: none;
-    border-bottom: 2px solid #FFFFFF;
-
-    transition: .3s;
-
-    font-size: 15px;
-}
-
-.form-group input::placeholder {
-    color: #FFFFFF;
-}
-
-.form-group input:focus {
-    outline: none;
-    border-bottom-color: #00A6FF;
-}
-
-.form-group input:focus::placeholder {
-    color: transparent;
-}
-
-/* ===========================
-   FIX AUTOFILL BACKGROUND
-=========================== */
-
-/* Remove autofill background and keep it transparent */
-.form-group input:-webkit-autofill,
-.form-group input:-webkit-autofill:hover,
-.form-group input:-webkit-autofill:focus,
-.form-group input:-webkit-autofill:active {
-    -webkit-box-shadow: 0 0 0 30px transparent inset !important;
-    -webkit-text-fill-color: gold !important;
-    background-color: transparent !important;
-    background: transparent !important;
-    transition: background-color 5000s ease-in-out 0s;
-}
-
-/* For Firefox */
-.form-group input:-moz-autofill,
-.form-group input:-moz-autofill-preview {
-    background-color: transparent !important;
-    color: gold !important;
-}
-
-/* For Edge/IE */
-.form-group input:-ms-input-autofill {
-    background-color: transparent !important;
-    color: gold !important;
-}
-
-/* Alternative approach using animation to override autofill */
-@keyframes autofill-fix {
-    0%,
-    100% {
-        background: transparent !important;
-        color: gold !important;
-        -webkit-text-fill-color: gold !important;
-    }
-}
-
-.form-group input:-webkit-autofill {
-    animation-name: autofill-fix;
-    animation-duration: 0s;
-    animation-fill-mode: both;
-}
-
-/* Make sure the border-bottom stays visible */
-.form-group input:-webkit-autofill {
-    border-bottom: 2px solid #FFFFFF !important;
-}
-
-.form-group input:-webkit-autofill:focus {
-    border-bottom-color: #00A6FF !important;
-}
-
-/* ===========================
-   LOGIN BUTTON
-=========================== */
-
-.la-button {
-    width: 100%;
-
-    padding: 12px;
-
-    border: none;
-    border-radius: 6px;
-
-    background: #FFB200;
-
-    color: #FFFFFF;
-
-    font-weight: 600;
-    font-size: 15px;
-
-    cursor: pointer;
-
-    transition: .3s;
-}
-
-.la-button:hover {
-    background: rgba(255, 178, 0, .85);
-}
-
-/* ===========================
-   ERROR MESSAGES & ALERTS
-=========================== */
-
-.form-error {
-    display: block;
-    color: #FFD4D4;
-    font-size: 12px;
-    margin-top: -10px;
-}
-
-.login-alert-error {
-    width: 80%;
-    margin: 4px auto 22px auto;
-    padding: 12px 16px;
-    background: rgba(220, 38, 38, 0.28);
-    border: 1px solid rgba(248, 113, 113, 0.65);
-    border-radius: 8px;
-    color: #FEE2E2;
-    font-size: 13px;
-    line-height: 1.45;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    text-align: left;
-    backdrop-filter: blur(6px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    padding: clamp(36px, 4.5vw, 64px);
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.08);
+    z-index: 2;
     box-sizing: border-box;
 }
 
-.login-alert-error .alert-icon {
-    width: 20px !important;
-    height: 20px !important;
-    min-width: 20px !important;
-    max-width: 20px !important;
-    max-height: 20px !important;
-    flex-shrink: 0;
-    color: #FCA5A5;
-    display: block;
-}
-
-.login-alert-error .alert-text {
-    flex: 1;
-    min-width: 0;
-    word-break: break-word;
-    font-weight: 500;
-}
-
-/* ===========================
-   OR DIVIDER
-=========================== */
-
-.or-divider {
-    width: 80%;
-    margin: 20px 0 15px 0;
-    display: flex;
-    align-items: center;
-    text-align: center;
-}
-
-.or-divider::before,
-.or-divider::after {
-    content: '';
-    flex: 1;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.35);
-}
-
-.or-divider span {
-    padding: 0 12px;
-    color: #E0E0E0;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 1px;
-}
-
-/* ===========================
-   GOOGLE LOGIN BUTTON
-=========================== */
-
-.google-login-con {
-    width: 80%;
-    display: flex;
-    justify-content: center;
-    margin-bottom: 10px;
-}
-
-.google-button {
+/* Wireframe Contour Waves in Background */
+.wireframe-waves-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+    overflow: hidden;
+}
+
+.wireframe-waves-bg svg {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.9;
+}
+
+.hero-inner-content {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    justify-content: space-between;
+    max-width: 600px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+/* Middle Section: Main Heading, Welcome & Developers */
+.hero-middle-section {
+    display: flex;
+    flex-direction: column;
+    margin-top: auto;
+    margin-bottom: auto;
+    padding: 24px 0;
+}
+
+.hero-heading {
+    font-size: 58px;
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -0.025em;
+    color: #ffffff;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.hero-heading span {
+    font-size: 32px;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.95);
+    display: block;
+    margin-top: 8px;
+    letter-spacing: -0.015em;
+}
+
+.hero-welcome-text {
+    font-size: 16px;
+    line-height: 1.68;
+    color: rgba(255, 255, 255, 0.90);
+    font-weight: 400;
+    margin-top: 24px;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+/* Developers Section (Clean Direct Text - No Box) */
+.developers-plain-section {
+    margin-top: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.developers-plain-tag {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #fcd34d;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.developers-plain-names {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.developers-plain-names li {
+    font-size: 16px;
+    font-weight: 500;
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Bottom Copyright */
+.hero-bottom-section {
+    font-size: 14.5px;
+    color: rgba(255, 255, 255, 0.65);
+    padding-top: 18px;
+}
+
+/* ==========================================================================
+   RIGHT PANE: Clean White Minimalist Form (Desktop Right / Mobile Default)
+========================================================================== */
+
+.form-white-pane {
+    flex: 1;
+    background-color: #ffffff;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 56px 64px;
+    position: relative;
+    z-index: 1;
+    box-sizing: border-box;
+}
+
+/* Top Bar: Brand Name + Track Document */
+.white-top-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    flex-shrink: 0;
+    flex-wrap: nowrap;
+}
+
+.white-brand-header {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.white-brand-seal {
+    width: 36px;
+    height: 36px;
+    object-fit: contain;
+    display: block;
+    flex-shrink: 0;
+}
+
+.white-brand-name {
+    font-size: 27px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: #0f172a;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.white-track-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    color: #475569;
+    border: none;
+    font-size: 16.5px;
+    font-weight: 600;
+    text-decoration: none;
+    line-height: 1;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: color 0.2s ease;
+}
+
+.white-track-btn span {
+    display: inline-block;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.white-track-btn:hover {
+    color: #1d4ed8;
+}
+
+.white-track-btn:hover svg {
+    transform: translateX(4px);
+}
+
+.white-track-btn svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+}
+
+/* Center Form Box Area */
+.white-center-area {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    padding: 13px 20px;
-    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    margin: auto 0;
+    padding: 30px 0;
+    width: 100%;
+}
+
+.white-form-box {
+    width: 100%;
+    max-width: 500px;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+/* Heading: LOGIN */
+.welcome-header-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.welcome-heading {
+    font-size: 38px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
     color: #0f172a;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    text-decoration: none;
-    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.welcome-subheading {
+    font-size: 16px;
+    line-height: 1.55;
+    color: #64748b;
+    margin-top: 10px;
+    font-weight: 400;
+}
+
+/* Alert Error Banner */
+.clean-alert-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 15px 18px;
+    background-color: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 12px;
+    color: #991b1b;
     font-size: 15px;
-    font-family: 'Inter', 'Roboto', sans-serif;
-    letter-spacing: 0.3px;
-    box-shadow: 
-        0 4px 15px rgba(0, 0, 0, 0.25),
-        inset 0 1px 0 rgba(255, 255, 255, 1);
-    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-    position: relative;
+    line-height: 1.45;
 }
 
-.google-button:hover {
-    background: #ffffff;
-    color: #0059FF;
-    transform: translateY(-3px);
-    border-color: #00A6FF;
-    box-shadow: 
-        0 8px 25px rgba(0, 166, 255, 0.4),
-        0 0 15px rgba(255, 178, 0, 0.25);
-}
-
-.google-icon {
+.alert-icon {
     width: 22px;
     height: 22px;
+    min-width: 22px;
+    color: #ef4444;
+    margin-top: 1px;
+}
+
+.alert-msg {
+    flex: 1;
+    font-weight: 500;
+    word-break: break-word;
+}
+
+/* Google Action Button */
+.google-action-group {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+}
+
+.ref-google-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    width: 100%;
+    padding: 15px 24px;
+    background: #ffffff;
+    color: #1e293b;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    font-size: 17px;
+    font-weight: 600;
+    font-family: inherit;
+    text-decoration: none;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.05);
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.google-icon-svg {
+    width: 26px;
+    height: 26px;
     flex-shrink: 0;
-    filter: drop-shadow(0 1px 1px rgba(0,0,0,0.1));
 }
 
-/* ===========================
-   FOOTER NOTICE
-=========================== */
+.ref-google-button:hover {
+    background: #fafafa;
+    border-color: #93c5fd;
+    color: #1d4ed8;
+    box-shadow: 0 8px 24px rgba(37, 99, 235, 0.12), 0 2px 6px rgba(0, 0, 0, 0.04);
+    transform: translateY(-2px);
+}
 
-.notice {
-    margin-top: auto;
+.ref-google-button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+}
 
-    padding: 20px;
+/* Bottom Support Info */
+.bottom-support-info {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding-top: 20px;
+    border-top: 1px solid #f1f5f9;
+}
 
-    text-align: center;
-
-    color: #D3D3D3;
-
-    font-family: "Inter", sans-serif;
+.unit-text {
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 600;
+    color: #64748b;
 }
 
-/* ===========================
-   TABLET
-=========================== */
+.college-text {
+    font-size: 13px;
+    color: #94a3b8;
+}
 
-@media (max-width: 768px) {
+/* ==========================================================================
+   MOBILE VIEW (max-width: 992px)
+   Horizontal Touch Swipe: Default shows White Form, Swipe Right reveals Blue
+========================================================================== */
 
+@media (max-width: 992px) {
     body {
-        padding: 20px;
+        overflow: hidden;
     }
 
-    .login-container {
-        max-width: 430px;
-        min-height: auto;
-        padding-bottom: 20px;
+    .salesskip-split-container {
+        display: flex;
+        flex-direction: row;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
     }
 
-    .lo-form {
-        width: 85%;
+    .salesskip-split-container::-webkit-scrollbar {
+        display: none;
     }
 
-    .notice {
+    /* Both panes take full screen width as separate swipeable slides */
+    .hero-blue-pane,
+    .form-white-pane {
+        flex: 0 0 100vw;
+        width: 100vw;
+        min-width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        scroll-snap-align: start;
+        scroll-snap-stop: always;
+        overflow-y: auto;
+        box-sizing: border-box;
+    }
+
+    /* Blue Hero Slide on Mobile */
+    .hero-blue-pane {
+        padding: 40px 24px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+
+    .hero-middle-section {
+        margin: 0;
+        padding: 0;
+    }
+
+    .hero-heading {
+        font-size: 32px;
+    }
+
+    .hero-heading span {
+        font-size: 18px;
+    }
+
+    .hero-welcome-text {
+        font-size: 12.5px;
+        line-height: 1.6;
+        margin-top: 16px;
+    }
+
+    .developers-plain-section {
+        margin-top: 20px;
+    }
+
+    .developers-plain-tag {
+        white-space: nowrap;
+    }
+
+    .developers-plain-names li {
+        font-size: 13px;
+        white-space: nowrap;
+    }
+
+    .hero-bottom-section {
+        margin-top: 24px;
+        padding-top: 10px;
+    }
+
+    /* White Form Slide on Mobile (Default Initial View) */
+    .form-white-pane {
+        padding: 24px 20px 28px 20px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-sizing: border-box;
+        overflow-x: hidden;
+    }
+
+    /* Top Bar Mobile: Aligned Vertically, No Wrapping on Shrink Test */
+    .white-top-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        min-height: 28px;
+        flex-wrap: nowrap;
+        flex-shrink: 0;
+        gap: 12px;
+    }
+
+    .white-brand-header {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+        line-height: 1;
+    }
+
+    .white-brand-seal {
+        width: 26px;
+        height: 26px;
+        object-fit: contain;
+        display: block;
+        flex-shrink: 0;
+    }
+
+    .white-brand-name {
+        font-size: 19px;
+        font-weight: 800;
+        line-height: 1;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .white-track-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 0;
+        margin: 0;
+        font-size: 13.5px;
+        font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .white-track-btn span {
+        line-height: 1;
+        white-space: nowrap;
+    }
+
+    .white-track-btn svg {
+        width: 14px;
+        height: 14px;
+        display: block;
+        flex-shrink: 0;
+    }
+
+    /* Center Form Area: Vertically Centered on Mobile */
+    .white-center-area {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: auto 0;
+        padding: 16px 0;
+        width: 100%;
+    }
+
+    .white-form-box {
+        width: 100%;
+        max-width: 360px;
+        min-width: 290px;
+        gap: 22px;
+        box-sizing: border-box;
+    }
+
+    .welcome-heading {
+        font-size: 28px;
+        white-space: nowrap;
+        line-height: 1.2;
+    }
+
+    .welcome-subheading {
+        font-size: 13.5px;
+        line-height: 1.45;
+        margin-top: 8px;
+        min-height: 38px;
+    }
+
+    .ref-google-button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 12px 18px;
+        font-size: 14.5px;
+        gap: 10px;
+        border-radius: 10px;
+    }
+
+    .ref-google-button span {
+        white-space: nowrap;
+    }
+
+    .google-icon-svg {
+        width: 22px;
+        height: 22px;
+        flex-shrink: 0;
+    }
+
+    .bottom-support-info {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding-top: 16px;
+        border-top: 1px solid #f1f5f9;
+        position: static;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .unit-text {
         font-size: 12px;
+        font-weight: 600;
+        color: #64748b;
+    }
+
+    .college-text {
+        font-size: 11.5px;
+        color: #94a3b8;
     }
 }
-
-/* ===========================
-   MOBILE
-=========================== */
 
 @media (max-width: 480px) {
-
-    body {
-        padding: 15px;
+    .hero-blue-pane {
+        padding: 32px 18px;
     }
 
-    .td-container {
-        top: 10px;
-        right: 10px;
-    }
-
-    .td-button {
-        font-size: 14px;
-        padding: 8px 12px;
-    }
-
-    .header-container {
-        margin-bottom: 15px;
-    }
-
-    .logo-container {
-        width: 120px;
-        height: 120px;
-    }
-
-    .logo {
-        width: 60px;
-        height: 60px;
-    }
-
-    .logo img {
-        width: 80px;
-    }
-
-    .login-container {
-        width: 100%;
-        max-width: 100%;
-    }
-
-    .lo-form {
-        width: 90%;
-    }
-
-    .login-alert-error {
-        flex-direction: row;
-        align-items: flex-start;
-        gap: 10px;
-        padding: 10px 14px;
-        font-size: 12px;
-    }
-
-    .login-alert-error .alert-icon {
-        margin-top: 1px;
-    }
-
-    .notice {
-        font-size: 11px;
-        padding: 15px;
-    }
-}
-
-/* ===========================
-   VERY SMALL DEVICES
-=========================== */
-
-@media (max-width: 360px) {
-
-    .institute {
-        font-size: 42px;
-    }
-
-    .system {
-        font-size: 12px;
-    }
-
-    .td-button {
-        font-size: 12px;
-    }
-
-    .lo-form {
-        width: 92%;
+    .form-white-pane {
+        padding: 22px 16px 26px 16px;
     }
 }

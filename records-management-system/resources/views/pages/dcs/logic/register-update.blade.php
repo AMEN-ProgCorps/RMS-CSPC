@@ -721,6 +721,10 @@ class RegisterUpdateHelper
                 ? 'Draft saved. Continue anytime from Document Registration → Drafts.'
                 : 'Document updated successfully!';
 
+            if ($saveAsDraft && RegisterPersistHelper::isAutosaveRequest($request)) {
+                return RegisterPersistHelper::draftAutosaveSuccessResponse((int) $id, $successMessage);
+            }
+
             if ($saveAsDraft) {
                 self::collapseDuplicateDrafts((int) $id);
             }

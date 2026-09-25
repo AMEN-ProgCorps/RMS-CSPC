@@ -996,7 +996,9 @@ class RegisterPersistHelper
             'edit_url' => route('dcs.register.edit', $requestId, absolute: false),
             'update_url' => route('dcs.register.updateDoc', $requestId, absolute: false),
             'drafts_url' => route('dcs.register.drafts', absolute: false),
-            'message' => $message,
+            'message' => $message !== ''
+                ? $message
+                : 'Draft auto-saved. Continue anytime from Document Registration → Drafts.',
             'saved_at' => now('Asia/Manila')->format('g:i A'),
         ]);
     }

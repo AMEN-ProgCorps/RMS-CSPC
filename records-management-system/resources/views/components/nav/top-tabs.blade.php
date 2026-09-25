@@ -160,6 +160,22 @@
                 ],
             ];
         }
+        // Received Documents Section
+        elseif (request()->routeIs('rdp.received-documents.*')) {
+            $sectionTitle = 'Received Documents';
+            $tabs = [
+                [
+                    'label' => 'Document Tracking System',
+                    'url' => route('rdp.received-documents.dts'),
+                    'active' => request()->routeIs('rdp.received-documents.dts') || request()->routeIs('rdp.received-documents.index'),
+                ],
+                [
+                    'label' => 'Document Control System',
+                    'url' => route('rdp.received-documents.dcs'),
+                    'active' => request()->routeIs('rdp.received-documents.dcs'),
+                ],
+            ];
+        }
         // 2. Add Records Section
         elseif (request()->routeIs('rdp.add-records.*')) {
             $sectionTitle = 'Add Records';
@@ -683,6 +699,27 @@
                     'label' => 'Record Series',
                     'url' => route('admin.rdp.record-series'),
                     'active' => request()->routeIs('admin.rdp.record-series'),
+                ],
+            ];
+        }
+        // 9. Server Settings Section
+        elseif (request()->routeIs('admin.server-settings.*')) {
+            $sectionTitle = 'Server Settings';
+            $tabs = [
+                [
+                    'label' => 'Current Server',
+                    'url' => route('admin.server-settings.current'),
+                    'active' => request()->routeIs('admin.server-settings.current'),
+                ],
+                [
+                    'label' => 'Multi-Server',
+                    'url' => route('admin.server-settings.multi-server'),
+                    'active' => request()->routeIs('admin.server-settings.multi-server') || request()->routeIs('admin.server-settings.addons'),
+                ],
+                [
+                    'label' => 'Site Diagnostic',
+                    'url' => route('admin.server-settings.diagnostic'),
+                    'active' => request()->routeIs('admin.server-settings.diagnostic'),
                 ],
             ];
         }

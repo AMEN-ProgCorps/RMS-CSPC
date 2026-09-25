@@ -257,4 +257,11 @@
             @endif
         @endif
     </ul>
+
+    <div class="dcs-account-footer" style="padding: 12px 18px; margin-top: auto; border-top: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 2px;">
+        @if(\App\Services\ServerManagementService::isMultiServerActive())
+            <span style="font-size: 12px; font-weight: 700; color: #38bdf8;">{{ \App\Services\ServerManagementService::getServerLabel() }}</span>
+        @endif
+        <span style="font-size: 11px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ auth()->user()?->details?->email }}</span>
+    </div>
 </nav>

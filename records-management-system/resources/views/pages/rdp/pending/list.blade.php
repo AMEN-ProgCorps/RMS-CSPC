@@ -19,6 +19,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
     // Print Modal & Fill-up Properties
     public bool $showPrintModal = false;
+    public bool $includeDescriptionOnPrint = false;
     public ?object $printCluster = null;
     public array $printItems = [];
     public string $agencyName = 'Camarines Sur Polytechnic Colleges';
@@ -234,6 +235,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             }
             $this->datePrepared = \Carbon\Carbon::parse($this->printCluster->created_at ?? now())->format('m/d/Y');
         }
+
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $this->includeDescriptionOnPrint = (\Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_include_description_on_print')->value('value') === 'true');
 
         $this->showPrintModal = true;
     }
@@ -1199,7 +1203,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                     <tr>
                                         <td style="{{ $cellStyle }} text-align: left; padding: 4px 5px; vertical-align: top;">
                                             <div style="font-weight: bold;">{{ $pi->series_title ?? $pi->doc_name ?? 'Untitled' }}</div>
-                                            @if(!empty($pi->description))
+                                            @if($includeDescriptionOnPrint && !empty($pi->description))
                                                 <div style="font-style: italic; font-size: 7.5px; color: #333; margin-top: 1px;">{{ $pi->description }}</div>
                                             @endif
                                         </td>

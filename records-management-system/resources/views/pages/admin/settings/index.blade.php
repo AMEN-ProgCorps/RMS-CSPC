@@ -16,6 +16,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $autoForwardCreatedTransaction = true;
     public bool $dtsQrIncludeCodeDefault = false;
     public bool $rdpRequiredUploadFile = false;
+    public bool $rdpIncludeDescriptionOnPrint = false;
     public bool $dtsRequiredUploadFile = false;
     public int $tabCloseIdleTimeoutMinutes = 15;
     public string $dcsRecycleDeleteCode = '';
@@ -326,6 +327,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $rdpReq = \DB::table('sys_system_settings')->where('key', 'rdp_required_upload_file')->value('value');
         $this->rdpRequiredUploadFile = ($rdpReq === 'true');
+
+        $rdpDesc = \DB::table($sysTable)->where('key', 'rdp_include_description_on_print')->value('value');
+        $this->rdpIncludeDescriptionOnPrint = ($rdpDesc === 'true');
 
         $dtsReq = \DB::table('sys_system_settings')->where('key', 'dts_required_upload_file')->value('value');
         $this->dtsRequiredUploadFile = ($dtsReq === 'true');
@@ -668,6 +672,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'rdp_include_description_on_print'],
+                    [
+                        'value' => $this->rdpIncludeDescriptionOnPrint ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
                 \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'dts_required_upload_file'],
                     [
@@ -755,6 +767,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                              ", IntEmail: " . ($this->emailAccessRequiredInternal ? 'true' : 'false') .
                              ", ManualBtn: " . ($this->allowManualCompletionButton ? 'true' : 'false') .
                              ", RDPReq: " . ($this->rdpRequiredUploadFile ? 'true' : 'false') .
+                             ", RDPDescPrint: " . ($this->rdpIncludeDescriptionOnPrint ? 'true' : 'false') .
                              ", DTSReq: " . ($this->dtsRequiredUploadFile ? 'true' : 'false') .
                              ", InactivityTimeout: " . $this->tabCloseIdleTimeoutMinutes . " mins" .
                              ", DcsDeleteCode: " . (trim($this->dcsRecycleDeleteCode) !== '' ? 'set' : 'cleared') .
@@ -1847,6 +1860,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         </div>
                         <label class="switch">
                             <input type="checkbox" wire:model="dtsRequiredUploadFile">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Card 4: Records Disposition Program (RDP) Settings -->
+            <div class="settings-card">
+                <div>
+                    <div class="settings-card-header">
+                        <i class="fa-solid fa-folder-tree"></i>
+                        <h3>Records Disposition Program (RDP) Settings</h3>
+                    </div>
+
+                    <!-- Setting: RDP Include Description on Print -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Include Description on Print</span>
+                            <span class="setting-desc">Enables granular subject item rows and descriptions to be included in RDP print preview and printed documents (such as NAP Form 1). When disabled (default), only compiled record series totals are printed.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="rdpIncludeDescriptionOnPrint">
                             <span class="slider"></span>
                         </label>
                     </div>

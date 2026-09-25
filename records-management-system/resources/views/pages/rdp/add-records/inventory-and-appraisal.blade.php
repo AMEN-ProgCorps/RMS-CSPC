@@ -78,6 +78,95 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public ?string $successMessage = null;
     public ?string $errorMessage = null;
 
+    // Batch Record Mode State
+    public bool $isBatchMode = false;
+    public array $batchItems = [];
+
+    public function addBatchItem(): void
+    {
+        $this->clearMessages();
+
+        if (!$this->isBatchMode) {
+            $this->isBatchMode = true;
+            $this->batchItems = [
+                [
+                    'description'      => $this->description,
+                    'date_covered'     => $this->date_covered,
+                    'volume'           => $this->volume,
+                    'records_medium'   => $this->records_medium,
+                    'restriction'      => $this->restriction,
+                    'records_location' => $this->records_location,
+                    'frequence_use'    => $this->frequence_use,
+                    'utility_values'   => $this->utility_values,
+                    'time_value'       => $this->time_value ?: 'T',
+                ],
+                [
+                    'description'      => '',
+                    'date_covered'     => $this->date_covered,
+                    'volume'           => '',
+                    'records_medium'   => $this->records_medium,
+                    'restriction'      => $this->restriction,
+                    'records_location' => $this->records_location,
+                    'frequence_use'    => $this->frequence_use,
+                    'utility_values'   => $this->utility_values,
+                    'time_value'       => $this->time_value ?: 'T',
+                ],
+            ];
+        } else {
+            $last = end($this->batchItems) ?: [];
+            $this->batchItems[] = [
+                'description'      => '',
+                'date_covered'     => $last['date_covered'] ?? $this->date_covered,
+                'volume'           => '',
+                'records_medium'   => $last['records_medium'] ?? $this->records_medium,
+                'restriction'      => $last['restriction'] ?? $this->restriction,
+                'records_location' => $last['records_location'] ?? $this->records_location,
+                'frequence_use'    => $last['frequence_use'] ?? $this->frequence_use,
+                'utility_values'   => $last['utility_values'] ?? $this->utility_values,
+                'time_value'       => $last['time_value'] ?? ($this->time_value ?: 'T'),
+            ];
+        }
+    }
+
+    public function removeBatchItem(int $index): void
+    {
+        if (isset($this->batchItems[$index])) {
+            unset($this->batchItems[$index]);
+            $this->batchItems = array_values($this->batchItems);
+        }
+
+        if (count($this->batchItems) <= 1) {
+            $this->switchToSingleMode();
+        }
+    }
+
+    public function duplicateBatchItem(int $index): void
+    {
+        if (isset($this->batchItems[$index])) {
+            $clone = $this->batchItems[$index];
+            $clone['description'] = $clone['description'] ? ($clone['description'] . ' (COPY)') : '';
+            array_splice($this->batchItems, $index + 1, 0, [$clone]);
+            $this->batchItems = array_values($this->batchItems);
+        }
+    }
+
+    public function switchToSingleMode(): void
+    {
+        if (!empty($this->batchItems)) {
+            $first = $this->batchItems[0];
+            $this->description      = $first['description'] ?? $this->description;
+            $this->date_covered     = $first['date_covered'] ?? $this->date_covered;
+            $this->volume           = $first['volume'] ?? $this->volume;
+            $this->records_medium   = $first['records_medium'] ?? $this->records_medium;
+            $this->restriction      = $first['restriction'] ?? $this->restriction;
+            $this->records_location = $first['records_location'] ?? $this->records_location;
+            $this->frequence_use    = $first['frequence_use'] ?? $this->frequence_use;
+            $this->utility_values   = $first['utility_values'] ?? $this->utility_values;
+        }
+        $this->batchItems = [];
+        $this->isBatchMode = false;
+    }
+
     public function updatedUploadedFile(): void
     {
         if (!$this->uploadedFile) return;
@@ -645,68 +734,114 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 ]);
             }
 
-            $recordId = DB::table('rdp_record')->insertGetId([
-                'record_series_id'       => $this->record_series_id,
-                'description'            => mb_strtoupper($this->description),
-                'period_id'              => $periodId,
-                'volume'                 => $formattedVolume,
-                'records_location'       => mb_strtoupper($this->records_location),
-                'restriction'            => $this->restriction,
-                'records_medium'         => $this->records_medium,
-                'time_value'             => $this->time_value,
-                'frequence_use'          => $this->frequence_use,
-                'user_own'               => $user?->id,
-                'office_own'             => $userOfficeCode,
-                'upload_doc_id_handler'  => $documentIdHandler,
-                'is_draft'               => true,
-                'created_at'             => now(),
-                'updated_at'             => now(),
-            ]);
-
-            DB::table('rdp_record')->where('id', $recordId)->update([
-                'utility_value'  => $recordId,
-                'duplication_id' => $recordId,
-            ]);
-
-            foreach ($this->utility_values as $uId) {
-                DB::table('rdp_utility_manager')->insert([
-                    'record_holder'  => $recordId,
-                    'utility_medium' => $uId,
-                    'is_active'      => true,
-                    'created_at'     => now(),
-                    'updated_at'     => now(),
-                ]);
+            $itemsToProcess = [];
+            if ($this->isBatchMode && !empty($this->batchItems)) {
+                foreach ($this->batchItems as $bItem) {
+                    $desc = trim($bItem['description'] ?? '');
+                    if (empty($desc)) continue;
+                    $itemsToProcess[] = [
+                        'description'      => mb_strtoupper($desc),
+                        'volume'           => mb_strtoupper(trim($bItem['volume'] ?? '')),
+                        'records_location' => mb_strtoupper(trim($bItem['records_location'] ?? '')),
+                        'restriction'      => $bItem['restriction'] ?? null,
+                        'records_medium'   => !empty($bItem['records_medium']) ? (int)$bItem['records_medium'] : null,
+                        'time_value'       => $bItem['time_value'] ?? ($this->time_value ?: 'T'),
+                        'frequence_use'    => $bItem['frequence_use'] ?? null,
+                        'utility_values'   => $bItem['utility_values'] ?? [],
+                        'date_covered'     => $bItem['date_covered'] ?? '',
+                    ];
+                }
+            } else {
+                $itemsToProcess[] = [
+                    'description'      => mb_strtoupper(trim($this->description)),
+                    'volume'           => $formattedVolume,
+                    'records_location' => mb_strtoupper(trim($this->records_location)),
+                    'restriction'      => $this->restriction,
+                    'records_medium'   => $this->records_medium,
+                    'time_value'       => $this->time_value ?: 'T',
+                    'frequence_use'    => $this->frequence_use,
+                    'utility_values'   => $this->utility_values,
+                    'date_covered'     => $this->date_covered,
+                ];
             }
 
-            foreach ($this->duplicate_offices as $dupOffice) {
-                DB::table('rdp_duplication_section')->insert([
-                    'dup_id_manager' => $recordId,
-                    'office_code'    => $dupOffice,
-                    'created_at'     => now(),
-                    'updated_at'     => now(),
-                ]);
+            if (empty($itemsToProcess)) {
+                $this->errorMessage = 'Please provide at least one record subject/description to save draft.';
+                return;
             }
 
-            if (!empty($this->date_covered)) {
-                DB::table('rdp_period_covered')->insert([
-                    'period_owner' => $recordId,
-                    'date_covered' => $this->date_covered,
-                    'created_at'   => now(),
-                    'modified_at'  => now(),
+            $firstRecordId = null;
+            foreach ($itemsToProcess as $rIdx => $rData) {
+                $recordId = DB::table('rdp_record')->insertGetId([
+                    'record_series_id'       => $this->record_series_id,
+                    'description'            => $rData['description'],
+                    'period_id'              => $periodId,
+                    'volume'                 => $rData['volume'],
+                    'records_location'       => $rData['records_location'],
+                    'restriction'            => $rData['restriction'],
+                    'records_medium'         => $rData['records_medium'],
+                    'time_value'             => $rData['time_value'],
+                    'frequence_use'          => $rData['frequence_use'],
+                    'user_own'               => $user?->id,
+                    'office_own'             => $userOfficeCode,
+                    'upload_doc_id_handler'  => ($rIdx === 0) ? $documentIdHandler : null,
+                    'is_draft'               => true,
+                    'created_at'             => now(),
+                    'updated_at'             => now(),
                 ]);
+
+                if ($firstRecordId === null) {
+                    $firstRecordId = $recordId;
+                }
+
+                DB::table('rdp_record')->where('id', $recordId)->update([
+                    'utility_value'  => $recordId,
+                    'duplication_id' => $recordId,
+                ]);
+
+                foreach ($rData['utility_values'] as $uId) {
+                    DB::table('rdp_utility_manager')->insert([
+                        'record_holder'  => $recordId,
+                        'utility_medium' => $uId,
+                        'is_active'      => true,
+                        'created_at'     => now(),
+                        'updated_at'     => now(),
+                    ]);
+                }
+
+                foreach ($this->duplicate_offices as $dupOffice) {
+                    DB::table('rdp_duplication_section')->insert([
+                        'dup_id_manager' => $recordId,
+                        'office_code'    => $dupOffice,
+                        'created_at'     => now(),
+                        'updated_at'     => now(),
+                    ]);
+                }
+
+                if (!empty($rData['date_covered'])) {
+                    DB::table('rdp_period_covered')->insert([
+                        'period_owner' => $recordId,
+                        'date_covered' => $rData['date_covered'],
+                        'created_at'   => now(),
+                        'modified_at'  => now(),
+                    ]);
+                }
             }
 
-            if ($this->prefill_intake_id) {
+            if ($this->prefill_intake_id && $firstRecordId) {
                 DB::table('rdp_received_documents')->where('id', $this->prefill_intake_id)->update([
                     'status' => 'appraised',
-                    'appraised_record_id' => $recordId,
+                    'appraised_record_id' => $firstRecordId,
                     'updated_at' => now(),
                 ]);
             }
 
             DB::commit();
 
-            $this->successMessage = 'Inventory and Appraisal draft saved successfully!';
+            $count = count($itemsToProcess);
+            $this->successMessage = $count > 1 
+                ? "Inventory and Appraisal draft for {$count} records saved successfully!" 
+                : "Inventory and Appraisal draft saved successfully!";
         } catch (\Exception $e) {
             DB::rollBack();
             $this->errorMessage = 'Failed to save draft: ' . $e->getMessage();
@@ -797,68 +932,117 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 ]);
             }
 
-            $recordId = DB::table('rdp_record')->insertGetId([
-                'record_series_id'       => $this->record_series_id,
-                'description'            => mb_strtoupper($this->description),
-                'period_id'              => $periodId,
-                'volume'                 => $formattedVolume,
-                'records_location'       => mb_strtoupper($this->records_location),
-                'restriction'            => $this->restriction,
-                'records_medium'         => $this->records_medium,
-                'time_value'             => $this->time_value,
-                'frequence_use'          => $this->frequence_use,
-                'user_own'               => $user?->id,
-                'office_own'             => $userOfficeCode,
-                'upload_doc_id_handler'  => $documentIdHandler,
-                'is_draft'               => false,
-                'created_at'             => now(),
-                'updated_at'             => now(),
-            ]);
-
-            DB::table('rdp_record')->where('id', $recordId)->update([
-                'utility_value'  => $recordId,
-                'duplication_id' => $recordId,
-            ]);
-
-            foreach ($this->utility_values as $uId) {
-                DB::table('rdp_utility_manager')->insert([
-                    'record_holder'  => $recordId,
-                    'utility_medium' => $uId,
-                    'is_active'      => true,
-                    'created_at'     => now(),
-                    'updated_at'     => now(),
-                ]);
+            $itemsToProcess = [];
+            if ($this->isBatchMode && !empty($this->batchItems)) {
+                foreach ($this->batchItems as $bItem) {
+                    $desc = trim($bItem['description'] ?? '');
+                    if (empty($desc)) continue;
+                    $itemsToProcess[] = [
+                        'description'      => mb_strtoupper($desc),
+                        'volume'           => mb_strtoupper(trim($bItem['volume'] ?? '')),
+                        'records_location' => mb_strtoupper(trim($bItem['records_location'] ?? '')),
+                        'restriction'      => $bItem['restriction'] ?? null,
+                        'records_medium'   => !empty($bItem['records_medium']) ? (int)$bItem['records_medium'] : null,
+                        'time_value'       => $bItem['time_value'] ?? ($this->time_value ?: 'T'),
+                        'frequence_use'    => $bItem['frequence_use'] ?? null,
+                        'utility_values'   => $bItem['utility_values'] ?? [],
+                        'date_covered'     => $bItem['date_covered'] ?? '',
+                    ];
+                }
+            } else {
+                $desc = trim($this->description);
+                if (!empty($desc)) {
+                    $itemsToProcess[] = [
+                        'description'      => mb_strtoupper($desc),
+                        'volume'           => $formattedVolume,
+                        'records_location' => mb_strtoupper(trim($this->records_location)),
+                        'restriction'      => $this->restriction,
+                        'records_medium'   => $this->records_medium,
+                        'time_value'       => $this->time_value ?: 'T',
+                        'frequence_use'    => $this->frequence_use,
+                        'utility_values'   => $this->utility_values,
+                        'date_covered'     => $this->date_covered,
+                    ];
+                }
             }
 
-            foreach ($this->duplicate_offices as $dupOffice) {
-                DB::table('rdp_duplication_section')->insert([
-                    'dup_id_manager' => $recordId,
-                    'office_code'    => $dupOffice,
-                    'created_at'     => now(),
-                    'updated_at'     => now(),
-                ]);
+            if (empty($itemsToProcess)) {
+                $this->errorMessage = 'Please provide at least one record subject/description.';
+                return;
             }
 
-            if (!empty($this->date_covered)) {
-                DB::table('rdp_period_covered')->insert([
-                    'period_owner' => $recordId,
-                    'date_covered' => $this->date_covered,
-                    'created_at'   => now(),
-                    'modified_at'  => now(),
+            $firstRecordId = null;
+            foreach ($itemsToProcess as $rIdx => $rData) {
+                $recordId = DB::table('rdp_record')->insertGetId([
+                    'record_series_id'       => $this->record_series_id,
+                    'description'            => $rData['description'],
+                    'period_id'              => $periodId,
+                    'volume'                 => $rData['volume'],
+                    'records_location'       => $rData['records_location'],
+                    'restriction'            => $rData['restriction'],
+                    'records_medium'         => $rData['records_medium'],
+                    'time_value'             => $rData['time_value'],
+                    'frequence_use'          => $rData['frequence_use'],
+                    'user_own'               => $user?->id,
+                    'office_own'             => $userOfficeCode,
+                    'upload_doc_id_handler'  => ($rIdx === 0) ? $documentIdHandler : null,
+                    'is_draft'               => false,
+                    'created_at'             => now(),
+                    'updated_at'             => now(),
                 ]);
+
+                if ($firstRecordId === null) {
+                    $firstRecordId = $recordId;
+                }
+
+                DB::table('rdp_record')->where('id', $recordId)->update([
+                    'utility_value'  => $recordId,
+                    'duplication_id' => $recordId,
+                ]);
+
+                foreach ($rData['utility_values'] as $uId) {
+                    DB::table('rdp_utility_manager')->insert([
+                        'record_holder'  => $recordId,
+                        'utility_medium' => $uId,
+                        'is_active'      => true,
+                        'created_at'     => now(),
+                        'updated_at'     => now(),
+                    ]);
+                }
+
+                foreach ($this->duplicate_offices as $dupOffice) {
+                    DB::table('rdp_duplication_section')->insert([
+                        'dup_id_manager' => $recordId,
+                        'office_code'    => $dupOffice,
+                        'created_at'     => now(),
+                        'updated_at'     => now(),
+                    ]);
+                }
+
+                if (!empty($rData['date_covered'])) {
+                    DB::table('rdp_period_covered')->insert([
+                        'period_owner' => $recordId,
+                        'date_covered' => $rData['date_covered'],
+                        'created_at'   => now(),
+                        'modified_at'  => now(),
+                    ]);
+                }
             }
 
-            if ($this->prefill_intake_id) {
+            if ($this->prefill_intake_id && $firstRecordId) {
                 DB::table('rdp_received_documents')->where('id', $this->prefill_intake_id)->update([
                     'status' => 'appraised',
-                    'appraised_record_id' => $recordId,
+                    'appraised_record_id' => $firstRecordId,
                     'updated_at' => now(),
                 ]);
             }
 
             DB::commit();
 
-            $this->successMessage = 'Inventory and Appraisal Record created successfully!';
+            $count = count($itemsToProcess);
+            $this->successMessage = $count > 1 
+                ? "Batch of {$count} records created successfully under this series!" 
+                : "Inventory and Appraisal Record created successfully!";
             $this->resetFormFields();
 
         } catch (\Exception $e) {
@@ -869,6 +1053,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function resetFormFields(): void
     {
+        $this->isBatchMode = false;
+        $this->batchItems = [];
         $this->selectedSeriesTitle = null;
         $this->record_series_id = null;
         $this->description = '';
@@ -947,107 +1133,255 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         </div>
     @endif
 
-    <!-- Main Form Card -->
-    <div class="ia-form-card">
-        <div style="padding: 28px 32px;">
-            <!-- Record Series Title -->
-            <div class="ia-form-row">
-                <span class="ia-label ia-label-required">Record Series Title</span>
-                <div style="flex: 1; display: flex; align-items: center;">
-                    @if($selectedSeriesTitle)
-                        <div class="ia-badge ia-badge-green" style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px; padding: 10px 16px;">
-                            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px;">
-                                @if(!empty($selectedSeriesHierarchy))
-                                    @foreach($selectedSeriesHierarchy as $idx => $node)
-                                        @if($idx > 0)
-                                            <span style="margin: 0 4px; color: #059669; font-weight: 800;">➔</span>
-                                        @endif
-                                        <span style="font-weight: 800; color: #065f46;">{{ $node['title'] }}</span>
-                                        @if($node['is_predefined'])
-                                            <span style="font-size: 10px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; display: inline-flex; align-items: center;">PREDEFINED</span>
-                                        @else
-                                            <span style="font-size: 10px; font-weight: 800; background: #faf5ff; color: #7e22ce; border: 1px solid #e9d5ff; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; display: inline-flex; align-items: center;">USER</span>
-                                        @endif
-                                    @endforeach
-                                @else
-                                    <span style="font-weight: 800; color: #065f46;">{{ $selectedSeriesTitle }}</span>
-                                @endif
+    <!-- Form Card Wrapper (Anchors the Side (+) Action Button) -->
+    <div class="ia-form-card-wrapper">
+        <!-- Side Action: Add More Records Button -->
+        <div class="ia-side-action-rail">
+            <button type="button" 
+                    wire:click="addBatchItem" 
+                    class="ia-side-add-btn" 
+                    aria-label="Add more"
+                    title="Add more">
+                <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                <span class="ia-side-tooltip">Add more</span>
+            </button>
+        </div>
+
+        <!-- Main Form Card -->
+        <div class="ia-form-card">
+            <div style="padding: 28px 32px;">
+                <!-- Record Series Title -->
+                <div class="ia-form-row" wire:key="ia-row-series">
+                    <span class="ia-label ia-label-required">Record Series Title</span>
+                    <div style="flex: 1; display: flex; align-items: center;">
+                        @if($selectedSeriesTitle)
+                            <div class="ia-badge ia-badge-green" style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px; padding: 10px 16px;">
+                                <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px;">
+                                    @if(!empty($selectedSeriesHierarchy))
+                                        @foreach($selectedSeriesHierarchy as $idx => $node)
+                                            @if($idx > 0)
+                                                <span style="margin: 0 4px; color: #059669; font-weight: 800;">➔</span>
+                                            @endif
+                                            <span style="font-weight: 800; color: #065f46;">{{ $node['title'] }}</span>
+                                            @if($node['is_predefined'])
+                                                <span style="font-size: 10px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; display: inline-flex; align-items: center;">PREDEFINED</span>
+                                            @else
+                                                <span style="font-size: 10px; font-weight: 800; background: #faf5ff; color: #7e22ce; border: 1px solid #e9d5ff; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; display: inline-flex; align-items: center;">USER</span>
+                                            @endif
+                                        @endforeach
+                                    @else
+                                        <span style="font-weight: 800; color: #065f46;">{{ $selectedSeriesTitle }}</span>
+                                    @endif
+                                </div>
+                                <button type="button" wire:click="openSeriesModal" class="ia-btn ia-btn-change">Change Series</button>
                             </div>
-                            <button type="button" wire:click="openSeriesModal" class="ia-btn ia-btn-change">Change Series</button>
+                        @else
+                            <button type="button" wire:click="openSeriesModal" class="ia-btn ia-btn-primary ia-btn-lg">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                                Select / Add Record Series
+                            </button>
+                        @endif
+                    </div>
+                </div>
+
+                @if($isBatchMode)
+                    <!-- BATCH MODE BANNER & REPEATER -->
+                    <div style="background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%); border: 1.5px solid #c4b5fd; border-radius: 12px; padding: 14px 18px; margin-bottom: 22px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div style="width: 38px; height: 38px; border-radius: 50%; background: #6366f1; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 800; flex-shrink: 0; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);">
+                                📋
+                            </div>
+                            <div>
+                                <div style="font-size: 14px; font-weight: 800; color: #3730a3;">Batch Mode Active ({{ count($batchItems) }} Records)</div>
+                                <div style="font-size: 12px; color: #5b21b6; margin-top: 2px;">Each record below will be created under this Record Series with shared retention settings.</div>
+                            </div>
                         </div>
-                    @else
-                        <button type="button" wire:click="openSeriesModal" class="ia-btn ia-btn-primary ia-btn-lg">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-                            Select / Add Record Series
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <button type="button" wire:click="addBatchItem" class="ia-btn" style="background: #4f46e5; color: #ffffff; padding: 6px 14px; font-size: 12px;">
+                                + Add Another Record
+                            </button>
+                            <button type="button" wire:click="switchToSingleMode" class="ia-btn" style="background: #ffffff; color: #64748b; border: 1px solid #cbd5e1; padding: 6px 12px; font-size: 12px;">
+                                Switch to Single Mode
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Batch Items List -->
+                    <div class="ia-batch-list" style="display: flex; flex-direction: column; gap: 18px; margin-bottom: 26px;">
+                        @foreach($batchItems as $bIdx => $bItem)
+                            <div class="ia-batch-item-card" wire:key="batch-item-{{ $bIdx }}" style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 20px; transition: border-color 0.2s ease; position: relative;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <span style="background: #4f46e5; color: #ffffff; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 6px; letter-spacing: 0.5px;">RECORD #{{ $bIdx + 1 }}</span>
+                                        <span style="font-size: 13px; font-weight: 700; color: #1e293b;">
+                                            {{ !empty($bItem['description']) ? Str::limit($bItem['description'], 45) : 'New Record' }}
+                                        </span>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <button type="button" wire:click="duplicateBatchItem({{ $bIdx }})" style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-size: 11.5px; font-weight: 700; color: #475569; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Duplicate this record">
+                                            <span>📋 Duplicate</span>
+                                        </button>
+                                        @if(count($batchItems) > 1)
+                                            <button type="button" wire:click="removeBatchItem({{ $bIdx }})" style="background: #fee2e2; border: 1px solid #fca5a5; border-radius: 6px; padding: 4px 10px; font-size: 11.5px; font-weight: 700; color: #dc2626; cursor: pointer;" title="Remove this record">
+                                                <span>✕ Remove</span>
+                                            </button>
+                                        @endif
+                                    </div>
+                                </div>
+
+                                <div style="margin-bottom: 12px;">
+                                    <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Subject / Record Title *</label>
+                                    <textarea class="ia-input" wire:model="batchItems.{{ $bIdx }}.description" rows="2" placeholder="ENTER RECORD DESCRIPTION OR SPECIFIC DETAILS..." style="width: 100%; box-sizing: border-box;"></textarea>
+                                </div>
+
+                                <div style="display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 12px; margin-bottom: 12px;">
+                                    <div>
+                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Selected Date</label>
+                                        <input type="date" class="ia-input" wire:model.blur="batchItems.{{ $bIdx }}.date_covered" style="width: 100%; box-sizing: border-box;">
+                                    </div>
+                                    <div>
+                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Volume Amount & Unit</label>
+                                        <input type="text" class="ia-input" wire:model="batchItems.{{ $bIdx }}.volume" placeholder="E.G. 1 BOX 20 PAPERS..." style="width: 100%; box-sizing: border-box;">
+                                    </div>
+                                    <div>
+                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Location</label>
+                                        <input type="text" class="ia-input" wire:model="batchItems.{{ $bIdx }}.records_location" placeholder="E.G. CABINET 3, SHELF 2" style="width: 100%; box-sizing: border-box;">
+                                    </div>
+                                </div>
+
+                                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+                                    <div>
+                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Medium</label>
+                                        <select class="ia-input" wire:model.live="batchItems.{{ $bIdx }}.records_medium" style="width: 100%; box-sizing: border-box; background: #ffffff;">
+                                            <option value="" disabled {{ empty($bItem['records_medium']) ? 'selected' : '' }}>Select Medium...</option>
+                                            @foreach($mediaList as $med)
+                                                <option value="{{ $med->id }}" {{ (string)($bItem['records_medium'] ?? '') === (string)$med->id ? 'selected' : '' }}>
+                                                    {{ $med->medium_name }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Restriction / Access</label>
+                                        <select class="ia-input" wire:model.live="batchItems.{{ $bIdx }}.restriction" style="width: 100%; box-sizing: border-box; background: #ffffff;">
+                                            <option value="" disabled {{ empty($bItem['restriction']) ? 'selected' : '' }}>Select Restriction...</option>
+                                            @foreach($restrictionsList as $rest)
+                                                <option value="{{ $rest->restriction_value }}" {{ ($bItem['restriction'] ?? '') === $rest->restriction_value ? 'selected' : '' }}>
+                                                    {{ $rest->restriction_value }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Frequency of Use</label>
+                                        <select class="ia-input" wire:model.live="batchItems.{{ $bIdx }}.frequence_use" style="width: 100%; box-sizing: border-box; background: #ffffff;">
+                                            <option value="" disabled {{ empty($bItem['frequence_use']) ? 'selected' : '' }}>Select Frequency...</option>
+                                            @foreach($frequenciesList as $freq)
+                                                <option value="{{ $freq->freq_type }}" {{ ($bItem['frequence_use'] ?? '') === $freq->freq_type ? 'selected' : '' }}>
+                                                    {{ $freq->freq_type }}
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Utility Values</label>
+                                    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                        @foreach($utilityValuesList as $uv)
+                                            @php
+                                                $isItemChecked = in_array($uv->id, $bItem['utility_values'] ?? []);
+                                            @endphp
+                                            <label class="ia-chip {{ $isItemChecked ? 'ia-chip-active' : 'ia-chip-default' }}" style="padding: 4px 10px; font-size: 11px;">
+                                                <input type="checkbox" wire:model.live="batchItems.{{ $bIdx }}.utility_values" value="{{ $uv->id }}">
+                                                <span>{{ mb_strtoupper($uv->utility_name) }}</span>
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            </div>
+                        @endforeach
+
+                        <button type="button" wire:click="addBatchItem" style="border: 2px dashed #818cf8; background: #f5f3ff; color: #4338ca; border-radius: 12px; padding: 14px; font-weight: 800; font-size: 13px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                            <span>+ ADD ANOTHER RECORD ROW</span>
                         </button>
-                    @endif
-                </div>
-            </div>
+                    </div>
+                @else
+                    <!-- Description -->
+                    <div class="ia-form-row" wire:key="ia-row-desc" style="align-items: flex-start;">
+                        <span class="ia-label" style="margin-top: 10px;">Description</span>
+                        <textarea class="ia-input" wire:model="description" rows="3" placeholder="ENTER RECORD DESCRIPTION OR SPECIFIC DETAILS..." style="font-family: inherit;"></textarea>
+                    </div>
 
-            <!-- Description -->
-            <div class="ia-form-row" style="align-items: flex-start;">
-                <span class="ia-label" style="margin-top: 10px;">Description</span>
-                <textarea class="ia-input" wire:model="description" rows="3" placeholder="ENTER RECORD DESCRIPTION OR SPECIFIC DETAILS..." style="font-family: inherit;"></textarea>
-            </div>
+                    <!-- Selected Date -->
+                    <div class="ia-form-row" wire:key="ia-row-date">
+                        <span class="ia-label">Selected Date</span>
+                        <div style="flex: 1; display: flex; align-items: center; gap: 10px;">
+                            <input type="date" class="ia-input" wire:model.live="date_covered" style="max-width: 240px;">
+                            @if(!empty($date_covered))
+                                <button type="button" wire:click="$set('date_covered', '')" class="ia-btn ia-btn-secondary" style="padding: 6px 14px; font-size: 12px;">Clear Date</button>
+                            @endif
+                        </div>
+                    </div>
 
-            <!-- Selected Date -->
-            <div class="ia-form-row">
-                <span class="ia-label">Selected Date</span>
-                <div style="flex: 1; display: flex; align-items: center; gap: 10px;">
-                    <input type="date" class="ia-input" wire:model.live="date_covered" style="max-width: 240px;">
-                    @if(!empty($date_covered))
-                        <button type="button" wire:click="$set('date_covered', '')" class="ia-btn ia-btn-secondary" style="padding: 6px 14px; font-size: 12px;">Clear Date</button>
-                    @endif
-                </div>
-            </div>
+                    <!-- Volume Amount & Unit -->
+                    <div class="ia-form-row" wire:key="ia-row-volume">
+                        <span class="ia-label">Volume Amount & Unit</span>
+                        <input type="text" class="ia-input" wire:model="volume" placeholder="E.G. 1 BOX 20 PAPERS, 2 BUNDLES..." style="flex: 1;">
+                    </div>
 
-            <!-- Volume Amount & Unit -->
-            <div class="ia-form-row">
-                <span class="ia-label">Volume Amount & Unit</span>
-                <input type="text" class="ia-input" wire:model="volume" placeholder="E.G. 1 BOX 20 PAPERS, 2 BUNDLES..." style="flex: 1;">
-            </div>
+                    <!-- Records Medium -->
+                    <div class="ia-form-row" wire:key="ia-row-medium">
+                        <span class="ia-label">Records Medium</span>
+                        <select class="ia-input" wire:model.live="records_medium">
+                            <option value="" disabled {{ empty($records_medium) ? 'selected' : '' }}>Select Medium...</option>
+                            @foreach($mediaList as $med)
+                                <option value="{{ $med->id }}" {{ (string)$records_medium === (string)$med->id ? 'selected' : '' }}>
+                                    {{ $med->medium_name }} ({{ $med->description }})
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
 
-            <!-- Records Medium -->
-            <div class="ia-form-row">
-                <span class="ia-label">Records Medium</span>
-                <select class="ia-input" wire:model.live="records_medium">
-                    <option value="" disabled>Select Medium...</option>
-                    @foreach($mediaList as $med)
-                        <option value="{{ $med->id }}">{{ $med->medium_name }} ({{ $med->description }})</option>
-                    @endforeach
-                </select>
-            </div>
+                    <!-- Restriction -->
+                    <div class="ia-form-row" wire:key="ia-row-restriction">
+                        <span class="ia-label">Restriction / Access</span>
+                        <select class="ia-input" wire:model.live="restriction">
+                            <option value="" disabled {{ empty($restriction) ? 'selected' : '' }}>Select Restriction Type...</option>
+                            @foreach($restrictionsList as $rest)
+                                <option value="{{ $rest->restriction_value }}" {{ $restriction === $rest->restriction_value ? 'selected' : '' }}>
+                                    {{ $rest->restriction_value }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
 
-            <!-- Restriction -->
-            <div class="ia-form-row">
-                <span class="ia-label">Restriction / Access</span>
-                <select class="ia-input" wire:model.live="restriction">
-                    <option value="" disabled>Select Restriction Type...</option>
-                    @foreach($restrictionsList as $rest)
-                        <option value="{{ $rest->restriction_value }}">{{ $rest->restriction_value }}</option>
-                    @endforeach
-                </select>
-            </div>
+                    <!-- Records Location -->
+                    <div class="ia-form-row" wire:key="ia-row-location">
+                        <span class="ia-label">Records Location</span>
+                        <input type="text" class="ia-input" wire:model="records_location" placeholder="E.G. BUILDING A, CABINET 3, SHELF 2">
+                    </div>
 
-            <!-- Records Location -->
-            <div class="ia-form-row">
-                <span class="ia-label">Records Location</span>
-                <input type="text" class="ia-input" wire:model="records_location" placeholder="E.G. BUILDING A, CABINET 3, SHELF 2">
-            </div>
-
-            <!-- Frequency of Use -->
-            <div class="ia-form-row">
-                <span class="ia-label">Frequency of Use</span>
-                <select class="ia-input" wire:model.live="frequence_use">
-                    <option value="" disabled>Select Frequency...</option>
-                    @foreach($frequenciesList as $freq)
-                        <option value="{{ $freq->freq_type }}">{{ $freq->freq_type }}</option>
-                    @endforeach
-                </select>
-            </div>
+                    <!-- Frequency of Use -->
+                    <div class="ia-form-row" wire:key="ia-row-frequency">
+                        <span class="ia-label">Frequency of Use</span>
+                        <select class="ia-input" wire:model.live="frequence_use">
+                            <option value="" disabled {{ empty($frequence_use) ? 'selected' : '' }}>Select Frequency...</option>
+                            @foreach($frequenciesList as $freq)
+                                <option value="{{ $freq->freq_type }}" {{ $frequence_use === $freq->freq_type ? 'selected' : '' }}>
+                                    {{ $freq->freq_type }}
+                                </option>
+                            @endforeach
+                        </select>
+                    </div>
+                @endif
 
             <!-- Duplicate -->
-            <div class="ia-form-row" style="align-items: flex-start;">
+            <div class="ia-form-row" wire:key="ia-row-duplicate" style="align-items: flex-start;">
                 <span class="ia-label" style="margin-top: 10px;">Duplicate</span>
                 <div style="flex: 1; position: relative;" wire:click.outside="$set('showDuplicateDropdown', false)">
                     @if(count($duplicate_offices) > 0)
@@ -1091,7 +1425,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                         <div wire:click="addDuplicateOffice('{{ $off->office_code }}')"
                                              class="ia-autocomplete-item"
                                              style="padding: 8px 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f1f5f9;">
-                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                             <div style="display: flex; align-items: center; gap: 8px;">
                                                 <span style="font-size: 10.5px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px;">
                                                     {{ $off->office_code }}
                                                 </span>
@@ -1117,7 +1451,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             </div>
 
             <!-- Time Value -->
-            <div class="ia-form-row">
+            <div class="ia-form-row" wire:key="ia-row-time">
                 <span class="ia-label">Time Value</span>
                 <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
                     <select class="ia-input ia-input-disabled" disabled style="cursor: not-allowed; font-weight: 700;">
@@ -1132,26 +1466,28 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             </div>
 
             <!-- Utility Value (Multi-Choice Pills) -->
-            <div class="ia-form-row" style="align-items: flex-start;">
-                <span class="ia-label" style="margin-top: 8px;">Utility Value</span>
-                <div style="flex: 1; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
-                    @foreach($utilityValuesList as $uv)
-                        @php
-                            $isChecked = in_array($uv->id, $utility_values);
-                            $chipClass = $isChecked ? 'ia-chip-active' : 'ia-chip-default';
-                        @endphp
-                        <label class="ia-chip {{ $chipClass }}">
-                            <input type="checkbox"
-                                   wire:model.live="utility_values"
-                                   value="{{ $uv->id }}">
-                            <span>{{ mb_strtoupper($uv->utility_name) }}</span>
-                        </label>
-                    @endforeach
+            @if(!$isBatchMode)
+                <div class="ia-form-row" wire:key="ia-row-utility" style="align-items: flex-start;">
+                    <span class="ia-label" style="margin-top: 8px;">Utility Value</span>
+                    <div style="flex: 1; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+                        @foreach($utilityValuesList as $uv)
+                            @php
+                                $isChecked = in_array($uv->id, $utility_values);
+                                $chipClass = $isChecked ? 'ia-chip-active' : 'ia-chip-default';
+                            @endphp
+                            <label class="ia-chip {{ $chipClass }}">
+                                <input type="checkbox"
+                                       wire:model.live="utility_values"
+                                       value="{{ $uv->id }}">
+                                <span>{{ mb_strtoupper($uv->utility_name) }}</span>
+                            </label>
+                        @endforeach
+                    </div>
                 </div>
-            </div>
+            @endif
 
             <!-- Permanent Record Toggle -->
-            <div class="ia-form-row">
+            <div class="ia-form-row" wire:key="ia-row-permanent">
                 <span class="ia-label">
                     Permanent Record
                     @if($hasPredefinedRetention)
@@ -1168,29 +1504,29 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             </div>
 
             <!-- Active Period -->
-            <div class="ia-form-row {{ ($is_permanent || $hasPredefinedRetention) ? 'ia-row-disabled' : '' }}">
+            <div class="ia-form-row {{ ($is_permanent || $hasPredefinedRetention) ? 'ia-row-disabled' : '' }}" wire:key="ia-row-active-period">
                 <span class="ia-label">
                     Active Period
                     @if($hasPredefinedRetention)
                         <span style="font-size: 11px; color: #64748b; font-weight: 500;">(Predefined — Read Only)</span>
                     @endif
                 </span>
-                <input type="text" class="ia-input" wire:model.live.debounce.200ms="active_period" placeholder="E.G. 6 MONTHS, 1 YEAR" {{ ($is_permanent || $hasPredefinedRetention) ? 'disabled' : '' }}>
+                <input type="text" class="ia-input" wire:model.live.debounce.500ms="active_period" placeholder="E.G. 6 MONTHS, 1 YEAR" {{ ($is_permanent || $hasPredefinedRetention) ? 'disabled' : '' }}>
             </div>
 
             <!-- Storage Period -->
-            <div class="ia-form-row {{ ($is_permanent || $hasPredefinedRetention) ? 'ia-row-disabled' : '' }}">
+            <div class="ia-form-row {{ ($is_permanent || $hasPredefinedRetention) ? 'ia-row-disabled' : '' }}" wire:key="ia-row-storage-period">
                 <span class="ia-label">
                     Storage Period
                     @if($hasPredefinedRetention)
                         <span style="font-size: 11px; color: #64748b; font-weight: 500;">(Predefined — Read Only)</span>
                     @endif
                 </span>
-                <input type="text" class="ia-input" wire:model.live.debounce.200ms="storage_period" placeholder="E.G. 1 YEAR, 4 YEARS" {{ ($is_permanent || $hasPredefinedRetention) ? 'disabled' : '' }}>
+                <input type="text" class="ia-input" wire:model.live.debounce.500ms="storage_period" placeholder="E.G. 1 YEAR, 4 YEARS" {{ ($is_permanent || $hasPredefinedRetention) ? 'disabled' : '' }}>
             </div>
 
             <!-- Total Period (Computed) -->
-            <div class="ia-form-row {{ ($is_permanent || $hasPredefinedRetention) ? 'ia-row-disabled' : '' }}">
+            <div class="ia-form-row {{ ($is_permanent || $hasPredefinedRetention) ? 'ia-row-disabled' : '' }}" wire:key="ia-row-total-period">
                 <span class="ia-label">Total Period</span>
                 <div class="ia-computed-box">
                     {{ $this->computeTotalPeriod($active_period, $storage_period, $is_permanent) ?: '— (Auto-calculated)' }}
@@ -1198,7 +1534,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             </div>
 
             <!-- Remarks -->
-            <div class="ia-form-row" style="align-items: flex-start;">
+            <div class="ia-form-row" wire:key="ia-row-remarks" style="align-items: flex-start;">
                 <span class="ia-label" style="margin-top: 10px;">
                     Remarks
                     @if($hasPredefinedRemarks)
@@ -1225,13 +1561,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             @endif
 
             <button type="button" wire:click="resetFormFields" class="ia-btn ia-btn-secondary">CLEAR FORM</button>
-            <button type="button" wire:click="saveDraft" class="ia-btn ia-btn-secondary">SAVE DRAFT</button>
+            <button type="button" wire:click="saveDraft" class="ia-btn ia-btn-secondary">
+                {{ $isBatchMode && count($batchItems) > 1 ? 'SAVE DRAFT (' . count($batchItems) . ' RECORDS)' : 'SAVE DRAFT' }}
+            </button>
             <button type="button" wire:click="createRecord" class="ia-btn ia-btn-primary ia-btn-lg">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-                CREATE RECORD
+                {{ $isBatchMode && count($batchItems) > 1 ? 'CREATE ' . count($batchItems) . ' RECORDS' : 'CREATE RECORD' }}
             </button>
         </div>
     </div>
+    </div> <!-- /.ia-form-card-wrapper -->
 
     <!-- ═══════ Series Selection Modal ═══════ -->
     @if($showSeriesModal)

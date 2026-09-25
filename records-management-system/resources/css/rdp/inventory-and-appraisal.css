@@ -960,3 +960,128 @@ textarea.ia-input {
     border-color: rgba(16, 185, 129, 0.3) !important;
     color: #34d399 !important;
 }
+
+/* ---------- Batch Mode & Side (+) Action Rail ---------- */
+.ia-form-card-wrapper {
+    position: relative;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.ia-side-action-rail {
+    position: absolute;
+    left: -58px;
+    top: 24px;
+    z-index: 50;
+}
+
+@media (max-width: 1330px) {
+    .ia-side-action-rail {
+        left: -48px;
+    }
+}
+
+@media (max-width: 1240px) {
+    .ia-side-action-rail {
+        left: auto;
+        right: 18px;
+        top: -24px;
+    }
+}
+
+.ia-side-add-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2.5px solid #6366f1;
+    color: #4f46e5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.22);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    padding: 0;
+}
+
+.ia-side-add-btn:hover {
+    background: #f5f3ff;
+    border-color: #4338ca;
+    color: #3730a3;
+    transform: scale(1.1);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35);
+}
+
+.ia-side-add-btn:active {
+    transform: scale(0.95);
+}
+
+.ia-side-tooltip {
+    position: absolute;
+    left: calc(100% + 10px);
+    top: 50%;
+    transform: translateY(-50%);
+    background: #1e293b;
+    color: #ffffff;
+    padding: 5px 11px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 700;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.15s ease-in-out;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    z-index: 100;
+}
+
+.ia-side-tooltip::before {
+    content: '';
+    position: absolute;
+    right: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 5px;
+    border-style: solid;
+    border-color: transparent #1e293b transparent transparent;
+}
+
+.ia-side-add-btn:hover .ia-side-tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(-50%) translateX(2px);
+}
+
+.ia-batch-item-card {
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 20px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ia-batch-item-card:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="dark"] .ia-side-add-btn {
+    background: #1e293b;
+    border-color: #818cf8;
+    color: #a5b4fc;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="dark"] .ia-side-add-btn:hover {
+    background: #312e81;
+    border-color: #a5b4fc;
+    color: #ffffff;
+}
+
+[data-theme="dark"] .ia-batch-item-card {
+    background: #0f172a;
+    border-color: #334155;
+}

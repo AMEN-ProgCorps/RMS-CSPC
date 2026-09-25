@@ -2,6 +2,7 @@
 
 namespace App\Helpers;
 
+use App\Services\DocumentStorageService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -305,6 +306,10 @@ class RandomCheckHelper
         } catch (\Throwable $e) {
             return ['ok' => false, 'message' => 'Could not save random check: ' . $e->getMessage()];
         }
+
+        $unit = DocumentStorageService::sourceClusterOfficeForOfficeId((int) $officeId);
+        DocumentStorageService::ensureRandomCheckInventoryFolders($unit['cluster'], $unit['office_name']);
+        DocumentStorageService::ensureRandomCheckResultYear(now()->format('Y'));
 
         RegisterPersistHelper::logAdminChange(
             'Random check saved for office #' . $officeId

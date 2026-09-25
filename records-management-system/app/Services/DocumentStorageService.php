@@ -41,8 +41,19 @@ class DocumentStorageService
     public const DCS_SCAN_SOURCES = [
         ['table' => 'dcs_document_request_form', 'column' => 'scanned_drf', 'category' => 'drf'],
         ['table' => 'dcs_document_change_notice', 'column' => 'scanned_dcn', 'category' => 'dcn'],
+        [
+            'table' => 'dcs_office_intake_drf',
+            'column' => 'scanned_drf',
+            'category' => 'drf',
+            'request_column' => 'src.registered_request_id',
+        ],
+        [
+            'table' => 'dcs_office_intake_dcn',
+            'column' => 'scanned_dcn',
+            'category' => 'dcn',
+            'request_column' => 'src.registered_request_id',
+        ],
         ['table' => 'dcs_masterlist_registration', 'column' => 'scanned_masterlist', 'category' => 'masterlist'],
-        ['table' => 'dcs_document_retrieval', 'column' => 'scanned_retrieval', 'category' => 'retrieval'],
         ['table' => 'dcs_document_distribution', 'column' => 'scanned_distribution', 'category' => 'distribution'],
         [
             'table' => 'dcs_doc_revision',
@@ -59,6 +70,424 @@ class DocumentStorageService
             'join' => ['dcs_syllabi as sy', 'src.syllabi_id', '=', 'sy.id'],
         ],
     ];
+
+    public const DCC_ROOT = 'DCS';
+
+    /** @var array<string, string> */
+    public const DCC_DOCINFO_GROUPS = [
+        'internal_docs' => 'INTERNAL',
+        'internal_forms' => 'INTERNALFORMS',
+        'external_docs' => 'EXTERNAL',
+        'forms' => 'FORMS',
+        'logbooks' => 'LOGBOOKS',
+    ];
+
+    /** Static DCC folders created on preload / first write (no year or office nesting). */
+    public static function dccStaticFolders(): array
+    {
+        $folders = [
+            'DCS',
+            'DCS/DCC_ECOPY',
+            'DCS/DCC_ECOPY/DCC_DRF_ECOPY',
+            'DCS/DCC_ECOPY/DCC_DCN_ECOPY',
+            'DCS/DCC_ECOPY/DCC_D&R_ECOPY',
+            'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY',
+            'DCS/DCC_MASTERLIST',
+            'DCS/DCC_RANDOM_CHECKING',
+            'DCS/DCC_RANDOM_CHECKING/INVENTORY_RANDOM_CHECKING',
+            'DCS/DCC_RANDOM_CHECKING/RESULT_RANDOM_CHECKING',
+            'DCS/DCC_GENERATED_REPORTS',
+            'DCS/DCC_STAMPED_DOCUMENTS',
+        ];
+
+        foreach (self::DCC_DOCINFO_GROUPS as $prefix) {
+            $folders[] = "DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/{$prefix}_DOCINFO_ECOPY";
+            if (! in_array($prefix, ['FORMS', 'LOGBOOKS'], true)) {
+                $folders[] = "DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/{$prefix}_DOCINFO_ECOPY/LATEST_{$prefix}_DOCINFO_ECOPY";
+                $folders[] = "DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/{$prefix}_DOCINFO_ECOPY/OBSELETE_{$prefix}_DOCINFO_ECOPY";
+            }
+            $folders[] = "DCS/DCC_MASTERLIST/{$prefix}_MASTERLIST";
+        }
+
+        return $folders;
+    }
+
+    public static function isDccStoragePath(?string $path): bool
+    {
+        $path = ltrim(str_replace(['\\'], '/', (string) $path), '/');
+
+        return (bool) preg_match('#^DCS/DCC_#i', $path);
+    }
+
+    public static function dccGroupKeyFromDocTypeId(mixed $docTypeId): string
+    {
+        $id = (int) $docTypeId;
+        if ($id < 1 || ! Schema::hasTable('dcs_doc_types')) {
+            return 'internal_docs';
+        }
+
+        $type = DB::table('dcs_doc_types')->where('id', $id)->first();
+        if ($type && ! empty($type->parent_id)) {
+            $type = DB::table('dcs_doc_types')->where('id', $type->parent_id)->first() ?: $type;
+        }
+        $name = mb_strtolower(trim((string) ($type->doc_type_name ?? '')));
+
+        if (str_contains($name, 'internal form')) {
+            return 'internal_forms';
+        }
+        if ($name === 'forms' || str_starts_with($name, 'form')) {
+            return 'forms';
+        }
+        if (str_contains($name, 'logbook')) {
+            return 'logbooks';
+        }
+        if (str_contains($name, 'external')) {
+            return 'external_docs';
+        }
+
+        return 'internal_docs';
+    }
+
+    public static function normalizeDccGroupKey(?string $group): string
+    {
+        $group = strtolower(trim((string) $group));
+        $aliases = [
+            'internal' => 'internal_docs',
+            'internal_docs' => 'internal_docs',
+            'internal_forms' => 'internal_forms',
+            'internalforms' => 'internal_forms',
+            'external' => 'external_docs',
+            'external_docs' => 'external_docs',
+            'forms' => 'forms',
+            'form' => 'forms',
+            'logbooks' => 'logbooks',
+            'logbook' => 'logbooks',
+        ];
+
+        return $aliases[$group] ?? (isset(self::DCC_DOCINFO_GROUPS[$group]) ? $group : 'internal_docs');
+    }
+
+    public static function dccFolderLabel(?string $name, string $fallback): string
+    {
+        $name = trim(preg_replace('/[\/\\\\]+/', ' ', (string) $name) ?? '');
+        $name = trim(preg_replace('/\s+/u', ' ', $name) ?? '');
+
+        return $name !== '' ? $name : $fallback;
+    }
+
+    public static function dccYearFromValue(mixed $value): string
+    {
+        $raw = trim((string) $value);
+        if (preg_match('/^(\d{4})/', $raw, $matches)) {
+            $year = (int) $matches[1];
+            if ($year >= 1900 && $year <= 2100) {
+                return (string) $year;
+            }
+        }
+
+        return now()->format('Y');
+    }
+
+    /**
+     * @param  array{
+     *     group?: string,
+     *     latest?: bool,
+     *     year?: int|string,
+     *     date?: string,
+     *     cluster?: string,
+     *     office_name?: string,
+     *     kind?: string
+     * }  $context
+     */
+    public static function buildDccRelativePath(string $category, string $filename, array $context = []): string
+    {
+        $filename = ltrim(str_replace(['\\', '/'], '', $filename), '.');
+        if ($filename === '') {
+            $filename = 'scan.pdf';
+        }
+
+        if (($context['kind'] ?? '') === 'stamped') {
+            return 'DCS/DCC_STAMPED_DOCUMENTS/' . $filename;
+        }
+
+        $category = self::normalizeDcsCategory($category);
+        $year = self::dccYearFromValue($context['year'] ?? $context['date'] ?? $filename);
+
+        if (in_array($category, ['drf', 'syllabi'], true)) {
+            return "DCS/DCC_ECOPY/DCC_DRF_ECOPY/{$year}_DRF_ECOPY/{$filename}";
+        }
+        if (in_array($category, ['dcn', 'revisions'], true)) {
+            return "DCS/DCC_ECOPY/DCC_DCN_ECOPY/{$year}_DCN_ECOPY/{$filename}";
+        }
+        if (in_array($category, ['distribution', 'retrieval'], true)) {
+            return "DCS/DCC_ECOPY/DCC_D&R_ECOPY/{$year}_D&R_ECOPY/{$filename}";
+        }
+        if ($category === 'generated_reports') {
+            return "DCS/DCC_GENERATED_REPORTS/{$filename}";
+        }
+
+        $group = self::normalizeDccGroupKey((string) ($context['group'] ?? 'internal_docs'));
+        $prefix = self::DCC_DOCINFO_GROUPS[$group] ?? 'INTERNAL';
+        $latest = array_key_exists('latest', $context) ? (bool) $context['latest'] : true;
+        $leaf = ($latest ? 'LATEST' : 'OBSELETE') . "_{$prefix}_DOCINFO_ECOPY";
+
+        if (in_array($group, ['forms', 'logbooks'], true)) {
+            $cluster = self::dccFolderLabel($context['cluster'] ?? null, 'UNASSIGNED CLUSTER');
+            $office = self::dccFolderLabel($context['office_name'] ?? null, 'UNASSIGNED OFFICE');
+
+            return "DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/{$prefix}_DOCINFO_ECOPY/{$cluster}/{$office}/{$leaf}/{$filename}";
+        }
+
+        return "DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/{$prefix}_DOCINFO_ECOPY/{$leaf}/{$filename}";
+    }
+
+    /** @return array{group: string, latest: bool, cluster: string, office_name: string} */
+    public static function inferDccContextFromPath(?string $path): array
+    {
+        $defaults = [
+            'group' => 'internal_docs',
+            'latest' => true,
+            'cluster' => '',
+            'office_name' => '',
+        ];
+        $path = ltrim(str_replace(['\\'], '/', (string) $path), '/');
+        if ($path === '') {
+            return $defaults;
+        }
+
+        foreach (self::DCC_DOCINFO_GROUPS as $group => $prefix) {
+            if (! str_contains($path, "{$prefix}_DOCINFO_ECOPY")) {
+                continue;
+            }
+            $defaults['group'] = $group;
+            $defaults['latest'] = ! str_contains($path, "OBSELETE_{$prefix}_DOCINFO_ECOPY");
+            if (in_array($group, ['forms', 'logbooks'], true)
+                && preg_match('#/DCC_DOCINFO_ECOPY/' . preg_quote($prefix, '#') . '_DOCINFO_ECOPY/([^/]+)/([^/]+)/#', $path, $m)
+            ) {
+                $defaults['cluster'] = $m[1];
+                $defaults['office_name'] = $m[2];
+            }
+            break;
+        }
+
+        return $defaults;
+    }
+
+    public static function ensureDccSkeleton(): void
+    {
+        foreach (self::dccStaticFolders() as $folder) {
+            self::ensureDcsDirectory($folder);
+        }
+    }
+
+    public static function ensureDcsDirectory(string $relativeDir): void
+    {
+        $relativeDir = trim(str_replace('\\', '/', $relativeDir), '/');
+        if ($relativeDir === '' || str_contains($relativeDir, '..')) {
+            return;
+        }
+
+        try {
+            Storage::disk('local')->makeDirectory(self::localUploadsPath($relativeDir));
+        } catch (\Throwable $e) {
+            logger()->warning("Local DCC directory notice ({$relativeDir}): " . $e->getMessage());
+        }
+
+        try {
+            Storage::disk('google')->makeDirectory($relativeDir);
+        } catch (\Throwable $e) {
+            logger()->warning("Drive DCC directory notice ({$relativeDir}): " . $e->getMessage());
+        }
+    }
+
+    public static function ensureRandomCheckInventoryFolders(?string $cluster, ?string $officeName): void
+    {
+        $cluster = self::dccFolderLabel($cluster, 'UNASSIGNED CLUSTER');
+        $officeName = self::dccFolderLabel($officeName, 'UNASSIGNED OFFICE');
+        self::ensureDcsDirectory("DCS/DCC_RANDOM_CHECKING/INVENTORY_RANDOM_CHECKING/{$cluster}/{$officeName}");
+    }
+
+    public static function ensureRandomCheckResultYear(mixed $year): void
+    {
+        $year = self::dccYearFromValue($year);
+        self::ensureDcsDirectory("DCS/DCC_RANDOM_CHECKING/RESULT_RANDOM_CHECKING/{$year}_RESULT_RANDOM_CHECKING");
+    }
+
+    public static function moveDcsFile(string $from, string $to): string
+    {
+        $from = ltrim(str_replace(['\\'], '/', $from), '/');
+        $to = ltrim(str_replace(['\\'], '/', $to), '/');
+        if ($from === '' || $to === '' || $from === $to || str_contains($from, '..') || str_contains($to, '..')) {
+            return $from;
+        }
+
+        self::ensureDcsDirectory(trim(dirname($to), '.'));
+
+        $moved = false;
+        try {
+            $localFrom = self::localUploadsPath($from);
+            $localTo = self::localUploadsPath($to);
+            if (Storage::disk('local')->exists($localFrom)) {
+                Storage::disk('local')->move($localFrom, $localTo);
+                $moved = true;
+            }
+        } catch (\Throwable $e) {
+            logger()->error("Local DCS move failed {$from} → {$to}: " . $e->getMessage());
+        }
+
+        try {
+            if (self::googleExistsSafe($from)) {
+                $content = Storage::disk('google')->get($from);
+                if ($content !== null && $content !== '') {
+                    Storage::disk('google')->put($to, $content);
+                    Storage::disk('google')->delete($from);
+                    $moved = true;
+                }
+            }
+        } catch (\Throwable $e) {
+            logger()->error("Google Drive DCS move failed {$from} → {$to}: " . $e->getMessage());
+        }
+
+        return $moved ? $to : $from;
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    public static function relocateDocinfoToObsolete(?string $relativePath, array $context = []): ?string
+    {
+        if (! is_string($relativePath) || trim($relativePath) === '') {
+            return $relativePath;
+        }
+
+        $relativePath = ltrim(str_replace(['\\'], '/', $relativePath), '/');
+        if (str_contains($relativePath, 'OBSELETE_')) {
+            return $relativePath;
+        }
+
+        $inferred = self::inferDccContextFromPath($relativePath);
+        $context = array_merge($inferred, $context, ['latest' => false]);
+        $newPath = self::buildDccRelativePath('masterlist', basename($relativePath), $context);
+
+        return self::moveDcsFile($relativePath, $newPath);
+    }
+
+    /**
+     * @param  list<string>  $familyNos
+     * @param  list<int>  $requestIds
+     */
+    public static function moveObsoleteDocinfoFilesForFamily(array $familyNos, array $requestIds, int $tipId): void
+    {
+        if ($familyNos === [] || $requestIds === [] || ! Schema::hasTable('dcs_masterlist_registration')) {
+            return;
+        }
+
+        $rows = DB::table('dcs_masterlist_registration')
+            ->whereIn('doc_no', $familyNos)
+            ->whereIn('request_id', $requestIds)
+            ->where('id', '!=', $tipId)
+            ->whereNotNull('scanned_masterlist')
+            ->where('scanned_masterlist', '!=', '')
+            ->get(['id', 'scanned_masterlist', 'doc_type_id', 'request_id']);
+
+        foreach ($rows as $row) {
+            $path = ltrim(str_replace(['\\'], '/', (string) $row->scanned_masterlist), '/');
+            if ($path === '' || str_contains($path, 'OBSELETE_')) {
+                continue;
+            }
+
+            $context = self::inferDccContextFromPath($path);
+            $source = self::sourceClusterOfficeForMasterlist((int) $row->id);
+            if ($source['cluster'] !== '') {
+                $context['cluster'] = $source['cluster'];
+            }
+            if ($source['office_name'] !== '') {
+                $context['office_name'] = $source['office_name'];
+            }
+            $context['group'] = self::dccGroupKeyFromDocTypeId($row->doc_type_id);
+
+            $newPath = self::relocateDocinfoToObsolete($path, $context);
+            if (is_string($newPath) && $newPath !== '' && $newPath !== $path) {
+                DB::table('dcs_masterlist_registration')
+                    ->where('id', $row->id)
+                    ->update(['scanned_masterlist' => $newPath, 'updated_at' => now()]);
+            }
+        }
+    }
+
+    /** @return array{cluster: string, office_name: string} */
+    public static function sourceClusterOfficeForMasterlist(int $masterlistId): array
+    {
+        $empty = ['cluster' => '', 'office_name' => ''];
+        if ($masterlistId < 1 || ! Schema::hasTable('dcs_masterlist_source_offices')) {
+            return $empty;
+        }
+
+        $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $clusterTbl = Schema::hasTable('sys_cluster') ? 'sys_cluster' : (Schema::hasTable('cluster') ? 'cluster' : null);
+
+        $query = DB::table('dcs_masterlist_source_offices as so')
+            ->join($officeTbl . ' as o', 'o.id', '=', 'so.office_id')
+            ->where('so.masterlist_id', $masterlistId)
+            ->select('o.office_name', 'o.cluster');
+
+        $row = $query->orderBy('so.id')->first();
+        if (! $row) {
+            return $empty;
+        }
+
+        $clusterName = '';
+        $clusterRef = trim((string) ($row->cluster ?? ''));
+        if ($clusterTbl && $clusterRef !== '') {
+            $clusterName = (string) (DB::table($clusterTbl)
+                ->where(function ($q) use ($clusterRef) {
+                    $q->where('cluster_code', $clusterRef);
+                    if (ctype_digit($clusterRef)) {
+                        $q->orWhere('id', (int) $clusterRef);
+                    }
+                })
+                ->value('cluster_name') ?? '');
+        }
+
+        return [
+            'cluster' => $clusterName,
+            'office_name' => trim((string) ($row->office_name ?? '')),
+        ];
+    }
+
+    /** @return array{cluster: string, office_name: string} */
+    public static function sourceClusterOfficeForOfficeId(int $officeId): array
+    {
+        $empty = ['cluster' => '', 'office_name' => ''];
+        if ($officeId < 1) {
+            return $empty;
+        }
+
+        $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $clusterTbl = Schema::hasTable('sys_cluster') ? 'sys_cluster' : (Schema::hasTable('cluster') ? 'cluster' : null);
+        $row = DB::table($officeTbl)->where('id', $officeId)->first();
+        if (! $row) {
+            return $empty;
+        }
+
+        $clusterName = '';
+        $clusterRef = trim((string) ($row->cluster ?? ''));
+        if ($clusterTbl && $clusterRef !== '') {
+            $clusterName = (string) (DB::table($clusterTbl)
+                ->where(function ($q) use ($clusterRef) {
+                    $q->where('cluster_code', $clusterRef);
+                    if (ctype_digit($clusterRef)) {
+                        $q->orWhere('id', (int) $clusterRef);
+                    }
+                })
+                ->value('cluster_name') ?? '');
+        }
+
+        return [
+            'cluster' => $clusterName,
+            'office_name' => trim((string) ($row->office_name ?? '')),
+        ];
+    }
 
     /**
      * Store an uploaded file organized by Office and Subsystem (DTS or RDP).
@@ -340,6 +769,11 @@ class DocumentStorageService
 
         $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'chatify', 'backup', 'admin'];
 
+        // DCC tree: DCS/DCC_*/... has no uploader office in the path.
+        if (self::isDccStoragePath($clean)) {
+            return 'GENERAL';
+        }
+
         // Subsystem-first layout: dts/{OFFICE}/... or dcs/{OFFICE}/category/...
         if (in_array(strtolower($segments[0]), $knownSubsystems, true)) {
             return isset($segments[1]) ? strtoupper($segments[1]) : 'GENERAL';
@@ -410,6 +844,10 @@ class DocumentStorageService
 
         $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'chatify', 'backup', 'admin'];
 
+        if (self::isDccStoragePath($clean)) {
+            return $clean;
+        }
+
         // Already subsystem-first: dts/{OFFICE}/...
         if (in_array(strtolower($segments[0]), $knownSubsystems, true)) {
             $segments[0] = strtolower($segments[0]);
@@ -444,6 +882,10 @@ class DocumentStorageService
         }
 
         $knownSubsystems = ['dts', 'rdp', 'dcs', 'chat', 'chatify', 'backup', 'admin'];
+
+        if (self::isDccStoragePath($clean)) {
+            return null;
+        }
 
         // Subsystem-first -> Legacy (subsystem/office/... -> office/subsystem/...)
         if (in_array(strtolower($segments[0]), $knownSubsystems, true)) {
@@ -520,14 +962,17 @@ class DocumentStorageService
     }
 
     /**
-     * Store a DCS scanned PDF under dcs/{OFFICE}/{category}/ on Google Drive (+ local cache).
+     * Store a DCS scanned PDF under the DCC_* Drive tree (+ local cache).
+     *
+     * @param  array<string, mixed>  $dccContext
      */
     public static function storeDcsScan(
         $file,
         ?User $user = null,
         ?string $originalFilename = null,
         string $category = 'masterlist',
-        bool $useProvidedBasename = false
+        bool $useProvidedBasename = false,
+        array $dccContext = []
     ): string {
         $user = $user ?: auth()->user();
         $officeFolderName = strtoupper(Str::slug(self::resolveOfficeCode($user), '_'));
@@ -555,23 +1000,24 @@ class DocumentStorageService
                 $safeBaseName = 'scan';
             }
             $storedFileName = "{$safeBaseName}.{$extension}";
-            $relativePath = "dcs/{$officeFolderName}/{$category}/{$storedFileName}";
-            // Avoid overwrite if the exact convention name already exists.
-            if (Storage::disk('local')->exists(self::localUploadsPath($relativePath))) {
-                $storedFileName = "{$safeBaseName}_" . strtoupper(Str::random(4)) . ".{$extension}";
-                $relativePath = "dcs/{$officeFolderName}/{$category}/{$storedFileName}";
-            }
         } else {
             $safeBaseName = Str::slug(pathinfo($originalName, PATHINFO_FILENAME), '_');
             if ($safeBaseName === '') {
                 $safeBaseName = 'scan';
             }
             $storedFileName = 'DCS-' . strtoupper(Str::random(8)) . "_{$safeBaseName}.{$extension}";
-            $relativePath = "dcs/{$officeFolderName}/{$category}/{$storedFileName}";
+        }
+
+        $relativePath = self::buildDccRelativePath($category, $storedFileName, $dccContext);
+        if (Storage::disk('local')->exists(self::localUploadsPath($relativePath)) || self::googleExistsSafe($relativePath)) {
+            $storedFileName = pathinfo($storedFileName, PATHINFO_FILENAME)
+                . '_' . strtoupper(Str::random(4))
+                . '.' . $extension;
+            $relativePath = self::buildDccRelativePath($category, $storedFileName, $dccContext);
         }
 
         self::ensureDriveFolderStructure($officeFolderName, 'DCS', $fileSize);
-        self::ensureDcsCategoryFolder($officeFolderName, $category);
+        self::ensureDcsDirectory(trim(dirname($relativePath), '.'));
 
         $localPath = self::localUploadsPath($relativePath);
         Storage::disk('local')->put($localPath, $fileContent);
@@ -621,7 +1067,13 @@ class DocumentStorageService
 
         $dir = trim(str_replace('\\', '/', dirname($relativePath)), '.');
         $newName = "{$safeBase}.{$ext}";
-        $newRelative = ($dir === '' || $dir === '.') ? $newName : "{$dir}/{$newName}";
+        if (self::isDccStoragePath($relativePath)) {
+            $context = self::inferDccContextFromPath($relativePath);
+            $context['date'] = $safeBase;
+            $newRelative = self::buildDccRelativePath(self::resolveDcsCategoryFromPath($relativePath), $newName, $context);
+        } else {
+            $newRelative = ($dir === '' || $dir === '.') ? $newName : "{$dir}/{$newName}";
+        }
 
         if ($newRelative === $relativePath) {
             return $relativePath;
@@ -632,9 +1084,17 @@ class DocumentStorageService
 
         if (Storage::disk('local')->exists($localNew) || self::googleExistsSafe($newRelative)) {
             $newName = "{$safeBase}_" . strtoupper(Str::random(4)) . ".{$ext}";
-            $newRelative = ($dir === '' || $dir === '.') ? $newName : "{$dir}/{$newName}";
+            if (self::isDccStoragePath($relativePath)) {
+                $context = self::inferDccContextFromPath($relativePath);
+                $context['date'] = $safeBase;
+                $newRelative = self::buildDccRelativePath(self::resolveDcsCategoryFromPath($relativePath), $newName, $context);
+            } else {
+                $newRelative = ($dir === '' || $dir === '.') ? $newName : "{$dir}/{$newName}";
+            }
             $localNew = self::localUploadsPath($newRelative);
         }
+
+        self::ensureDcsDirectory(trim(dirname($newRelative), '.'));
 
         $moved = false;
         try {
@@ -732,7 +1192,9 @@ class DocumentStorageService
         $category = self::resolveDcsCategoryFromPath($relativePath);
 
         self::ensureDriveFolderStructure($officeFolderName, 'DCS', $fileSize);
-        self::ensureDcsCategoryFolder($officeFolderName, $category);
+        if (! self::isDccStoragePath($relativePath)) {
+            self::ensureDcsCategoryFolder($officeFolderName, $category);
+        }
         self::ensureDcsPathDirectory($relativePath);
 
         try {
@@ -1117,11 +1579,11 @@ class DocumentStorageService
         $safeBase = Str::slug($title, '_') ?: 'report';
         $extension = $format === 'csv' ? 'csv' : 'pdf';
         $storedFileName = "{$token}_{$safeBase}.{$extension}";
-        $relativePath = "dcs/{$officeFolderName}/generated_reports/{$storedFileName}";
+        $relativePath = self::buildDccRelativePath('generated_reports', $storedFileName);
         $mimeType = $format === 'csv' ? 'text/csv' : 'application/pdf';
 
         self::ensureDriveFolderStructure($officeFolderName, 'DCS', strlen($fileContent));
-        self::ensureDcsCategoryFolder($officeFolderName, 'generated_reports');
+        self::ensureDcsDirectory('DCS/DCC_GENERATED_REPORTS');
         self::storeDcsFileAtPath($relativePath, $fileContent, $user, $storedFileName, $mimeType);
 
         $filters = $meta['filters'] ?? null;
@@ -1381,8 +1843,28 @@ class DocumentStorageService
             return self::normalizeDcsCategory($segment);
         }
 
+        if (self::isDccStoragePath($path)) {
+            if (str_contains($path, 'DCC_DRF_ECOPY')) {
+                return 'drf';
+            }
+            if (str_contains($path, 'DCC_DCN_ECOPY')) {
+                return 'dcn';
+            }
+            if (str_contains($path, 'DCC_D&R_ECOPY')) {
+                return 'distribution';
+            }
+            if (str_contains($path, 'DCC_GENERATED_REPORTS')) {
+                return 'generated_reports';
+            }
+            if (str_contains($path, 'DCC_STAMPED_DOCUMENTS') || str_contains($path, 'DOCINFO_ECOPY')) {
+                return 'masterlist';
+            }
+
+            return 'masterlist';
+        }
+
         // Subsystem-first layout: dcs/{office}/{category}/...
-        if (preg_match('#^dcs/[^/]+/([^/]+)/#i', $path, $matches)) {
+        if (preg_match('#^dcs/[^/]+/([^/]+)/#i', $path, $matches) && ! str_starts_with(strtoupper($matches[1] ?? ''), 'DCC_')) {
             return self::normalizeDcsCategory($matches[1]);
         }
 
@@ -1569,6 +2051,10 @@ class DocumentStorageService
         }
 
         if (self::isLegacyPublicScanPath($path)) {
+            return true;
+        }
+
+        if (self::isDccStoragePath($path)) {
             return true;
         }
 

@@ -177,6 +177,56 @@ body {
     color: var(--set-accent, #1d4ed8);
 }
 
+.st-course-bulk {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--set-border, #e2e8f0);
+    border-radius: 10px;
+    background: var(--set-surface, #fff);
+}
+
+.st-course-bulk-count {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--set-text-muted, #64748b);
+    margin-right: 4px;
+}
+
+.st-course-bulk-select {
+    width: auto;
+    min-width: 140px;
+    max-width: 190px;
+}
+
+.st-course-bulk-btn {
+    white-space: nowrap;
+}
+
+.st-check-col {
+    width: 36px;
+    text-align: center;
+}
+
+.st-inline-select {
+    width: 100%;
+    max-width: 140px;
+    font-size: 0.78rem;
+    padding: 4px 6px;
+    border: 1px solid var(--set-border, #e2e8f0);
+    border-radius: 6px;
+    background: var(--set-surface, #fff);
+    color: var(--set-text, #0f172a);
+}
+
+.st-inline-select.is-empty {
+    color: var(--set-text-muted, #94a3b8);
+    border-style: dashed;
+}
+
 .btn-primary {
     display: flex;
     align-items: center;
@@ -288,6 +338,29 @@ body {
 
 .settings-table tbody tr:hover {
     background: var(--set-border-light);
+}
+
+.settings-table tbody tr.st-year-header td {
+    background: color-mix(in srgb, var(--set-accent, #1d4ed8) 10%, var(--set-bg, #f8fafc));
+    color: var(--set-text, #0f172a);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 10px 16px;
+    text-align: left;
+}
+
+.settings-table tbody tr.st-year-header:hover td {
+    background: color-mix(in srgb, var(--set-accent, #1d4ed8) 10%, var(--set-bg, #f8fafc));
+}
+
+.st-year-count {
+    margin-left: 10px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--set-text-subtle, #64748b);
 }
 
 .settings-table thead th:last-child,
@@ -606,6 +679,83 @@ body {
 
 .modal.modal--courses {
     width: min(780px, 96vw);
+}
+
+.modal.modal--courses-bulk {
+    width: min(1080px, 98vw);
+}
+
+.st-bulk-filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.st-bulk-apply {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin: 0 0 12px;
+}
+
+.st-bulk-apply .st-input {
+    min-width: 140px;
+    flex: 1 1 140px;
+}
+
+.st-bulk-table-wrap {
+    max-height: min(52vh, 520px);
+    overflow: auto;
+    border: 1px solid var(--set-border);
+    border-radius: 10px;
+    margin-bottom: 8px;
+}
+
+.st-bulk-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+
+.st-bulk-table th,
+.st-bulk-table td {
+    padding: 8px;
+    border-bottom: 1px solid var(--set-border-light, #e2e8f0);
+    vertical-align: top;
+    text-align: left;
+}
+
+.st-bulk-table th {
+    position: sticky;
+    top: 0;
+    background: var(--set-surface);
+    z-index: 1;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--set-text-subtle);
+}
+
+.st-bulk-table .st-input {
+    margin: 0;
+}
+
+.st-bulk-table tbody tr.st-year-header td {
+    background: color-mix(in srgb, var(--set-accent, #1d4ed8) 10%, var(--set-surface, #fff));
+    color: var(--set-text, #0f172a);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 10px 12px;
+    text-align: left;
+}
+
+@media (max-width: 720px) {
+    .st-bulk-filters {
+        grid-template-columns: 1fr;
+    }
 }
 
 .st-modal {
@@ -974,6 +1124,15 @@ body {
         column-gap: 10px;
         padding: 12px 14px;
         border-bottom: 1px solid var(--set-border-light);
+    }
+
+    .settings-table tbody tr.st-year-header {
+        display: block;
+        padding: 10px 14px;
+    }
+
+    .settings-table tbody tr.st-year-header td {
+        display: block;
     }
 
     .settings-table tbody tr:last-child {

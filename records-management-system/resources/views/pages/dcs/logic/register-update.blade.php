@@ -14,9 +14,9 @@ use Illuminate\Support\Facades\Storage;
 
 class RegisterUpdateHelper
 {
-    private static function storeDcsScanUpload($file, array &$uploadedFiles, string $category, ?string $conventionBase = null): string
+    private static function storeDcsScanUpload($file, array &$uploadedFiles, string $category, ?string $conventionBase = null, array $dccContext = []): string
     {
-        return RegisterPersistHelper::storeDcsScanUpload($file, $uploadedFiles, $category, $conventionBase);
+        return RegisterPersistHelper::storeDcsScanUpload($file, $uploadedFiles, $category, $conventionBase, $dccContext);
     }
 
     /** Build a real RedirectResponse (avoid Livewire's redirect() Redirector). */
@@ -44,6 +44,10 @@ class RegisterUpdateHelper
         $saveAsDraft = $request->boolean('save_as_draft');
 
         if ($redirect = RegisterPersistHelper::rejectInactiveOfficeIds($request)) {
+            return $redirect;
+        }
+
+        if ($redirect = RegisterPersistHelper::rejectDuplicateDrfNo($request, $id)) {
             return $redirect;
         }
 
@@ -339,7 +343,8 @@ class RegisterUpdateHelper
                         $request->file('uploadScannedCopy'),
                         $uploadedFiles,
                         'masterlist',
-                        RegisterPersistHelper::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate'))
+                        RegisterPersistHelper::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate')),
+                        RegisterPersistHelper::dccContextFromRequest($request, 'masterlist', ! $saveAsDraft)
                     );
                 } elseif ($masterlistFile) {
                     // Rename after commit — see syncMasterlistScanNameAfterCommit()
@@ -459,7 +464,8 @@ class RegisterUpdateHelper
                         $request->file('uploadScannedCopy'),
                         $uploadedFiles,
                         'masterlist',
-                        RegisterPersistHelper::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate'))
+                        RegisterPersistHelper::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate')),
+                        RegisterPersistHelper::dccContextFromRequest($request, 'masterlist', ! $saveAsDraft)
                     );
                 } elseif ($masterlistFile) {
                     // Rename after commit — see syncMasterlistScanNameAfterCommit()
@@ -538,26 +544,9 @@ class RegisterUpdateHelper
 
             if (in_array(4, $checkedChecklists, true)) {
                 $retrieval = DB::table('dcs_document_retrieval')->where('request_id', $requestId)->first();
-                $retrievalFile = $retrieval ? $retrieval->scanned_retrieval : null;
-                if ($request->hasFile('scannedRet')) {
-                    StampBackupService::invalidate($requestId, 'retrieval');
-                    if ($retrievalFile) {
-                        $filesToDelete[] = $retrievalFile;
-                    }
-                    $retrievalFile = self::storeDcsScanUpload(
-                        $request->file('scannedRet'),
-                        $uploadedFiles,
-                        'retrieval',
-                        RegisterPersistHelper::buildScanBasename(
-                            $request,
-                            'DRR',
-                            collect($request->input('retrievalOfficeDate', []))->first(fn ($date) => filled($date))
-                        )
-                    );
-                }
-                $retrievalData = array_merge([
+                $retrievalData = [
                     'updated_at' => $now,
-                ], RegisterPersistHelper::dcsScanFields('dcs_document_retrieval', 'scanned_retrieval', $retrievalFile));
+                ];
                 if ($retrieval) {
                     DB::table('dcs_document_retrieval')->where('id', $retrieval->id)->update($retrievalData);
                     $retrievalId = $retrieval->id;
@@ -1200,9 +1189,6 @@ class RegisterUpdateHelper
 
         $retrieval = DB::table('dcs_document_retrieval')->where('request_id', $id)->first();
         if ($retrieval) {
-            if ($retrieval->scanned_retrieval) {
-                $filesToDelete[] = $retrieval->scanned_retrieval;
-            }
             DB::table('dcs_retrieval_offices')->where('retrieval_id', $retrieval->id)->delete();
             DB::table('dcs_document_retrieval')->where('id', $retrieval->id)->delete();
         }

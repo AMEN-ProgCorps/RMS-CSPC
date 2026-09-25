@@ -702,6 +702,65 @@ class RegisterQueryHelper
     }
 
     /**
+     * Shared visibility for the header bell and /chat/unread-count.
+     * Excludes removed / dismissed notices so the red dot matches an empty inbox.
+     *
+     * @param  list<string>  $allowedSubsystems
+     * @return \Illuminate\Database\Query\Builder
+     */
+    public static function bellNotificationsBaseQuery(int $userId, string $officeCode, array $allowedSubsystems)
+    {
+        $notifTbl = Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifContentTbl = Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $subsystemsTbl = Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+        $notifDivTbl = Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+
+        $query = DB::table($notifTbl)
+            ->join($notifContentTbl, $notifTbl . '.contents', '=', $notifContentTbl . '.id')
+            ->join($subsystemsTbl, $notifContentTbl . '.system', '=', $subsystemsTbl . '.subsystem_id')
+            ->leftJoin($notifDivTbl, function ($join) use ($userId, $notifTbl, $notifDivTbl) {
+                $join->on($notifTbl . '.id', '=', $notifDivTbl . '.id')
+                    ->where($notifDivTbl . '.account_rec', '=', $userId);
+            })
+            ->where($notifTbl . '.office', $officeCode)
+            ->whereIn($subsystemsTbl . '.subsystem_name', $allowedSubsystems)
+            ->where(function ($q) use ($notifDivTbl) {
+                $q->whereNull($notifDivTbl . '.is_in_user_list')
+                    ->orWhere($notifDivTbl . '.is_in_user_list', 1);
+            });
+
+        if (Schema::hasColumn($notifDivTbl, 'is_dismissed')) {
+            $query->where(function ($q) use ($notifDivTbl) {
+                $q->whereNull($notifDivTbl . '.is_dismissed')
+                    ->orWhere($notifDivTbl . '.is_dismissed', false);
+            });
+        }
+
+        return $query;
+    }
+
+    /** Unread system notices that still appear in the bell (after the same filters). */
+    public static function countVisibleUnreadNotifications(int $userId, string $officeCode, array $allowedSubsystems): int
+    {
+        $notifTbl = Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifContentTbl = Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $notifDivTbl = Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+
+        $query = self::bellNotificationsBaseQuery($userId, $officeCode, $allowedSubsystems)
+            ->where(function ($q) use ($notifDivTbl) {
+                $q->whereNull($notifDivTbl . '.status')
+                    ->orWhere($notifDivTbl . '.status', 'unread');
+            })
+            ->select(
+                $notifTbl . '.id',
+                $notifContentTbl . '.redirect_url',
+                $notifContentTbl . '.content'
+            );
+
+        return self::filterBellNotifications($query->get())->count();
+    }
+
+    /**
      * When browsing DCS, the bell only lists Document Control System notices
      * (same behavior as the Livewire notification component).
      *
@@ -1203,18 +1262,16 @@ class RegisterQueryHelper
         }
 
         foreach ([
-            ['table' => 'dcs_document_request_form', 'column' => 'scanned_drf'],
-            ['table' => 'dcs_document_change_notice', 'column' => 'scanned_dcn'],
+            ['table' => 'dcs_office_intake_drf', 'column' => 'scanned_drf'],
+            ['table' => 'dcs_office_intake_dcn', 'column' => 'scanned_dcn'],
         ] as $source) {
             if (! Schema::hasTable($source['table'])
-                || ! Schema::hasColumn($source['table'], $source['column'])
-                || ! Schema::hasColumn($source['table'], 'is_office_intake')) {
+                || ! Schema::hasColumn($source['table'], $source['column'])) {
                 continue;
             }
 
             if (DB::table($source['table'])
                 ->where($source['column'], $path)
-                ->where('is_office_intake', true)
                 ->exists()) {
                 return true;
             }
@@ -5968,16 +6025,15 @@ class RegisterQueryHelper
         $semesterId = (int) $request->input('semester_id', 0);
         $schoolYearId = (int) $request->input('school_year_id', 0);
         $courseType = trim((string) $request->input('course_type', ''));
-        $yearLevel = trim((string) $request->input('year_level', ''));
         $subTypeId = $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null;
         $excludeRequestId = (int) $request->input('exclude_request_id', 0);
 
         if ($collegeId < 1 || $programId < 1 || $semesterId < 1 || $schoolYearId < 1
-            || $courseType === '' || $yearLevel === '') {
+            || $courseType === '') {
             return [
                 'taken' => false,
                 'incomplete' => true,
-                'message' => 'Select college, program, semester, course type, year level, and school year first.',
+                'message' => 'Select college, program, semester, course type, and school year first.',
             ];
         }
 
@@ -5987,7 +6043,6 @@ class RegisterQueryHelper
             $semesterId,
             $schoolYearId,
             $courseType,
-            $yearLevel,
             $subTypeId,
             $excludeRequestId > 0 ? $excludeRequestId : null
         );
@@ -6005,8 +6060,8 @@ class RegisterQueryHelper
         return [
             'taken' => true,
             'request_id' => (int) ($duplicate->request_id ?? 0),
-            'message' => "Already registered for {$courseType}, {$yearLevel}, {$sem}, S/Y {$sy}. "
-                . 'Only one registration is allowed per semester and school year for this course type and year level.',
+            'message' => "Already registered for {$courseType}, {$sem}, S/Y {$sy}. "
+                . 'Only one registration is allowed per semester and school year for this course type.',
         ];
     }
 
@@ -6821,5 +6876,23 @@ class RegisterQueryHelper
                 ->values()
                 ->all(),
         ];
+    }
+
+    public static function checkDrfNo(Request $request): array
+    {
+        $drfNo = RegisterPersistHelper::normalizeDrfNo($request->input('drf_no'));
+        $excludeRequestId = (int) $request->input('exclude_request_id', 0);
+        if ($drfNo === '') {
+            return ['exists' => false, 'message' => ''];
+        }
+
+        if (RegisterPersistHelper::drfNoTaken($drfNo, $excludeRequestId)) {
+            return [
+                'exists' => true,
+                'message' => 'DRF No. "' . $drfNo . '" is already used. Please enter a unique DRF number.',
+            ];
+        }
+
+        return ['exists' => false, 'message' => 'DRF number is available.'];
     }
 }

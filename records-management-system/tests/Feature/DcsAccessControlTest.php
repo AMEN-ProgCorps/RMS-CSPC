@@ -420,8 +420,8 @@ class DcsAccessControlTest extends TestCase
 
     public function test_rfio_user_is_redirected_from_office_dcn_index(): void
     {
-        if (! Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
-            $this->markTestSkipped('Office intake columns are not migrated.');
+        if (! Schema::hasTable('dcs_office_intake_dcn')) {
+            $this->markTestSkipped('Office intake tables are not migrated.');
         }
 
         $response = $this->actingAs(User::find($this->rfioUserId))
@@ -433,15 +433,14 @@ class DcsAccessControlTest extends TestCase
 
     public function test_rfio_user_can_view_other_office_dcn_from_notification_link(): void
     {
-        if (! Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
-            $this->markTestSkipped('Office intake columns are not migrated.');
+        if (! Schema::hasTable('dcs_office_intake_dcn')) {
+            $this->markTestSkipped('Office intake tables are not migrated.');
         }
 
-        $dcnId = DB::table('dcs_document_change_notice')->insertGetId([
+        $dcnId = DB::table('dcs_office_intake_dcn')->insertGetId([
             'dcn_no' => 'TEST-DCN-RFIO-VIEW-' . $this->limitedRoleId,
             'dcn_date' => now()->toDateString(),
             'created_by' => $this->limitedUserId,
-            'is_office_intake' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -463,24 +462,22 @@ class DcsAccessControlTest extends TestCase
 
     public function test_office_dcn_list_is_scoped_to_creator_only(): void
     {
-        if (! Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
-            $this->markTestSkipped('Office intake columns are not migrated.');
+        if (! Schema::hasTable('dcs_office_intake_dcn')) {
+            $this->markTestSkipped('Office intake tables are not migrated.');
         }
 
-        DB::table('dcs_document_change_notice')->insert([
+        DB::table('dcs_office_intake_dcn')->insert([
             'dcn_no' => 'TEST-DCN-LIMITED-' . $this->limitedRoleId,
             'dcn_date' => now()->toDateString(),
             'created_by' => $this->limitedUserId,
-            'is_office_intake' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
-        DB::table('dcs_document_change_notice')->insert([
+        DB::table('dcs_office_intake_dcn')->insert([
             'dcn_no' => 'TEST-DCN-RFIO-OWN-' . $this->limitedRoleId,
             'dcn_date' => now()->toDateString(),
             'created_by' => $this->rfioUserId,
-            'is_office_intake' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -604,20 +601,18 @@ class DcsAccessControlTest extends TestCase
         // Colleague's success notice (same office) — limited user must not see it.
         $otherDrfId = 0;
         $otherNotifId = null;
-        if (Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
-            $ownDrfId = DB::table('dcs_document_request_form')->insertGetId([
+        if (Schema::hasTable('dcs_office_intake_drf')) {
+            $ownDrfId = DB::table('dcs_office_intake_drf')->insertGetId([
                 'doc_title' => 'Own Limited DRF ' . $this->limitedRoleId,
                 'drf_date' => now()->toDateString(),
                 'created_by' => $this->limitedUserId,
-                'is_office_intake' => true,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
-            $otherDrfId = DB::table('dcs_document_request_form')->insertGetId([
+            $otherDrfId = DB::table('dcs_office_intake_drf')->insertGetId([
                 'doc_title' => 'College of Health Sciences Syllabi Other',
                 'drf_date' => now()->toDateString(),
                 'created_by' => $this->rfioUserId,
-                'is_office_intake' => true,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);

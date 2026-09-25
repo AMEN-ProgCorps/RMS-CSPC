@@ -64,37 +64,47 @@
                     <span class="tooltip">My Document Change Notices</span>
                 </a>
             </li>
-            <li class="nav-item dropdown {{ request()->routeIs('dcs.office.documents') ? 'active' : '' }}">
-                <details {{ request()->routeIs('dcs.office.documents') ? 'open' : '' }}>
-                    <summary class="dropdown-trigger">
+            @if($enableTopTabs)
+                <li class="nav-item {{ request()->routeIs('dcs.office.documents') ? 'active' : '' }}">
+                    <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}">
                         <i class="fa-solid fa-folder-open"></i>
                         <span>Documents</span>
-                        <i class="fas fa-caret-down arrow"></i>
                         <span class="tooltip">Office Documents</span>
-                    </summary>
-                    <ul class="sub-dropdown">
-                        <li>
-                            <a
-                                href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}"
-                                class="{{ request()->routeIs('dcs.office.documents') && $activeDocType === 'all' ? 'active-sub' : '' }}"
-                            >All</a>
-                        </li>
-                        @foreach($officeDocGroups as $group)
+                    </a>
+                </li>
+            @else
+                <li class="nav-item dropdown {{ request()->routeIs('dcs.office.documents') ? 'active' : '' }}">
+                    <details {{ request()->routeIs('dcs.office.documents') ? 'open' : '' }}>
+                        <summary class="dropdown-trigger">
+                            <i class="fa-solid fa-folder-open"></i>
+                            <span>Documents</span>
+                            <i class="fas fa-caret-down arrow"></i>
+                            <span class="tooltip">Office Documents</span>
+                        </summary>
+                        <ul class="sub-dropdown">
                             <li>
                                 <a
-                                    href="{{ route('dcs.office.documents', ['type' => $group['key']], absolute: false) }}"
-                                    class="{{ request()->routeIs('dcs.office.documents') && $activeDocType === $group['key'] ? 'active-sub' : '' }}"
-                                >
-                                    {{ $group['label'] }}
-                                    @if($group['count'] < 1)
-                                        <span class="ofi-nav-empty-hint">0</span>
-                                    @endif
-                                </a>
+                                    href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}"
+                                    class="{{ request()->routeIs('dcs.office.documents') && $activeDocType === 'all' ? 'active-sub' : '' }}"
+                                >All</a>
                             </li>
-                        @endforeach
-                    </ul>
-                </details>
-            </li>
+                            @foreach($officeDocGroups as $group)
+                                <li>
+                                    <a
+                                        href="{{ route('dcs.office.documents', ['type' => $group['key']], absolute: false) }}"
+                                        class="{{ request()->routeIs('dcs.office.documents') && $activeDocType === $group['key'] ? 'active-sub' : '' }}"
+                                    >
+                                        {{ $group['label'] }}
+                                        @if($group['count'] < 1)
+                                            <span class="ofi-nav-empty-hint">0</span>
+                                        @endif
+                                    </a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    </details>
+                </li>
+            @endif
         @endif
 
         @if($isFullDcs)

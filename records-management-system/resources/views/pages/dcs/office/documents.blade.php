@@ -87,10 +87,10 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
             <div>
                 <h1>Office Documents</h1>
                 <p>
-                    Documents appear here when RFIO distributes a controlled document to
+                    Only the latest revision of each document distributed to
                     <strong>{{ $officeName }}</strong>
-                    (Internal, Internal Forms, External, Forms, and Logbooks).
-                    Mark a row received after the physical copy arrives so Document Control can see it.
+                    is listed (Internal, Internal Forms, External, Forms, and Logbooks).
+                    Obsolete revisions are hidden. Mark a row received after the physical copy arrives.
                 </p>
             </div>
         </div>
@@ -102,6 +102,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
             <div class="ofi-alert err">{{ session('error') }}</div>
         @endif
 
+        @unless(auth()->user()?->enableTopTabs() ?? true)
         <nav class="ofi-doc-nav" aria-label="Document types">
             <button
                 type="button"
@@ -127,6 +128,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                 </button>
             @endforeach
         </nav>
+        @endunless
 
         <div class="ofi-card" style="position:relative;" wire:loading.class="is-loading">
             <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType,markReceived">

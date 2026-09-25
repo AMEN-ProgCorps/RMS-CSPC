@@ -215,10 +215,11 @@
             padding: 0;
         }
 
-        /* Row 1: 0.19+0.18+0.13+0.20+0.18 = 0.88in */
-        .r1 { height: 0.88in; }
+        /* Row 1: top + Document No + 0.24in gap + indented Title */
+        .r1 { height: auto; min-height: 0.99in; }
         .r1-inner {
-            height: 0.88in;
+            min-height: 0.99in;
+            height: auto;
             display: flex;
             flex-direction: column;
         }
@@ -231,31 +232,32 @@
             padding-left: 0.13in;
             padding-right: 0.1in;
             font-size: 11pt;
-            line-height: 1;
+            line-height: 1.0;
         }
-        .r1-b3 { height: 0.13in; }
+        .r1-gap {
+            height: 0.24in;
+            min-height: 0.24in;
+            max-height: 0.24in;
+        }
         /*
-         * Title fills to the right table edge; wraps at last completed word;
-         * continuation hangs under the value (not under "Title:").
+         * Title is indented 1.38in (official form).
+         * Wraps at the last completed word; continuation hangs under the value.
          */
         .r1-title-area {
             flex: 1 1 auto;
             min-height: 0.38in;
             display: flex;
             flex-direction: column;
-            justify-content: flex-end;
-            padding: 0 0.08in 0.06in 1.38in;
+            justify-content: flex-start;
+            padding: 0 0.08in 0.08in 1.38in;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 10pt;
-            line-height: 1.25;
+            line-height: 1.0;
         }
         .r1-title-hang {
             width: 100%;
-            /* width of "Title:" + gap at 10pt */
             padding-left: 0.48in;
             text-indent: -0.48in;
-            max-height: 0.32in;
-            overflow: hidden;
             word-break: normal;
             overflow-wrap: break-word;
             white-space: normal;
@@ -268,6 +270,7 @@
         .r1-title-hang .r1-title-val {
             font-weight: 400;
             font-size: 10pt;
+            line-height: 1.0;
             text-decoration: underline;
             text-underline-offset: 2px;
             text-decoration-thickness: 1px;
@@ -321,12 +324,23 @@
             line-height: 1;
         }
         .r2-label { padding-left: 0.09in; font-weight: 400; }
-        .r2-from { padding-left: 0.74in; }
-        .r2-to { padding-left: 0.82in; }
+        /* Labels keep 0.74 / 0.82; user text starts 0.8in after From's left (1.54in). */
+        .r2-from,
+        .r2-to { padding-left: 0; }
+        .r2-from > span,
+        .r2-to > span {
+            flex: 0 0 1.54in;
+            width: 1.54in;
+            max-width: 1.54in;
+            box-sizing: border-box;
+            white-space: nowrap;
+        }
+        .r2-from > span { padding-left: 0.74in; }
+        .r2-to > span { padding-left: 0.82in; }
         .r2-write {
             flex: 1;
             height: 0.18in;
-            margin: 0 0.12in 0 0.08in;
+            margin: 0 0.12in 0 0;
             border-bottom: none;
             overflow: hidden;
             font-size: 11pt;
@@ -334,6 +348,7 @@
             padding: 0 2px;
         }
         .r2-write.is-first { border-bottom: none; }
+        .r2-write.is-cont { margin-left: 1.54in; }
 
         /* Row 3: 0.18 × 5 = 0.90in — justification hangs after the label */
         .r3 { height: 0.90in; }
@@ -371,6 +386,7 @@
         .r3-just-body {
             flex: 1 1 auto;
             min-width: 0;
+            padding-left: 0.27in;
             font-weight: 400;
             white-space: pre-wrap;
             overflow-wrap: anywhere;
@@ -458,19 +474,19 @@
             font-weight: 400;
         }
 
-        /* Row 5 body: full-height columns; filled rows centered as a group (1 row → middle) */
-        .r5-body { height: 1.62in; padding: 0; vertical-align: top; }
+        /* Row 5 body: leave ~0.18in above the footer rule (official blank) */
+        .r5-body { height: 1.44in; padding: 0; vertical-align: top; }
         .approvals-body {
             width: 100%;
-            height: 1.62in;
+            height: 1.44in;
             border-collapse: collapse;
             table-layout: fixed;
         }
         .approvals-body > tbody > tr > td {
             border: none;
             border-right: 1px solid #000;
-            height: 1.62in;
-            max-height: 1.62in;
+            height: 1.44in;
+            max-height: 1.44in;
             vertical-align: middle;
             text-align: center;
             padding: 0 4px;
@@ -661,7 +677,7 @@
                             <div class="rule"></div>
                         </div>
                     </div>
-                    <div class="r1-band r1-b3"></div>
+                    <div class="r1-band r1-gap"></div>
                     <div class="r1-title-area">
                         <div class="r1-title-hang">
                             <span class="lbl-10">Title:</span><span class="r1-title-val"> {{ $docTitle }}</span>
@@ -685,7 +701,7 @@
                     </div>
                     @for($i = 1; $i <= 5; $i++)
                         <div class="r2-band">
-                            <div class="r2-write" style="margin-left:0.74in;">{{ $fromLines[$i] ?? '' }}</div>
+                            <div class="r2-write is-cont">{{ $fromLines[$i] ?? '' }}</div>
                         </div>
                     @endfor
                     <div class="r2-band"></div>
@@ -695,7 +711,7 @@
                     </div>
                     @for($i = 1; $i <= 6; $i++)
                         <div class="r2-band">
-                            <div class="r2-write" style="margin-left:0.82in;">{{ $toLines[$i] ?? '' }}</div>
+                            <div class="r2-write is-cont">{{ $toLines[$i] ?? '' }}</div>
                         </div>
                     @endfor
                     <div class="r2-band"></div>

@@ -76,12 +76,22 @@ fi
 # Artisan/migrate run as root and may create storage files the FPM pool cannot write.
 chmod -R 777 storage bootstrap/cache public/chatify/uploads public/chatify/storage
 
-# Compiled Blade views: artisan (root) can leave root-owned files in VIEW_COMPILED_PATH;
-# PHP-FPM runs as appuser and then fails on touch() with "Operation not permitted".
+# Compiled Blade views: artisan (root) can leave root-owned files in VIEW_COMPILED_PATH.
+# chmod 777 is not enough — PHP-FPM (appuser) can overwrite them but utime() still
+# fails with "touch(): Utime failed: Operation not permitted".
+# Wipe compiled files so the first request recreates them owned by appuser.
+if [ -d "$VIEW_COMPILED_PATH" ]; then
+    find "$VIEW_COMPILED_PATH" -type f -delete 2>/dev/null || true
+fi
 mkdir -p "$VIEW_COMPILED_PATH"
-chmod -R 777 "$VIEW_COMPILED_PATH" || true
+chmod 777 "$VIEW_COMPILED_PATH" || true
+if [ -d storage/framework/views ]; then
+    find storage/framework/views -type f -name '*.php' -delete 2>/dev/null || true
+    chmod -R 777 storage/framework/views || true
+fi
 if id appuser >/dev/null 2>&1; then
     chown -R appuser:appuser "$VIEW_COMPILED_PATH" 2>/dev/null || true
+    chown -R appuser:appuser storage/framework/views 2>/dev/null || true
 fi
 
 # PaddleOCR model cache must be writable by PHP-FPM (appuser).

@@ -519,8 +519,7 @@
                 }
             }
 
-            const when = data.saved_at || new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-            setAutosaveStatus('Draft auto-saved at ' + when + ' — resume from Drafts after interruption', 'ok');
+            setAutosaveStatus('', '');
             return true;
         } catch (_) {
             if (!options.keepalive) {

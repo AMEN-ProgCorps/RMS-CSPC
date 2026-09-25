@@ -27,7 +27,7 @@ class OfficeDcnDocNoDrfTest extends TestCase
             $this->markTestSkipped('Database unavailable: '.$e->getMessage());
         }
 
-        if (! Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')
+        if (! Schema::hasTable('dcs_office_intake_dcn')
             || ! Schema::hasTable('dcs_masterlist_registration')) {
             $this->markTestSkipped('Office intake / masterlist tables are not migrated.');
         }
@@ -275,7 +275,7 @@ class OfficeDcnDocNoDrfTest extends TestCase
         $response->assertRedirect(route('dcs.office.dcn.create'));
         $response->assertSessionHasErrors('documentNo');
         $this->assertStringContainsString(
-            'not registered',
+            'is not a registered',
             strtolower((string) session('errors')->first('documentNo'))
         );
     }
@@ -296,10 +296,9 @@ class OfficeDcnDocNoDrfTest extends TestCase
             'Expected redirect to DCN show'
         );
 
-        $this->assertDatabaseHas('dcs_document_change_notice', [
+        $this->assertDatabaseHas('dcs_office_intake_dcn', [
             'document_no' => $doc['doc_no'],
             'document_title' => $doc['doc_title'],
-            'is_office_intake' => true,
             'created_by' => $this->limitedUserId,
         ]);
 
@@ -354,7 +353,7 @@ class OfficeDcnDocNoDrfTest extends TestCase
 
     public function test_cannot_create_second_drf_from_same_dcn(): void
     {
-        if (! Schema::hasColumn('dcs_document_request_form', 'source_office_dcn_id')) {
+        if (! Schema::hasColumn('dcs_office_intake_drf', 'source_office_dcn_id')) {
             $this->markTestSkipped('source_office_dcn_id is not migrated.');
         }
 
@@ -375,7 +374,6 @@ class OfficeDcnDocNoDrfTest extends TestCase
 
         $now = now();
         $drfPayload = [
-            'request_id' => null,
             'drf_no' => null,
             'drf_date' => $now->toDateString(),
             'doc_title' => $doc['doc_title'],
@@ -384,10 +382,7 @@ class OfficeDcnDocNoDrfTest extends TestCase
             'updated_at' => $now,
             'source_office_dcn_id' => $dcnId,
         ];
-        if (Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
-            $drfPayload['is_office_intake'] = true;
-        }
-        $drfId = (int) DB::table('dcs_document_request_form')->insertGetId($drfPayload);
+        $drfId = (int) DB::table('dcs_office_intake_drf')->insertGetId($drfPayload);
 
         $this->assertTrue(\App\Helpers\OfficeIntakeHelper::officeDcnHasLinkedDrf($dcnId));
         $this->assertSame($drfId, \App\Helpers\OfficeIntakeHelper::findLinkedDrfIdForOfficeDcn($dcnId));
@@ -396,5 +391,114 @@ class OfficeDcnDocNoDrfTest extends TestCase
             ->get(route('dcs.office.drf.create', ['from_dcn' => $dcnId]));
         $again->assertRedirect();
         $this->assertStringContainsString('/dcs/office/drf/' . $drfId, $again->headers->get('Location') ?? '');
+    }
+
+    /** @return array<string, mixed> */
+    private function validDrfPayload(string $title): array
+    {
+        return [
+            'drfDate' => now()->toDateString(),
+            'drfTitle' => $title,
+            'originatorName' => 'DRF Originator',
+            'docTypeKind' => 'internal',
+            'descriptionReason' => 'Office intake DRF for schema split test.',
+            'distributeToOffice' => [$this->vpaaOfficeId],
+            'preparedByName' => 'Prepared Name',
+            'preparedByDesignation' => 'Prepared Designation',
+            'reviewedByName' => 'Reviewed Name',
+            'reviewedByDesignation' => 'Reviewed Designation',
+            'approvedByName' => 'Approved Name',
+            'approvedByDesignation' => 'Approved Designation',
+            'confirmDataCorrect' => '1',
+        ];
+    }
+
+    public function test_store_drf_and_print_use_office_intake_table(): void
+    {
+        if (! Schema::hasTable('dcs_office_intake_drf')) {
+            $this->markTestSkipped('Office intake DRF table is not migrated.');
+        }
+
+        $title = 'Office DRF Print ' . uniqid();
+        $response = $this->actingAs(User::find($this->limitedUserId))
+            ->post(route('dcs.office.drf.store'), $this->validDrfPayload($title));
+
+        $response->assertRedirect();
+        $location = $response->headers->get('Location') ?? '';
+        $this->assertMatchesRegularExpression('#/dcs/office/drf/(\d+)#', $location);
+        preg_match('#/dcs/office/drf/(\d+)#', $location, $m);
+        $drfId = (int) ($m[1] ?? 0);
+        $this->assertGreaterThan(0, $drfId);
+
+        $this->assertDatabaseHas('dcs_office_intake_drf', [
+            'id' => $drfId,
+            'doc_title' => $title,
+            'created_by' => $this->limitedUserId,
+        ]);
+        $this->assertFalse(
+            Schema::hasColumn('dcs_document_request_form', 'is_office_intake'),
+            'Register DRF must not keep is_office_intake after the split.'
+        );
+        $this->assertFalse(
+            DB::table('dcs_document_request_form')->where('id', $drfId)->where('doc_title', $title)->exists()
+        );
+
+        $print = $this->actingAs(User::find($this->limitedUserId))
+            ->get(route('dcs.office.drf.print', $drfId));
+        $print->assertOk();
+        $print->assertSee($title, false);
+    }
+
+    public function test_register_from_intake_links_office_row_only(): void
+    {
+        if (! Schema::hasTable('dcs_office_intake_dcn')
+            || ! Schema::hasColumn('dcs_office_intake_dcn', 'registered_request_id')) {
+            $this->markTestSkipped('Office intake registered_request_id is not migrated.');
+        }
+
+        $doc = $this->insertRevisableRegistration(uniqid());
+        $create = $this->actingAs(User::find($this->limitedUserId))
+            ->post(route('dcs.office.dcn.store'), $this->validDcnPayload(
+                $doc['doc_no'],
+                $doc['doc_title']
+            ));
+        $create->assertRedirect();
+        $location = $create->headers->get('Location') ?? '';
+        $this->assertMatchesRegularExpression('#/dcs/office/dcn/(\d+)#', $location);
+        preg_match('#/dcs/office/dcn/(\d+)#', $location, $m);
+        $intakeId = (int) ($m[1] ?? 0);
+        $this->assertGreaterThan(0, $intakeId);
+
+        $registered = $this->insertRevisableRegistration(uniqid());
+        $now = now();
+        DB::table('dcs_document_change_notice')->insert([
+            'request_id' => $registered['request_id'],
+            'dcn_no' => 'REG-DCN-' . $registered['request_id'],
+            'dcn_date' => $now->toDateString(),
+            'brief_purpose' => 'Register copy after RFIO intake',
+            'created_by' => $this->limitedUserId,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        \App\Helpers\OfficeIntakeHelper::markIntakeRegistered(
+            'dcn',
+            $intakeId,
+            $registered['request_id'],
+            $registered['doc_no'],
+            $registered['doc_title'],
+            false
+        );
+
+        $this->assertDatabaseHas('dcs_office_intake_dcn', [
+            'id' => $intakeId,
+            'registered_request_id' => $registered['request_id'],
+        ]);
+        $this->assertDatabaseHas('dcs_document_change_notice', [
+            'request_id' => $registered['request_id'],
+            'dcn_no' => 'REG-DCN-' . $registered['request_id'],
+        ]);
+        $this->assertFalse(Schema::hasColumn('dcs_document_change_notice', 'is_office_intake'));
+        $this->assertFalse(Schema::hasColumn('dcs_document_change_notice', 'registered_request_id'));
     }
 }

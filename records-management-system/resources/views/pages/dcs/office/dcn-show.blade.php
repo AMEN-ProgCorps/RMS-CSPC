@@ -90,7 +90,7 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
             </div>
         @endif
 
-        <div class="ofi-lock-banner">
+        <div class="ofi-lock-banner {{ ($isRegistered ?? false) ? 'is-registered' : (($canEdit ?? false) ? 'is-edit' : '') }}">
             @if($isRegistered ?? false)
                 <i class="fa-solid fa-circle-check"></i>
                 <span>This document has been registered / controlled by RFIO.</span>

@@ -510,19 +510,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         try {
             \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/dts/{$officeName}");
             \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/rdp/{$officeName}");
-            foreach (\App\Services\DocumentStorageService::DCS_CATEGORIES as $dcsCategory) {
-                \Illuminate\Support\Facades\Storage::disk('local')->makeDirectory("uploads/dcs/{$officeName}/{$dcsCategory}");
+            if ($index === 0) {
+                \App\Services\DocumentStorageService::ensureDccSkeleton();
             }
         } catch (\Throwable $e) {}
 
         // 2. Google Drive directories
-        $this->preloadLogs[] = "- Attempting to verify / create [dts/{$officeName}], [rdp/{$officeName}], and structured [dcs/{$officeName}/*] on Google Drive...";
+        $this->preloadLogs[] = "- Attempting to verify / create [dts/{$officeName}], [rdp/{$officeName}], and DCS/DCC_* skeleton on Google Drive...";
         try {
             \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("dts/{$officeName}");
             \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("rdp/{$officeName}");
-            \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("dcs/{$officeName}");
-            foreach (\App\Services\DocumentStorageService::DCS_CATEGORIES as $dcsCategory) {
-                \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("dcs/{$officeName}/{$dcsCategory}");
+            if ($index === 0) {
+                \App\Services\DocumentStorageService::ensureDccSkeleton();
             }
         } catch (\Throwable $e) {
             logger()->warning("Preload notice for {$officeName}: " . $e->getMessage());

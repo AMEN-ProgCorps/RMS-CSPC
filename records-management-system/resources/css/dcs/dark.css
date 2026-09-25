@@ -209,6 +209,35 @@
     color: #e2e8f0 !important;
 }
 
+[data-theme="dark"] .settings-table tbody tr.st-year-header td,
+[data-theme="dark"] .settings-table tbody tr.st-year-header:hover td {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .st-year-count {
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .st-bulk-table tbody tr.st-year-header td {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+
+[data-theme="dark"] .st-bulk-table-wrap {
+    border-color: #1e293b;
+}
+
+[data-theme="dark"] .st-bulk-table th {
+    background: #131c2e;
+    color: #94a3b8;
+}
+
+[data-theme="dark"] .st-bulk-table td {
+    border-color: #1e293b;
+    color: #e2e8f0;
+}
+
 /* Toast */
 [data-theme="dark"] .dcs-toast-close:hover,
 [data-theme="dark"] .reg-toast-close:hover {
@@ -681,10 +710,15 @@
 [data-theme="dark"] select.reg-input,
 [data-theme="dark"] input.reg-input,
 [data-theme="dark"] .reg-select,
-[data-theme="dark"] .reg-card {
+[data-theme="dark"] .reg-card,
+[data-theme="dark"] .reg-syllabi-years {
     background: #131c2e !important;
     color: #f8fafc !important;
     border-color: #1e293b !important;
+}
+
+[data-theme="dark"] .reg-syllabi-years.is-empty {
+    color: #94a3b8 !important;
 }
 
 [data-theme="dark"] .reg-radio {
@@ -1682,14 +1716,22 @@
     background: #1a2438 !important;
 }
 
+[data-theme="dark"] #syllabiWizardTable tbody tr.syllabi-year-header td {
+    background: #1e293b !important;
+    color: #e2e8f0 !important;
+    border-color: #334155 !important;
+}
+
 [data-theme="dark"] #syllabiWizardTable[data-active-step="2"] td.col-pinned:first-child,
 [data-theme="dark"] #syllabiWizardTable[data-active-step="2"] td.col-code,
+[data-theme="dark"] #syllabiWizardTable[data-active-step="2"] td.col-year,
 [data-theme="dark"] #syllabiWizardTable[data-active-step="2"] td.col-shared {
     background: #0f172a !important;
 }
 
 [data-theme="dark"] #syllabiWizardTable[data-active-step="2"] .syllabi-merged-course,
 [data-theme="dark"] #syllabiWizardTable[data-active-step="2"] .syllabi-merged-code,
+[data-theme="dark"] #syllabiWizardTable[data-active-step="2"] .syllabi-merged-year,
 [data-theme="dark"] #syllabiWizardTable[data-active-step="2"] .syllabi-faculty-input {
     background: transparent !important;
     color: #94a3b8 !important;

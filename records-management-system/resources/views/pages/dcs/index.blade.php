@@ -172,7 +172,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="ofi-dash-panel-head">
                 <div>
                     <h2>Document types</h2>
-                    <p>Open a type to view registered documents for your office.</p>
+                    <p>Open a type to view the latest documents distributed to your office.</p>
                 </div>
                 <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}" class="ofi-dash-link">View all</a>
             </div>

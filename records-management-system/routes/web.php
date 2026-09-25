@@ -299,10 +299,6 @@ Route::middleware(['auth'])
         try {
             $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
             $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
-            $notifTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
-            $notifContentTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
-            $subsystemsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
-            $notifDivTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
 
             $office = \Illuminate\Support\Facades\DB::table($accDetailsTbl)
                 ->join($officeTbl, "{$accDetailsTbl}.office_id", '=', "{$officeTbl}.id")
@@ -334,31 +330,11 @@ Route::middleware(['auth'])
 
                 $allowedSubsystems = \App\Helpers\RegisterQueryHelper::scopeBellSubsystemsForRequest($allowedSubsystems);
 
-                $systemUnreadQuery = \Illuminate\Support\Facades\DB::table($notifTbl)
-                    ->join($notifContentTbl, "{$notifTbl}.contents", '=', "{$notifContentTbl}.id")
-                    ->join($subsystemsTbl, "{$notifContentTbl}.system", '=', "{$subsystemsTbl}.subsystem_id")
-                    ->leftJoin($notifDivTbl, function ($join) use ($userId, $notifTbl, $notifDivTbl) {
-                        $join->on("{$notifTbl}.id", '=', "{$notifDivTbl}.id")
-                             ->where("{$notifDivTbl}.account_rec", '=', $userId);
-                    })
-                    ->where("{$notifTbl}.office", $office->office_code)
-                    ->whereIn("{$subsystemsTbl}.subsystem_name", $allowedSubsystems)
-                    ->where(function ($query) use ($notifDivTbl) {
-                        $query->whereNull("{$notifDivTbl}.is_in_user_list")
-                              ->orWhere("{$notifDivTbl}.is_in_user_list", 1);
-                    })
-                    ->where(function ($query) use ($notifDivTbl) {
-                        $query->whereNull("{$notifDivTbl}.status")
-                              ->orWhere("{$notifDivTbl}.status", 'unread');
-                    });
-
-                // Same visibility rules as the notification dropdown (limited DCS + registered intake).
-                $systemUnread = \App\Helpers\RegisterQueryHelper::filterBellNotifications(
-                    $systemUnreadQuery->select(
-                        "{$notifContentTbl}.redirect_url",
-                        "{$notifContentTbl}.content"
-                    )->get()
-                )->count();
+                $systemUnread = \App\Helpers\RegisterQueryHelper::countVisibleUnreadNotifications(
+                    (int) $userId,
+                    (string) $office->office_code,
+                    $allowedSubsystems
+                );
             }
         } catch (\Throwable $e) {
             $systemUnread = 0;
@@ -751,6 +727,8 @@ Route::middleware(['auth'])
                 Route::middleware(['dcs.module:register'])->group(function () {
                     Route::get('/register/check-docno', fn (Request $request) => response()->json(RegisterQueryHelper::checkDocNo($request)))
                         ->name('register.checkDocNo');
+                    Route::get('/register/check-drfno', fn (Request $request) => response()->json(RegisterQueryHelper::checkDrfNo($request)))
+                        ->name('register.checkDrfNo');
                     Route::get('/register/check-revno', fn (Request $request) => response()->json(RegisterQueryHelper::checkRevNo($request)))
                         ->name('register.checkRevNo');
                     Route::get('/register/check-syllabi-context', fn (Request $request) => response()->json(RegisterQueryHelper::checkSyllabiContext($request)))

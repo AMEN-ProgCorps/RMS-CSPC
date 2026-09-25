@@ -99,7 +99,82 @@ class DocumentStorageArchitectureTest extends TestCase
     {
         $this->assertTrue(DocumentStorageService::isDcsStoragePath('dcs/ICTO/masterlist/DCS-01.pdf'));
         $this->assertTrue(DocumentStorageService::isDcsStoragePath('ICTO/DCS/masterlist/DCS-01.pdf'));
+        $this->assertTrue(DocumentStorageService::isDcsStoragePath('DCS/DCC_ECOPY/DCC_DRF_ECOPY/2026_DRF_ECOPY/scan.pdf'));
         $this->assertFalse(DocumentStorageService::isDcsStoragePath('dts/ICTO/DOC-01.pdf'));
         $this->assertFalse(DocumentStorageService::isDcsStoragePath('rdp/REGISTRAR/DOC-02.pdf'));
+    }
+
+    public function test_dcc_year_folder_paths(): void
+    {
+        $this->assertSame(
+            'DCS/DCC_ECOPY/DCC_DRF_ECOPY/2026_DRF_ECOPY/2026-12-28_DRF_INT_Policy_Rev0.pdf',
+            DocumentStorageService::buildDccRelativePath('drf', '2026-12-28_DRF_INT_Policy_Rev0.pdf', ['date' => '2026-12-28'])
+        );
+        $this->assertSame(
+            'DCS/DCC_ECOPY/DCC_DCN_ECOPY/2018_DCN_ECOPY/2018-03-15_DCN_INT_Policy_Rev1.pdf',
+            DocumentStorageService::buildDccRelativePath('dcn', '2018-03-15_DCN_INT_Policy_Rev1.pdf', ['date' => '2018-03-15'])
+        );
+        $this->assertSame(
+            'DCS/DCC_ECOPY/DCC_D&R_ECOPY/2026_D&R_ECOPY/2026-12-28_D&R_Policy_Rev1.pdf',
+            DocumentStorageService::buildDccRelativePath('distribution', '2026-12-28_D&R_Policy_Rev1.pdf', ['date' => '2026-12-28'])
+        );
+    }
+
+    public function test_dcc_docinfo_latest_and_obsolete_paths(): void
+    {
+        $this->assertSame(
+            'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/INTERNAL_DOCINFO_ECOPY/LATEST_INTERNAL_DOCINFO_ECOPY/doc.pdf',
+            DocumentStorageService::buildDccRelativePath('masterlist', 'doc.pdf', [
+                'group' => 'internal_docs',
+                'latest' => true,
+            ])
+        );
+        $this->assertSame(
+            'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/INTERNAL_DOCINFO_ECOPY/OBSELETE_INTERNAL_DOCINFO_ECOPY/doc.pdf',
+            DocumentStorageService::buildDccRelativePath('masterlist', 'doc.pdf', [
+                'group' => 'internal_docs',
+                'latest' => false,
+            ])
+        );
+        $this->assertSame(
+            'DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/FORMS_DOCINFO_ECOPY/ADMINISTRATIVE CLUSTER/ACCOUNTING UNIT/LATEST_FORMS_DOCINFO_ECOPY/form.pdf',
+            DocumentStorageService::buildDccRelativePath('masterlist', 'form.pdf', [
+                'group' => 'forms',
+                'latest' => true,
+                'cluster' => 'ADMINISTRATIVE CLUSTER',
+                'office_name' => 'ACCOUNTING UNIT',
+            ])
+        );
+    }
+
+    public function test_dcc_generated_and_stamped_paths(): void
+    {
+        $this->assertSame(
+            'DCS/DCC_GENERATED_REPORTS/report.pdf',
+            DocumentStorageService::buildDccRelativePath('generated_reports', 'report.pdf')
+        );
+        $this->assertSame(
+            'DCS/DCC_STAMPED_DOCUMENTS/doc.pdf',
+            DocumentStorageService::buildDccRelativePath('masterlist', 'doc.pdf', ['kind' => 'stamped'])
+        );
+    }
+
+    public function test_dcc_paths_keep_canonical_case(): void
+    {
+        $path = 'DCS/DCC_ECOPY/DCC_DRF_ECOPY/2026_DRF_ECOPY/scan.pdf';
+        $this->assertTrue(DocumentStorageService::isDccStoragePath($path));
+        $this->assertSame('DCS', DocumentStorageService::resolveSubsystemFromPath($path));
+        $this->assertSame('GENERAL', DocumentStorageService::resolveOfficeFromPath($path));
+        $this->assertSame('drf', DocumentStorageService::resolveDcsCategoryFromPath($path));
+        $this->assertSame($path, DocumentStorageService::toSubsystemFirstPath($path));
+        $this->assertNull(DocumentStorageService::invertPathArchitecture($path));
+    }
+
+    public function test_resolve_dcs_category_from_dcc_paths(): void
+    {
+        $this->assertEquals('dcn', DocumentStorageService::resolveDcsCategoryFromPath('DCS/DCC_ECOPY/DCC_DCN_ECOPY/2018_DCN_ECOPY/a.pdf'));
+        $this->assertEquals('distribution', DocumentStorageService::resolveDcsCategoryFromPath('DCS/DCC_ECOPY/DCC_D&R_ECOPY/2026_D&R_ECOPY/a.pdf'));
+        $this->assertEquals('masterlist', DocumentStorageService::resolveDcsCategoryFromPath('DCS/DCC_ECOPY/DCC_DOCINFO_ECOPY/INTERNAL_DOCINFO_ECOPY/LATEST_INTERNAL_DOCINFO_ECOPY/a.pdf'));
+        $this->assertEquals('generated_reports', DocumentStorageService::resolveDcsCategoryFromPath('DCS/DCC_GENERATED_REPORTS/a.pdf'));
     }
 }

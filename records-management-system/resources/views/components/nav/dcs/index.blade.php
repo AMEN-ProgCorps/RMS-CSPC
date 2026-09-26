@@ -2,6 +2,7 @@
     $enableTopTabs = auth()->user()?->enableTopTabs() ?? true;
     $isLimitedDcs = \App\Helpers\RegisterQueryHelper::isLimitedDcsUser();
     $isFullDcs = \App\Helpers\RegisterQueryHelper::isFullDcsUser();
+    $canOfficeIntake = \App\Helpers\RegisterQueryHelper::canAccessOfficeIntake();
     $canRegister = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('register');
     $canReports = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('reports');
     $canReview = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('review');
@@ -45,7 +46,7 @@
             </a>
         </li>
 
-        @if($isLimitedDcs)
+        @if($isLimitedDcs && $canOfficeIntake)
             @php
                 $officeDocGroups = \App\Helpers\OfficeIntakeHelper::officeDocumentGroups(null, false);
                 $activeDocType = request()->query('type', 'all');
@@ -258,10 +259,10 @@
         @endif
     </ul>
 
-    <div class="dcs-account-footer" style="padding: 12px 18px; margin-top: auto; border-top: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 2px;">
+    <div class="dcs-account-footer">
         @if(\App\Services\ServerManagementService::isMultiServerActive())
-            <span style="font-size: 12px; font-weight: 700; color: #38bdf8;">{{ \App\Services\ServerManagementService::getServerLabel() }}</span>
+            <span class="dcs-account-server">{{ \App\Services\ServerManagementService::getServerLabel() }}</span>
         @endif
-        <span style="font-size: 11px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ auth()->user()?->details?->email }}</span>
+        <span class="dcs-account-email">{{ auth()->user()?->details?->email }}</span>
     </div>
 </nav>

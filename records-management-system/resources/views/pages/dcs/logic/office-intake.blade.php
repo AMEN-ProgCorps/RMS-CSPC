@@ -38,7 +38,7 @@ class OfficeIntakeHelper
 
     public static function canAccessIntake(): bool
     {
-        return RegisterQueryHelper::isFullDcsUser() || RegisterQueryHelper::isLimitedDcsUser();
+        return RegisterQueryHelper::canAccessOfficeIntake();
     }
 
     public static function assertCanAccessIntake(): void

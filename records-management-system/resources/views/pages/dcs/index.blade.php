@@ -10,7 +10,7 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     public function with(): array
     {
-        if (RegisterQueryHelper::isLimitedDcsUser()) {
+        if (RegisterQueryHelper::isLimitedDcsUser() && RegisterQueryHelper::canAccessOfficeIntake()) {
             $drfRows = OfficeIntakeHelper::listMyDrf();
             $dcnRows = OfficeIntakeHelper::listMyDcn();
             $docGroups = OfficeIntakeHelper::officeDocumentGroups(null, false);

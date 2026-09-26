@@ -404,13 +404,22 @@ class RegisterQueryHelper
         ];
     }
 
-    public static function hasAnyDcsModuleFlag(?object $perms = null): bool
+    /** Admin DCS pages — every module except Recycle Bin. */
+    public static function dcsAdminModuleColumns(): array
+    {
+        $columns = self::dcsModuleColumns();
+        unset($columns['recycle_bin']);
+
+        return $columns;
+    }
+
+    public static function hasDcsAdminAccess(?object $perms = null): bool
     {
         $perms ??= auth()->user()?->permissions;
         if (!$perms) {
             return false;
         }
-        foreach (self::dcsModuleColumns() as $column) {
+        foreach (self::dcsAdminModuleColumns() as $column) {
             if (!empty($perms->{$column})) {
                 return true;
             }
@@ -419,13 +428,37 @@ class RegisterQueryHelper
         return false;
     }
 
+    public static function hasAnyDcsModuleFlag(?object $perms = null): bool
+    {
+        return self::hasDcsAdminAccess($perms);
+    }
+
+    public static function canAccessOfficeIntake(): bool
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms) {
+            return false;
+        }
+        if (!empty($perms->is_sadm) || self::isFullDcsUser()) {
+            return true;
+        }
+        if (empty($perms->can_access_dcs)) {
+            return false;
+        }
+        $details = Schema::hasTable('sys_condition_details') ? 'sys_condition_details' : 'condition_details';
+        if (Schema::hasColumn($details, 'dcs_can_office_intake')) {
+            return !empty($perms->dcs_can_office_intake);
+        }
+
+        return self::isLimitedDcsUser();
+    }
+
     /**
      * Full / admin DCS operator (not office intake-only):
      * - super admin, or
-     * - Access DCS + assigned to RFIO/RFOIU office
+     * - Access DCS + RFIO/RFOIU office + DCS Admin clearance
      *
-     * Put Document Controllers under RFOIU and turn on the module clearances they need.
-     * Other offices with Access DCS only get office DRF/DCN intake.
+     * Office Intake is a separate switch. Recycle Bin is Head Admin only.
      */
     public static function isFullDcsUser(): bool
     {
@@ -439,11 +472,18 @@ class RegisterQueryHelper
         if (empty($perms->can_access_dcs)) {
             return false;
         }
+        $details = Schema::hasTable('sys_condition_details') ? 'sys_condition_details' : 'condition_details';
+        if (Schema::hasColumn($details, 'dcs_can_office_intake') && ! empty($perms->dcs_can_office_intake)) {
+            return false;
+        }
+        if (! self::isRfioOffice()) {
+            return false;
+        }
 
-        return self::isRfioOffice();
+        return self::hasDcsAdminAccess($perms);
     }
 
-    /** Non-full DCS user with DCS access: DRF/DCN intake only. */
+    /** Non-full DCS user with DCS access: office pages only when Office Intake is on. */
     public static function isLimitedDcsUser(): bool
     {
         $perms = auth()->user()?->permissions;
@@ -461,9 +501,8 @@ class RegisterQueryHelper
     }
 
     /**
-     * Per-module clearance. Requires full DCS (RFIO/RFOIU + Access DCS, or SADM) plus the module flag.
-     * Super Admin bypasses module flags — except Recycle Bin (HEAD Admin of DCS),
-     * which requires an explicit dcs_can_recycle_bin grant and is not Super Admin identity.
+     * DCS Admin (RFOIU + Access DCS + DCS Admin, or Super Admin) gets every admin page.
+     * Recycle Bin stays Head Admin only (dcs_can_recycle_bin) and is not Super Admin identity.
      */
     public static function canAccessDcsModule(string $module): bool
     {
@@ -473,12 +512,10 @@ class RegisterQueryHelper
         }
 
         $columns = self::dcsModuleColumns();
-        $column = $columns[$module] ?? null;
-        if ($column === null) {
+        if (! isset($columns[$module])) {
             return false;
         }
 
-        // HEAD Admin of DCS = Recycle Bin clearance only (not Super Admin / not system-wide admin).
         if ($module === 'recycle_bin') {
             if (empty($perms->dcs_can_recycle_bin)) {
                 return false;
@@ -490,11 +527,8 @@ class RegisterQueryHelper
         if (! empty($perms->is_sadm)) {
             return true;
         }
-        if (! self::isFullDcsUser()) {
-            return false;
-        }
 
-        return ! empty($perms->{$column});
+        return self::isFullDcsUser();
     }
 
     /**

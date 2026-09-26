@@ -13,7 +13,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $payload = RegisterQueryHelper::editPayload((int) $id);
         if (!empty($payload['blocked'])) {
             session()->flash('error', $payload['error']);
-            $this->redirectRoute('dcs.register.update');
+            $this->redirectRoute(! empty($payload['docRequest']->is_draft ?? false) ? 'dcs.register.drafts' : 'dcs.register.update');
             return;
         }
         $this->requestId = (int) $id;
@@ -36,6 +36,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     $allowsRetrieval = $reviseNo > 0;
     $canEditDocument = (bool) ($can_edit ?? false);
     $readOnly = (bool) ($read_only ?? ! $canEditDocument);
+    $isDraftDoc = ! empty($docRequest->is_draft);
+    $listRoute = $isDraftDoc ? 'dcs.register.drafts' : 'dcs.register.update';
+    $listLabel = $isDraftDoc
+        ? 'Back to Drafts'
+        : ($readOnly ? 'Back to Update Documents' : 'Back to List');
 @endphp
 <script>
 window.APP_CONFIG = {
@@ -94,8 +99,8 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     </p>
                 @endif
             </div>
-            <a href="{{ route('dcs.register.update') }}" class="reg-btn reg-btn-cancel">
-                <i class="fa-solid fa-arrow-left"></i> Back to List
+            <a href="{{ route($listRoute) }}" class="reg-btn reg-btn-cancel">
+                <i class="fa-solid fa-arrow-left"></i> {{ $listLabel }}
             </a>
         </div>
 
@@ -942,8 +947,8 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
             <!-- ═══ FORM ACTIONS ═══ -->
             <div class="reg-actions" id="formActions" style="display: flex;">
                 <div class="reg-actions-left">
-                    <a href="{{ route('dcs.register.update') }}" class="reg-btn reg-btn-cancel">
-                        <i class="fa-solid fa-arrow-left"></i> {{ $readOnly ? 'Back to Update Documents' : 'Cancel' }}
+                    <a href="{{ route($listRoute) }}" class="reg-btn reg-btn-cancel">
+                        <i class="fa-solid fa-arrow-left"></i> {{ $isDraftDoc ? 'Back to Drafts' : ($readOnly ? 'Back to Update Documents' : 'Cancel') }}
                     </a>
                 </div>
                 <div class="reg-actions-right">
@@ -1011,6 +1016,10 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                 </button>
             </div>
             <div class="reg-modal-body reg-modal-body--preview">
+                <div class="reg-preview-loading" id="filePreviewModalLoading" hidden>
+                    <div class="dcs-loading-spinner" aria-hidden="true"></div>
+                    <p>Loading document…</p>
+                </div>
                 <iframe id="filePreviewModalFrame" title="Uploaded file preview"></iframe>
             </div>
         </div>
@@ -2729,16 +2738,28 @@ function resolveSelectedDocTypeName() {
     return (parent?.doc_type_name || '').trim();
 }
 
+const SYLLABI_FORM_DOC_NO = 'CSPC-F-COL-13';
+
 function docNoPrefixForSelection() {
+    const subTypeId = document.getElementById('subType')?.value || CURRENT_SUB_TYPE_ID;
+    if (subTypeId && typeof isSyllabiLikeSubType === 'function' && isSyllabiLikeSubType(subTypeId)) {
+        return SYLLABI_FORM_DOC_NO;
+    }
     const name = resolveSelectedDocTypeName().toLowerCase();
     if (!name) return null;
+    if (name.includes('syllab') || name.includes('tos') || name.includes('rubric')) {
+        return SYLLABI_FORM_DOC_NO;
+    }
     return DOC_NO_PREFIX_BY_NAME[name] || null;
 }
 
 function updateDocNoPrefixHint(prefix) {
     const hint = document.getElementById('docNoPrefixHint');
     if (!hint) return;
-    if (prefix) {
+    if (prefix === SYLLABI_FORM_DOC_NO) {
+        hint.textContent = 'Filled from the Syllabi/TOS form number — you can still edit it.';
+        hint.style.display = 'block';
+    } else if (prefix) {
         hint.textContent = 'Prefix filled — add dept/section code and control # (e.g. ' + prefix + 'YYY-XX).';
         hint.style.display = 'block';
     } else {
@@ -2791,6 +2812,10 @@ function maybeAutofillDocNo() {
     input.value = prefix;
     input.dataset.autodocno = prefix;
     updateDocNoPrefixHint(prefix);
+    if (prefix === SYLLABI_FORM_DOC_NO) {
+        input.dispatchEvent(new Event('input'));
+        return;
+    }
     clearDocNoAvailabilityHint();
 }
 
@@ -4112,7 +4137,11 @@ function openFilePreviewModal(url, title) {
     const overlay = document.getElementById('filePreviewModal');
     const frame = document.getElementById('filePreviewModalFrame');
     const titleEl = document.getElementById('filePreviewModalTitle');
+    const loading = document.getElementById('filePreviewModalLoading');
     if (!overlay || !frame) return;
+    if (loading) loading.hidden = false;
+    frame.onload = () => { if (loading) loading.hidden = true; };
+    frame.onerror = () => { if (loading) loading.hidden = true; };
     frame.src = url;
     if (titleEl) titleEl.textContent = title || 'File preview';
     overlay.classList.add('is-open');
@@ -4123,10 +4152,16 @@ function openFilePreviewModal(url, title) {
 function closeFilePreviewModal() {
     const overlay = document.getElementById('filePreviewModal');
     const frame = document.getElementById('filePreviewModalFrame');
+    const loading = document.getElementById('filePreviewModalLoading');
     if (!overlay) return;
     overlay.classList.remove('is-open');
     overlay.setAttribute('aria-hidden', 'true');
-    if (frame) frame.src = 'about:blank';
+    if (loading) loading.hidden = true;
+    if (frame) {
+        frame.onload = null;
+        frame.onerror = null;
+        frame.src = 'about:blank';
+    }
     document.body.style.overflow = '';
 }
 
@@ -4569,6 +4604,27 @@ function syllabiYearLevelOptionsHtml(selected) {
     ).join('');
 }
 
+function lockSyllabiYearField(sel) {
+    if (!sel) return;
+    const val = String(sel.value || '').trim();
+    if (!val) return;
+    if (sel.tagName === 'INPUT') {
+        const lock = sel.parentElement?.querySelector('.syllabi-year-lock');
+        if (lock) lock.textContent = val;
+        return;
+    }
+    const hidden = document.createElement('input');
+    hidden.type = 'hidden';
+    hidden.name = sel.name || 'syllabiYearLevel[]';
+    hidden.className = 'syllabi-merged-year';
+    hidden.value = val;
+    const text = document.createElement('span');
+    text.className = 'syllabi-year-lock';
+    text.textContent = val;
+    text.title = 'Year level comes from Settings → Course Names';
+    sel.replaceWith(hidden, text);
+}
+
 function catalogCoursesForContext() {
     const programId = document.getElementById('syllabiProgram')?.value;
     const semesterId = document.getElementById('syllabiSemester')?.value;
@@ -4782,7 +4838,10 @@ async function autoPopulateSyllabiCourses() {
                 codeInput.value = c.course_code || '';
             }
             const yearSel = newRow.querySelector('.syllabi-merged-year');
-            if (yearSel) yearSel.value = c.year_level || '';
+            if (yearSel) {
+                yearSel.value = c.year_level || '';
+                lockSyllabiYearField(yearSel);
+            }
             // Faculty is selected by the user for the chosen college — not prefilled from courses.
             cascadeDrfToNewRow(newRow);
             syncSyllabiMergedFields(groupId);
@@ -4910,6 +4969,15 @@ function formatSchoolYearText(text) {
     return /^s\/y/i.test(text) ? text : 'S/Y ' + text;
 }
 
+function syllabiCourseTypeTitlePhrase(raw) {
+    const v = String(raw || '').trim();
+    if (v === 'PE Courses') return 'P.E Courses';
+    if (v === 'GE Courses') return 'GE Courses';
+    if (v === 'NSTP') return 'NSTP';
+    if (v === 'Major') return 'Major Courses';
+    return v;
+}
+
 function updateSyllabiTitle() {
     const titleInput = document.getElementById('syllabiDocTitle');
     if (!titleInput || syllabiTitleManuallyEdited) return;
@@ -4917,9 +4985,10 @@ function updateSyllabiTitle() {
     const program  = getSelectTextWithCode('syllabiProgram');
     const semester = getSelectText('syllabiSemester');
     const schoolYr = getSelectText('syllabiSchoolYear');
+    const courseType = syllabiCourseTypeTitlePhrase(document.getElementById('syllabiCourseType')?.value);
     const label    = window.__syllabiModeLabel || 'Syllabi';
-    if (!college || !program || !semester || !schoolYr) return;
-    titleInput.value = college + ' ' + label + ' for ' + program + ', ' + semester + ', ' + formatSchoolYearText(schoolYr);
+    if (!college || !program || !semester || !schoolYr || !courseType) return;
+    titleInput.value = college + ' ' + label + ' in ' + courseType + ' for ' + program + ', ' + semester + ', ' + formatSchoolYearText(schoolYr);
     syncSyllabiToMasterlistFields();
 }
 
@@ -5382,7 +5451,10 @@ async function seedExistingSyllabiGroups() {
         const codeInput = firstRow.querySelector('.syllabi-merged-code');
         if (codeInput) codeInput.value = group.course_code || '';
         const yearSel = firstRow.querySelector('.syllabi-merged-year');
-        if (yearSel) yearSel.value = group.year_level || '';
+        if (yearSel) {
+            yearSel.value = group.year_level || '';
+            lockSyllabiYearField(yearSel);
+        }
         if (availCheckbox) { availCheckbox.checked = !!group.availability; if (availHidden) availHidden.value = group.availability ? 'available' : 'not available'; }
         if (copiesInput) copiesInput.value = rowCount;
         if (pagesInput) pagesInput.value = group.no_pages ?? group.rows?.[0]?.no_pages ?? '';

@@ -40,13 +40,70 @@ class EnforceDcsIntakeAllowlist
             return $this->toResponse($next($request));
         }
 
+        $canOfficeIntake = RegisterQueryHelper::canAccessOfficeIntake();
+        $isOfficeRoute = $this->isOfficeIntakeRequest($request);
+
+        if ($isOfficeRoute && ! $canOfficeIntake) {
+            return $this->denyLimited($request, 'Office Intake is not enabled for this role.', 'dcs');
+        }
+
         if ($this->isAllowed($request)) {
             return $this->toResponse($next($request));
         }
 
+        $fallback = $canOfficeIntake ? 'dcs.office.drf.index' : 'dcs';
+        $message = $canOfficeIntake
+            ? 'Your role can only use office DRF/DCN intake.'
+            : 'Your role does not have Office Intake or DCS Admin.';
+
+        return $this->denyLimited($request, $message, $fallback);
+    }
+
+    private function denyLimited(Request $request, string $message, string $route): Response
+    {
         RegisterPersistHelper::logDcsBlockedAccess($request, 'intake allowlist');
 
-        abort(403, 'Office intake users may only access DRF/DCN forms, office documents, and originator document lookup.');
+        if ($this->expectsJsonResponse($request) || $this->isEmbeddedDocumentRequest($request)) {
+            abort(403, $message);
+        }
+
+        return redirect()->route($route)->with('error', $message);
+    }
+
+    private function isOfficeIntakeRequest(Request $request): bool
+    {
+        $routeName = $request->route()?->getName();
+        if ($routeName !== null && str_starts_with($routeName, 'dcs.office.')) {
+            return true;
+        }
+
+        $path = ltrim($request->path(), '/');
+
+        return str_starts_with($path, 'dcs/office/')
+            || str_starts_with($path, 'dcs/api/office/');
+    }
+
+    private function expectsJsonResponse(Request $request): bool
+    {
+        if ($request->expectsJson() || $request->ajax() || $request->wantsJson()) {
+            return true;
+        }
+
+        if ($request->header('X-Requested-With') === 'XMLHttpRequest') {
+            return true;
+        }
+
+        $path = ltrim($request->path(), '/');
+
+        return str_starts_with($path, 'dcs/api/');
+    }
+
+    private function isEmbeddedDocumentRequest(Request $request): bool
+    {
+        $path = ltrim($request->path(), '/');
+
+        return $request->is('dcs/view-document', 'dcs/view-document/*')
+            || str_starts_with($path, 'dcs/api/signed-scan-url');
     }
 
     private function toResponse(mixed $response): Response

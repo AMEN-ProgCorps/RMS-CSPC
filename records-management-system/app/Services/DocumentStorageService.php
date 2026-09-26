@@ -2024,6 +2024,25 @@ class DocumentStorageService
             || Storage::disk('google')->exists($path);
     }
 
+    public static function dcsDownloadFilename(?string $requested, string $path): string
+    {
+        $candidate = basename(str_replace('\\', '/', (string) $requested));
+        if ($candidate === '' || $candidate === '.' || $candidate === '..') {
+            $candidate = basename(str_replace('\\', '/', $path)) ?: 'document.pdf';
+        }
+
+        $candidate = str_replace(["\r", "\n", '"'], '', $candidate);
+
+        return $candidate !== '' ? $candidate : 'document.pdf';
+    }
+
+    public static function dcsInlineDisposition(string $filename): string
+    {
+        $ascii = preg_replace('/[^\x20-\x7E]/', '_', $filename) ?: 'document.pdf';
+
+        return 'inline; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($filename);
+    }
+
     public static function dcsScanUrl(?string $path, int $ttlMinutes = 60): ?string
     {
         if (! self::dcsScanExists($path)) {
@@ -2035,10 +2054,15 @@ class DocumentStorageService
             return null;
         }
 
+        $downloadAs = self::dcsDownloadFilename(null, $normalized);
+
         return \Illuminate\Support\Facades\URL::temporarySignedRoute(
             'dcs.view-document',
             now()->addMinutes(max(1, $ttlMinutes)),
-            ['path' => $normalized]
+            [
+                'downloadAs' => $downloadAs,
+                'path' => $normalized,
+            ]
         );
     }
 

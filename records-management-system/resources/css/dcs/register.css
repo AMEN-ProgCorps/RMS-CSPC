@@ -2110,6 +2110,15 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     font-size: 0.78rem;
 }
 
+#syllabiWizardTable .syllabi-year-lock {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.3;
+    text-align: center;
+    color: var(--reg-text, #0f172a);
+}
+
 #syllabiWizardTable .syllabi-merged-code {
     max-width: 100%;
     min-width: 0;
@@ -3081,6 +3090,7 @@ select.reg-field-locked:disabled {
 }
 
 .reg-modal-body--preview {
+    position: relative;
     padding: 0;
     overflow: hidden;
     flex: 1;
@@ -3093,6 +3103,25 @@ select.reg-field-locked:disabled {
     height: min(72vh, 720px);
     border: 0;
     background: #f8fafc;
+}
+
+.reg-preview-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(248, 250, 252, 0.92);
+    color: #475569;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.reg-preview-loading[hidden] {
+    display: none !important;
 }
 
 .reg-modal-body--compare {

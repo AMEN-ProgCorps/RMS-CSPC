@@ -717,7 +717,7 @@ Route::middleware(['auth'])
         Route::prefix('dcs')->name('dcs.')->group(function () {
             Volt::route('/dashboard', 'pages.dcs.index')->name('dashboard');
 
-            Route::get('/view-document', function (\Illuminate\Http\Request $request) {
+            Route::get('/view-document/{downloadAs?}', function (\Illuminate\Http\Request $request, ?string $downloadAs = null) {
                 // Relative signed URLs validate with absolute:false; absolute APP_URL
                 // links use whileIgnoring(['v']). Accept either so local + deployed View both work.
                 $signatureOk = $request->hasValidSignatureWhileIgnoring(['v'])
@@ -737,7 +737,8 @@ Route::middleware(['auth'])
 
                 $path = \App\Services\DocumentStorageService::normalizeDcsScanPath($path);
                 abort_unless($path, 404);
-                $filename = basename($path) ?: 'document.pdf';
+                $filename = \App\Services\DocumentStorageService::dcsDownloadFilename($downloadAs, $path);
+                $disposition = \App\Services\DocumentStorageService::dcsInlineDisposition($filename);
 
                 if (\App\Services\DocumentStorageService::isLegacyPublicScanPath($path)) {
                     abort_unless(\Illuminate\Support\Facades\Storage::disk('public')->exists($path), 404);
@@ -746,7 +747,7 @@ Route::middleware(['auth'])
                         \Illuminate\Support\Facades\Storage::disk('public')->path($path),
                         [
                             'Content-Type' => 'application/pdf',
-                            'Content-Disposition' => 'inline; filename="' . $filename . '"',
+                            'Content-Disposition' => $disposition,
                         ]
                     );
                 }
@@ -758,8 +759,8 @@ Route::middleware(['auth'])
 
                 return response($content, 200)
                     ->header('Content-Type', $mime)
-                    ->header('Content-Disposition', 'inline; filename="' . $filename . '"');
-            })->name('view-document');
+                    ->header('Content-Disposition', $disposition);
+            })->where('downloadAs', '[^/]+')->name('view-document');
 
             Route::get('/api/signed-scan-url', function (\Illuminate\Http\Request $request) {
                 $path = $request->query('path');

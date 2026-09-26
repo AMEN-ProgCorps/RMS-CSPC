@@ -55,7 +55,10 @@ class OfficeDcnDocNoDrfTest extends TestCase
             $base = max($maxDetailsId, $maxKeyId) + 1;
 
             $this->limitedRoleId = $base;
-            $this->insertRole($this->limitedRoleId, 'DCS Limited DCN DocNo', ['can_access_dcs' => true]);
+            $this->insertRole($this->limitedRoleId, 'DCS Limited DCN DocNo', [
+                'can_access_dcs' => true,
+                'dcs_can_office_intake' => true,
+            ]);
 
             $this->limitedUserId = DB::table($account)->insertGetId([
                 'username' => 'dcs_dcn_docno_' . $base,
@@ -126,6 +129,7 @@ class OfficeDcnDocNoDrfTest extends TestCase
             'dcs_can_manage_files',
             'dcs_can_random_check',
             'dcs_view_all_documents',
+            'dcs_can_office_intake',
         ] as $column) {
             if (! Schema::hasColumn($details, $column)) {
                 unset($row[$column]);

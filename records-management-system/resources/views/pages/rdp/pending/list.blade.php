@@ -5,6 +5,7 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use App\Helpers\RdpExportHelper;
 
 new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List')] class extends Component {
     public string $search = '';
@@ -16,6 +17,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     public bool $showDetailModal = false;
     public ?object $selectedCluster = null;
     public array $clusterItems = [];
+
+    // Download Modal Properties
+    public bool $showDownloadModal = false;
+    public ?int $downloadClusterId = null;
+    public ?string $downloadFormType = null;
+    public ?object $downloadCluster = null;
+    public int $downloadTotalItems = 0;
 
     // Print Modal & Fill-up Properties
     public bool $showPrintModal = false;
@@ -85,7 +93,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $this->statusFilter = '';
     }
 
-    public function openDetailModal(int $clusterId, string $formType): void
+    public function fetchClusterData(int $clusterId, string $formType): array
     {
         $cluster = null;
         $items = [];
@@ -224,9 +232,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             }
         }
 
-        if ($cluster) {
-            $this->selectedCluster = $cluster;
-            $this->clusterItems = $items;
+        return ['cluster' => $cluster, 'items' => $items];
+    }
+
+    public function openDetailModal(int $clusterId, string $formType): void
+    {
+        $data = $this->fetchClusterData($clusterId, $formType);
+        if ($data['cluster']) {
+            $this->selectedCluster = $data['cluster'];
+            $this->clusterItems = $data['items'];
             $this->showDetailModal = true;
         }
     }
@@ -236,6 +250,178 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $this->showDetailModal = false;
         $this->selectedCluster = null;
         $this->clusterItems = [];
+    }
+
+    public function openDownloadModal(int $clusterId, string $formType): void
+    {
+        $this->downloadClusterId = $clusterId;
+        $this->downloadFormType = $formType;
+        $data = $this->fetchClusterData($clusterId, $formType);
+        $this->downloadCluster = $data['cluster'];
+        $this->downloadTotalItems = count($data['items']);
+        $this->showDownloadModal = true;
+    }
+
+    public function closeDownloadModal(): void
+    {
+        $this->showDownloadModal = false;
+        $this->downloadClusterId = null;
+        $this->downloadFormType = null;
+        $this->downloadCluster = null;
+        $this->downloadTotalItems = 0;
+    }
+
+    public function downloadAsXlsx()
+    {
+        if (!$this->downloadClusterId || !$this->downloadFormType) {
+            return;
+        }
+
+        $data = $this->fetchClusterData($this->downloadClusterId, $this->downloadFormType);
+        $cluster = $data['cluster'];
+        $items = $data['items'];
+
+        if (!$cluster) {
+            return;
+        }
+
+        $formCode = strtolower($cluster->form_code ?? 'nap1');
+        $isNap1 = $formCode === 'nap1' || str_contains(strtolower($cluster->form_label ?? ''), 'form 1');
+        $isNap2 = $formCode === 'nap2' || str_contains(strtolower($cluster->form_label ?? ''), 'form 2');
+        $isNap3 = $formCode === 'nap3' || str_contains(strtolower($cluster->form_label ?? ''), 'form 3');
+
+        $meta = [
+            'Cluster Name'     => $cluster->cluster_name ?? 'N/A',
+            'Form Type'        => $cluster->form_label ?? 'NAP Form',
+            'Submitting Office'=> $cluster->office_name ?? $cluster->office ?? 'N/A',
+            'Submitted By'     => $cluster->submitter_name ?: 'System User',
+            'Date Submitted'   => \Carbon\Carbon::parse($cluster->created_at)->format('Y-m-d H:i'),
+            'Total Records'    => count($items),
+        ];
+
+        if ($isNap2) {
+            $treeItems = $this->buildNap2Tree($items);
+            $headers = ['Item No.', 'Record Series Title', 'Parent Series', 'Active Period', 'Storage Period', 'Total Retention', 'Remarks'];
+            $rows = [];
+            foreach ($treeItems as $it) {
+                $rows[] = [
+                    $it->display_item_no ?: ($it->item_number ?? ''),
+                    ($it->depth > 0 ? str_repeat('   ', $it->depth) . '└ ' : '') . ($it->series_title ?? ''),
+                    $it->parent_title ?? '',
+                    $it->effective_active ?? $it->active_period ?? '',
+                    $it->effective_storage ?? $it->storage_period ?? '',
+                    $it->effective_is_permanent ? 'Permanent' : ($it->effective_total ?? $it->total_period ?? ''),
+                    $it->remarks ?? '',
+                ];
+            }
+        } elseif ($isNap3) {
+            $headers = ['GRDS / RDS Item No.', 'Record Series Title', 'Description', 'Period Covered', 'Volume (Cu. M.)', 'Total Retention', 'Remarks'];
+            $rows = [];
+            foreach ($items as $it) {
+                $rows[] = [
+                    $it->item_number ?? '',
+                    $it->series_title ?? $it->parent_title ?? '',
+                    $it->description ?? '',
+                    $it->period_covered ?? '',
+                    $it->volume ?? '',
+                    $it->total_period ?? '',
+                    $it->remarks ?? '',
+                ];
+            }
+        } else {
+            // NAP Form 1
+            $headers = [
+                'Item No.',
+                'Record Series Title',
+                'Description',
+                'Period Covered',
+                'Volume (Cu. M.)',
+                'Medium',
+                'Restriction',
+                'Time Value',
+                'Utility Value',
+                'Active Period',
+                'Storage Period',
+                'Total Retention',
+                'Duplication',
+                'Disposition Provision / Remarks',
+            ];
+            $rows = [];
+            foreach ($items as $it) {
+                $rows[] = [
+                    $it->item_number ?? '',
+                    $it->series_title ?? '',
+                    $it->description ?? '',
+                    $it->period_covered ?? '',
+                    $it->volume ?? '',
+                    $it->medium_name ?? 'Paper',
+                    $it->access_restriction ?? 'Restricted',
+                    $it->time_value ?? '',
+                    $it->utility_name_display ?? '',
+                    $it->active_period ?? '',
+                    $it->storage_period ?? '',
+                    $it->total_period ?? '',
+                    $it->duplication ?? '',
+                    $it->remarks ?? '',
+                ];
+            }
+        }
+
+        $fileName = \Illuminate\Support\Str::slug($cluster->cluster_name . '-' . $formCode) . '-' . now()->format('Ymd-His') . '.xlsx';
+        $title = ($cluster->form_label ?? 'NAP Form') . ' - ' . ($cluster->cluster_name ?? 'Cluster Records');
+
+        $this->closeDownloadModal();
+
+        return RdpExportHelper::streamXlsx($fileName, $title, $meta, $headers, $rows);
+    }
+
+    public function downloadAsPdf()
+    {
+        if (!$this->downloadClusterId || !$this->downloadFormType) {
+            return;
+        }
+
+        $data = $this->fetchClusterData($this->downloadClusterId, $this->downloadFormType);
+        $cluster = $data['cluster'];
+        $items = $data['items'];
+
+        if (!$cluster) {
+            return;
+        }
+
+        $formCode = strtolower($cluster->form_code ?? 'nap1');
+        $isNap2 = $formCode === 'nap2' || str_contains(strtolower($cluster->form_label ?? ''), 'form 2');
+
+        if ($isNap2) {
+            $items = $this->buildNap2Tree($items);
+        }
+
+        $signatures = [
+            'agencyName'            => $this->agencyName,
+            'departmentDivision'    => $this->departmentDivision,
+            'sectionUnit'           => $this->sectionUnit,
+            'telephoneNumber'       => $this->telephoneNumber,
+            'emailAddress'          => $this->emailAddress,
+            'agencyAddress'         => $this->agencyAddress,
+            'personInCharge'        => $this->personInCharge,
+            'datePrepared'          => $this->datePrepared ?: date('m/d/Y'),
+            'preparedBy'            => $this->preparedBy,
+            'preparedPosition'      => $this->preparedPosition,
+            'assistedBy'            => $this->assistedBy,
+            'assistedPosition'      => $this->assistedPosition,
+            'recommendingBy'        => $this->recommendingBy,
+            'recommendingPosition'  => $this->recommendingPosition,
+            'approvedBy'            => $this->approvedBy,
+            'approvedPosition'      => $this->approvedPosition,
+            'committeeChairmanName' => $this->committeeChairmanName,
+            'executiveDirectorName' => $this->executiveDirectorName,
+        ];
+
+        $fileName = \Illuminate\Support\Str::slug($cluster->cluster_name . '-' . $formCode) . '-' . now()->format('Ymd-His') . '.pdf';
+
+        $this->closeDownloadModal();
+
+        return RdpExportHelper::streamPdf($fileName, $cluster, $items, $formCode, $signatures);
     }
 
     public function openPrintModal(int $clusterId, string $formType): void
@@ -1291,7 +1477,75 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         }
         .btn-print:hover { background: #0f172a; }
 
-        /* Box / Card Grid Layout */
+        .btn-download {
+            background: #ecfdf5;
+            color: #047857;
+            border: 1px solid #a7f3d0;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.15s, border-color 0.15s;
+        }
+        .btn-download:hover {
+            background: #d1fae5;
+            border-color: #6ee7b7;
+        }
+
+        .download-format-btn {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 16px;
+            border-radius: 10px;
+            border: 1.5px solid #e2e8f0;
+            background: #ffffff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+            text-align: left;
+            box-sizing: border-box;
+        }
+        .download-format-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+        .download-format-btn.xlsx-btn:hover {
+            border-color: #10b981;
+            background: #f0fdf4;
+        }
+        .download-format-btn.pdf-btn:hover {
+            border-color: #ef4444;
+            background: #fef2f2;
+        }
+        .format-icon-box {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .format-icon-box.xlsx-icon {
+            background: #dcfce7;
+            color: #15803d;
+        }
+        .format-icon-box.pdf-icon {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+        .format-action-arrow {
+            color: #94a3b8;
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            transition: color 0.15s ease;
+        }
+        .download-format-btn:hover .format-action-arrow {
+            color: #0f172a;
+        }
         .card-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -1451,6 +1705,54 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
         [data-theme="dark"] .btn-view:hover {
             background: #1e293b !important;
+        }
+
+        [data-theme="dark"] .btn-download {
+            background: #064e3b !important;
+            color: #6ee7b7 !important;
+            border-color: #047857 !important;
+        }
+
+        [data-theme="dark"] .btn-download:hover {
+            background: #047857 !important;
+            border-color: #059669 !important;
+        }
+
+        [data-theme="dark"] .download-modal-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .download-format-btn {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+        }
+
+        [data-theme="dark"] .download-format-btn.xlsx-btn:hover {
+            border-color: #10b981 !important;
+            background: rgba(6, 78, 59, 0.25) !important;
+        }
+
+        [data-theme="dark"] .download-format-btn.pdf-btn:hover {
+            border-color: #ef4444 !important;
+            background: rgba(127, 29, 29, 0.25) !important;
+        }
+
+        [data-theme="dark"] .format-title {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .format-desc {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .format-action-arrow {
+            color: #64748b !important;
+        }
+
+        [data-theme="dark"] .download-format-btn:hover .format-action-arrow {
+            color: #f8fafc !important;
         }
 
         [data-theme="dark"] .modal-card {
@@ -1646,7 +1948,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         <th>Submitted By</th>
                         <th style="width: 110px; text-align: center;">Total Items</th>
                         <th style="width: 140px;">Date Submitted</th>
-                        <th style="width: 160px; text-align: center;">Actions</th>
+                        <th style="width: 220px; text-align: center;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1661,9 +1963,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             <td>{{ $c->submitter_name ?: 'System User' }}</td>
                             <td style="text-align: center;"><strong>{{ $c->total_items }}</strong></td>
                             <td>{{ \Carbon\Carbon::parse($c->created_at)->format('M d, Y g:i A') }}</td>
-                            <td style="text-align: center;">
+                            <td style="text-align: center; white-space: nowrap;">
                                 <button wire:click="openDetailModal({{ $c->cluster_id }}, '{{ $c->form_code }}')" class="btn-view">View</button>
                                 <button wire:click="openPrintModal({{ $c->cluster_id }}, '{{ $c->form_code }}')" class="btn-print">Print</button>
+                                <button wire:click="openDownloadModal({{ $c->cluster_id }}, '{{ $c->form_code }}')" class="btn-download">Download</button>
                             </td>
                         </tr>
                     @empty
@@ -1696,9 +1999,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     </div>
                     <div class="card-footer">
                         <span style="font-size: 12px; color: #94a3b8;">{{ \Carbon\Carbon::parse($c->created_at)->format('M d, Y') }}</span>
-                        <div>
+                        <div style="display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end;">
                             <button wire:click="openDetailModal({{ $c->cluster_id }}, '{{ $c->form_code }}')" class="btn-view">View</button>
                             <button wire:click="openPrintModal({{ $c->cluster_id }}, '{{ $c->form_code }}')" class="btn-print">Print</button>
+                            <button wire:click="openDownloadModal({{ $c->cluster_id }}, '{{ $c->form_code }}')" class="btn-download">Download</button>
                         </div>
                     </div>
                 </div>
@@ -1707,6 +2011,102 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     No pending clusters found matching your query.
                 </div>
             @endforelse
+        </div>
+    @endif
+
+    {{-- Download Format Choice Modal --}}
+    @if($showDownloadModal && $downloadCluster)
+        <div class="modal-overlay" style="z-index: 1050;">
+            <div class="modal-card download-modal-card" style="width: 520px; max-width: 94vw; padding: 24px; border-radius: 14px; position: relative;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div style="width: 40px; height: 40px; border-radius: 10px; background: #ecfdf5; display: flex; align-items: center; justify-content: center; color: #059669; flex-shrink: 0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 style="font-size: 17px; font-weight: 700; color: #0f172a; margin: 0;">
+                                Download Cluster Records
+                            </h3>
+                            <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">
+                                [{{ $downloadCluster->form_label }}] {{ $downloadCluster->cluster_name }} &bull; {{ $downloadTotalItems }} {{ $downloadTotalItems === 1 ? 'record' : 'records' }}
+                            </p>
+                        </div>
+                    </div>
+                    <button wire:click="closeDownloadModal" style="background: none; border: none; font-size: 22px; color: #94a3b8; cursor: pointer; padding: 0 4px; line-height: 1;">&times;</button>
+                </div>
+
+                <p style="font-size: 13.5px; color: #334155; margin: 0 0 16px 0; font-weight: 500;">
+                    Choose your preferred download format:
+                </p>
+
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                    {{-- Option: Excel Spreadsheet (.xlsx) --}}
+                    <button type="button" wire:click="downloadAsXlsx" class="download-format-btn xlsx-btn" wire:loading.attr="disabled">
+                        <div class="format-icon-box xlsx-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="8" y1="13" x2="16" y2="13"></line>
+                                <line x1="8" y1="17" x2="16" y2="17"></line>
+                                <line x1="10" y1="9" x2="10.01" y2="9"></line>
+                            </svg>
+                        </div>
+                        <div style="text-align: left; flex: 1;">
+                            <div style="font-size: 14.5px; font-weight: 700; color: #0f172a;" class="format-title">
+                                Excel Spreadsheet (.xlsx)
+                            </div>
+                            <div style="font-size: 12px; color: #64748b; margin-top: 2px;" class="format-desc">
+                                Clean spreadsheet with structured columns for series titles, period covered, volumes, mediums, restrictions, and retention periods.
+                            </div>
+                        </div>
+                        <div class="format-action-arrow">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </div>
+                    </button>
+
+                    {{-- Option: PDF Document (.pdf) --}}
+                    <button type="button" wire:click="downloadAsPdf" class="download-format-btn pdf-btn" wire:loading.attr="disabled">
+                        <div class="format-icon-box pdf-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <path d="M9 15h6"></path>
+                                <path d="M9 11h6"></path>
+                            </svg>
+                        </div>
+                        <div style="text-align: left; flex: 1;">
+                            <div style="font-size: 14.5px; font-weight: 700; color: #0f172a;" class="format-title">
+                                PDF Document (.pdf)
+                            </div>
+                            <div style="font-size: 12px; color: #64748b; margin-top: 2px;" class="format-desc">
+                                Official National Archives of the Philippines document layout with CSPC header, compliance tables, and signature blocks.
+                            </div>
+                        </div>
+                        <div class="format-action-arrow">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </div>
+                    </button>
+                </div>
+
+                {{-- Loading Indicator --}}
+                <div wire:loading wire:target="downloadAsXlsx,downloadAsPdf" style="margin-top: 14px; text-align: center; font-size: 12.5px; color: #0284c7; font-weight: 600;">
+                    ⏳ Generating and downloading file, please wait...
+                </div>
+
+                <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
+                    <button type="button" wire:click="closeDownloadModal" style="padding: 7px 16px; font-size: 13px; font-weight: 600; color: #64748b; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px; cursor: pointer;">
+                        Cancel
+                    </button>
+                </div>
+            </div>
         </div>
     @endif
 

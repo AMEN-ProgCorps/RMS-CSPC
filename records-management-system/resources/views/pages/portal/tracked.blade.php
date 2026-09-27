@@ -341,6 +341,9 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
         </div>
 
         <div class="hero-inner-content">
+            <!-- Symmetrical top spacer matching white top bar -->
+            <div class="hero-top-spacer" aria-hidden="true"></div>
+
             <!-- Middle: Main Heading, Welcome & Developers -->
             <div class="hero-middle-section">
                 <h1 class="hero-heading">
@@ -530,6 +533,9 @@ new #[Layout('layouts.portal')] #[Title('Track Document — Results')] class ext
                 </div>
             </div>
         </div>
+
+        <!-- Symmetrical bottom spacer matching hero bottom copyright -->
+        <div class="white-bottom-spacer" aria-hidden="true"></div>
     </div>
 </div> <!-- /.salesskip-split-container -->
 

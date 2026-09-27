@@ -39,6 +39,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         @csrf
         <input type="hidden" id="registrationMode" name="registration_mode" value="{{ request()->query('type') === 'revised' ? 'revised' : 'new' }}">
         <input type="hidden" id="revisedFromDocNo" name="revised_from_doc_no" value="">
+        <input type="hidden" id="insertShiftConfirmed" name="insert_shift_confirmed" value="0">
+        <input type="hidden" id="insertShiftDocNo" name="insert_shift_doc_no" value="">
+        <input type="hidden" id="insertShiftRenameLetters" name="insert_shift_rename_letters" value="0">
         <input type="hidden" id="saveAsDraft" name="save_as_draft" value="0">
         <input type="hidden" id="officeIntakeType" name="office_intake_type" value="{{ in_array(request()->query('intake'), ['drf', 'dcn'], true) ? request()->query('intake') : '' }}">
         <input type="hidden" id="officeIntakeId" name="office_intake_id" value="{{ ctype_digit((string) request()->query('intake_id')) ? request()->query('intake_id') : '' }}">
@@ -137,7 +140,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <div class="reg-grid-3">
                     <div class="reg-field">
                         <label>DCN No.</label>
-                        <input type="text" id="dcnNumber" name="dcnNumber" placeholder="Enter DCN No.">
+                        <input type="text" id="dcnNumber" name="dcnNumber" placeholder="{{ now('Asia/Manila')->format('Y-m') }}-046" autocomplete="off">
+                        <span id="dcnNoHint" class="reg-number-hint" style="display:none;"></span>
+                        <span id="dcnNoSuggestHint" class="reg-number-hint" style="display:none;"></span>
                     </div>
                     <div class="reg-field">
                         <label>DCN Date</label>
@@ -306,8 +311,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <div class="reg-grid-3">
                     <div class="reg-field">
                         <label>DRF No.</label>
-                        <input type="text" id="drfNo" name="drfNo" placeholder="Enter DRF No." autocomplete="off">
-                        <span id="drfNoHint" style="display:none;"></span>
+                        <input type="text" id="drfNo" name="drfNo" placeholder="{{ now('Asia/Manila')->format('Y') }}-001" autocomplete="off">
+                        <span id="drfNoHint" class="reg-number-hint" style="display:none;"></span>
+                        <span id="drfNoSuggestHint" class="reg-number-hint" style="display:none;"></span>
                     </div>
                     <div class="reg-field">
                         <label>DRF Date</label>
@@ -415,6 +421,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <label>Document No.</label>
                         <input type="text" id="masterlistDocNo" name="masterlistDocNo" placeholder="CSPC-F-YYY-XX" autocomplete="off">
                         <span id="docNoPrefixHint" style="display:none;margin-top:4px;font-size:12px;color:#475569;"></span>
+                        <span id="docNoSuggestHint" class="reg-number-hint" style="display:none;"></span>
                         <span id="docNoHint" style="display:block;margin-top:4px;font-size:12px;"></span>
                     </div>
                     <div class="reg-field" id="mlFieldDeadline">
@@ -735,7 +742,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                     <i class="fa-regular fa-floppy-disk"></i> Save Draft
                 </button>
-                <span id="regAutosaveStatus" class="reg-autosave-status" aria-live="polite" hidden></span>
                 <button type="button" id="btnSaveDocument" class="reg-btn reg-btn-save" onclick="confirmSave()">
                     <i class="fa-solid fa-floppy-disk"></i> Save Document
                 </button>
@@ -774,6 +780,50 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     </template>
 
     @include('pages.dcs.register.partials.draft-modals')
+
+    <div class="reg-modal-overlay" id="docNoInsertModal" aria-hidden="true">
+        <div class="reg-modal reg-modal--insert">
+            <div class="reg-modal-header">
+                <i class="fa-solid fa-hashtag"></i>
+                <h3>Document number already exists</h3>
+                <button type="button" class="reg-modal-close" id="docNoInsertClose" aria-label="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="reg-modal-body">
+                <p id="docNoInsertLead" class="reg-insert-lead"></p>
+                <div class="reg-insert-choices">
+                    <button type="button" class="reg-insert-choice" id="docNoInsertRevise">
+                        <strong>Revise this document</strong>
+                        <span>Keep this number and create the next revision (DCN).</span>
+                    </button>
+                    <button type="button" class="reg-insert-choice" id="docNoInsertNext">
+                        <strong>Use next free number</strong>
+                        <span id="docNoInsertNextLabel">Use the next number in this group.</span>
+                    </button>
+                    <button type="button" class="reg-insert-choice" id="docNoInsertShift">
+                        <strong>Insert here and shift later numbers</strong>
+                        <span>Only later numbers in this same group move up. Preview first.</span>
+                    </button>
+                </div>
+                <label class="reg-insert-letters" id="docNoInsertLettersWrap" hidden>
+                    <input type="checkbox" id="docNoInsertRenameLetters">
+                    Also rename letter variants in this group (e.g. 11A → 12A)
+                </label>
+                <div id="docNoInsertPreview" class="reg-insert-preview" hidden>
+                    <p>These latest/obsolete rows will be renamed:</p>
+                    <div class="reg-insert-preview-table-wrap">
+                        <table>
+                            <thead><tr><th>From</th><th>To</th><th>Title</th></tr></thead>
+                            <tbody id="docNoInsertPreviewBody"></tbody>
+                        </table>
+                    </div>
+                    <p id="docNoInsertPreviewError" class="reg-insert-error" hidden></p>
+                    <button type="button" class="reg-btn reg-btn-save" id="docNoInsertConfirmShift">Confirm shift</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <template x-teleport="body">
     <div class="reg-modal-overlay" id="filePreviewModal" aria-hidden="true" onclick="if(event.target===this)closeFilePreviewModal()">
@@ -1773,10 +1823,12 @@ function applyOfficeIntakeChecklistAndFields(prefill) {
 
     setVal('drfTitle', prefill.drfTitle);
     setVal('drfDate', prefill.drfDate);
+    document.getElementById('drfDate')?.dispatchEvent(new Event('change', { bubbles: true }));
     setVal('masterlistDocTitle', prefill.masterlistDocTitle || prefill.drfTitle || prefill.documentTitle);
     setVal('masterlistDocNo', prefill.masterlistDocNo || prefill.documentNo);
     setVal('dcnJustification', prefill.dcnJustification);
     setVal('noticeDate', prefill.noticeDate);
+    document.getElementById('noticeDate')?.dispatchEvent(new Event('change', { bubbles: true }));
 
     if (prefill.descriptionReason) {
         setVal('distributionRemarks', prefill.descriptionReason);
@@ -2358,7 +2410,7 @@ function applyNewModeLookupResult(data, hintEl, revField) {
         revNoDuplicate = false;
         setSaveEnabled(true);
         if (hintEl) {
-            hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Document number already used — this type stacks another Rev 0 registration (not a revision).';
+            hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Same form number is OK. This will be another copy (new school year), not Rev 1.';
             hintEl.style.color = '#16a34a';
             hintEl.dataset.valid = 'stackable';
         }
@@ -2371,7 +2423,7 @@ function applyNewModeLookupResult(data, hintEl, revField) {
         }
         const revHint = document.getElementById('revNoHint');
         if (revHint) {
-            revHint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Rev 0 (this type stacks registrations; not a revision).';
+            revHint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Always Rev 0. Each school year is a new copy under the same form number.';
             revHint.style.color = '#16a34a';
             revHint.dataset.valid = 'stackable';
         }
@@ -2381,13 +2433,18 @@ function applyNewModeLookupResult(data, hintEl, revField) {
 
         if (hintEl) {
             hintEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> ' +
-                'This document number is already registered under <strong>' +
-                (escapeHtml(data.existing_type_name || 'this document type')) +
-                '</strong>. Use <strong>Revised Registration</strong> to create a new revision.' +
-                '<br><span style="font-weight:400;font-size:11px;">You cannot save until you enter a unique document number.</span>';
+                'This document number is already registered. Choose Revise, the next free number, or insert into this group.' +
+                '<br><span style="font-weight:400;font-size:11px;">You cannot save until you pick an option or enter a unique number.</span>';
             hintEl.style.color = '#dc2626';
             hintEl.dataset.valid = 'duplicate';
         }
+        if (typeof window.openDocNoInsertModal === 'function') {
+            window.openDocNoInsertModal(data);
+        }
+        window.markDocNoInsertReady = function () {
+            docNoDuplicate = false;
+            setSaveEnabled(true);
+        };
     } else if (data.wrong_type) {
         docNoDuplicate = false;
         setSaveEnabled(true);
@@ -2744,7 +2801,7 @@ function updateRegistrationMode() {
         }
         mode = 'new';
         if (typeof showToast === 'function') {
-            showToast('This document type does not allow revisions. Using New Document (Rev 0).', 'info');
+            showToast('This document type does not allow DCN revisions. Register another New copy (Rev 0). Previous years stay as child rows.', 'info');
         }
     }
 
@@ -2812,7 +2869,7 @@ function applyRevisionMode() {
 
 function setSaveEnabled(enabled) {
     // Don't re-enable if duplicate is detected
-    if (enabled && (docNoDuplicate || revNoDuplicate || window.drfNoDuplicate)) return;
+    if (enabled && (docNoDuplicate || revNoDuplicate || window.drfNoDuplicate || window.syllabiContextTaken)) return;
 
     const saveBtn = document.getElementById('btnSaveDocument');
     if (!saveBtn) return;
@@ -2907,7 +2964,7 @@ async function runRevNoCheck() {
         revField.style.borderColor = '';
         revField.classList.remove('reg-input-invalid');
         if (hint) {
-            hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Rev 0 (this type stacks registrations; not a revision).';
+            hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Always Rev 0. Each school year is a new copy under the same form number.';
             hint.style.color = '#16a34a';
             hint.dataset.valid = 'stackable';
         }
@@ -4910,7 +4967,9 @@ function resetSyllabiSection() {
     if (sySel) { sySel.selectedIndex = 0; sySel.disabled = true; }
     if (typeof refreshSyllabiYearLevelDisplay === 'function') refreshSyllabiYearLevelDisplay([]);
 
-    if (typeof setSyllabiContextHint === 'function') {
+    if (typeof setSyllabiContextTaken === 'function') {
+        setSyllabiContextTaken(false);
+    } else if (typeof setSyllabiContextHint === 'function') {
         setSyllabiContextHint('', false);
     } else {
         const hint = document.getElementById('syllabiContextHint');
@@ -5696,6 +5755,16 @@ function validateForm() {
         return errors;
     }
 
+    if (window.__isSyllabiMode && window.syllabiContextTaken) {
+        const hint = document.getElementById('syllabiContextHint');
+        errors.push({
+            field: "syllabiSchoolYear",
+            message: (hint && hint.textContent.trim())
+                || "This semester and school year are already registered. You cannot save another copy.",
+        });
+        return errors;
+    }
+
     if (!document.getElementById("versionType").value) {
         errors.push({ field: "versionType", message: "Version Type is required." });
     }
@@ -6165,6 +6234,16 @@ function addReviewOfficeList(container, title, offices) {
 }
 
 window.confirmSave = function () {
+    if (window.__isSyllabiMode && window.syllabiContextTaken) {
+        scrollToField('syllabiSchoolYear');
+        document.getElementById('syllabiSchoolYear')?.focus();
+        showValidationErrors([{
+            field: "syllabiSchoolYear",
+            message: (document.getElementById('syllabiContextHint')?.textContent || '').trim()
+                || "This semester and school year are already registered. You cannot save another copy.",
+        }]);
+        return;
+    }
     if (window.drfNoDuplicate) {
         scrollToField('drfNo');
         document.getElementById('drfNo')?.focus();
@@ -6461,6 +6540,15 @@ document.addEventListener("keydown", function (e) {
 });
 
 window.submitForm = function () {
+    if (window.__isSyllabiMode && window.syllabiContextTaken) {
+        showValidationErrors([{
+            field: "syllabiSchoolYear",
+            message: (document.getElementById('syllabiContextHint')?.textContent || '').trim()
+                || "This semester and school year are already registered. You cannot save another copy.",
+        }]);
+        return;
+    }
+    if (typeof unlockSyllabiContextForSubmit === 'function') unlockSyllabiContextForSubmit();
     const ack = document.getElementById('confirmSaveAnyway');
     if (ack && !ack.checked) {
         alert('Please confirm that you reviewed the missing information before saving.');
@@ -6539,7 +6627,16 @@ function showSavingDocumentOverlay() {
     }
 }
 
+function unlockSyllabiContextForSubmit() {
+    ['syllabiCollege', 'syllabiProgram', 'syllabiSemester', 'syllabiCourseType', 'syllabiSchoolYear']
+        .forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = false;
+        });
+}
+
 function prepareDraftSubmitDefaults() {
+    unlockSyllabiContextForSubmit();
     const approvalChecked = document.querySelector('input[name="approval_status"]:checked');
     if (!approvalChecked) {
         const na = document.querySelector('input[name="approval_status"][value="not_applicable"]');
@@ -6608,6 +6705,7 @@ function registrationHasUserProgress() {
 }
 
 window.__regDraftCanSave = function () {
+    if (window.__isSyllabiMode && window.syllabiContextTaken) return false;
     const version = document.getElementById('versionType')?.value;
     const docType = document.getElementById('docType')?.value;
     if (!version || !docType) return false;
@@ -7070,9 +7168,36 @@ function setSyllabiContextHint(message, isError) {
     hint.classList.toggle('is-ok', !isError);
 }
 
+function setSyllabiContextTaken(taken, message) {
+    window.syllabiContextTaken = !!taken;
+    if (taken) {
+        setSyllabiContextHint(message || 'This semester and school year are already registered.', true);
+        setSaveEnabled(false);
+        const draftBtn = document.getElementById('btnSaveDraft');
+        if (draftBtn) {
+            draftBtn.disabled = true;
+            draftBtn.setAttribute('disabled', 'disabled');
+            draftBtn.style.opacity = '0.4';
+            draftBtn.style.cursor = 'not-allowed';
+            draftBtn.style.pointerEvents = 'none';
+        }
+        return;
+    }
+    setSyllabiContextHint('', false);
+    const draftBtn = document.getElementById('btnSaveDraft');
+    if (draftBtn) {
+        draftBtn.disabled = false;
+        draftBtn.removeAttribute('disabled');
+        draftBtn.style.opacity = '';
+        draftBtn.style.cursor = '';
+        draftBtn.style.pointerEvents = '';
+    }
+    setSaveEnabled(true);
+}
+
 async function checkSyllabiContextTaken() {
     if (!syllabiContextComplete()) {
-        setSyllabiContextHint('', false);
+        setSyllabiContextTaken(false);
         return false;
     }
 
@@ -7095,16 +7220,16 @@ async function checkSyllabiContextTaken() {
         }).then((r) => r.json());
 
         if (data.taken) {
-            setSyllabiContextHint(data.message || 'This semester and school year are already registered.', true);
+            setSyllabiContextTaken(true, data.message || 'This semester and school year are already registered.');
             clearSyllabiCourseRows();
             return true;
         }
 
-        setSyllabiContextHint('', false);
+        setSyllabiContextTaken(false);
         return false;
     } catch (err) {
         console.error('Failed to check syllabi context:', err);
-        setSyllabiContextHint('', false);
+        setSyllabiContextTaken(false);
         return false;
     }
 }
@@ -8507,5 +8632,6 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 @include('pages.dcs.register.partials.dist-office-groups-script')
 @include('pages.dcs.register.partials.scan-name-preview')
-<script src="{{ asset('js/dcs/register-draft-guard.js') }}"></script>
+<script src="{{ asset('js/dcs/register-draft-guard.js') }}?v={{ filemtime(public_path('js/dcs/register-draft-guard.js')) }}"></script>
 <script src="{{ asset('js/dcs/register-drf-no-unique.js') }}"></script>
+<script src="{{ asset('js/dcs/register-number-suggest.js') }}?v={{ filemtime(public_path('js/dcs/register-number-suggest.js')) }}"></script>

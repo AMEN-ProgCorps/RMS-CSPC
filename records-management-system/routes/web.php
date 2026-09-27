@@ -895,6 +895,15 @@ Route::middleware(['auth'])
                 Route::middleware(['dcs.module:register'])->group(function () {
                     Route::get('/register/check-docno', fn (Request $request) => response()->json(RegisterQueryHelper::checkDocNo($request)))
                         ->name('register.checkDocNo');
+                    Route::get('/register/suggest-form-no', fn (Request $request) => response()->json(
+                        \App\Helpers\DocumentNumberSeriesHelper::suggestFormNo($request)
+                    ))->name('register.suggestFormNo');
+                    Route::get('/register/suggest-docno', fn (Request $request) => response()->json(
+                        \App\Helpers\DocumentNumberSeriesHelper::suggestDocNo($request)
+                    ))->name('register.suggestDocNo');
+                    Route::get('/register/preview-docno-shift', fn (Request $request) => response()->json(
+                        \App\Helpers\DocumentNumberSeriesHelper::previewInsertShift($request)
+                    ))->name('register.previewDocNoShift');
                     Route::get('/register/check-drfno', fn (Request $request) => response()->json(RegisterQueryHelper::checkDrfNo($request)))
                         ->name('register.checkDrfNo');
                     Route::get('/register/check-revno', fn (Request $request) => response()->json(RegisterQueryHelper::checkRevNo($request)))

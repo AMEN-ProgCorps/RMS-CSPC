@@ -723,12 +723,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             · {{ $formYear }}
                         @endif
                         · {{ $periodWindow['label'] }}
-                        · {{ match($sortBy) {
-                            'doc_no' => 'Doc. No.',
-                            'doc_title' => 'Title',
-                            'originator' => 'Originator',
-                            'rev_no' => 'Rev. No.',
-                            'registered' => 'Date registered',
+                        · {{ match(true) {
+                            $sub === 'drf' => 'DRF date',
+                            $sub === 'dcn' => 'DCN date',
+                            $sortBy === 'doc_no' => 'Doc. No.',
+                            $sortBy === 'doc_title' => 'Title',
+                            $sortBy === 'originator' => 'Originator',
+                            $sortBy === 'rev_no' => 'Rev. No.',
+                            $sortBy === 'registered' => 'Date registered',
                             default => 'Effectivity date',
                         } }} {{ $sortDir === 'desc' ? '↓' : '↑' }}
                     </span>

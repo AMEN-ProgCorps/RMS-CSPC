@@ -55,6 +55,9 @@ class RegisterUpdateHelper
             'approval_status' => 'nullable|in:applicable,not_applicable',
         ], RegisterPersistHelper::scanFileRules()));
 
+        if ($redirect = RegisterPersistHelper::rejectDuplicateSyllabiContext($request, $id)) {
+            return $redirect;
+        }
         if (! $saveAsDraft) {
             if ($redirect = RegisterPersistHelper::validateSyllabiLikeRequestRows($request, $id)) {
                 return $redirect;

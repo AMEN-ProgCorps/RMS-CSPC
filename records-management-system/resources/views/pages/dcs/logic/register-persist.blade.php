@@ -1156,6 +1156,9 @@ class RegisterPersistHelper
         $isSyllabi = self::isSyllabiLikeSubTypeRow($subType);
         $allowsRevision = self::effectiveAllowsRevision($request->doc_type_id, $request->sub_type_id);
 
+        if ($redirect = self::rejectDuplicateSyllabiContext($request)) {
+            return $redirect;
+        }
         if (! $saveAsDraft) {
             if ($redirect = self::validateSyllabiLikeRequestRows($request)) {
                 return $redirect;
@@ -1203,7 +1206,7 @@ class RegisterPersistHelper
                     if (RegisterQueryHelper::supportsDrafts()) {
                         $publishedMatches = $publishedMatches->filter(fn ($row) => empty($row->is_draft))->values();
                     }
-                    if ($publishedMatches->isNotEmpty()) {
+                    if ($publishedMatches->isNotEmpty() && ! $request->boolean('insert_shift_confirmed')) {
                         $latest = DB::table('dcs_masterlist_registration')
                             ->whereIn('request_id', $publishedMatches->pluck('id'))
                             ->where('doc_no', $docNo)
@@ -1228,6 +1231,18 @@ class RegisterPersistHelper
         try {
             $now = now();
             $userId = auth()->id();
+
+            if ($mode === 'new' && $allowsRevision && ! $saveAsDraft && $request->boolean('insert_shift_confirmed')) {
+                $shift = \App\Helpers\DocumentNumberSeriesHelper::applyInsertShift($request);
+                if (empty($shift['ok'])) {
+                    DB::rollBack();
+
+                    return self::draftErrorResponse(
+                        $request,
+                        $shift['error'] ?? 'Could not insert this document number into the series.'
+                    );
+                }
+            }
 
             $requestId = DB::table('dcs_document_requests')->insertGetId(array_filter([
                 'version_id' => $request->version_id,
@@ -1944,12 +1959,73 @@ class RegisterPersistHelper
             . '", not the selected Document Type.';
     }
 
+    /**
+     * Block a second Syllabi/TOS pack for the same college + program + semester
+     * + school year + course type, even when course rows were cleared.
+     *
+     * @return \Illuminate\Http\RedirectResponse|\Illuminate\Http\JsonResponse|null
+     */
+    public static function rejectDuplicateSyllabiContext(Request $request, ?int $exceptRequestId = null)
+    {
+        $subType = self::dcsDocType($request->sub_type_id);
+        if (! self::isSyllabiLikeSubTypeRow($subType)) {
+            return null;
+        }
+
+        $collegeId = (int) $request->input('college_id', 0);
+        $programId = (int) $request->input('program_id', 0);
+        $semesterId = (int) $request->input('semester_id', 0);
+        $schoolYearId = (int) $request->input('school_year_id', 0);
+        $courseType = trim((string) $request->input('course_type', ''));
+        $subTypeId = $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null;
+
+        if ($collegeId < 1 || $programId < 1 || $semesterId < 1 || $schoolYearId < 1 || $courseType === '') {
+            return null;
+        }
+
+        $duplicate = self::findSyllabiContextDuplicate(
+            $collegeId,
+            $programId,
+            $semesterId,
+            $schoolYearId,
+            $courseType,
+            $subTypeId,
+            $exceptRequestId
+        );
+        if (! $duplicate) {
+            return null;
+        }
+
+        $label = RegisterQueryHelper::isSyllabiLikeName($subType->doc_type_name ?? null)
+            ? trim((string) ($subType->doc_type_name ?? 'Syllabi'))
+            : 'Syllabi';
+        $sy = DB::table('dcs_school_years')->where('id', $schoolYearId)->value('school_year');
+        $sem = DB::table('dcs_semesters')->where('id', $semesterId)->value('semester_name');
+
+        return self::draftErrorResponse(
+            $request,
+            "{$label} for {$courseType}, {$sem}, S/Y {$sy} is already registered. "
+            . 'Only one registration is allowed per semester and school year for this course type.'
+        );
+    }
+
     public static function validateSyllabiLikeRequestRows(Request $request, ?int $exceptRequestId = null): ?RedirectResponse
     {
         $subType = self::dcsDocType($request->sub_type_id);
         $isSyllabi = self::isSyllabiLikeSubTypeRow($subType);
 
-        if (!$isSyllabi || !$request->has('syllabiCourseName')) {
+        if (! $isSyllabi) {
+            return null;
+        }
+
+        if ($redirect = self::rejectDuplicateSyllabiContext($request, $exceptRequestId)) {
+            return $redirect instanceof \Illuminate\Http\RedirectResponse ? $redirect : back()->withInput()->with(
+                'error',
+                $redirect->getData(true)['message'] ?? 'This semester and school year are already registered.'
+            );
+        }
+
+        if (! $request->has('syllabiCourseName')) {
             return null;
         }
 

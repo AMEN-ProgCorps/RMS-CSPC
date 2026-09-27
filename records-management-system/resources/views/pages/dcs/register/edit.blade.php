@@ -363,7 +363,9 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <div class="reg-grid-3">
                         <div class="reg-field">
                             <label>DCN No.</label>
-                            <input type="text" id="dcnNumber" name="dcnNumber" placeholder="DCN-001" value="{{ $dcn->dcn_no ?? '' }}">
+                            <input type="text" id="dcnNumber" name="dcnNumber" placeholder="{{ now('Asia/Manila')->format('Y-m') }}-046" value="{{ $dcn->dcn_no ?? '' }}" autocomplete="off">
+                            <span id="dcnNoHint" class="reg-number-hint" style="display:none;"></span>
+                            <span id="dcnNoSuggestHint" class="reg-number-hint" style="display:none;"></span>
                         </div>
                         <div class="reg-field">
                             <label>DCN Date</label>
@@ -424,8 +426,9 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <div class="reg-grid-3">
                         <div class="reg-field">
                             <label>DRF No.</label>
-                            <input type="text" id="drfNo" name="drfNo" placeholder="DRF-001" value="{{ $drf->drf_no ?? '' }}" autocomplete="off">
-                            <span id="drfNoHint" style="display:none;"></span>
+                            <input type="text" id="drfNo" name="drfNo" placeholder="{{ now('Asia/Manila')->format('Y') }}-001" value="{{ $drf->drf_no ?? '' }}" autocomplete="off">
+                            <span id="drfNoHint" class="reg-number-hint" style="display:none;"></span>
+                            <span id="drfNoSuggestHint" class="reg-number-hint" style="display:none;"></span>
                         </div>
                         <div class="reg-field">
                             <label>DRF Date</label>
@@ -540,6 +543,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                             <label>Document No.</label>
                             <input type="text" id="masterlistDocNo" name="masterlistDocNo" placeholder="CSPC-F-YYY-XX" value="{{ $masterlist->doc_no ?? '' }}" autocomplete="off">
                             <span id="docNoPrefixHint" style="display:none;margin-top:4px;font-size:12px;color:#475569;"></span>
+                            <span id="docNoSuggestHint" class="reg-number-hint" style="display:none;"></span>
                             <span id="docNoHint" style="display:block;margin-top:4px;font-size:12px;"></span>
                         </div>
                         <div class="reg-field">
@@ -965,7 +969,6 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                         <i class="fa-regular fa-floppy-disk"></i> Save Draft
                     </button>
-                    <span id="regAutosaveStatus" class="reg-autosave-status" aria-live="polite" hidden></span>
                     <button type="button" id="btnUpdateDocument" class="reg-btn reg-btn-save" onclick="confirmSave()">
                         <i class="fa-solid fa-floppy-disk"></i> Update Document
                     </button>
@@ -4756,9 +4759,48 @@ function setSyllabiContextHint(message, isError) {
     hint.classList.toggle('is-ok', !isError);
 }
 
+function setSyllabiContextTaken(taken, message) {
+    window.syllabiContextTaken = !!taken;
+    const saveBtn = document.getElementById('btnUpdateDocument') || document.getElementById('btnSaveDocument');
+    const draftBtn = document.getElementById('btnSaveDraft');
+    if (taken) {
+        setSyllabiContextHint(message || 'This semester and school year are already registered.', true);
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.setAttribute('disabled', 'disabled');
+            saveBtn.style.opacity = '0.4';
+            saveBtn.style.cursor = 'not-allowed';
+            saveBtn.style.pointerEvents = 'none';
+        }
+        if (draftBtn) {
+            draftBtn.disabled = true;
+            draftBtn.setAttribute('disabled', 'disabled');
+            draftBtn.style.opacity = '0.4';
+            draftBtn.style.cursor = 'not-allowed';
+            draftBtn.style.pointerEvents = 'none';
+        }
+        return;
+    }
+    setSyllabiContextHint('', false);
+    if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.removeAttribute('disabled');
+        saveBtn.style.opacity = '';
+        saveBtn.style.cursor = '';
+        saveBtn.style.pointerEvents = '';
+    }
+    if (draftBtn) {
+        draftBtn.disabled = false;
+        draftBtn.removeAttribute('disabled');
+        draftBtn.style.opacity = '';
+        draftBtn.style.cursor = '';
+        draftBtn.style.pointerEvents = '';
+    }
+}
+
 async function checkSyllabiContextTaken() {
     if (!syllabiContextComplete()) {
-        setSyllabiContextHint('', false);
+        setSyllabiContextTaken(false);
         return false;
     }
 
@@ -4780,16 +4822,16 @@ async function checkSyllabiContextTaken() {
         }).then((r) => r.json());
 
         if (data.taken) {
-            setSyllabiContextHint(data.message || 'This semester and school year are already registered.', true);
+            setSyllabiContextTaken(true, data.message || 'This semester and school year are already registered.');
             clearSyllabiCourseRows();
             return true;
         }
 
-        setSyllabiContextHint('', false);
+        setSyllabiContextTaken(false);
         return false;
     } catch (err) {
         console.error('Failed to check syllabi context:', err);
-        setSyllabiContextHint('', false);
+        setSyllabiContextTaken(false);
         return false;
     }
 }
@@ -6459,6 +6501,16 @@ function validateForm() {
         return errors;
     }
 
+    if (window.__isSyllabiMode && window.syllabiContextTaken) {
+        const hint = document.getElementById('syllabiContextHint');
+        errors.push({
+            field: "syllabiSchoolYear",
+            message: (hint && hint.textContent.trim())
+                || "This semester and school year are already registered. You cannot save another copy.",
+        });
+        return errors;
+    }
+
     if (docNoDuplicate) {
         errors.push({ field: "masterlistDocNo", message: "This document number is already registered. Please use a unique number." });
         return errors;
@@ -6868,6 +6920,16 @@ function addReviewOfficeList(container, title, offices) {
 }
 
 window.confirmSave = function () {
+    if (window.__isSyllabiMode && window.syllabiContextTaken) {
+        scrollToField('syllabiSchoolYear');
+        document.getElementById('syllabiSchoolYear')?.focus();
+        showValidationErrors([{
+            field: "syllabiSchoolYear",
+            message: (document.getElementById('syllabiContextHint')?.textContent || '').trim()
+                || "This semester and school year are already registered. You cannot save another copy.",
+        }]);
+        return;
+    }
     if (window.drfNoDuplicate) {
         scrollToField('drfNo');
         document.getElementById('drfNo')?.focus();
@@ -7065,6 +7127,15 @@ document.addEventListener("keydown", function (e) {
     if (modal?.classList.contains("is-open")) closeConfirmModal();
 });
 window.submitForm = function () {
+    if (window.__isSyllabiMode && window.syllabiContextTaken) {
+        showValidationErrors([{
+            field: "syllabiSchoolYear",
+            message: (document.getElementById('syllabiContextHint')?.textContent || '').trim()
+                || "This semester and school year are already registered. You cannot save another copy.",
+        }]);
+        return;
+    }
+    if (typeof unlockSyllabiContextForSubmit === 'function') unlockSyllabiContextForSubmit();
     const ack = document.getElementById('confirmSaveAnyway');
     if (ack && !ack.checked) {
         alert('Please confirm that you reviewed the missing information before saving.');
@@ -7138,7 +7209,16 @@ function showSavingDocumentOverlay() {
     }
 }
 
+function unlockSyllabiContextForSubmit() {
+    ['syllabiCollege', 'syllabiProgram', 'syllabiSemester', 'syllabiCourseType', 'syllabiSchoolYear']
+        .forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = false;
+        });
+}
+
 function prepareDraftSubmitDefaults() {
+    unlockSyllabiContextForSubmit();
     const approvalChecked = document.querySelector('input[name="approval_status"]:checked');
     if (!approvalChecked) {
         const na = document.querySelector('input[name="approval_status"][value="not_applicable"]');
@@ -7148,6 +7228,7 @@ function prepareDraftSubmitDefaults() {
 }
 
 window.__regDraftCanSave = function () {
+    if (window.__isSyllabiMode && window.syllabiContextTaken) return false;
     const version = document.getElementById('versionType')?.value;
     const docType = document.getElementById('docType')?.value;
     if (!version || !docType) return false;
@@ -7410,6 +7491,7 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 @include('pages.dcs.register.partials.dist-office-groups-script')
 @include('pages.dcs.register.partials.scan-name-preview')
-<script src="{{ asset('js/dcs/register-draft-guard.js') }}"></script>
+<script src="{{ asset('js/dcs/register-draft-guard.js') }}?v={{ filemtime(public_path('js/dcs/register-draft-guard.js')) }}"></script>
 <script src="{{ asset('js/dcs/register-drf-no-unique.js') }}"></script>
+<script src="{{ asset('js/dcs/register-number-suggest.js') }}?v={{ filemtime(public_path('js/dcs/register-number-suggest.js')) }}"></script>
 @endif

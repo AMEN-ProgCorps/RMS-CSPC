@@ -209,6 +209,32 @@ class ReportHelper
         return strtolower(trim((string) $dir)) === 'desc' ? 'desc' : 'asc';
     }
 
+    private function sqlSortDir(array $filters): string
+    {
+        return ($filters['sort_dir'] ?? 'asc') === 'desc' ? 'DESC' : 'ASC';
+    }
+
+    private function orderByNullableDate($query, string $column, array $filters, ?string $timeColumn = null)
+    {
+        $dir = $this->sqlSortDir($filters);
+        $driver = \Illuminate\Support\Facades\Schema::getConnection()->getDriverName();
+        if ($driver === 'pgsql') {
+            $query->orderByRaw($column.' '.$dir.' NULLS LAST');
+            if ($timeColumn) {
+                $query->orderByRaw($timeColumn.' '.$dir.' NULLS LAST');
+            }
+        } else {
+            $query->orderByRaw('CASE WHEN '.$column.' IS NULL THEN 1 ELSE 0 END')
+                ->orderByRaw($column.' '.$dir);
+            if ($timeColumn) {
+                $query->orderByRaw('CASE WHEN '.$timeColumn.' IS NULL THEN 1 ELSE 0 END')
+                    ->orderByRaw($timeColumn.' '.$dir);
+            }
+        }
+
+        return $query;
+    }
+
     private function applySubTypeFilter($query, array $filters)
     {
         if (!empty($filters['sub_type_empty'])) {
@@ -1138,18 +1164,8 @@ class ReportHelper
             }
         }
 
-        $driver = \Illuminate\Support\Facades\Schema::getConnection()->getDriverName();
-        if ($driver === 'pgsql') {
-            $query->orderByRaw('drf.drf_date ASC NULLS LAST')
-                ->orderByRaw('drf.drf_receipt_time ASC NULLS LAST')
-                ->orderBy('drf.id');
-        } else {
-            $query->orderByRaw('CASE WHEN drf.drf_date IS NULL THEN 1 ELSE 0 END')
-                ->orderBy('drf.drf_date')
-                ->orderByRaw('CASE WHEN drf.drf_receipt_time IS NULL THEN 1 ELSE 0 END')
-                ->orderBy('drf.drf_receipt_time')
-                ->orderBy('drf.id');
-        }
+        $this->orderByNullableDate($query, 'drf.drf_date', $filters, 'drf.drf_receipt_time')
+            ->orderBy('drf.id');
         $drfs = $query->get();
 
         $rows = $drfs->map(function ($drf, $index) {
@@ -1210,18 +1226,8 @@ class ReportHelper
             }
         }
 
-        $driver = \Illuminate\Support\Facades\Schema::getConnection()->getDriverName();
-        if ($driver === 'pgsql') {
-            $query->orderByRaw('dcn.dcn_date ASC NULLS LAST')
-                ->orderByRaw('dcn.dcn_receipt_time ASC NULLS LAST')
-                ->orderBy('dcn.id');
-        } else {
-            $query->orderByRaw('CASE WHEN dcn.dcn_date IS NULL THEN 1 ELSE 0 END')
-                ->orderBy('dcn.dcn_date')
-                ->orderByRaw('CASE WHEN dcn.dcn_receipt_time IS NULL THEN 1 ELSE 0 END')
-                ->orderBy('dcn.dcn_receipt_time')
-                ->orderBy('dcn.id');
-        }
+        $this->orderByNullableDate($query, 'dcn.dcn_date', $filters, 'dcn.dcn_receipt_time')
+            ->orderBy('dcn.id');
         $dcns = $query->get();
         $revsByDcn = DB::table('dcs_doc_revision')->whereIn('dcn_id', $dcns->pluck('id'))->orderBy('id')->get()->groupBy('dcn_id');
 
@@ -1779,6 +1785,7 @@ class ReportHelper
 
         $docs = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
+        $docs = $this->sortMonitoringDocs($docs, $filters);
 
         $counter = 0;
         $rows = $docs->map(function ($doc) use (&$counter, $filters) {

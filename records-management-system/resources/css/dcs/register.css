@@ -2922,19 +2922,7 @@ select.reg-field-locked:disabled {
 }
 
 .reg-autosave-status {
-    display: inline-flex;
-    align-items: center;
-    align-self: center;
-    margin-left: 10px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1.3;
-    color: #334155;
-    background: #f1f5f9;
-    border: 1px solid #e2e8f0;
-    max-width: min(360px, 46vw);
+    display: none !important;
 }
 
 .reg-autosave-status[hidden],
@@ -3937,4 +3925,106 @@ select.reg-field-locked:disabled {
     .reg-modal {
         max-height: 90vh;
     }
+}
+
+.reg-number-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: #475569;
+}
+
+.reg-number-hint button {
+    margin-left: 6px;
+    border: 0;
+    background: none;
+    color: #1d4ed8;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+}
+
+.reg-modal--insert {
+    max-width: 560px;
+}
+
+#docNoInsertModal.is-open {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 40000;
+    pointer-events: auto;
+}
+
+.reg-insert-lead {
+    margin: 0 0 12px;
+    color: var(--reg-text-muted, #475569);
+    font-size: 0.9rem;
+}
+
+.reg-insert-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.reg-insert-choice {
+    text-align: left;
+    border: 1px solid var(--reg-border, #cbd5e1);
+    background: #fff;
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+}
+
+.reg-insert-choice:hover {
+    border-color: #2563eb;
+    background: #f8fafc;
+}
+
+.reg-insert-choice strong {
+    display: block;
+    margin-bottom: 2px;
+}
+
+.reg-insert-choice span {
+    font-size: 12px;
+    color: #64748b;
+}
+
+.reg-insert-letters {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 13px;
+}
+
+.reg-insert-preview {
+    margin-top: 14px;
+}
+
+.reg-insert-preview-table-wrap {
+    max-height: 220px;
+    overflow: auto;
+    border: 1px solid var(--reg-border, #cbd5e1);
+    border-radius: 6px;
+}
+
+.reg-insert-preview table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.reg-insert-preview th,
+.reg-insert-preview td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #e2e8f0;
+    text-align: left;
+}
+
+.reg-insert-error {
+    color: #dc2626;
+    font-size: 12px;
 }

@@ -486,14 +486,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
     public function openPrintModal(int $clusterId, string $formType): void
     {
-        $this->openDetailModal($clusterId, $formType);
+        $this->showDetailModal = false;
+        $data = $this->fetchClusterData($clusterId, $formType);
+        $this->selectedCluster = $data['cluster'];
+        $this->clusterItems = $data['items'];
         $this->printCluster = $this->selectedCluster;
         $this->printItems = $this->clusterItems;
 
         $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
         $this->includeDescriptionOnPrint = (\Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_include_description_on_print')->value('value') === 'true');
-        $this->rdpPrintFontFamily = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_print_font_family')->value('value') ?: 'Arial, sans-serif';
-        $this->rdpPrintFontSize = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_print_font_size')->value('value') ?: '8.5pt';
+        $this->rdpPrintFontFamily = 'Arial, sans-serif';
+        $this->rdpPrintFontSize = '12px';
 
         if ($this->printCluster) {
             if (!empty($this->printCluster->office_name)) {
@@ -1831,11 +1834,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
         /* Print Modal & Media Query Defaults */
         @media print {
-            @page {
-                size: portrait;
-                margin: 10px;
-            }
-
             :root {
                 zoom: 1 !important;
             }
@@ -1849,11 +1847,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 max-height: none !important;
                 overflow: visible !important;
                 position: static !important;
-                font-family: Arial, sans-serif !important;
-                font-size: 12px !important;
             }
 
-            /* Hide web application layout components (header, sidebar, chatify, etc.) */
+            /* Hide web application layout components (header, sidebar, chatify, tables, buttons, etc.) */
             header,
             nav,
             .navigation,
@@ -1864,7 +1860,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             .pending-table-wrapper,
             .card-grid,
             .no-print,
-            .modal-card > *:not(.printable-report-area) {
+            .modal-card > .no-print,
+            footer {
                 display: none !important;
             }
 
@@ -1896,7 +1893,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 overflow: visible !important;
                 margin: 0 !important;
                 padding: 0 !important;
-                background: #ffffff !important;
+                background: transparent !important;
             }
 
             .modal-card {
@@ -1909,71 +1906,44 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 overflow: visible !important;
                 margin: 0 !important;
                 padding: 0 !important;
-                background: #ffffff !important;
+                background: transparent !important;
                 border: none !important;
                 box-shadow: none !important;
             }
 
-            .printable-report-area {
+            .print-sheet {
                 display: block !important;
                 visibility: visible !important;
-                position: static !important;
-                width: 100% !important;
-                height: auto !important;
-                overflow: visible !important;
-                margin: 0 !important;
-                padding: 10px !important;
-                box-sizing: border-box !important;
-                border: none !important;
-                background: #ffffff !important;
                 box-shadow: none !important;
-                font-family: Arial, sans-serif !important;
-                font-size: 12px !important;
+                padding: 0 !important;
+                width: 100% !important;
+                margin: 0 0 0 0 !important;
+                background: #ffffff !important;
+                page-break-after: always;
+                break-after: page;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
             }
 
-            .printable-report-area * {
+            .print-sheet:last-child {
+                page-break-after: auto;
+                break-after: auto;
+            }
+
+            .print-sheet,
+            .print-sheet * {
                 visibility: visible !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
             }
 
-            .printable-report-area table {
-                font-size: 12px !important;
+            .print-sheet table {
                 width: 100% !important;
             }
 
-            .printable-report-area thead {
-                display: table-header-group !important;
-            }
-
-            .printable-report-area tr {
+            .print-sheet tr {
                 page-break-inside: avoid !important;
                 break-inside: avoid !important;
-            }
-
-            .nap-form-2-print,
-            .nap-form-2-print *,
-            .nap-form-3-print,
-            .nap-form-3-print * {
-                font-family: Arial, sans-serif !important;
-                font-size: 12px !important;
-            }
-
-            .nap-form-2-print table,
-            .nap-form-3-print table {
-                font-size: 12px !important;
-            }
-
-            .nap-form-2-print th, .nap-form-2-print td,
-            .nap-form-3-print th, .nap-form-3-print td {
-                font-size: 12px !important;
-                padding: 6px 8px !important;
-            }
-
-            .print-signatures-block {
-                page-break-before: always !important;
-                break-before: page !important;
-                page-break-inside: avoid !important;
-                break-inside: avoid !important;
-                display: block !important;
             }
         }
     </style>
@@ -2012,7 +1982,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     <tr>
                         <th style="width: 90px;">Main ID</th>
                         <th>Cluster Name</th>
-                        <th>Submitting Office</th>
                         <th>Submitted By</th>
                         <th style="width: 110px; text-align: center;">Total Items</th>
                         <th style="width: 140px;">Date Submitted</th>
@@ -2027,7 +1996,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                 <span class="form-type-pill">{{ $c->form_label }}</span>
                                 <strong>{{ $c->cluster_name }}</strong>
                             </td>
-                            <td>{{ $c->office_name ?? $c->office ?? 'N/A' }}</td>
                             <td>{{ $c->submitter_name ?: 'System User' }}</td>
                             <td style="text-align: center;"><strong>{{ $c->total_items }}</strong></td>
                             <td>{{ \Carbon\Carbon::parse($c->created_at)->format('M d, Y g:i A') }}</td>
@@ -2038,7 +2006,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" style="text-align: center; padding: 48px; color: #64748b;">
+                            <td colspan="6" style="text-align: center; padding: 48px; color: #64748b;">
                                 No pending clusters found matching your query.
                             </td>
                         </tr>
@@ -2178,7 +2146,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
     {{-- Detail Modal --}}
     @if($showDetailModal && $selectedCluster)
-        <div class="modal-overlay">
+        <div class="modal-overlay no-print">
             <div class="modal-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
                     <div>
@@ -2252,8 +2220,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         @endphp
         <style>
             :root {
-                --rdp-print-font: {{ $rdpPrintFontFamily ?: 'Arial, sans-serif' }};
-                --rdp-print-size: {{ $rdpPrintFontSize ?: '8.5pt' }};
+                --rdp-print-font: Arial, sans-serif;
+                --rdp-print-size: 12px;
             }
             .print-sheet {
                 width: 100%;
@@ -2262,18 +2230,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 padding: 24px 28px;
                 box-sizing: border-box;
                 color: #000000;
-                font-family: var(--rdp-print-font), Arial, Helvetica, sans-serif !important;
-                font-size: var(--rdp-print-size) !important;
+                font-family: Arial, sans-serif !important;
+                font-size: 12px !important;
                 margin-bottom: 24px;
             }
             .print-sheet table, .print-sheet th, .print-sheet td, .print-sheet div, .print-sheet span, .print-sheet strong {
-                font-family: var(--rdp-print-font), Arial, Helvetica, sans-serif !important;
+                font-family: Arial, sans-serif !important;
             }
             .print-table {
                 width: 100%;
                 border-collapse: collapse;
                 border: 2px solid #000000;
-                font-size: var(--rdp-print-size) !important;
+                font-size: 12px !important;
                 margin-top: 0;
                 background: #ffffff;
             }
@@ -2283,7 +2251,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 background: #ffffff;
                 text-align: center;
                 font-weight: bold;
-                font-size: var(--rdp-print-size) !important;
+                font-size: 12px !important;
                 vertical-align: middle;
                 color: #000000;
             }
@@ -2294,20 +2262,63 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 border-bottom: none;
                 padding: 3px 4px;
                 vertical-align: top;
-                font-size: var(--rdp-print-size) !important;
+                font-size: 12px !important;
                 color: #000000;
                 background: #ffffff;
             }
             @media print {
-                body { background: #ffffff !important; margin: 0 !important; padding: 0 !important; }
-                header, #navigation, .no-print, .modal-overlay > :not(.modal-card), footer { display: none !important; }
-                .modal-overlay { position: static !important; background: none !important; padding: 0 !important; display: block !important; }
-                .modal-card { background: none !important; max-width: 100% !important; max-height: none !important; padding: 0 !important; box-shadow: none !important; overflow: visible !important; width: 100% !important; border: none !important; }
-                .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; margin-bottom: 0 !important; page-break-after: always; break-after: page; }
-                .print-sheet:last-child { page-break-after: auto; break-after: auto; }
                 @page {
-                    size: {{ $isNap1 ? '8.5in 13in landscape' : '8.5in 13in portrait' }};
-                    margin: {{ $isNap1 ? '0.4in' : '0.4in' }};
+                    size: {{ $isNap1 ? '13in 8.5in' : '8.5in 13in' }};
+                    margin: 0.4in;
+                }
+                body {
+                    background: #ffffff !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    font-family: Arial, sans-serif !important;
+                    font-size: 12px !important;
+                }
+                header, #navigation, .no-print, .modal-overlay.no-print, .modal-overlay > :not(.modal-card), footer {
+                    display: none !important;
+                }
+                .modal-overlay {
+                    position: static !important;
+                    background: none !important;
+                    padding: 0 !important;
+                    display: block !important;
+                }
+                .modal-card {
+                    background: none !important;
+                    max-width: 100% !important;
+                    max-height: none !important;
+                    padding: 0 !important;
+                    box-shadow: none !important;
+                    overflow: visible !important;
+                    width: 100% !important;
+                    border: none !important;
+                }
+                .print-sheet {
+                    display: block !important;
+                    visibility: visible !important;
+                    box-shadow: none !important;
+                    padding: 0 !important;
+                    width: 100% !important;
+                    margin: 0 0 0 0 !important;
+                    page-break-after: always;
+                    break-after: page;
+                    background: #ffffff !important;
+                    font-family: Arial, sans-serif !important;
+                    font-size: 12px !important;
+                }
+                .print-sheet:last-child {
+                    page-break-after: auto;
+                    break-after: auto;
+                }
+                .print-sheet, .print-sheet * {
+                    visibility: visible !important;
+                    font-family: Arial, sans-serif !important;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
                 }
             }
         </style>

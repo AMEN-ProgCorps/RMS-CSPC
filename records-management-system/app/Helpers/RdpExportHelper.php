@@ -1659,11 +1659,11 @@ class RdpExportHelper
 <meta charset="utf-8">
 <style>
     @page {
-        size: legal landscape;
+        size: 13in 8.5in;
         margin: 8mm 8mm 8mm 8mm;
     }
     body {
-        font-family: Helvetica, Arial, sans-serif;
+        font-family: Arial, Helvetica, sans-serif;
         font-size: 8px;
         color: #000000;
         margin: 0;
@@ -2010,7 +2010,7 @@ class RdpExportHelper
         margin: 10mm 10mm 10mm 10mm;
     }
     body {
-        font-family: Helvetica, Arial, sans-serif;
+        font-family: Arial, Helvetica, sans-serif;
         font-size: 9px;
         color: #000000;
         margin: 0;
@@ -2355,7 +2355,7 @@ class RdpExportHelper
         margin: 10mm 10mm 10mm 10mm;
     }
     body {
-        font-family: Helvetica, Arial, sans-serif;
+        font-family: Arial, Helvetica, sans-serif;
         font-size: 8.5px;
         color: #000000;
         margin: 0;
@@ -2596,7 +2596,7 @@ class RdpExportHelper
             $paperOrientation = 'portrait';
         } else {
             $html = self::buildNap1Html($cluster, $items, $signatures);
-            $paperSize = 'legal';
+            $paperSize = [0, 0, 612.00, 936.00];
             $paperOrientation = 'landscape';
         }
 

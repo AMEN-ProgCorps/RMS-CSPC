@@ -60,6 +60,110 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     public string $effectivePrintLocation = '';
     public string $effectivePrintVolume = '';
 
+    // Status Messages
+    public string $successMessage = '';
+    public string $errorMessage = '';
+
+    public function clearMessages(): void
+    {
+        $this->successMessage = '';
+        $this->errorMessage = '';
+    }
+
+    public function cancelCluster(): void
+    {
+        $this->clearMessages();
+
+        if (!$this->selectedCluster) {
+            return;
+        }
+
+        $clusterId = (int)($this->selectedCluster->cluster_id ?? 0);
+        $formCode = strtolower($this->selectedCluster->form_code ?? '');
+        $formLabel = strtolower($this->selectedCluster->form_label ?? '');
+        $statusId = (int)($this->selectedCluster->status_id ?? 1);
+
+        if ($clusterId <= 0) {
+            $this->errorMessage = 'Invalid cluster ID.';
+            return;
+        }
+
+        if ($statusId === 2) {
+            $this->errorMessage = 'Approved or verified clusters cannot be cancelled.';
+            return;
+        }
+
+        $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
+
+        DB::beginTransaction();
+        try {
+            if ($formCode === 'nap2' || str_contains($formLabel, 'form 2')) {
+                DB::table('rdp_grouped_record_series')->where('group_head', $clusterId)->delete();
+                DB::table('rdp_pending_record_series')->where('cluster_id', $clusterId)->delete();
+            } else {
+                DB::table('rdp_grouped_record')->where('group_head', $clusterId)->delete();
+                DB::table('rdp_pending_record')->where('cluster_id', $clusterId)->delete();
+            }
+
+            DB::table($mainPendingTbl)->where('id', $clusterId)->delete();
+
+            DB::commit();
+
+            $clusterName = $this->selectedCluster->cluster_name ?? 'Cluster';
+            $this->closeDetailModal();
+            $this->successMessage = "Cluster '{$clusterName}' was successfully cancelled. Its items have been released.";
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->errorMessage = 'Failed to cancel cluster: ' . $e->getMessage();
+        }
+    }
+
+    public function markClusterPrinted(): void
+    {
+        $clusterId = (int)($this->printCluster?->cluster_id ?? 0);
+        if ($clusterId <= 0) return;
+
+        $formCode = strtolower($this->printCluster?->form_code ?? '');
+        $formLabel = strtolower($this->printCluster?->form_label ?? '');
+
+        if ($formCode === 'nap2' || str_contains($formLabel, 'form 2')) {
+            DB::table('rdp_pending_record_series')
+                ->where('cluster_id', $clusterId)
+                ->update([
+                    'is_printed' => true,
+                    'updated_at' => now(),
+                ]);
+        } else {
+            DB::table('rdp_pending_record')
+                ->where('cluster_id', $clusterId)
+                ->update([
+                    'is_printed' => true,
+                    'updated_at' => now(),
+                ]);
+        }
+    }
+
+    public function markClusterDownloaded(int $clusterId, string $formCode): void
+    {
+        if ($clusterId <= 0) return;
+
+        if ($formCode === 'nap2' || str_contains(strtolower($formCode), 'form 2')) {
+            DB::table('rdp_pending_record_series')
+                ->where('cluster_id', $clusterId)
+                ->update([
+                    'is_downloaded' => true,
+                    'updated_at' => now(),
+                ]);
+        } else {
+            DB::table('rdp_pending_record')
+                ->where('cluster_id', $clusterId)
+                ->update([
+                    'is_downloaded' => true,
+                    'updated_at' => now(),
+                ]);
+        }
+    }
+
     public function mount(): void
     {
         $perms = Auth::user()?->permissions;
@@ -91,6 +195,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $this->activeTab = $tab;
         $this->search = '';
         $this->statusFilter = '';
+        $this->clearMessages();
     }
 
     public function fetchClusterData(int $clusterId, string $formType): array
@@ -328,9 +433,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         ];
 
         $fileName = \Illuminate\Support\Str::slug($cluster->cluster_name . '-' . $formCode) . '-' . now()->format('Ymd-His') . '.xlsx';
+        $targetClusterId = (int)($cluster->cluster_id ?? $this->downloadClusterId);
+        $this->markClusterDownloaded($targetClusterId, $formCode);
 
         if ($isNap1) {
-            $treeData = $this->buildNapRecordTree((int)($cluster->cluster_id ?? $this->downloadClusterId), false);
+            $treeData = $this->buildNapRecordTree($targetClusterId, false);
             $exportItems = $treeData['tree'];
             $this->closeDownloadModal();
             return RdpExportHelper::streamNap1Xlsx($fileName, $cluster, $exportItems, $signatures);
@@ -478,6 +585,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         ];
 
         $fileName = \Illuminate\Support\Str::slug($cluster->cluster_name . '-' . $formCode) . '-' . now()->format('Ymd-His') . '.pdf';
+        $targetClusterId = (int)($cluster->cluster_id ?? $this->downloadClusterId);
+        $this->markClusterDownloaded($targetClusterId, $formCode);
 
         $this->closeDownloadModal();
 
@@ -1282,6 +1391,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     DB::raw("CONCAT({$accDetailsTbl}.first_name, ' ', {$accDetailsTbl}.last_name) as submitter_name"),
                     DB::raw("'NAP Form 2' as form_label"),
                     DB::raw("'nap2' as form_code"),
+                    'rdp_pending_record_series.is_printed',
+                    'rdp_pending_record_series.is_downloaded',
                     DB::raw("(SELECT COUNT(*) FROM rdp_grouped_record_series WHERE group_head = rdp_pending_record_series.cluster_id) as total_items")
                 ]);
 
@@ -1330,6 +1441,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     DB::raw("CONCAT({$accDetailsTbl}.first_name, ' ', {$accDetailsTbl}.last_name) as submitter_name"),
                     DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'NAP Form 3' ELSE 'NAP Form 1' END as form_label"),
                     DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'nap3' ELSE 'nap1' END as form_code"),
+                    'rdp_pending_record.is_printed',
+                    'rdp_pending_record.is_downloaded',
                     DB::raw("(SELECT COUNT(*) FROM rdp_grouped_record WHERE group_head = rdp_pending_record.cluster_id) as total_items")
                 ]);
 
@@ -1975,6 +2088,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         </div>
     </div>
 
+    @if(!empty($successMessage))
+        <div class="alert-msg alert-success" style="padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; font-weight: 500; background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; display: flex; justify-content: space-between; align-items: center;">
+            <span>{{ $successMessage }}</span>
+            <button type="button" wire:click="clearMessages" style="background: none; border: none; font-size: 18px; color: #15803d; cursor: pointer; line-height: 1;">&times;</button>
+        </div>
+    @endif
+    @if(!empty($errorMessage))
+        <div class="alert-msg alert-error" style="padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; font-weight: 500; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; display: flex; justify-content: space-between; align-items: center;">
+            <span>{{ $errorMessage }}</span>
+            <button type="button" wire:click="clearMessages" style="background: none; border: none; font-size: 18px; color: #b91c1c; cursor: pointer; line-height: 1;">&times;</button>
+        </div>
+    @endif
+
     @if($layoutMode === 'table')
         <div class="pending-table-wrapper">
             <table class="pending-table">
@@ -1990,10 +2116,26 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 </thead>
                 <tbody>
                     @forelse($clusters as $c)
+                        @php
+                            $isSubmittedForApproval = (bool)($c->is_printed || $c->is_downloaded);
+                        @endphp
                         <tr>
                             <td><strong>#{{ $c->main_id }}</strong></td>
                             <td>
-                                <span class="form-type-pill">{{ $c->form_label }}</span>
+                                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px;">
+                                    <span class="form-type-pill">{{ $c->form_label }}</span>
+                                    @if($isSubmittedForApproval)
+                                        <span style="background: #ecfdf5; color: #15803d; border: 1px solid #bbf7d0; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 4px;" title="This document has been finalized (printed/downloaded) and is now submitted for approval.">
+                                            <svg style="width: 11px; height: 11px;" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>
+                                            Submitted for Approval
+                                        </span>
+                                    @else
+                                        <span style="background: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 4px;" title="Print or download this document to make it visible on the For Approval page.">
+                                            <svg style="width: 11px; height: 11px;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                                            Pending Print / Download
+                                        </span>
+                                    @endif
+                                </div>
                                 <strong>{{ $c->cluster_name }}</strong>
                             </td>
                             <td>{{ $c->submitter_name ?: 'System User' }}</td>
@@ -2017,12 +2159,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     @else
         <div class="card-grid">
             @forelse($clusters as $c)
+                @php
+                    $isSubmittedForApproval = (bool)($c->is_printed || $c->is_downloaded);
+                @endphp
                 <div class="cluster-card">
                     <div>
                         <div class="card-header">
-                            <div>
+                            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                                 <span class="form-type-pill">{{ $c->form_label }}</span>
                                 <span style="font-size: 12px; font-weight: 700; color: #64748b;">#{{ $c->main_id }}</span>
+                                @if($isSubmittedForApproval)
+                                    <span style="background: #ecfdf5; color: #15803d; border: 1px solid #bbf7d0; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 9999px;">
+                                        Submitted for Approval
+                                    </span>
+                                @else
+                                    <span style="background: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 9999px;">
+                                        Pending Print / Download
+                                    </span>
+                                @endif
                             </div>
                         </div>
                         <h3 class="card-title">{{ $c->cluster_name }}</h3>
@@ -2197,6 +2351,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         @endforeach
                     </tbody>
                 </table>
+                <div style="margin-top: 20px; padding-top: 14px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        @if(($selectedCluster->status_id ?? 1) != 2)
+                            <button type="button"
+                                wire:click="cancelCluster"
+                                wire:confirm="Are you sure you want to cancel and remove this cluster? The items will be returned to your records/series list."
+                                style="padding: 8px 14px; background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; border-radius: 6px; font-weight: 700; font-size: 12.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;"
+                                onmouseover="this.style.background='#fecaca'" onmouseout="this.style.background='#fee2e2'">
+                                <svg style="width: 15px; height: 15px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                </svg>
+                                Cancel Cluster
+                            </button>
+                        @endif
+                    </div>
+                    <div>
+                        <button type="button" wire:click="closeDetailModal" style="padding: 8px 16px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 600; font-size: 12.5px; cursor: pointer;">
+                            Close
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     @endif
@@ -2366,7 +2541,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             </div>
                         </div>
 
-                        <button type="button" onclick="window.print()" class="btn-print" style="padding: 8px 16px; font-weight: 700; background: #16a34a; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 12.5px;">
+                        <button type="button" @click="$wire.markClusterPrinted().then(() => window.print()).catch(() => window.print())" class="btn-print" style="padding: 8px 16px; font-weight: 700; background: #16a34a; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 12.5px;">
                             Print Now
                         </button>
                         <button type="button" wire:click="closePrintModal" class="btn-view" style="padding: 8px 14px; background: #ffffff; color: #0f172a; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; font-size: 12.5px;">

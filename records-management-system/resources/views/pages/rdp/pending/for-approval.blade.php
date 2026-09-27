@@ -337,6 +337,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                 ->leftJoin($accDetailsTbl, 'rdp_pending_record_series.created_by', '=', "{$accDetailsTbl}.account_id")
                 ->leftJoin($officeTbl . ' as submitter_office', "{$accDetailsTbl}.office_id", '=', "submitter_office.id")
                 ->whereNotNull('rdp_pending_record_series.status_id')
+                ->where(function($q) {
+                    $q->where('rdp_pending_record_series.is_printed', true)
+                      ->orWhere('rdp_pending_record_series.is_downloaded', true);
+                })
                 ->select([
                     "{$mainPendingTbl}.id as main_id",
                     'rdp_pending_record_series.cluster_id',
@@ -377,6 +381,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                 ->leftJoin($accDetailsTbl, 'rdp_pending_record.created_by', '=', "{$accDetailsTbl}.account_id")
                 ->leftJoin($officeTbl . ' as submitter_office', "{$accDetailsTbl}.office_id", '=', "submitter_office.id")
                 ->whereNotNull('rdp_pending_record.status_id')
+                ->where(function($q) {
+                    $q->where('rdp_pending_record.is_printed', true)
+                      ->orWhere('rdp_pending_record.is_downloaded', true);
+                })
                 ->select([
                     "{$mainPendingTbl}.id as main_id",
                     'rdp_pending_record.cluster_id',

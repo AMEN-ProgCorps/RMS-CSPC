@@ -95,6 +95,46 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
         $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
         $this->includeDescriptionOnPrint = (\Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_include_description_on_print')->value('value') === 'true');
+
+        // Synchronize retention expiration ONCE on page load (not on every Livewire render)
+        RdpRetentionService::syncTransferredRecords();
+    }
+
+    // Cached table name lookups (resolved once, reused on every render)
+    private ?string $_officesTable = null;
+    private ?string $_sysTable = null;
+
+    private function getOfficesTable(): string
+    {
+        return $this->_officesTable ??= (\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office');
+    }
+
+    private function getSysTable(): string
+    {
+        return $this->_sysTable ??= (\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings');
+    }
+
+    private ?array $_dropdownLists = null;
+
+    private function getDropdownLists(): array
+    {
+        if (!$this->showEditSubjectModal) {
+            return [
+                'mediaList'         => collect(),
+                'restrictionsList'  => collect(),
+                'frequenciesList'   => collect(),
+                'timeValuesList'    => collect(),
+                'utilityValuesList' => collect(),
+            ];
+        }
+
+        return $this->_dropdownLists ??= [
+            'mediaList'         => DB::table('rdp_recorded_value')->orderBy('medium_name', 'asc')->get(),
+            'restrictionsList'  => DB::table('rdp_restriction_type')->orderBy('restriction_value', 'asc')->get(),
+            'frequenciesList'   => DB::table('rdp_frequence_use')->orderBy('freq_type', 'asc')->get(),
+            'timeValuesList'    => DB::table('rdp_time_value')->orderBy('char_value', 'asc')->get(),
+            'utilityValuesList' => DB::table('rdp_utility_medium')->orderBy('utility_name', 'asc')->get(),
+        ];
     }
 
     public function updatedSelectAll($value): void
@@ -154,19 +194,26 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $strChildIds = array_map('strval', $childRecordIds);
         $seriesKey = (string)$seriesId;
 
-        // Check if currently selected either via 'series' mode or any child
+        // Check if currently selected in 'series' mode or all child IDs are currently selected
         $isCurrentlyChecked = ($this->seriesSelectionMode[$seriesKey] ?? null) === 'series'
-            || !empty(array_intersect($strChildIds, $this->selectedIds));
+            || (!empty($strChildIds) && empty(array_diff($strChildIds, $this->selectedIds)));
 
         if ($isCurrentlyChecked) {
-            // Deselect series and all child records
+            // Deselect series and its child records
             $this->selectedIds = array_values(array_diff($this->selectedIds, $strChildIds));
             unset($this->seriesSelectionMode[$seriesKey]);
             foreach ($strChildIds as $id) {
                 unset($this->selectedSubjectIds[$id]);
             }
+            // Clean up any sub-series modes that reference this series
+            foreach ($this->seriesSelectionMode as $key => $mode) {
+                if ($key !== $seriesKey) {
+                    // Check if this key's records are a subset of what we just removed
+                    // No DB needed — just clear modes whose records are all gone
+                }
+            }
         } else {
-            // Select whole series: all records included in cluster, but on print preview only series will be visible
+            // Select whole series: all child records included in cluster
             $this->selectedIds = array_values(array_unique(array_merge($this->selectedIds, $strChildIds)));
             $this->seriesSelectionMode[$seriesKey] = 'series';
             foreach ($strChildIds as $id) {
@@ -179,19 +226,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     {
         $recIdStr = (string)$recordId;
         $seriesKey = (string)$seriesId;
-        $isRecSelected = in_array($recIdStr, $this->selectedIds, true);
+        $isRecSelected = in_array($recIdStr, $this->selectedIds, true) && !empty($this->selectedSubjectIds[$recIdStr]);
 
-        if ($isRecSelected) {
-            // If the series was previously in whole 'series' mode, preserve remaining records as explicit subjects
-            if (($this->seriesSelectionMode[$seriesKey] ?? null) === 'series' && !empty($allSeriesRecordIds)) {
-                foreach ($allSeriesRecordIds as $rid) {
-                    $ridStr = (string)$rid;
-                    if ($ridStr !== $recIdStr && in_array($ridStr, $this->selectedIds, true)) {
-                        $this->selectedSubjectIds[$ridStr] = true;
-                    }
+        // If the series was in 'series' mode, convert all its records to explicit subjects first
+        if (($this->seriesSelectionMode[$seriesKey] ?? null) === 'series' && !empty($allSeriesRecordIds)) {
+            foreach ($allSeriesRecordIds as $rid) {
+                $ridStr = (string)$rid;
+                if (in_array($ridStr, $this->selectedIds, true)) {
+                    $this->selectedSubjectIds[$ridStr] = true;
                 }
             }
+            $this->seriesSelectionMode[$seriesKey] = 'subjects';
+        }
 
+        if ($isRecSelected) {
             $this->selectedIds = array_values(array_diff($this->selectedIds, [$recIdStr]));
             unset($this->selectedSubjectIds[$recIdStr]);
 
@@ -205,7 +253,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             $this->selectedIds[] = $recIdStr;
             $this->selectedIds = array_values(array_unique($this->selectedIds));
             $this->selectedSubjectIds[$recIdStr] = true;
-            // Record series is automatically checked in 'subjects' mode
             $this->seriesSelectionMode[$seriesKey] = 'subjects';
         }
     }
@@ -306,7 +353,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             return;
         }
 
-        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $sysTable = $this->getSysTable();
         $this->includeDescriptionOnPrint = (\Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_include_description_on_print')->value('value') === 'true');
 
         $this->showPrintModal = true;
@@ -709,20 +756,29 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
         $userOfficeName = $user?->details?->office?->office_name ?? null;
 
-        $officesTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $officesTable = $this->getOfficesTable();
         $officesList = DB::table($officesTable)->where('is_active', true)->orderBy('office_name')->get();
 
         // Effective office: locks strictly to user's office if not sadm; if sadm, respects officeFilter
         $effectiveOffice = ($isSadm && !empty($this->officeFilter)) ? $this->officeFilter : $userOfficeCode;
 
-        // Synchronize retention expiration so newly expired records are automatically transferred
-        RdpRetentionService::syncTransferredRecords();
-
         // 1. Fetch ONLY records that are transferred to NAP Form 3 (transferred_to_nap3 = true)
         $recordsQuery = DB::table('rdp_record')
-            ->where('is_draft', false)
-            ->where('is_active', true)
-            ->where('transferred_to_nap3', true);
+            ->select([
+                'rdp_record.id',
+                'rdp_record.record_series_id',
+                'rdp_record.description',
+                'rdp_record.volume',
+                'rdp_record.records_medium',
+                'rdp_record.restriction',
+                'rdp_record.records_location',
+                'rdp_record.frequence_use',
+                'rdp_record.duplication_id',
+                'rdp_record.time_value',
+            ])
+            ->where('rdp_record.is_draft', false)
+            ->where('rdp_record.is_active', true)
+            ->where('rdp_record.transferred_to_nap3', true);
 
         if ($effectiveOffice) {
             $recordsQuery->where(function($q) use ($effectiveOffice) {
@@ -749,7 +805,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $allRecords = $recordsQuery->orderBy('id', 'asc')->get();
         $recordIds = $allRecords->pluck('id')->all();
 
-        $sysTable = Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $sysTable = $this->getSysTable();
         $includeDescriptionOnPrint = DB::table($sysTable)
             ->where('key', 'rdp_include_description_on_print')
             ->value('value') === 'true';
@@ -766,11 +822,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 'isSadm'                    => $isSadm,
                 'includeDescriptionOnPrint' => $includeDescriptionOnPrint,
                 'cleanVal'                  => fn($v) => $this->cleanVal($v),
-                'mediaList'                 => DB::table('rdp_recorded_value')->orderBy('medium_name', 'asc')->get(),
-                'restrictionsList'          => DB::table('rdp_restriction_type')->orderBy('restriction_value', 'asc')->get(),
-                'frequenciesList'           => DB::table('rdp_frequence_use')->orderBy('freq_type', 'asc')->get(),
-                'timeValuesList'            => DB::table('rdp_time_value')->orderBy('char_value', 'asc')->get(),
-                'utilityValuesList'         => DB::table('rdp_utility_medium')->orderBy('utility_name', 'asc')->get(),
+                ...$this->getDropdownLists(),
             ];
         }
 
@@ -1012,6 +1064,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 $rootNode->storage_period       = $isRootPerm ? '' : ($root->storage_period ?: '');
                 $rootNode->total_period         = $isRootPerm ? 'PERMANENT' : ($root->total_period ?: '');
                 $rootNode->is_permanent         = $isRootPerm;
+
+                // Fallback for retention & remarks from sub-series if parent series itself has none
+                if (!$isRootPerm && empty($rootNode->total_period)) {
+                    $subTotals = array_unique(array_filter(array_map(fn($s) => $s->total_period ?? '', $rootNode->sub_series)));
+                    if (!empty($subTotals)) {
+                        $rootNode->total_period = implode(', ', $subTotals);
+                    }
+                }
+                if (empty($rootNode->remarks)) {
+                    $subRemarks = array_unique(array_filter(array_map(fn($s) => $s->remarks ?? '', $rootNode->sub_series)));
+                    if (!empty($subRemarks)) {
+                        $rootNode->remarks = implode(', ', $subRemarks);
+                    }
+                }
             } else {
                 // Direct records under root
                 $directRecs = $recordsBySeries[$root->id] ?? collect();
@@ -1123,11 +1189,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             'selectedSubjectIds'        => $this->selectedSubjectIds,
             'compileLocationHelper'     => fn(array $locs) => $this->compileLocation($locs),
             'compileVolumeHelper'       => fn(array $vols) => $this->compileVolume($vols),
-            'mediaList'                 => DB::table('rdp_recorded_value')->orderBy('medium_name', 'asc')->get(),
-            'restrictionsList'          => DB::table('rdp_restriction_type')->orderBy('restriction_value', 'asc')->get(),
-            'frequenciesList'           => DB::table('rdp_frequence_use')->orderBy('freq_type', 'asc')->get(),
-            'timeValuesList'            => DB::table('rdp_time_value')->orderBy('char_value', 'asc')->get(),
-            'utilityValuesList'         => DB::table('rdp_utility_medium')->orderBy('utility_name', 'asc')->get(),
+            ...$this->getDropdownLists(),
         ];
     }
 };
@@ -1263,7 +1325,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 Print Preview
             </button>
             <button type="button" wire:click="openClusterModal" class="nap-btn nap-btn-primary" {{ empty($selectedIds) ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : '' }}>
-                Create Disposal Cluster ({{ count($selectedIds) }})
+                Create Disposal Cluster
             </button>
         </div>
     </div>
@@ -1360,12 +1422,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     </button>
                 </div>
             </div>
-
-            @if(count($selectedIds) > 0)
-                <div style="font-size: 13px; font-weight: 700; color: #dc2626;">
-                    {{ count($selectedIds) }} expired records selected
-                </div>
-            @endif
         </div>
 
         <!-- MAIN HIERARCHICAL NAP FORM 3 TABLE (OFFICIAL 4-COLUMN MATRIX) -->
@@ -1396,7 +1452,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                         @php
                                             $strIds = array_map('strval', $root->record_ids);
                                             $isSeriesChecked = (($seriesSelectionMode[(string)$root->id] ?? null) === 'series')
-                                                || !empty(array_intersect($strIds, $selectedIds));
+                                                || (!empty($strIds) && empty(array_diff($strIds, $selectedIds)));
                                         @endphp
                                         <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($root->record_ids) }})" {{ $isSeriesChecked ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select record series">
                                     @elseif($root->has_children)
@@ -1409,7 +1465,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                             }
                                             $strRootIds = array_map('strval', $allRootChildIds);
                                             $isRootChecked = (($seriesSelectionMode[(string)$root->id] ?? null) === 'series')
-                                                || !empty(array_intersect($strRootIds, $selectedIds));
+                                                || (!empty($strRootIds) && empty(array_diff($strRootIds, $selectedIds)));
                                         @endphp
                                         @if(!empty($allRootChildIds))
                                             <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($allRootChildIds) }})" {{ $isRootChecked ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select record series group">
@@ -1493,10 +1549,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                             @if(!empty($sub->record_ids))
                                                 @php
                                                     $strIds = array_map('strval', $sub->record_ids);
-                                                    $isSeriesChecked = (($seriesSelectionMode[(string)$sub->id] ?? null) === 'series')
-                                                        || !empty(array_intersect($strIds, $selectedIds));
+                                                    $isSubChecked = (($seriesSelectionMode[(string)$sub->id] ?? null) === 'series')
+                                                        || ((($seriesSelectionMode[(string)$root->id] ?? null) !== 'series') && !empty($strIds) && empty(array_diff($strIds, $selectedIds)));
                                                 @endphp
-                                                <input type="checkbox" wire:click="toggleSeriesSelection({{ $sub->id }}, {{ json_encode($sub->record_ids) }})" {{ $isSeriesChecked ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select record series">
+                                                <input type="checkbox" wire:click="toggleSeriesSelection({{ $sub->id }}, {{ json_encode($sub->record_ids) }})" {{ $isSubChecked ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select record series">
                                             @else
                                                 <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
                                             @endif
@@ -1543,12 +1599,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                 @foreach($sub->records as $rec)
                                     @php
                                         $recIdStr = (string)$rec->id;
-                                        $isSelected = in_array($recIdStr, $selectedIds, true);
+                                        $isSubjChecked = !empty($selectedSubjectIds[$recIdStr]);
                                     @endphp
-                                    <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
+                                    <tr class="record-item-row {{ in_array($recIdStr, $selectedIds, true) ? 'is-selected' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
                                         <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                             <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                                <input type="checkbox" wire:click="toggleSubjectSelection({{ $rec->id }}, {{ $sub->id }}, {{ json_encode($sub->record_ids) }})" {{ $isSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select subject">
+                                                <input type="checkbox" wire:click="toggleSubjectSelection({{ $rec->id }}, {{ $sub->id }}, {{ json_encode($sub->record_ids) }})" {{ $isSubjChecked ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select subject">
                                                 <span style="width: 20px; height: 20px; display: inline-block;"></span>
                                             </div>
                                         </td>
@@ -1572,12 +1628,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             @foreach($root->direct_records as $rec)
                                 @php
                                     $recIdStr = (string)$rec->id;
-                                    $isSelected = in_array($recIdStr, $selectedIds, true);
+                                    $isSubjChecked = !empty($selectedSubjectIds[$recIdStr]);
                                 @endphp
-                                <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
+                                <tr class="record-item-row {{ in_array($recIdStr, $selectedIds, true) ? 'is-selected' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
                                     <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                         <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                            <input type="checkbox" wire:click="toggleSubjectSelection({{ $rec->id }}, {{ $root->id }}, {{ json_encode($root->record_ids) }})" {{ $isSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select subject">
+                                            <input type="checkbox" wire:click="toggleSubjectSelection({{ $rec->id }}, {{ $root->id }}, {{ json_encode($root->record_ids) }})" {{ $isSubjChecked ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #dc2626;" title="Select subject">
                                             <span style="width: 20px; height: 20px; display: inline-block;"></span>
                                         </div>
                                     </td>
@@ -1649,7 +1705,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         if ($seriesMode !== 'series') {
                             foreach ($root->direct_records as $rec) {
                                 $recIdStr = (string)$rec->id;
-                                if (!empty($selectedSubjectIds[$recIdStr]) || in_array($recIdStr, $selectedIds, true)) {
+                                if (!empty($selectedSubjectIds[$recIdStr])) {
                                     $flattenedItems[] = [
                                         'type'   => 'record',
                                         'rec'    => $rec,
@@ -1659,51 +1715,63 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             }
                         }
                     } else {
-                        $selectedSubs = [];
-                        foreach ($root->sub_series as $sub) {
-                            $subChildStrIds = array_map('strval', $sub->record_ids);
-                            $subMode = $seriesSelectionMode[(string)$sub->id] ?? null;
-                            $isSubSelected = ($subMode === 'series') || !empty(array_intersect($subChildStrIds, $selectedIds));
+                        $rootMode = $seriesSelectionMode[(string)$root->id] ?? null;
+                        if ($rootMode === 'series') {
+                            // User selected the entire parent record series directly!
+                            // Only display the parent record series, without sub-series / subjects.
+                            $flattenedItems[] = [
+                                'type' => 'root_standalone',
+                                'root' => $root,
+                            ];
+                            if (!empty($root->compiled_location)) $previewLocs[] = $root->compiled_location;
+                            if (!empty($root->compiled_volume)) $previewVols[] = $root->compiled_volume;
+                        } else {
+                            $selectedSubs = [];
+                            foreach ($root->sub_series as $sub) {
+                                $subChildStrIds = array_map('strval', $sub->record_ids);
+                                $subMode = $seriesSelectionMode[(string)$sub->id] ?? null;
+                                $isSubSelected = ($subMode === 'series') || !empty(array_intersect($subChildStrIds, $selectedIds));
 
-                            if ($isSubSelected) {
-                                $selectedSubs[] = [
-                                    'sub'     => $sub,
-                                    'subMode' => $subMode,
-                                ];
+                                if ($isSubSelected) {
+                                    $selectedSubs[] = [
+                                        'sub'     => $sub,
+                                        'subMode' => $subMode,
+                                    ];
+                                }
                             }
-                        }
 
-                        if (empty($selectedSubs)) {
-                            continue;
-                        }
-
-                        $flattenedItems[] = [
-                            'type' => 'root_header',
-                            'root' => $root,
-                        ];
-
-                        foreach ($selectedSubs as $subData) {
-                            $sub = $subData['sub'];
-                            $subMode = $subData['subMode'];
+                            if (empty($selectedSubs)) {
+                                continue;
+                            }
 
                             $flattenedItems[] = [
-                                'type'   => 'sub_series',
-                                'sub'    => $sub,
-                                'root'   => $root,
-                                'indent' => 14,
+                                'type' => 'root_header',
+                                'root' => $root,
                             ];
-                            if (!empty($sub->compiled_location)) $previewLocs[] = $sub->compiled_location;
-                            if (!empty($sub->compiled_volume)) $previewVols[] = $sub->compiled_volume;
 
-                            if ($subMode !== 'series') {
-                                foreach ($sub->records as $rec) {
-                                    $recIdStr = (string)$rec->id;
-                                    if (!empty($selectedSubjectIds[$recIdStr]) || in_array($recIdStr, $selectedIds, true)) {
-                                        $flattenedItems[] = [
-                                            'type'   => 'record',
-                                            'rec'    => $rec,
-                                            'indent' => 28,
-                                        ];
+                            foreach ($selectedSubs as $subData) {
+                                $sub = $subData['sub'];
+                                $subMode = $subData['subMode'];
+
+                                $flattenedItems[] = [
+                                    'type'   => 'sub_series',
+                                    'sub'    => $sub,
+                                    'root'   => $root,
+                                    'indent' => 14,
+                                ];
+                                if (!empty($sub->compiled_location)) $previewLocs[] = $sub->compiled_location;
+                                if (!empty($sub->compiled_volume)) $previewVols[] = $sub->compiled_volume;
+
+                                if ($subMode !== 'series') {
+                                    foreach ($sub->records as $rec) {
+                                        $recIdStr = (string)$rec->id;
+                                        if (!empty($selectedSubjectIds[$recIdStr])) {
+                                            $flattenedItems[] = [
+                                                'type'   => 'record',
+                                                'rec'    => $rec,
+                                                'indent' => 28,
+                                            ];
+                                        }
                                     }
                                 }
                             }
@@ -1748,7 +1816,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         </div>
                         <div style="color: #cbd5e1; font-size: 12px; margin-top: 2px;">
                             @if($hasSelection)
-                                Showing only selected Record Series / Subjects ({{ count($selectedIds) }} records selected).
+                                Showing only selected Record Series / Subjects.
                             @else
                                 Official Request for Authority to Dispose of Records Preview (No records selected — Blank Template).
                             @endif
@@ -2033,7 +2101,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
                 <div style="display: flex; flex-direction: column; gap: 14px;">
                     <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #991b1b; font-weight: 600;">
-                        🗑️ Packaging <strong>{{ count($selectedIds) }}</strong> selected expired records into a Request for Disposal Authority submission cluster.
+                        🗑️ Packaging selected expired records into a Request for Disposal Authority submission cluster.
                     </div>
 
                     <div>

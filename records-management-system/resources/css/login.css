@@ -31,47 +31,42 @@ body {
 ========================================================================== */
 
 .salesskip-split-container {
+    position: relative;
     display: flex;
     flex-direction: row;
     width: 100vw;
     min-height: 100vh;
     min-height: 100dvh;
+    background-image: var(--login-bg, url('/images/background.png'));
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
     touch-action: pan-x pan-y;
 }
 
 /* ==========================================================================
-   LEFT PANE: Vibrant Royal Blue Hero (Desktop Side / Mobile Swipe-Revealed)
+   LEFT PANE: Campus Photo Hero (Desktop Left / Mobile Swipe-Revealed)
+   Background photo covers full screen; left half has dark overlay for readability
 ========================================================================== */
 
 .hero-blue-pane {
     position: relative;
     flex: 1 1 50%;
     width: 50%;
-    background: 
-        radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.55), transparent 45%),
-        radial-gradient(circle at 85% 85%, rgba(29, 78, 216, 0.6), transparent 50%),
-        linear-gradient(145deg, #1d4ed8 0%, #1e40af 50%, #172554 100%);
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.28) 0%, rgba(15, 23, 42, 0.16) 100%);
     color: #ffffff;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     overflow: hidden;
     padding: 56px clamp(36px, 4vw, 64px);
-    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.08);
     z-index: 2;
     box-sizing: border-box;
 }
 
-/* Wireframe Contour Waves in Background */
+/* Wireframe Contour Waves in Background (Hidden for Campus Photo) */
 .wireframe-waves-bg {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: 1;
-    overflow: hidden;
+    display: none !important;
 }
 
 .wireframe-waves-bg svg {
@@ -182,8 +177,9 @@ body {
     justify-content: space-between;
     padding: 56px clamp(36px, 4vw, 64px);
     position: relative;
-    z-index: 1;
+    z-index: 3;
     box-sizing: border-box;
+    box-shadow: -4px 0 16px rgba(0, 0, 0, 0.05);
 }
 
 /* Symmetrical Vertical Alignment Spacers */

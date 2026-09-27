@@ -16,32 +16,9 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
     @vite(['resources/css/login.css'])
 @endpush
 
-<div class="salesskip-split-container" id="main-swipe-wrapper">
-    <!-- LEFT PANEL: Vibrant Royal Blue Hero with Curves, Welcome & Developers -->
+<div class="salesskip-split-container" id="main-swipe-wrapper" style="--login-bg: url('{{ asset('images/background.png') }}');">
+    <!-- LEFT PANEL: Campus Photo Hero with Welcome & Developers -->
     <div class="hero-blue-pane" id="pane-blue">
-        <!-- Curved wireframe contour lines in background -->
-        <div class="wireframe-waves-bg" aria-hidden="true">
-            <svg viewBox="0 0 700 800" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
-                <g opacity="0.25" stroke="url(#hero-wave-glow)" stroke-width="1.8">
-                    <path d="M-60,90 C180,40 320,260 560,140 C740,40 840,280 1020,220" />
-                    <path d="M-60,160 C200,110 340,330 590,210 C770,110 870,350 1050,290" />
-                    <path d="M-60,230 C220,180 360,400 620,280 C800,180 900,420 1080,360" />
-                    <path d="M-60,300 C240,250 380,470 650,350 C830,250 930,490 1110,430" />
-                    <path d="M-60,370 C260,320 400,540 680,420 C860,320 960,560 1140,500" />
-                    <path d="M-60,440 C280,390 420,610 710,490 C890,390 990,630 1170,570" />
-                    <path d="M-60,510 C300,460 440,680 740,560 C920,460 1020,700 1200,640" />
-                    <path d="M-60,580 C320,530 460,750 770,630 C950,530 1050,770 1230,710" />
-                </g>
-                <defs>
-                    <linearGradient id="hero-wave-glow" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.9" />
-                        <stop offset="50%" stop-color="#60A5FA" stop-opacity="0.5" />
-                        <stop offset="100%" stop-color="#2563EB" stop-opacity="0.1" />
-                    </linearGradient>
-                </defs>
-            </svg>
-        </div>
-
         <div class="hero-inner-content">
             <!-- Symmetrical top spacer matching white top bar -->
             <div class="hero-top-spacer" aria-hidden="true"></div>

@@ -687,6 +687,802 @@ class RdpExportHelper
     }
 
     /**
+     * Generate high-fidelity OpenXML (.xlsx) binary matching official NAP Form 2 (2008).
+     */
+    public static function generateNap2TemplateXlsxBinary(
+        object $cluster,
+        array $items,
+        array $signatures = []
+    ): string {
+        $agency = $signatures['agencyName'] ?? (!empty($cluster->office_name) ? $cluster->office_name : 'Camarines Sur Polytechnic Colleges');
+        $address = $signatures['agencyAddress'] ?? 'San Miguel, Nabua, Camarines Sur';
+        $scheduleNo = $signatures['scheduleNo'] ?? (!empty($cluster->cluster_id) ? (string)$cluster->cluster_id : 'RDS-' . date('Y') . '-001');
+        $datePrepared = $signatures['datePrepared'] ?? (!empty($cluster->created_at) ? \Carbon\Carbon::parse($cluster->created_at)->format('m/d/Y') : date('m/d/Y'));
+
+        $preparedBy = $signatures['preparedBy'] ?? ($cluster->submitter_name ?? '');
+        $preparedPos = $signatures['preparedPosition'] ?? 'Administrative Officer V';
+        $assistedBy = $signatures['assistedBy'] ?? '';
+        $assistedPos = $signatures['assistedPosition'] ?? 'NAP Records Management Analyst';
+        $recommendingBy = $signatures['recommendingBy'] ?? '';
+        $recommendingPos = $signatures['recommendingPosition'] ?? 'Vice President for Administration';
+        $approvedBy = $signatures['approvedBy'] ?? '';
+        $approvedPos = $signatures['approvedPosition'] ?? 'College President';
+        $committeeChairman = $signatures['committeeChairmanName'] ?? '';
+        $committeeChairmanTitle = $signatures['committeeChairmanTitle'] ?? 'Chairman, Records Management Evaluation Committee';
+        $execDirector = $signatures['executiveDirectorName'] ?? '';
+        $execDirectorTitle = $signatures['executiveDirectorTitle'] ?? 'Executive Director';
+
+        // 7 columns: A (Item No: 12), B (Title 1: 20), C (Title 2: 24), D (Active: 11), E (Storage: 11), F (Total: 13), G (Remarks: 21)
+        // Left 50% = A+B+C = 56. Right 50% = D+E+F+G = 56. Total = 112.
+        $colWidths = [12.00, 20.00, 24.00, 11.00, 11.00, 13.00, 21.00];
+
+        $mergeCells = [];
+        $sheetXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' . "\n"
+            . '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            . '<sheetViews><sheetView workbookViewId="0" showGridLines="1"/></sheetViews>'
+            . '<sheetFormatPr defaultRowHeight="16"/>'
+            . '<cols>';
+
+        foreach ($colWidths as $idx => $w) {
+            $c = $idx + 1;
+            $sheetXml .= '<col min="' . $c . '" max="' . $c . '" width="' . $w . '" customWidth="1"/>';
+        }
+        $sheetXml .= '</cols><sheetData>';
+
+        // Row 1: Top Tag
+        $sheetXml .= '<row r="1" ht="14" customHeight="1">'
+            . '<c r="A1" t="inlineStr" s="0"><is><t>NAP Form 2&#10;2008</t></is></c>'
+            . '</row>';
+
+        // Row 2: Top Header Box (Left: National Archives, Right: Agency Name)
+        $sheetXml .= '<row r="2" ht="14" customHeight="1">'
+            . '<c r="A2" t="inlineStr" s="4"><is><t>NATIONAL ARCHIVES OF THE PHILIPPINES&#10;Pambansang Sinupan ng Pilipinas&#10;&#10;RECORDS DISPOSITION SCHEDULE</t></is></c>'
+            . '<c r="B2" s="4"/><c r="C2" s="4"/>'
+            . '<c r="D2" t="inlineStr" s="2"><is><t>1. AGENCY NAME:</t></is></c>'
+            . '<c r="E2" s="2"/><c r="F2" s="2"/><c r="G2" s="2"/>'
+            . '</row>';
+        $mergeCells[] = 'A2:C5';
+        $mergeCells[] = 'D2:G2';
+
+        // Row 3: Agency Name Value
+        $sheetXml .= '<row r="3" ht="20" customHeight="1">'
+            . '<c r="A3" s="4"/><c r="B3" s="4"/><c r="C3" s="4"/>'
+            . '<c r="D3" t="inlineStr" s="3"><is><t>' . htmlspecialchars($agency, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="E3" s="3"/><c r="F3" s="3"/><c r="G3" s="3"/>'
+            . '</row>';
+        $mergeCells[] = 'D3:G3';
+
+        // Row 4: Address Label
+        $sheetXml .= '<row r="4" ht="14" customHeight="1">'
+            . '<c r="A4" s="4"/><c r="B4" s="4"/><c r="C4" s="4"/>'
+            . '<c r="D4" t="inlineStr" s="2"><is><t>2. ADDRESS:</t></is></c>'
+            . '<c r="E4" s="2"/><c r="F4" s="2"/><c r="G4" s="2"/>'
+            . '</row>';
+        $mergeCells[] = 'D4:G4';
+
+        // Row 5: Address Value
+        $sheetXml .= '<row r="5" ht="22" customHeight="1">'
+            . '<c r="A5" s="4"/><c r="B5" s="4"/><c r="C5" s="4"/>'
+            . '<c r="D5" t="inlineStr" s="3"><is><t>' . htmlspecialchars($address, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="E5" s="3"/><c r="F5" s="3"/><c r="G5" s="3"/>'
+            . '</row>';
+        $mergeCells[] = 'D5:G5';
+
+        // Row 6: Schedule No (Left) & Date Prepared (Right)
+        $sheetXml .= '<row r="6" ht="18" customHeight="1">'
+            . '<c r="A6" t="inlineStr" s="2"><is><t>3. SCHEDULE NO.: ' . htmlspecialchars($scheduleNo, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="B6" s="2"/><c r="C6" s="2"/>'
+            . '<c r="D6" t="inlineStr" s="2"><is><t>4. DATE PREPARED: ' . htmlspecialchars($datePrepared, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="E6" s="2"/><c r="F6" s="2"/><c r="G6" s="2"/>'
+            . '</row>';
+        $mergeCells[] = 'A6:C6';
+        $mergeCells[] = 'D6:G6';
+
+        // Row 7: Main Table Headers Row 1
+        $sheetXml .= '<row r="7" ht="24" customHeight="1">'
+            . '<c r="A7" t="inlineStr" s="6"><is><t>5. ITEM NO.:</t></is></c>'
+            . '<c r="B7" t="inlineStr" s="6"><is><t>6. RECORD SERIES TITLE AND DESCRIPTION</t></is></c>'
+            . '<c r="C7" s="6"/>'
+            . '<c r="D7" t="inlineStr" s="6"><is><t>7. RETENTION PERIOD</t></is></c>'
+            . '<c r="E7" s="6"/><c r="F7" s="6"/>'
+            . '<c r="G7" t="inlineStr" s="6"><is><t>8. REMARKS</t></is></c>'
+            . '</row>';
+        $mergeCells[] = 'A7:A8';
+        $mergeCells[] = 'B7:C8';
+        $mergeCells[] = 'D7:F7';
+        $mergeCells[] = 'G7:G8';
+
+        // Row 8: Main Table Headers Row 2 (Subheaders)
+        $sheetXml .= '<row r="8" ht="16" customHeight="1">'
+            . '<c r="A8" s="6"/><c r="B8" s="6"/><c r="C8" s="6"/>'
+            . '<c r="D8" t="inlineStr" s="6"><is><t>Active</t></is></c>'
+            . '<c r="E8" t="inlineStr" s="6"><is><t>Storage</t></is></c>'
+            . '<c r="F8" t="inlineStr" s="6"><is><t>Total</t></is></c>'
+            . '<c r="G8" s="6"/>'
+            . '</row>';
+
+        $dash = function($val) {
+            $s = trim((string)$val);
+            return ($s === '' || $s === 'null' || $s === 'None' || $s === 'N/A') ? '—' : $s;
+        };
+
+        $r = 9;
+        $cols7 = ['A','B','C','D','E','F','G'];
+
+        foreach ($items as $item) {
+            if (is_array($item)) {
+                $item = (object)$item;
+            }
+            $mergeCells[] = 'B' . $r . ':C' . $r;
+
+            $itemNo = (string)($item->display_item_no ?? $item->item_no ?? $item->item_number ?? '');
+            $title = (string)($item->series_title ?? $item->title ?? '');
+            $depth = (int)($item->depth ?? 0);
+            $active = $item->effective_active ?? $item->active_period ?? $item->active ?? '';
+            $storage = $item->effective_storage ?? $item->storage_period ?? $item->storage ?? '';
+            $total = $item->effective_total ?? $item->total_period ?? $item->total ?? '';
+            $remarks = (string)($item->remarks ?? $item->rem ?? '');
+
+            $isH = !empty($item->is_header) || (!empty($item->is_root_parent) && !empty($item->has_children));
+            $isPerm = !empty($item->effective_is_permanent) || !empty($item->is_perm) || (strtolower(trim((string)$total)) === 'permanent');
+
+            $displayTitle = ($depth > 0) ? (str_repeat('   ', $depth) . '└ ' . $title) : ($isH ? strtoupper($title) : $title);
+
+            $sheetXml .= '<row r="' . $r . '" ht="19" customHeight="1">'
+                . '<c r="A' . $r . '" t="inlineStr" s="' . ($isH ? '10' : '9') . '"><is><t>' . htmlspecialchars($itemNo, ENT_XML1, 'UTF-8') . '</t></is></c>'
+                . '<c r="B' . $r . '" t="inlineStr" s="' . ($isH ? '8' : '7') . '"><is><t>' . htmlspecialchars($displayTitle, ENT_XML1, 'UTF-8') . '</t></is></c>'
+                . '<c r="C' . $r . '" s="' . ($isH ? '8' : '7') . '"/>';
+
+            if ($isH) {
+                $sheetXml .= '<c r="D' . $r . '" s="11"/><c r="E' . $r . '" s="11"/><c r="F' . $r . '" s="11"/><c r="G' . $r . '" s="11"/>';
+            } elseif ($isPerm) {
+                $mergeCells[] = 'D' . $r . ':F' . $r;
+                $sheetXml .= '<c r="D' . $r . '" t="inlineStr" s="10"><is><t>PERMANENT</t></is></c>'
+                    . '<c r="E' . $r . '" s="10"/><c r="F' . $r . '" s="10"/>'
+                    . '<c r="G' . $r . '" t="inlineStr" s="7"><is><t>' . htmlspecialchars($remarks, ENT_XML1, 'UTF-8') . '</t></is></c>';
+            } else {
+                $sheetXml .= '<c r="D' . $r . '" t="inlineStr" s="9"><is><t>' . htmlspecialchars($dash($active), ENT_XML1, 'UTF-8') . '</t></is></c>'
+                    . '<c r="E' . $r . '" t="inlineStr" s="9"><is><t>' . htmlspecialchars($dash($storage), ENT_XML1, 'UTF-8') . '</t></is></c>'
+                    . '<c r="F' . $r . '" t="inlineStr" s="10"><is><t>' . htmlspecialchars($dash($total), ENT_XML1, 'UTF-8') . '</t></is></c>'
+                    . '<c r="G' . $r . '" t="inlineStr" s="7"><is><t>' . htmlspecialchars($remarks, ENT_XML1, 'UTF-8') . '</t></is></c>';
+            }
+
+            $sheetXml .= '</row>';
+            $r++;
+        }
+
+        // Pad empty rows up to row 36 (minimum 28 table rows to fill full paper size)
+        for (; $r <= 36; $r++) {
+            $mergeCells[] = 'B' . $r . ':C' . $r;
+            $sheetXml .= '<row r="' . $r . '" ht="18" customHeight="1">';
+            foreach ($cols7 as $col) {
+                $sheetXml .= '<c r="' . $col . $r . '" s="11"/>';
+            }
+            $sheetXml .= '</row>';
+        }
+
+        // Statutory Notice
+        $sheetXml .= '<row r="' . $r . '" ht="28" customHeight="1">'
+            . '<c r="A' . $r . '" t="inlineStr" s="14"><is><t>IMPORTANT: Pursuant to Section 18, Article III, RA 9470 s. 2007, "No government department, bureau, agency and instrumentality shall dispose of, destroy or authorize the disposal or destruction of any public records, which are in the custody or under its control except with the prior written authority of the executive director."</t></is></c>'
+            . '<c r="B' . $r . '" s="14"/><c r="C' . $r . '" s="14"/><c r="D' . $r . '" s="14"/><c r="E' . $r . '" s="14"/><c r="F' . $r . '" s="14"/><c r="G' . $r . '" s="14"/>'
+            . '</row>';
+        $mergeCells[] = 'A' . $r . ':G' . $r;
+        $r += 2; // Spacer
+
+        // Signatures Section
+        // Row r: 9. Prepared by (A:C) | 11. Recommending Approval (D:G)
+        $sheetXml .= '<row r="' . $r . '" ht="16" customHeight="1">'
+            . '<c r="A' . $r . '" t="inlineStr" s="2"><is><t>9. Prepared by:</t></is></c>'
+            . '<c r="B' . $r . '" s="2"/><c r="C' . $r . '" s="2"/>'
+            . '<c r="D' . $r . '" t="inlineStr" s="2"><is><t>11. Recommending Approval:</t></is></c>'
+            . '<c r="E' . $r . '" s="2"/><c r="F' . $r . '" s="2"/><c r="G' . $r . '" s="2"/>'
+            . '</row>';
+        $mergeCells[] = 'A' . $r . ':C' . $r;
+        $mergeCells[] = 'D' . $r . ':G' . $r;
+        $r++;
+
+        // Blank row for signature
+        $sheetXml .= '<row r="' . $r . '" ht="18" customHeight="1"/>';
+        $r++;
+
+        // Underline + Name
+        $sheetXml .= '<row r="' . $r . '" ht="20" customHeight="1">'
+            . '<c r="A' . $r . '" s="0"/>'
+            . '<c r="B' . $r . '" t="inlineStr" s="12"><is><t>' . htmlspecialchars($preparedBy, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="C' . $r . '" s="12"/>'
+            . '<c r="D' . $r . '" s="0"/>'
+            . '<c r="E' . $r . '" t="inlineStr" s="12"><is><t>' . htmlspecialchars($recommendingBy, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="F' . $r . '" s="12"/><c r="G' . $r . '" s="0"/>'
+            . '</row>';
+        $mergeCells[] = 'B' . $r . ':C' . $r;
+        $mergeCells[] = 'E' . $r . ':F' . $r;
+        $r++;
+
+        // Position
+        $sheetXml .= '<row r="' . $r . '" ht="16" customHeight="1">'
+            . '<c r="A' . $r . '" s="0"/>'
+            . '<c r="B' . $r . '" t="inlineStr" s="13"><is><t>' . htmlspecialchars($preparedPos, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="C' . $r . '" s="13"/>'
+            . '<c r="D' . $r . '" s="0"/>'
+            . '<c r="E' . $r . '" t="inlineStr" s="13"><is><t>' . htmlspecialchars($recommendingPos, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="F' . $r . '" s="13"/><c r="G' . $r . '" s="0"/>'
+            . '</row>';
+        $mergeCells[] = 'B' . $r . ':C' . $r;
+        $mergeCells[] = 'E' . $r . ':F' . $r;
+        $r += 2;
+
+        // Row: 10. Assisted by (A:C) | 12. Approved (D:G)
+        $sheetXml .= '<row r="' . $r . '" ht="16" customHeight="1">'
+            . '<c r="A' . $r . '" t="inlineStr" s="2"><is><t>10. Assisted by:</t></is></c>'
+            . '<c r="B' . $r . '" s="2"/><c r="C' . $r . '" s="2"/>'
+            . '<c r="D' . $r . '" t="inlineStr" s="2"><is><t>12. Approved</t></is></c>'
+            . '<c r="E' . $r . '" s="2"/><c r="F' . $r . '" s="2"/><c r="G' . $r . '" s="2"/>'
+            . '</row>';
+        $mergeCells[] = 'A' . $r . ':C' . $r;
+        $mergeCells[] = 'D' . $r . ':G' . $r;
+        $r++;
+
+        $sheetXml .= '<row r="' . $r . '" ht="18" customHeight="1"/>';
+        $r++;
+
+        $sheetXml .= '<row r="' . $r . '" ht="20" customHeight="1">'
+            . '<c r="A' . $r . '" s="0"/>'
+            . '<c r="B' . $r . '" t="inlineStr" s="12"><is><t>' . htmlspecialchars($assistedBy, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="C' . $r . '" s="12"/>'
+            . '<c r="D' . $r . '" s="0"/>'
+            . '<c r="E' . $r . '" t="inlineStr" s="12"><is><t>' . htmlspecialchars($approvedBy, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="F' . $r . '" s="12"/><c r="G' . $r . '" s="0"/>'
+            . '</row>';
+        $mergeCells[] = 'B' . $r . ':C' . $r;
+        $mergeCells[] = 'E' . $r . ':F' . $r;
+        $r++;
+
+        $sheetXml .= '<row r="' . $r . '" ht="16" customHeight="1">'
+            . '<c r="A' . $r . '" s="0"/>'
+            . '<c r="B' . $r . '" t="inlineStr" s="13"><is><t>' . htmlspecialchars($assistedPos, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="C' . $r . '" s="13"/>'
+            . '<c r="D' . $r . '" s="0"/>'
+            . '<c r="E' . $r . '" t="inlineStr" s="13"><is><t>' . htmlspecialchars($approvedPos, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="F' . $r . '" s="13"/><c r="G' . $r . '" s="0"/>'
+            . '</row>';
+        $mergeCells[] = 'B' . $r . ':C' . $r;
+        $mergeCells[] = 'E' . $r . ':F' . $r;
+        $r += 2;
+
+        // NAP Official Evaluation Box
+        $sheetXml .= '<row r="' . $r . '" ht="20" customHeight="1">'
+            . '<c r="A' . $r . '" t="inlineStr" s="2"><is><t>TO BE ACCOMPLISHED BY THE NATIONAL ARCHIVES OF THE PHILIPPINES</t></is></c>'
+            . '<c r="B' . $r . '" s="2"/><c r="C' . $r . '" s="2"/><c r="D' . $r . '" s="2"/><c r="E' . $r . '" s="2"/><c r="F' . $r . '" s="2"/><c r="G' . $r . '" s="2"/>'
+            . '</row>';
+        $mergeCells[] = 'A' . $r . ':G' . $r;
+        $r++;
+
+        $sheetXml .= '<row r="' . $r . '" ht="16" customHeight="1">'
+            . '<c r="A' . $r . '" t="inlineStr" s="0"><is><t>This Records Disposition Schedule</t></is></c>'
+            . '</row>';
+        $r++;
+
+        $sheetXml .= '<row r="' . $r . '" ht="16" customHeight="1">'
+            . '<c r="B' . $r . '" t="inlineStr" s="0"><is><t>[   ]  is being returned for improvement / correction</t></is></c>'
+            . '</row>';
+        $r++;
+
+        $sheetXml .= '<row r="' . $r . '" ht="16" customHeight="1">'
+            . '<c r="B' . $r . '" t="inlineStr" s="0"><is><t>[   ]  is being recommended for approval</t></is></c>'
+            . '</row>';
+        $r += 2;
+
+        // Chairman & Executive Director
+        $sheetXml .= '<row r="' . $r . '" ht="20" customHeight="1">'
+            . '<c r="A' . $r . '" s="0"/>'
+            . '<c r="B' . $r . '" t="inlineStr" s="12"><is><t>' . htmlspecialchars($committeeChairman, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="C' . $r . '" s="12"/><c r="D' . $r . '" s="0"/>'
+            . '<c r="E' . $r . '" t="inlineStr" s="12"><is><t>' . htmlspecialchars($execDirector, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="F' . $r . '" s="12"/><c r="G' . $r . '" s="0"/>'
+            . '</row>';
+        $mergeCells[] = 'B' . $r . ':C' . $r;
+        $mergeCells[] = 'E' . $r . ':F' . $r;
+        $r++;
+
+        $sheetXml .= '<row r="' . $r . '" ht="16" customHeight="1">'
+            . '<c r="A' . $r . '" s="0"/>'
+            . '<c r="B' . $r . '" t="inlineStr" s="13"><is><t>' . htmlspecialchars($committeeChairmanTitle, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="C' . $r . '" s="13"/><c r="D' . $r . '" s="0"/>'
+            . '<c r="E' . $r . '" t="inlineStr" s="13"><is><t>' . htmlspecialchars($execDirectorTitle, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="F' . $r . '" s="13"/><c r="G' . $r . '" s="0"/>'
+            . '</row>';
+        $mergeCells[] = 'B' . $r . ':C' . $r;
+        $mergeCells[] = 'E' . $r . ':F' . $r;
+
+        $sheetXml .= '</sheetData>';
+
+        // Merged Cells
+        $sheetXml .= '<mergeCells count="' . count($mergeCells) . '">';
+        foreach ($mergeCells as $range) {
+            $sheetXml .= '<mergeCell ref="' . $range . '"/>';
+        }
+        $sheetXml .= '</mergeCells>';
+
+        // Page Margins and Print Setup (Legal Portrait)
+        $sheetXml .= '<pageMargins left="0.4" right="0.4" top="0.4" bottom="0.4" header="0.2" footer="0.2"/>'
+            . '<pageSetup orientation="portrait" paperSize="5" fitToWidth="1" fitToHeight="0"/>'
+            . '<headerFooter><oddHeader>&amp;L&amp;7NAP Form 2&#10;2008</oddHeader></headerFooter>'
+            . '</worksheet>';
+
+        // Stylesheet definition
+        $stylesXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' . "\n"
+            . '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            . '<fonts count="6">'
+            . '<font><sz val="8.5"/><name val="Arial"/></font>'
+            . '<font><b/><sz val="8.5"/><name val="Arial"/></font>'
+            . '<font><b/><sz val="9"/><name val="Arial"/></font>'
+            . '<font><b/><sz val="10"/><name val="Arial"/></font>'
+            . '<font><i/><sz val="8"/><name val="Arial"/></font>'
+            . '<font><sz val="7.5"/><color rgb="FF555555"/><name val="Arial"/></font>'
+            . '</fonts>'
+            . '<fills count="2">'
+            . '<fill><patternFill patternType="none"/></fill>'
+            . '<fill><patternFill patternType="gray125"/></fill>'
+            . '</fills>'
+            . '<borders count="3">'
+            . '<border><left/><right/><top/><bottom/><diagonal/></border>'
+            . '<border><left style="thin"><color rgb="FF000000"/></left>'
+            . '<right style="thin"><color rgb="FF000000"/></right>'
+            . '<top style="thin"><color rgb="FF000000"/></top>'
+            . '<bottom style="thin"><color rgb="FF000000"/></bottom>'
+            . '<diagonal/></border>'
+            . '<border><left/><right/><top/>'
+            . '<bottom style="thin"><color rgb="FF000000"/></bottom>'
+            . '<diagonal/></border>'
+            . '</borders>'
+            . '<cellXfs count="15">'
+            . '<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>'
+            . '<xf numFmtId="0" fontId="1" fillId="0" borderId="0"><alignment horizontal="left" vertical="center"/></xf>'
+            . '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="left" vertical="top"/></xf>'
+            . '<xf numFmtId="0" fontId="2" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>'
+            . '<xf numFmtId="0" fontId="3" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+            . '<xf numFmtId="0" fontId="4" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center"/></xf>'
+            . '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+            . '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>'
+            . '<xf numFmtId="0" fontId="2" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>'
+            . '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+            . '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+            . '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyBorder="1"/>'
+            . '<xf numFmtId="0" fontId="2" fillId="0" borderId="2" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="bottom"/></xf>'
+            . '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" applyFont="1"><alignment horizontal="center" vertical="top"/></xf>'
+            . '<xf numFmtId="0" fontId="0" fillId="0" borderId="0"><alignment horizontal="left" vertical="top" wrapText="1"/></xf>'
+            . '</cellXfs>'
+            . '</styleSheet>';
+
+        $contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' . "\n"
+            . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            . '<Default Extension="xml" ContentType="application/xml"/>'
+            . '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            . '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            . '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+            . '</Types>';
+
+        $rootRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' . "\n"
+            . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+            . '</Relationships>';
+
+        $wbRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' . "\n"
+            . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+            . '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+            . '</Relationships>';
+
+        $workbookXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' . "\n"
+            . '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            . '<sheets><sheet name="NAP Form 2" sheetId="1" r:id="rId1"/></sheets>'
+            . '</workbook>';
+
+        $zip = new RdpSimpleZip();
+        $zip->addFile('[Content_Types].xml', $contentTypes);
+        $zip->addFile('_rels/.rels', $rootRels);
+        $zip->addFile('xl/_rels/workbook.xml.rels', $wbRels);
+        $zip->addFile('xl/workbook.xml', $workbookXml);
+        $zip->addFile('xl/styles.xml', $stylesXml);
+        $zip->addFile('xl/worksheets/sheet1.xml', $sheetXml);
+
+        return $zip->getZip();
+    }
+
+    /**
+     * Stream official NAP Form 2 Excel spreadsheet.
+     */
+    public static function streamNap2Xlsx(
+        string $filename,
+        object $cluster,
+        array $items,
+        array $signatures = []
+    ): StreamedResponse {
+        $xlsxContent = self::generateNap2TemplateXlsxBinary($cluster, $items, $signatures);
+
+        return new StreamedResponse(function () use ($xlsxContent) {
+            echo $xlsxContent;
+        }, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Length' => strlen($xlsxContent),
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+        ]);
+    }
+
+    /**
+     * Generate high-fidelity OpenXML (.xlsx) binary matching official NAP Form 3 (Revised 2012).
+     */
+    public static function generateNap3TemplateXlsxBinary(
+        object $cluster,
+        array $items,
+        array $signatures = []
+    ): string {
+        $agency = $signatures['agencyName'] ?? (!empty($cluster->office_name) ? $cluster->office_name : 'Camarines Sur Polytechnic Colleges');
+        $address = $signatures['agencyAddress'] ?? 'San Miguel, Nabua, Camarines Sur';
+        $datePrepared = $signatures['datePrepared'] ?? (!empty($cluster->created_at) ? \Carbon\Carbon::parse($cluster->created_at)->format('F d, Y') : date('F d, Y'));
+        $tel = $signatures['telephoneNumber'] ?? ($signatures['tel'] ?? '(054) 288-1534 loc. 113');
+        $location = $signatures['effectiveLocation'] ?? ($signatures['location'] ?? 'Records Management Office');
+        $volume = $signatures['effectiveVolume'] ?? ($signatures['volume'] ?? '');
+
+        $preparedBy = $signatures['preparedBy'] ?? ($cluster->submitter_name ?? '');
+        $preparedPos = $signatures['preparedPosition'] ?? 'Administrative Officer V / Records Officer';
+        $approvedBy = $signatures['approvedBy'] ?? '';
+
+        // Flatten items if passed as hierarchy tree
+        $includeDesc = !empty($signatures['includeDescription']);
+
+        if (!empty($items) && is_array($items[0]) && isset($items[0]['type'])) {
+            $flattenedItems = $items;
+        } elseif (!empty($items) && is_object($items[0]) && isset($items[0]->type)) {
+            $flattenedItems = array_map(function($it) { return (array)$it; }, $items);
+        } elseif (!empty($items) && (isset($items[0]->series_title) || isset($items[0]->sub_series) || isset($items[0]->has_children))) {
+            $flattenedItems = self::flattenHierarchy($items, $includeDesc);
+        } else {
+            $flattenedItems = [];
+            foreach ($items as $it) {
+                if (is_array($it)) {
+                    $it = (object)$it;
+                }
+                $flattenedItems[] = [
+                    'type' => 'root_standalone',
+                    'root' => $it,
+                ];
+            }
+        }
+
+        // 5 columns: A (Item No: 14), B (Title 1: 22), C (Title 2: 20), D (Period: 26), E (Retention: 30)
+        // Left = A+B+C = 56. Right = D+E = 56. Total = 112.
+        $colWidths = [14.00, 22.00, 20.00, 26.00, 30.00];
+
+        $mergeCells = [];
+        $sheetXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' . "\n"
+            . '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            . '<sheetViews><sheetView workbookViewId="0" showGridLines="1"/></sheetViews>'
+            . '<sheetFormatPr defaultRowHeight="16"/>'
+            . '<cols>';
+
+        foreach ($colWidths as $idx => $w) {
+            $c = $idx + 1;
+            $sheetXml .= '<col min="' . $c . '" max="' . $c . '" width="' . $w . '" customWidth="1"/>';
+        }
+        $sheetXml .= '</cols><sheetData>';
+
+        // Row 1: Top Line
+        $sheetXml .= '<row r="1" ht="14" customHeight="1">'
+            . '<c r="A1" t="inlineStr" s="0"><is><t>NAP Form No. 3&#10;Revised 2012</t></is></c>'
+            . '<c r="B1" s="0"/><c r="C1" s="0"/><c r="D1" s="0"/>'
+            . '<c r="E1" t="inlineStr" s="5"><is><t>Accomplish in 3 copies</t></is></c>'
+            . '</row>';
+        $mergeCells[] = 'A1:C1';
+
+        // Row 2: Top Header Box
+        $sheetXml .= '<row r="2" ht="14" customHeight="1">'
+            . '<c r="A2" t="inlineStr" s="4"><is><t>NATIONAL ARCHIVES OF THE PHILIPPINES&#10;Pambansang Sinupan ng Pilipinas&#10;&#10;REQUEST FOR AUTHORITY TO DISPOSE&#10;OF RECORDS</t></is></c>'
+            . '<c r="B2" s="4"/><c r="C2" s="4"/>'
+            . '<c r="D2" t="inlineStr" s="2"><is><t>AGENCY NAME:</t></is></c>'
+            . '<c r="E2" s="2"/>'
+            . '</row>';
+        $mergeCells[] = 'A2:C5';
+        $mergeCells[] = 'D2:E2';
+
+        // Row 3: Agency Name Value
+        $sheetXml .= '<row r="3" ht="20" customHeight="1">'
+            . '<c r="A3" s="4"/><c r="B3" s="4"/><c r="C3" s="4"/>'
+            . '<c r="D3" t="inlineStr" s="3"><is><t>' . htmlspecialchars($agency, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="E3" s="3"/>'
+            . '</row>';
+        $mergeCells[] = 'D3:E3';
+
+        // Row 4: Address Label
+        $sheetXml .= '<row r="4" ht="14" customHeight="1">'
+            . '<c r="A4" s="4"/><c r="B4" s="4"/><c r="C4" s="4"/>'
+            . '<c r="D4" t="inlineStr" s="2"><is><t>ADDRESS:</t></is></c>'
+            . '<c r="E4" s="2"/>'
+            . '</row>';
+        $mergeCells[] = 'D4:E4';
+
+        // Row 5: Address Value
+        $sheetXml .= '<row r="5" ht="22" customHeight="1">'
+            . '<c r="A5" s="4"/><c r="B5" s="4"/><c r="C5" s="4"/>'
+            . '<c r="D5" t="inlineStr" s="3"><is><t>' . htmlspecialchars($address, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="E5" s="3"/>'
+            . '</row>';
+        $mergeCells[] = 'D5:E5';
+
+        // Row 6: Date (Left) & Telephone Number (Right)
+        $sheetXml .= '<row r="6" ht="18" customHeight="1">'
+            . '<c r="A6" t="inlineStr" s="2"><is><t>DATE: ' . htmlspecialchars($datePrepared, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="B6" s="2"/><c r="C6" s="2"/>'
+            . '<c r="D6" t="inlineStr" s="2"><is><t>TELEPHONE NUMBER: ' . htmlspecialchars($tel, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="E6" s="2"/>'
+            . '</row>';
+        $mergeCells[] = 'A6:C6';
+        $mergeCells[] = 'D6:E6';
+
+        // Row 7: Main Table Headers
+        $sheetXml .= '<row r="7" ht="26" customHeight="1">'
+            . '<c r="A7" t="inlineStr" s="6"><is><t>GRDS/ RDS ITEM NO.</t></is></c>'
+            . '<c r="B7" t="inlineStr" s="6"><is><t>RECORD SERIES TITLE AND DESCRIPTION</t></is></c>'
+            . '<c r="C7" s="6"/>'
+            . '<c r="D7" t="inlineStr" s="6"><is><t>PERIOD COVERED</t></is></c>'
+            . '<c r="E7" t="inlineStr" s="6"><is><t>RETENTION PERIOD AND PROVISION/S COMPLIED (If Any)</t></is></c>'
+            . '</row>';
+        $mergeCells[] = 'B7:C7';
+
+        $dash = function($val) {
+            $s = trim((string)$val);
+            return ($s === '' || $s === 'null' || $s === 'None' || $s === 'N/A') ? '—' : $s;
+        };
+
+        $r = 8;
+        $cols5 = ['A','B','C','D','E'];
+
+        foreach ($flattenedItems as $item) {
+            $mergeCells[] = 'B' . $r . ':C' . $r;
+
+            if ($item['type'] === 'root_standalone') {
+                $root = $item['root'];
+                $itemNo = (string)($root->item_number ?? $root->item_no ?? '');
+                $title = (string)($root->series_title ?? $root->title ?? '');
+                $period = $root->compiled_period ?? $root->period_covered ?? '';
+                $retention = trim(($root->total_period ?? '') . (!empty($root->remarks) ? ' / ' . $root->remarks : ''));
+
+                $sheetXml .= '<row r="' . $r . '" ht="19" customHeight="1">'
+                    . '<c r="A' . $r . '" t="inlineStr" s="9"><is><t>' . htmlspecialchars($itemNo, ENT_XML1, 'UTF-8') . '</t></is></c>'
+                    . '<c r="B' . $r . '" t="inlineStr" s="8"><is><t>' . htmlspecialchars(strtoupper($title), ENT_XML1, 'UTF-8') . '</t></is></c>'
+                    . '<c r="C' . $r . '" s="8"/>'
+                    . '<c r="D' . $r . '" t="inlineStr" s="9"><is><t>' . htmlspecialchars($dash($period), ENT_XML1, 'UTF-8') . '</t></is></c>'
+                    . '<c r="E' . $r . '" t="inlineStr" s="9"><is><t>' . htmlspecialchars($dash($retention), ENT_XML1, 'UTF-8') . '</t></is></c>'
+                    . '</row>';
+                $r++;
+            } elseif ($item['type'] === 'root_header') {
+                $root = $item['root'];
+                $itemNo = (string)($root->item_number ?? $root->item_no ?? '');
+                $title = (string)($root->series_title ?? $root->title ?? '');
+
+                $sheetXml .= '<row r="' . $r . '" ht="19" customHeight="1">'
+                    . '<c r="A' . $r . '" t="inlineStr" s="10"><is><t>' . htmlspecialchars($itemNo, ENT_XML1, 'UTF-8') . '</t></is></c>'
+                    . '<c r="B' . $r . '" t="inlineStr" s="8"><is><t>' . htmlspecialchars(strtoupper($title), ENT_XML1, 'UTF-8') . '</t></is></c>'
+                    . '<c r="C' . $r . '" s="8"/>'
+                    . '<c r="D' . $r . '" s="11"/><c r="E' . $r . '" s="11"/>'
+                    . '</row>';
+                $r++;
+            } elseif ($item['type'] === 'sub_series') {
+                $sub = $item['sub'];
+                $root = $item['root'] ?? null;
+                $title = (string)($sub->series_title ?? $sub->title ?? '');
+                $period = $sub->compiled_period ?? $sub->period_covered ?? '';
+                $rem = ($sub->remarks ?? '') ?: ($root ? ($root->remarks ?? '') : '');
+                $retention = trim(($sub->total_period ?? '') . (!empty($rem) ? ' / ' . $rem : ''));
+
+                $sheetXml .= '<row r="' . $r . '" ht="19" customHeight="1">'
+                    . '<c r="A' . $r . '" s="11"/>'
+                    . '<c r="B' . $r . '" t="inlineStr" s="7"><is><t>   └ ' . htmlspecialchars($title, ENT_XML1, 'UTF-8') . '</t></is></c>'
+                    . '<c r="C' . $r . '" s="7"/>'
+                    . '<c r="D' . $r . '" t="inlineStr" s="9"><is><t>' . htmlspecialchars($dash($period), ENT_XML1, 'UTF-8') . '</t></is></c>'
+                    . '<c r="E' . $r . '" t="inlineStr" s="9"><is><t>' . htmlspecialchars($dash($retention), ENT_XML1, 'UTF-8') . '</t></is></c>'
+                    . '</row>';
+                $r++;
+            } elseif ($item['type'] === 'record') {
+                $rec = $item['rec'];
+                $desc = (string)($rec->description ?? '');
+                $dateCov = $rec->date_covered ?? '';
+
+                $sheetXml .= '<row r="' . $r . '" ht="19" customHeight="1">'
+                    . '<c r="A' . $r . '" s="11"/>'
+                    . '<c r="B' . $r . '" t="inlineStr" s="7"><is><t>      ' . htmlspecialchars($desc, ENT_XML1, 'UTF-8') . '</t></is></c>'
+                    . '<c r="C' . $r . '" s="7"/>'
+                    . '<c r="D' . $r . '" t="inlineStr" s="9"><is><t>' . htmlspecialchars($dash($dateCov), ENT_XML1, 'UTF-8') . '</t></is></c>'
+                    . '<c r="E' . $r . '" s="11"/>'
+                    . '</row>';
+                $r++;
+            }
+        }
+
+        // Pad empty rows up to row 30 (minimum 23 table rows to fill full paper size)
+        for (; $r <= 30; $r++) {
+            $mergeCells[] = 'B' . $r . ':C' . $r;
+            $sheetXml .= '<row r="' . $r . '" ht="18" customHeight="1">';
+            foreach ($cols5 as $col) {
+                $sheetXml .= '<c r="' . $col . $r . '" s="11"/>';
+            }
+            $sheetXml .= '</row>';
+        }
+
+        // Footer Box 1: Location (Left) & Volume (Right)
+        $sheetXml .= '<row r="' . $r . '" ht="22" customHeight="1">'
+            . '<c r="A' . $r . '" t="inlineStr" s="2"><is><t>LOCATION OF RECORDS: ' . htmlspecialchars($location, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="B' . $r . '" s="2"/><c r="C' . $r . '" s="2"/>'
+            . '<c r="D' . $r . '" t="inlineStr" s="2"><is><t>VOLUME IN CUBIC METER: ' . htmlspecialchars($volume, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="E' . $r . '" s="2"/>'
+            . '</row>';
+        $mergeCells[] = 'A' . $r . ':C' . $r;
+        $mergeCells[] = 'D' . $r . ':E' . $r;
+        $r++;
+
+        // Footer Box 2: Prepared By (Left) & Position (Right)
+        $sheetXml .= '<row r="' . $r . '" ht="22" customHeight="1">'
+            . '<c r="A' . $r . '" t="inlineStr" s="2"><is><t>PREPARED BY: ' . htmlspecialchars($preparedBy, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="B' . $r . '" s="2"/><c r="C' . $r . '" s="2"/>'
+            . '<c r="D' . $r . '" t="inlineStr" s="2"><is><t>POSITION: ' . htmlspecialchars($preparedPos, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="E' . $r . '" s="2"/>'
+            . '</row>';
+        $mergeCells[] = 'A' . $r . ':C' . $r;
+        $mergeCells[] = 'D' . $r . ':E' . $r;
+        $r++;
+
+        // Footer Box 3: Certified and Approved By
+        $sheetXml .= '<row r="' . $r . '" ht="16" customHeight="1">'
+            . '<c r="A' . $r . '" t="inlineStr" s="2"><is><t>CERTIFIED AND APPROVED BY:</t></is></c>'
+            . '<c r="B' . $r . '" s="2"/><c r="C' . $r . '" s="2"/><c r="D' . $r . '" s="2"/><c r="E' . $r . '" s="2"/>'
+            . '</row>';
+        $mergeCells[] = 'A' . $r . ':E' . $r;
+        $r++;
+
+        $sheetXml .= '<row r="' . $r . '" ht="26" customHeight="1">'
+            . '<c r="A' . $r . '" t="inlineStr" s="14"><is><t>This is to certify that the above mentioned records are no longer needed and not involved nor connected in any administrative or judicial cases.</t></is></c>'
+            . '<c r="B' . $r . '" s="14"/><c r="C' . $r . '" s="14"/><c r="D' . $r . '" s="14"/><c r="E' . $r . '" s="14"/>'
+            . '</row>';
+        $mergeCells[] = 'A' . $r . ':E' . $r;
+        $r += 2; // Signature space
+
+        // Signature Underline + Approved Name
+        $sheetXml .= '<row r="' . $r . '" ht="20" customHeight="1">'
+            . '<c r="A' . $r . '" s="0"/><c r="B' . $r . '" s="0"/>'
+            . '<c r="C' . $r . '" t="inlineStr" s="12"><is><t>' . htmlspecialchars($approvedBy, ENT_XML1, 'UTF-8') . '</t></is></c>'
+            . '<c r="D' . $r . '" s="12"/><c r="E' . $r . '" s="12"/>'
+            . '</row>';
+        $mergeCells[] = 'C' . $r . ':E' . $r;
+        $r++;
+
+        // Label below signature line
+        $sheetXml .= '<row r="' . $r . '" ht="16" customHeight="1">'
+            . '<c r="A' . $r . '" s="0"/><c r="B' . $r . '" s="0"/>'
+            . '<c r="C' . $r . '" t="inlineStr" s="13"><is><t>Name and Signature of Agency Head or Duly Authorized Representative</t></is></c>'
+            . '<c r="D' . $r . '" s="13"/><c r="E' . $r . '" s="13"/>'
+            . '</row>';
+        $mergeCells[] = 'C' . $r . ':E' . $r;
+
+        $sheetXml .= '</sheetData>';
+
+        // Merged Cells
+        $sheetXml .= '<mergeCells count="' . count($mergeCells) . '">';
+        foreach ($mergeCells as $range) {
+            $sheetXml .= '<mergeCell ref="' . $range . '"/>';
+        }
+        $sheetXml .= '</mergeCells>';
+
+        // Page Margins and Print Setup
+        $sheetXml .= '<pageMargins left="0.4" right="0.4" top="0.4" bottom="0.4" header="0.2" footer="0.2"/>'
+            . '<pageSetup orientation="portrait" paperSize="5" fitToWidth="1" fitToHeight="0"/>'
+            . '<headerFooter><oddHeader>&amp;LNAP Form No. 3&#10;Revised 2012&amp;RAccomplish in 3 copies</oddHeader></headerFooter>'
+            . '</worksheet>';
+
+        // Stylesheet definition
+        $stylesXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' . "\n"
+            . '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            . '<fonts count="6">'
+            . '<font><sz val="8.5"/><name val="Arial"/></font>'
+            . '<font><b/><sz val="8.5"/><name val="Arial"/></font>'
+            . '<font><b/><sz val="9"/><name val="Arial"/></font>'
+            . '<font><b/><sz val="10"/><name val="Arial"/></font>'
+            . '<font><i/><sz val="8"/><name val="Arial"/></font>'
+            . '<font><i/><sz val="8.5"/><color rgb="FF555555"/><name val="Arial"/></font>'
+            . '</fonts>'
+            . '<fills count="2">'
+            . '<fill><patternFill patternType="none"/></fill>'
+            . '<fill><patternFill patternType="gray125"/></fill>'
+            . '</fills>'
+            . '<borders count="3">'
+            . '<border><left/><right/><top/><bottom/><diagonal/></border>'
+            . '<border><left style="thin"><color rgb="FF000000"/></left>'
+            . '<right style="thin"><color rgb="FF000000"/></right>'
+            . '<top style="thin"><color rgb="FF000000"/></top>'
+            . '<bottom style="thin"><color rgb="FF000000"/></bottom>'
+            . '<diagonal/></border>'
+            . '<border><left/><right/><top/>'
+            . '<bottom style="thin"><color rgb="FF000000"/></bottom>'
+            . '<diagonal/></border>'
+            . '</borders>'
+            . '<cellXfs count="15">'
+            . '<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>'
+            . '<xf numFmtId="0" fontId="1" fillId="0" borderId="0"><alignment horizontal="left" vertical="center"/></xf>'
+            . '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="left" vertical="center"/></xf>'
+            . '<xf numFmtId="0" fontId="2" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>'
+            . '<xf numFmtId="0" fontId="3" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+            . '<xf numFmtId="0" fontId="5" fillId="0" borderId="0" applyFont="1"><alignment horizontal="right" vertical="center"/></xf>'
+            . '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+            . '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>'
+            . '<xf numFmtId="0" fontId="2" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>'
+            . '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+            . '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+            . '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyBorder="1"/>'
+            . '<xf numFmtId="0" fontId="2" fillId="0" borderId="2" applyFont="1" applyBorder="1"><alignment horizontal="center" vertical="bottom"/></xf>'
+            . '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" applyFont="1"><alignment horizontal="center" vertical="top"/></xf>'
+            . '<xf numFmtId="0" fontId="0" fillId="0" borderId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+            . '</cellXfs>'
+            . '</styleSheet>';
+
+        $contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' . "\n"
+            . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            . '<Default Extension="xml" ContentType="application/xml"/>'
+            . '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            . '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            . '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+            . '</Types>';
+
+        $rootRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' . "\n"
+            . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+            . '</Relationships>';
+
+        $wbRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' . "\n"
+            . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+            . '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+            . '</Relationships>';
+
+        $workbookXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' . "\n"
+            . '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            . '<sheets><sheet name="NAP Form 3" sheetId="1" r:id="rId1"/></sheets>'
+            . '</workbook>';
+
+        $zip = new RdpSimpleZip();
+        $zip->addFile('[Content_Types].xml', $contentTypes);
+        $zip->addFile('_rels/.rels', $rootRels);
+        $zip->addFile('xl/_rels/workbook.xml.rels', $wbRels);
+        $zip->addFile('xl/workbook.xml', $workbookXml);
+        $zip->addFile('xl/styles.xml', $stylesXml);
+        $zip->addFile('xl/worksheets/sheet1.xml', $sheetXml);
+
+        return $zip->getZip();
+    }
+
+    /**
+     * Stream official NAP Form 3 Excel spreadsheet.
+     */
+    public static function streamNap3Xlsx(
+        string $filename,
+        object $cluster,
+        array $items,
+        array $signatures = []
+    ): StreamedResponse {
+        $xlsxContent = self::generateNap3TemplateXlsxBinary($cluster, $items, $signatures);
+
+        return new StreamedResponse(function () use ($xlsxContent) {
+            echo $xlsxContent;
+        }, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Length' => strlen($xlsxContent),
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+        ]);
+    }
+
+    /**
      * Stream a general OpenXML (.xlsx) file to the browser.
      */
     public static function streamXlsx(
@@ -1210,7 +2006,7 @@ class RdpExportHelper
 <meta charset="utf-8">
 <style>
     @page {
-        size: legal portrait;
+        size: 8.5in 13in;
         margin: 10mm 10mm 10mm 10mm;
     }
     body {
@@ -1252,7 +2048,7 @@ class RdpExportHelper
         // DATA PAGES
         foreach ($dataPages as $pageIndex => $pageItems) {
             $pageNumber = $pageIndex + 1;
-            $fillerHeight = empty($pageItems) ? 550 : max(40, 550 - (count($pageItems) * 26));
+            $fillerHeight = empty($pageItems) ? 880 : max(40, 880 - (count($pageItems) * 26));
 
             $html .= '<div class="page-container">';
 
@@ -1555,7 +2351,7 @@ class RdpExportHelper
 <meta charset="utf-8">
 <style>
     @page {
-        size: legal portrait;
+        size: 8.5in 13in;
         margin: 10mm 10mm 10mm 10mm;
     }
     body {
@@ -1597,8 +2393,8 @@ class RdpExportHelper
         foreach ($pages as $pageIndex => $pageItems) {
             $isLastPage = ($pageIndex + 1) === $totalPages;
             $computedFiller = $isLastPage
-                ? max(40, 420 - (count($pageItems) * 22))
-                : max(40, 620 - (count($pageItems) * 22));
+                ? max(40, 750 - (count($pageItems) * 22))
+                : max(40, 900 - (count($pageItems) * 22));
 
             $html .= '<div class="page-container">';
 
@@ -1792,11 +2588,11 @@ class RdpExportHelper
 
         if ($isNap2) {
             $html = self::buildNap2Html($cluster, $items, $signatures);
-            $paperSize = 'legal';
+            $paperSize = [0, 0, 612.00, 936.00];
             $paperOrientation = 'portrait';
         } elseif ($isNap3) {
             $html = self::buildNap3Html($cluster, $items, $signatures);
-            $paperSize = 'legal';
+            $paperSize = [0, 0, 612.00, 936.00];
             $paperOrientation = 'portrait';
         } else {
             $html = self::buildNap1Html($cluster, $items, $signatures);

@@ -1230,7 +1230,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 @foreach($dataPages as $pageIndex => $pageItems)
                     @php
                         $pageNumber = $pageIndex + 1;
-                        $fillerHeight = empty($pageItems) ? 650 : max(40, 650 - (count($pageItems) * 26));
+                        $fillerHeight = empty($pageItems) ? 880 : max(40, 880 - (count($pageItems) * 26));
                     @endphp
                     <div class="print-sheet">
                         <!-- Top Form Identifier -->

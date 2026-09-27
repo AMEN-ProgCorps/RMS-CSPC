@@ -331,6 +331,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             return RdpExportHelper::streamNap1Xlsx($fileName, $cluster, $exportItems, $signatures);
         }
 
+        if ($isNap2) {
+            $exportItems = $this->buildNap2Tree($items);
+            $this->closeDownloadModal();
+            return RdpExportHelper::streamNap2Xlsx($fileName, $cluster, $exportItems, $signatures);
+        }
+
+        if ($isNap3) {
+            $treeData = $this->buildNapRecordTree((int)($cluster->cluster_id ?? $this->downloadClusterId), true);
+            $signatures['effectiveLocation'] = $treeData['location'];
+            $signatures['effectiveVolume'] = $treeData['volume'];
+            $this->closeDownloadModal();
+            return RdpExportHelper::streamNap3Xlsx($fileName, $cluster, $treeData['tree'], $signatures);
+        }
+
         $meta = [
             'Cluster Name'     => $cluster->cluster_name ?? 'N/A',
             'Form Type'        => $cluster->form_label ?? 'NAP Form',
@@ -2279,8 +2293,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; margin-bottom: 0 !important; page-break-after: always; break-after: page; }
                 .print-sheet:last-child { page-break-after: auto; break-after: auto; }
                 @page {
-                    size: {{ $isNap1 ? 'legal landscape' : 'legal portrait' }};
-                    margin: {{ $isNap1 ? '0.4in' : '0.5in' }};
+                    size: {{ $isNap1 ? '8.5in 13in landscape' : '8.5in 13in portrait' }};
+                    margin: {{ $isNap1 ? '0.4in' : '0.4in' }};
                 }
             }
         </style>
@@ -2833,7 +2847,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     @foreach($dataPages as $pageIndex => $pageItems)
                         @php
                             $pageNumber = $pageIndex + 1;
-                            $fillerHeight = empty($pageItems) ? 650 : max(40, 650 - (count($pageItems) * 26));
+                            $fillerHeight = empty($pageItems) ? 880 : max(40, 880 - (count($pageItems) * 26));
                         @endphp
                         <div class="print-sheet">
                             <!-- Top Form Identifier -->
@@ -3156,8 +3170,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             $isLastPage = ($pageIndex + 1) === $totalPages;
                             $cellBorder = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;";
                             $computedFiller = $isLastPage 
-                                ? max(60, 480 - (count($pageItems) * 22)) 
-                                : max(60, 680 - (count($pageItems) * 22));
+                                ? max(60, 750 - (count($pageItems) * 22)) 
+                                : max(60, 900 - (count($pageItems) * 22));
                         @endphp
                         <div class="print-sheet">
                             <!-- Top Form ID Line -->

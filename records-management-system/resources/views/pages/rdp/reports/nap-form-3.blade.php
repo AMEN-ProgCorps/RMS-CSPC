@@ -1766,8 +1766,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         $isLastPage = ($pageIndex + 1) === $totalPages;
                         $cellBorder = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;";
                         $computedFiller = $isLastPage 
-                            ? max(60, 480 - (count($pageItems) * 22)) 
-                            : max(60, 680 - (count($pageItems) * 22));
+                            ? max(60, 750 - (count($pageItems) * 22)) 
+                            : max(60, 900 - (count($pageItems) * 22));
                     @endphp
                     <!-- Printable Sheet Matching the Official PDF Layout -->
                     <div class="print-sheet">

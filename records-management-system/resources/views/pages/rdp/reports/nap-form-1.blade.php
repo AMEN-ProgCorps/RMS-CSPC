@@ -1790,14 +1790,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         $isLastPage = ($pageIndex + 1) === $totalPages;
                         $cellBorder = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;";
                         $computedFiller = $isLastPage 
-                            ? max(60, 360 - (count($pageItems) * 22)) 
-                            : max(60, 460 - (count($pageItems) * 22));
+                            ? max(40, 290 - (count($pageItems) * 20)) 
+                            : max(60, 480 - (count($pageItems) * 20));
                     @endphp
                     <div class="print-sheet">
                         <!-- Top Form Identifier -->
-                        <div style="font-size: 8px; font-weight: normal; margin-bottom: 3px; font-family: Arial, sans-serif; line-height: 1.25;">
+                        <div style="font-size: 8px; font-weight: normal; margin-bottom: 2px; font-family: Arial, sans-serif; line-height: 1.25;">
                             NAP Records Inventory and Appraisal Form<br>2024
                         </div>
+                        <br>
 
                         <!-- TOP HEADER GRID BOX (Fields 1 to 8) -->
                         <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-bottom: none; font-size: 8px; text-align: left; table-layout: fixed; font-family: Arial, sans-serif;">
@@ -1988,15 +1989,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         <!-- LEGEND SECTION (Visible on every page) -->
                         <div style="font-size: 8px; font-family: Arial, sans-serif; margin-top: 6px; line-height: 1.35;">
                             <div style="font-weight: bold;">LEGEND:</div>
-                            <div style="display: flex; gap: 30px; margin-top: 1px;">
+                            <div style="display: flex; gap: 30px; margin-top: 1px; padding-left: 50px;">
                                 <div style="display: flex; gap: 15px;">
-                                    <span style="font-weight: bold; width: 90px;">TIME VALUE:</span>
+                                    <span style="font-weight: normal; width: 90px;">TIME VALUE:</span>
                                     <span><strong>T</strong> - Temporary &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>P</strong> - Permanent</span>
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 30px; margin-top: 1px;">
+                            <div style="display: flex; gap: 30px; margin-top: 1px; padding-left: 50px;">
                                 <div style="display: flex; gap: 15px;">
-                                    <span style="font-weight: bold; width: 90px;">UTILITY VALUE:</span>
+                                    <span style="font-weight: normal; width: 90px;">UTILITY VALUE:</span>
                                     <span><strong>Adm</strong> - Administrative &nbsp;&nbsp;&nbsp;&nbsp; <strong>F</strong> - Fiscal &nbsp;&nbsp;&nbsp;&nbsp; <strong>L</strong> - Legal &nbsp;&nbsp;&nbsp;&nbsp; <strong>Arc</strong> - Archival</span>
                                 </div>
                             </div>

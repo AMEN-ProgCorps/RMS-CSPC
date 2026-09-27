@@ -166,8 +166,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             return;
         }
 
-        $userOffice = Auth::user()?->details?->office_code ?? 'OFFICE';
-        $this->clusterName = 'Inventory Cluster — ' . $userOffice . ' (' . Carbon::now()->format('Y-m-d') . ')';
+        $user = Auth::user();
+        $perms = $user?->permissions;
+        $isSadm = (bool)($perms->is_sadm ?? false);
+        $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        if (empty($userOffice) && !empty($user?->details?->office_id)) {
+            $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+            $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+        }
+        if (empty($userOffice) && $isSadm && !empty($this->officeFilter)) {
+            $userOffice = $this->officeFilter;
+        }
+        if (empty($userOffice) && !empty($this->selectedIds)) {
+            $firstRec = DB::table('rdp_record')->whereIn('id', array_map('intval', $this->selectedIds))->first();
+            $userOffice = $firstRec?->office_own ?? null;
+        }
+
+        $officeDisplay = $userOffice ?: 'OFFICE';
+        $this->clusterName = 'Inventory Cluster — ' . $officeDisplay . ' (' . Carbon::now()->format('Y-m-d') . ')';
         $this->clusterNotes = '';
         $this->showClusterModal = true;
     }
@@ -188,7 +204,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             DB::beginTransaction();
 
             $user = Auth::user();
-            $userOffice = $user?->details?->office_code ?? null;
+            $perms = $user?->permissions;
+            $isSadm = (bool)($perms->is_sadm ?? false);
+            $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+            if (empty($userOffice) && !empty($user?->details?->office_id)) {
+                $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+                $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+            }
+            if (empty($userOffice) && $isSadm && !empty($this->officeFilter)) {
+                $userOffice = $this->officeFilter;
+            }
+            if (empty($userOffice) && !empty($this->selectedIds)) {
+                $firstRec = DB::table('rdp_record')->whereIn('id', array_map('intval', $this->selectedIds))->first();
+                $userOffice = $firstRec?->office_own ?? null;
+            }
 
             $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
             $mainPendingId = DB::table($mainPendingTbl)->insertGetId([

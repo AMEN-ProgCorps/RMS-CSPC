@@ -78,21 +78,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         $this->clearMessages();
         $cluster = null;
         $items = [];
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
 
         if ($formType === 'nap2' || $formType === 'NAP Form 2') {
             $cluster = DB::table('rdp_pending_record_series')
                 ->leftJoin('rdp_pending_status', 'rdp_pending_record_series.status_id', '=', 'rdp_pending_status.id')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_pending_record_series.office', '=', 'office.office_code')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as account_details', 'rdp_pending_record_series.created_by', '=', 'account_details.account_id')
+                ->leftJoin($officeTbl . ' as office', 'rdp_pending_record_series.office', '=', 'office.office_code')
+                ->leftJoin($accDetailsTbl . ' as account_details', 'rdp_pending_record_series.created_by', '=', 'account_details.account_id')
+                ->leftJoin($officeTbl . ' as submitter_office', 'account_details.office_id', '=', 'submitter_office.id')
                 ->where('rdp_pending_record_series.cluster_id', $clusterId)
                 ->select([
                     'rdp_pending_record_series.cluster_id',
                     'rdp_pending_record_series.cluster_name',
                     'rdp_pending_record_series.status_id',
-                    'rdp_pending_record_series.office',
+                    DB::raw("COALESCE(rdp_pending_record_series.office, submitter_office.office_code) as office"),
                     'rdp_pending_record_series.created_at',
                     'rdp_pending_status.status_name',
-                    'office.office_name',
+                    DB::raw("COALESCE(office.office_name, submitter_office.office_name) as office_name"),
                     DB::raw("CONCAT(account_details.first_name, ' ', account_details.last_name) as submitter_name"),
                     DB::raw("'NAP Form 2' as form_label"),
                     DB::raw("'nap2' as form_code")
@@ -118,19 +121,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         } else {
             $cluster = DB::table('rdp_pending_record')
                 ->leftJoin('rdp_pending_status', 'rdp_pending_record.status_id', '=', 'rdp_pending_status.id')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_pending_record.office', '=', 'office.office_code')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as account_details', 'rdp_pending_record.created_by', '=', 'account_details.account_id')
+                ->leftJoin($officeTbl . ' as office', 'rdp_pending_record.office', '=', 'office.office_code')
+                ->leftJoin($accDetailsTbl . ' as account_details', 'rdp_pending_record.created_by', '=', 'account_details.account_id')
+                ->leftJoin($officeTbl . ' as submitter_office', 'account_details.office_id', '=', 'submitter_office.id')
                 ->where('rdp_pending_record.cluster_id', $clusterId)
                 ->select([
                     'rdp_pending_record.cluster_id',
                     'rdp_pending_record.cluster_name',
                     'rdp_pending_record.status_id',
-                    'rdp_pending_record.office',
+                    DB::raw("COALESCE(rdp_pending_record.office, submitter_office.office_code) as office"),
                     'rdp_pending_record.is_for_nap_one',
                     'rdp_pending_record.is_for_nap_three',
                     'rdp_pending_record.created_at',
                     'rdp_pending_status.status_name',
-                    'office.office_name',
+                    DB::raw("COALESCE(office.office_name, submitter_office.office_name) as office_name"),
                     DB::raw("CONCAT(account_details.first_name, ' ', account_details.last_name) as submitter_name"),
                     DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'NAP Form 3' ELSE 'NAP Form 1' END as form_label"),
                     DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'nap3' ELSE 'nap1' END as form_code")
@@ -331,16 +335,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                 ->leftJoin('rdp_pending_status', 'rdp_pending_record_series.status_id', '=', 'rdp_pending_status.id')
                 ->leftJoin($officeTbl, 'rdp_pending_record_series.office', '=', "{$officeTbl}.office_code")
                 ->leftJoin($accDetailsTbl, 'rdp_pending_record_series.created_by', '=', "{$accDetailsTbl}.account_id")
+                ->leftJoin($officeTbl . ' as submitter_office', "{$accDetailsTbl}.office_id", '=', "submitter_office.id")
                 ->whereNotNull('rdp_pending_record_series.status_id')
                 ->select([
                     "{$mainPendingTbl}.id as main_id",
                     'rdp_pending_record_series.cluster_id',
                     'rdp_pending_record_series.cluster_name',
                     'rdp_pending_record_series.status_id',
-                    'rdp_pending_record_series.office',
+                    DB::raw("COALESCE(rdp_pending_record_series.office, submitter_office.office_code) as office"),
                     'rdp_pending_record_series.created_at',
                     'rdp_pending_status.status_name',
-                    "{$officeTbl}.office_name",
+                    DB::raw("COALESCE({$officeTbl}.office_name, submitter_office.office_name) as office_name"),
                     DB::raw("CONCAT({$accDetailsTbl}.first_name, ' ', {$accDetailsTbl}.last_name) as submitter_name"),
                     DB::raw("'NAP Form 2' as form_label"),
                     DB::raw("'nap2' as form_code"),
@@ -355,7 +360,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                 $term = '%' . trim($this->search) . '%';
                 $qSeries->where(function($q) use ($term, $officeTbl) {
                     $q->where('rdp_pending_record_series.cluster_name', 'ILIKE', $term)
-                      ->orWhere("{$officeTbl}.office_name", 'ILIKE', $term);
+                      ->orWhere("{$officeTbl}.office_name", 'ILIKE', $term)
+                      ->orWhere("submitter_office.office_name", 'ILIKE', $term);
                 });
             }
 
@@ -369,18 +375,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                 ->leftJoin('rdp_pending_status', 'rdp_pending_record.status_id', '=', 'rdp_pending_status.id')
                 ->leftJoin($officeTbl, 'rdp_pending_record.office', '=', "{$officeTbl}.office_code")
                 ->leftJoin($accDetailsTbl, 'rdp_pending_record.created_by', '=', "{$accDetailsTbl}.account_id")
+                ->leftJoin($officeTbl . ' as submitter_office', "{$accDetailsTbl}.office_id", '=', "submitter_office.id")
                 ->whereNotNull('rdp_pending_record.status_id')
                 ->select([
                     "{$mainPendingTbl}.id as main_id",
                     'rdp_pending_record.cluster_id',
                     'rdp_pending_record.cluster_name',
                     'rdp_pending_record.status_id',
-                    'rdp_pending_record.office',
+                    DB::raw("COALESCE(rdp_pending_record.office, submitter_office.office_code) as office"),
                     'rdp_pending_record.is_for_nap_one',
                     'rdp_pending_record.is_for_nap_three',
                     'rdp_pending_record.created_at',
                     'rdp_pending_status.status_name',
-                    "{$officeTbl}.office_name",
+                    DB::raw("COALESCE({$officeTbl}.office_name, submitter_office.office_name) as office_name"),
                     DB::raw("CONCAT({$accDetailsTbl}.first_name, ' ', {$accDetailsTbl}.last_name) as submitter_name"),
                     DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'NAP Form 3' ELSE 'NAP Form 1' END as form_label"),
                     DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'nap3' ELSE 'nap1' END as form_code"),
@@ -401,7 +408,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                 $term = '%' . trim($this->search) . '%';
                 $qRec->where(function($q) use ($term, $officeTbl) {
                     $q->where('rdp_pending_record.cluster_name', 'ILIKE', $term)
-                      ->orWhere("{$officeTbl}.office_name", 'ILIKE', $term);
+                      ->orWhere("{$officeTbl}.office_name", 'ILIKE', $term)
+                      ->orWhere("submitter_office.office_name", 'ILIKE', $term);
                 });
             }
 

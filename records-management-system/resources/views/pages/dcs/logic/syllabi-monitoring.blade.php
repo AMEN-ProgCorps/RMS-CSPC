@@ -33,6 +33,37 @@ class SyllabiMonitoringHelper
         'Major',
     ];
 
+    /**
+     * Year levels already assigned to courses for this college / semester / course type.
+     *
+     * @return list<string>
+     */
+    public static function yearLevelsForContext(?int $collegeId, ?int $semesterId, ?string $courseType = null): array
+    {
+        if (! $collegeId || ! $semesterId || ! Schema::hasColumn('dcs_program_courses', 'year_level')) {
+            return [];
+        }
+
+        $programIds = DB::table('dcs_programs')->where('college_id', $collegeId)->pluck('id')->all();
+        $query = DB::table('dcs_program_courses')
+            ->where('semester_id', $semesterId)
+            ->whereIn('program_id', $programIds !== [] ? $programIds : [0])
+            ->whereNotNull('year_level')
+            ->where('year_level', '!=', '');
+
+        if ($courseType && Schema::hasColumn('dcs_program_courses', 'course_type')) {
+            $query->where('course_type', $courseType);
+        }
+
+        $found = $query->distinct()->pluck('year_level')->filter()->values()->all();
+        $order = array_flip(self::YEAR_LEVELS);
+        usort($found, function ($a, $b) use ($order) {
+            return ($order[$a] ?? 99) <=> ($order[$b] ?? 99);
+        });
+
+        return array_values($found);
+    }
+
     public static function subtypeId(string $needle): ?int
     {
         $needle = strtolower($needle);

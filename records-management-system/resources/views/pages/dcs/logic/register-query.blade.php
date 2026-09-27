@@ -1222,6 +1222,111 @@ class RegisterQueryHelper
         self::applyExcludeDrafts($query, $drAlias);
     }
 
+    /** @return list<string> */
+    public static function consolidatedDrfYears(): array
+    {
+        if (! Schema::hasTable('dcs_document_request_form') || ! Schema::hasTable('dcs_document_requests')) {
+            return [];
+        }
+
+        $query = DB::table('dcs_document_request_form as drf')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'drf.request_id')
+            ->whereNotNull('drf.drf_date');
+        self::applyExcludeOfficeIntakeDrf($query, 'drf');
+        self::applyNotDeleted($query, 'dr');
+        self::applyRegisteredDocumentScope($query, 'dr');
+
+        return $query
+            ->orderBy('drf.drf_date')
+            ->pluck('drf.drf_date')
+            ->map(function ($date) {
+                try {
+                    return \Carbon\Carbon::parse($date)->format('Y');
+                } catch (\Throwable) {
+                    return null;
+                }
+            })
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /** @return list<string> */
+    public static function consolidatedDcnYears(): array
+    {
+        if (! Schema::hasTable('dcs_document_change_notice') || ! Schema::hasTable('dcs_document_requests')) {
+            return [];
+        }
+
+        $query = DB::table('dcs_document_change_notice as dcn')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'dcn.request_id')
+            ->whereNotNull('dcn.dcn_date');
+        self::applyExcludeOfficeIntakeDcn($query, 'dcn');
+        self::applyNotDeleted($query, 'dr');
+        self::applyRegisteredDocumentScope($query, 'dr');
+
+        return self::yearsFromDates($query->orderBy('dcn.dcn_date')->pluck('dcn.dcn_date'));
+    }
+
+    /**
+     * Calendar years available for a monitoring tab (form date / registration date).
+     *
+     * @return list<string>
+     */
+    public static function monitoringReportYears(string $sub): array
+    {
+        if ($sub === 'drf') {
+            return self::consolidatedDrfYears();
+        }
+        if ($sub === 'dcn') {
+            return self::consolidatedDcnYears();
+        }
+
+        $docTypeName = match ($sub) {
+            'internal_docs' => 'Internal',
+            'external_docs' => 'External',
+            'internal_forms' => 'Internal Forms',
+            'forms' => 'Forms',
+            'logbooks' => 'Logbooks',
+            default => null,
+        };
+        if ($docTypeName === null || ! Schema::hasTable('dcs_document_request_form') || ! Schema::hasTable('dcs_document_requests')) {
+            return [];
+        }
+
+        $query = DB::table('dcs_document_request_form as drf')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'drf.request_id')
+            ->whereNotNull('drf.drf_date')
+            ->whereExists(function ($q) use ($docTypeName) {
+                $q->select(DB::raw(1))->from('dcs_doc_types as dt')
+                    ->whereColumn('dt.id', 'dr.doc_type_id')
+                    ->where('dt.doc_type_name', $docTypeName);
+            });
+        self::applyExcludeOfficeIntakeDrf($query, 'drf');
+        self::applyNotDeleted($query, 'dr');
+        self::applyRegisteredDocumentScope($query, 'dr');
+
+        return self::yearsFromDates($query->orderBy('drf.drf_date')->pluck('drf.drf_date'));
+    }
+
+    /** @param \Illuminate\Support\Collection<int, mixed> $dates */
+    private static function yearsFromDates($dates): array
+    {
+        return $dates
+            ->map(function ($date) {
+                try {
+                    return \Carbon\Carbon::parse($date)->format('Y');
+                } catch (\Throwable) {
+                    return null;
+                }
+            })
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
     public static function supportsDrafts(): bool
     {
         return Schema::hasColumn('dcs_document_requests', 'is_draft');
@@ -6562,10 +6667,13 @@ class RegisterQueryHelper
             $sourceByMl = DB::table('dcs_masterlist_source_offices as so')
                 ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'so.office_id')
                 ->whereIn('so.masterlist_id', $mlIds)
-                ->get(['so.masterlist_id', 'so.office_id', 'o.office_name'])
+                ->get(['so.masterlist_id', 'so.office_id', 'o.office_name', 'o.office_code'])
                 ->groupBy('masterlist_id')
                 ->map(fn ($rows) => $rows->map(function ($row) {
-                    $row->office = (object) ['office_name' => $row->office_name];
+                    $row->office = (object) [
+                        'office_name' => $row->office_name,
+                        'office_code' => $row->office_code ?? null,
+                    ];
 
                     return $row;
                 }));
@@ -6702,10 +6810,13 @@ class RegisterQueryHelper
         $sourceByMl = DB::table('dcs_masterlist_source_offices as so')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'so.office_id')
             ->whereIn('so.masterlist_id', $mlIds)
-            ->get(['so.masterlist_id', 'so.office_id', 'o.office_name'])
+            ->get(['so.masterlist_id', 'so.office_id', 'o.office_name', 'o.office_code'])
             ->groupBy('masterlist_id')
             ->map(fn ($rows) => $rows->map(function ($row) {
-                $row->office = (object) ['office_name' => $row->office_name];
+                $row->office = (object) [
+                    'office_name' => $row->office_name,
+                    'office_code' => $row->office_code ?? null,
+                ];
 
                 return $row;
             }));

@@ -11,7 +11,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $collegeId = '';
     public string $schoolYearId = '';
     public string $semesterId = '';
-    public string $yearLevel = '';
     public string $courseType = '';
 
     public function saveRemark(int $programId, string $section, string $status): void
@@ -32,30 +31,39 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         );
     }
 
+    public function pctSpan(mixed $pct): string
+    {
+        $value = $pct === null || $pct === '' ? null : (float) $pct;
+        $tone = 'empty';
+        if ($value !== null) {
+            $tone = $value >= 100 ? 'full' : ($value >= 70 ? 'good' : ($value >= 40 ? 'mid' : 'low'));
+        }
+        $label = $value === null ? '—' : rtrim(rtrim(number_format($value, 1), '0'), '.') . '%';
+
+        return '<span class="mon-pct mon-pct-' . $tone . '">' . e($label) . '</span>';
+    }
+
     public function with(): array
     {
         $collegeId = $this->collegeId !== '' ? (int) $this->collegeId : null;
         $schoolYearId = $this->schoolYearId !== '' ? (int) $this->schoolYearId : null;
         $semesterId = $this->semesterId !== '' ? (int) $this->semesterId : null;
-        $yearLevel = $this->yearLevel !== '' ? $this->yearLevel : null;
         $courseType = $this->courseType !== '' ? $this->courseType : null;
 
-        if ($yearLevel && ! in_array($yearLevel, SyllabiMonitoringHelper::YEAR_LEVELS, true)) {
-            $this->yearLevel = '';
-            $yearLevel = null;
-        }
         if ($courseType && ! in_array($courseType, SyllabiMonitoringHelper::COURSE_TYPES, true)) {
             $this->courseType = '';
             $courseType = null;
         }
 
+        $contextYears = SyllabiMonitoringHelper::yearLevelsForContext($collegeId, $semesterId, $courseType);
+
         return [
             'colleges' => DB::table('dcs_colleges')->orderBy('college_name')->get(['id', 'college_code', 'college_name']),
             'schoolYears' => DB::table('dcs_school_years')->orderBy('school_year', 'desc')->get(['id', 'school_year']),
             'semesters' => DB::table('dcs_semesters')->orderBy('id')->get(['id', 'semester_name']),
-            'yearLevels' => SyllabiMonitoringHelper::YEAR_LEVELS,
             'courseTypes' => SyllabiMonitoringHelper::COURSE_TYPES,
-            'report' => SyllabiMonitoringHelper::build($collegeId, $schoolYearId, $semesterId, null, $yearLevel, $courseType),
+            'contextYears' => $contextYears,
+            'report' => SyllabiMonitoringHelper::build($collegeId, $schoolYearId, $semesterId, null, null, $courseType),
         ];
     }
 }; ?>
@@ -109,15 +117,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </select>
             </div>
             <div class="rpt-filter-group">
-                <label>Year Level</label>
-                <select wire:model.live="yearLevel">
-                    <option value="">All year levels</option>
-                    @foreach($yearLevels as $level)
-                        <option value="{{ $level }}">{{ $level }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <div class="rpt-filter-group">
                 <label>Course Type</label>
                 <select wire:model.live="courseType">
                     <option value="">All course types</option>
@@ -126,6 +125,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     @endforeach
                 </select>
             </div>
+            <div class="rpt-filter-group rpt-filter-group--years">
+                <label>Year Level</label>
+                @php
+                    $yearsLabel = $collegeId === '' || $semesterId === ''
+                        ? 'Select college, semester, and course type'
+                        : ($contextYears === []
+                            ? 'No year levels in Settings for this selection yet'
+                            : implode(', ', $contextYears));
+                @endphp
+                <div class="rpt-syllabi-years {{ $contextYears === [] ? 'is-empty' : '' }}" title="{{ $yearsLabel }}">
+                    {{ $yearsLabel }}
+                </div>
+            </div>
         </div>
     </section>
 
@@ -133,7 +145,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <div
             class="rpt-preview-loading rpt-body-loading"
             wire:loading.flex
-            wire:target="collegeId,schoolYearId,semesterId,yearLevel,courseType,saveRemark"
+            wire:target="collegeId,schoolYearId,semesterId,courseType,saveRemark"
         >
             <div class="rpt-state-spinner" aria-hidden="true"></div>
             <h4>Loading report…</h4>
@@ -144,7 +156,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <section
             class="rpt-state-pick"
             wire:loading.class="is-dimmed"
-            wire:target="collegeId,schoolYearId,semesterId,yearLevel,courseType"
+            wire:target="collegeId,schoolYearId,semesterId,courseType"
         >
             <p class="rpt-template-status">Select a college, academic year, and semester to load the monitoring table.</p>
         </section>
@@ -152,14 +164,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <section
             class="rpt-results"
             wire:loading.class="is-dimmed"
-            wire:target="collegeId,schoolYearId,semesterId,yearLevel,courseType,saveRemark"
+            wire:target="collegeId,schoolYearId,semesterId,courseType,saveRemark"
         >
             <div class="rpt-results-head">
                 <div class="rpt-results-meta">
                     <h3>
                         {{ $report['meta']['college'] }} · {{ $report['meta']['school_year'] }} · {{ $report['meta']['semester'] }}
-                        @if(!empty($report['meta']['year_level']))
-                            · {{ $report['meta']['year_level'] }}
+                        @if($contextYears !== [])
+                            · {{ implode(', ', $contextYears) }}
                         @endif
                         @if(!empty($report['meta']['course_type']))
                             · {{ $report['meta']['course_type'] }}
@@ -167,10 +179,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </h3>
                     <span class="rpt-results-count">
                         {{ count($report['rows']) }} programs
-                        @if(!empty($report['meta']['year_level']))
-                            · {{ $report['meta']['year_level'] }}
-                        @else
-                            · All year levels
+                        @if($contextYears !== [])
+                            · {{ implode(', ', $contextYears) }}
                         @endif
                         @if(!empty($report['meta']['course_type']))
                             · {{ $report['meta']['course_type'] }}
@@ -178,11 +188,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             · All course types
                         @endif
                     </span>
-                </div>
-                <div class="rpt-results-actions">
-                    <button class="rpt-btn rpt-btn-outline" type="button" onclick="window.print()">
-                        <i class="fa-solid fa-print"></i> Print
-                    </button>
                 </div>
             </div>
 
@@ -299,7 +304,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td class="mon-ratio" x-show="openSyllabi" x-cloak>{{ $row['syllabi_label'] }}</td>
                                 <td x-show="openSyllabi" x-cloak>{{ $row['syllabi_target'] }}</td>
                                 <td x-show="openSyllabi" x-cloak>{{ $row['syllabi_actual'] }}</td>
-                                <td x-show="openSyllabi" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $row['syllabi_pct']])</td>
+                                <td x-show="openSyllabi" x-cloak>{!! $this->pctSpan($row['syllabi_pct']) !!}</td>
                                 <td x-show="openSyllabi" x-cloak class="mon-list">
                                     @forelse($row['syllabi_lacking_names'] as $course)
                                         <div>{{ $course }}</div>
@@ -321,7 +326,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td class="mon-ratio" x-show="openSyllabiDrf" x-cloak>{{ $row['drf_label'] }}</td>
                                 <td x-show="openSyllabiDrf" x-cloak>{{ $row['drf_target'] }}</td>
                                 <td x-show="openSyllabiDrf" x-cloak>{{ $row['drf_actual'] }}</td>
-                                <td x-show="openSyllabiDrf" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $row['drf_pct']])</td>
+                                <td x-show="openSyllabiDrf" x-cloak>{!! $this->pctSpan($row['drf_pct']) !!}</td>
                                 <td x-show="openSyllabiDrf" x-cloak class="mon-list">
                                     @forelse($row['drf_lacking_names'] as $course)
                                         <div>{{ $course }}</div>
@@ -356,7 +361,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td class="mon-ratio" x-show="openTos" x-cloak>{{ $row['tos_label'] }}</td>
                                 <td x-show="openTos" x-cloak>{{ $row['tos_target'] }}</td>
                                 <td x-show="openTos" x-cloak>{{ $row['tos_actual'] }}</td>
-                                <td x-show="openTos" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $row['tos_pct']])</td>
+                                <td x-show="openTos" x-cloak>{!! $this->pctSpan($row['tos_pct']) !!}</td>
                                 <td x-show="openTos" x-cloak class="mon-list">
                                     @forelse($row['tos_lacking_names'] as $course)
                                         <div>{{ $course }}</div>
@@ -378,7 +383,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td class="mon-ratio" x-show="openTosDrf" x-cloak>{{ $row['tos_drf_label'] }}</td>
                                 <td x-show="openTosDrf" x-cloak>{{ $row['tos_drf_target'] }}</td>
                                 <td x-show="openTosDrf" x-cloak>{{ $row['tos_drf_actual'] }}</td>
-                                <td x-show="openTosDrf" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $row['tos_drf_pct']])</td>
+                                <td x-show="openTosDrf" x-cloak>{!! $this->pctSpan($row['tos_drf_pct']) !!}</td>
                                 <td x-show="openTosDrf" x-cloak class="mon-list">
                                     @forelse($row['tos_drf_lacking_names'] as $course)
                                         <div>{{ $course }}</div>
@@ -417,7 +422,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td class="mon-ratio" x-show="openSyllabi" x-cloak>{{ $report['totals']['syllabi_actual'] }} / {{ $report['totals']['syllabi_target'] }}</td>
                                 <td x-show="openSyllabi" x-cloak>{{ $report['totals']['syllabi_target'] }}</td>
                                 <td x-show="openSyllabi" x-cloak>{{ $report['totals']['syllabi_actual'] }}</td>
-                                <td x-show="openSyllabi" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $report['totals']['syllabi_pct']])</td>
+                                <td x-show="openSyllabi" x-cloak>{!! $this->pctSpan($report['totals']['syllabi_pct']) !!}</td>
                                 <td x-show="openSyllabi" x-cloak>{{ $report['totals']['syllabi_lacking'] }}</td>
                                 <td x-show="openSyllabi" x-cloak colspan="3"></td>
                                 <td class="mon-summary-col" x-show="!openSyllabiDrf" x-cloak>
@@ -426,7 +431,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td class="mon-ratio" x-show="openSyllabiDrf" x-cloak>{{ $report['totals']['drf_actual'] }} / {{ $report['totals']['drf_target'] }}</td>
                                 <td x-show="openSyllabiDrf" x-cloak>{{ $report['totals']['drf_target'] }}</td>
                                 <td x-show="openSyllabiDrf" x-cloak>{{ $report['totals']['drf_actual'] }}</td>
-                                <td x-show="openSyllabiDrf" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $report['totals']['drf_pct']])</td>
+                                <td x-show="openSyllabiDrf" x-cloak>{!! $this->pctSpan($report['totals']['drf_pct']) !!}</td>
                                 <td x-show="openSyllabiDrf" x-cloak>{{ $report['totals']['drf_lacking'] }}</td>
                                 <td x-show="openSyllabiDrf" x-cloak></td>
                                 <td class="mon-remark-cell"></td>
@@ -437,7 +442,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td class="mon-ratio" x-show="openTos" x-cloak>{{ $report['totals']['tos_actual'] }} / {{ $report['totals']['tos_target'] }}</td>
                                 <td x-show="openTos" x-cloak>{{ $report['totals']['tos_target'] }}</td>
                                 <td x-show="openTos" x-cloak>{{ $report['totals']['tos_actual'] }}</td>
-                                <td x-show="openTos" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $report['totals']['tos_pct']])</td>
+                                <td x-show="openTos" x-cloak>{!! $this->pctSpan($report['totals']['tos_pct']) !!}</td>
                                 <td x-show="openTos" x-cloak>{{ $report['totals']['tos_lacking'] }}</td>
                                 <td x-show="openTos" x-cloak colspan="3"></td>
                                 <td class="mon-summary-col" x-show="!openTosDrf" x-cloak>
@@ -446,7 +451,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td class="mon-ratio" x-show="openTosDrf" x-cloak>{{ $report['totals']['tos_drf_actual'] }} / {{ $report['totals']['tos_drf_target'] }}</td>
                                 <td x-show="openTosDrf" x-cloak>{{ $report['totals']['tos_drf_target'] }}</td>
                                 <td x-show="openTosDrf" x-cloak>{{ $report['totals']['tos_drf_actual'] }}</td>
-                                <td x-show="openTosDrf" x-cloak>@include('pages.dcs.reports._pct', ['pct' => $report['totals']['tos_drf_pct']])</td>
+                                <td x-show="openTosDrf" x-cloak>{!! $this->pctSpan($report['totals']['tos_drf_pct']) !!}</td>
                                 <td x-show="openTosDrf" x-cloak>{{ $report['totals']['tos_drf_lacking'] }}</td>
                                 <td x-show="openTosDrf" x-cloak></td>
                                 <td class="mon-remark-cell"></td>

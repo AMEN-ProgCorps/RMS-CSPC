@@ -98,15 +98,18 @@ class ReportHelper
             return [$dateFrom ?: null, $dateTo ?: null, $asOf ?: null, 'custom'];
         }
 
-        if ($period === 'all') {
-            return [null, null, $asOf ?: null, 'all'];
-        }
-
         $end = $asOf
             ? \Carbon\Carbon::parse($asOf)->startOfDay()
             : \Carbon\Carbon::now('Asia/Manila')->startOfDay();
 
+        if ($period === 'all') {
+            return [null, $end->toDateString(), $end->toDateString(), 'all'];
+        }
+
         switch ($period) {
+            case 'weekly':
+                $start = $end->copy()->startOfWeek(\Carbon\Carbon::MONDAY);
+                break;
             case 'monthly':
                 $start = $end->copy()->startOfMonth();
                 break;
@@ -126,12 +129,23 @@ class ReportHelper
     private function periodLabel(string $period): string
     {
         return match ($period) {
-            'monthly'   => 'Monthly',
-            'quarterly' => 'Quarterly',
-            'annually'  => 'Annually',
-            'all'       => 'All time',
-            default     => 'Custom',
+            'weekly'    => 'This week',
+            'monthly'   => 'This month',
+            'quarterly' => 'This quarter',
+            'annually'  => 'This year',
+            'all'       => 'Up to date',
+            default     => 'Custom dates',
         };
+    }
+
+    private function normalizedFormYear(mixed $year): ?int
+    {
+        $year = trim((string) $year);
+        if ($year === '' || ! preg_match('/^\d{4}$/', $year)) {
+            return null;
+        }
+
+        return (int) $year;
     }
 
     /** CSPC form code shown on the report letterhead (right of blue rule). */
@@ -176,7 +190,23 @@ class ReportHelper
             'sub_type_empty'   => $subTypeEmpty,
             'ui_doc_type'      => $request->input('ui_doc_type'),
             'ui_sub_type_ids'  => $uiSubTypeIds,
+            'form_year'        => $this->normalizedFormYear($request->input('form_year')),
+            'sort'             => $this->normalizedSort($request->input('sort')),
+            'sort_dir'         => $this->normalizedSortDir($request->input('sort_dir')),
         ];
+    }
+
+    private function normalizedSort(mixed $sort): string
+    {
+        $sort = trim((string) $sort);
+        $allowed = ['effectivity_date', 'doc_no', 'doc_title', 'originator', 'rev_no', 'registered'];
+
+        return in_array($sort, $allowed, true) ? $sort : 'effectivity_date';
+    }
+
+    private function normalizedSortDir(mixed $dir): string
+    {
+        return strtolower(trim((string) $dir)) === 'desc' ? 'desc' : 'asc';
     }
 
     private function applySubTypeFilter($query, array $filters)
@@ -211,15 +241,32 @@ class ReportHelper
         return $query;
     }
 
-    /** Apply report period on masterlist registration (doc_registered_date). */
+    /** Apply report period on registration date, falling back to effectivity. */
     private function applyMasterlistPeriodFilter($query, ?string $dateFrom, ?string $dateTo)
     {
-        if ($dateFrom) {
-            $query->whereDate('ml.doc_registered_date', '>=', $dateFrom);
+        if (! $dateFrom && ! $dateTo) {
+            return $query;
         }
-        if ($dateTo) {
-            $query->whereDate('ml.doc_registered_date', '<=', $dateTo);
-        }
+
+        $expr = 'COALESCE(ml.doc_registered_date, ml.effectivity_date)';
+
+        $query->where(function ($q) use ($expr, $dateFrom, $dateTo) {
+            $q->where(function ($inner) use ($expr, $dateFrom, $dateTo) {
+                $inner->whereRaw($expr . ' IS NOT NULL');
+                if ($dateFrom) {
+                    $inner->whereRaw($expr . ' >= ?', [$dateFrom]);
+                }
+                if ($dateTo) {
+                    $inner->whereRaw($expr . ' <= ?', [$dateTo]);
+                }
+            });
+            if ($dateFrom === null && $dateTo !== null) {
+                $q->orWhere(function ($inner) {
+                    $inner->whereNull('ml.doc_registered_date')
+                        ->whereNull('ml.effectivity_date');
+                });
+            }
+        });
 
         return $query;
     }
@@ -431,6 +478,163 @@ class ReportHelper
         })->values();
     }
 
+    private function sortMonitoringDocsByFormDate($docs)
+    {
+        return $this->sortMonitoringDocs($docs, []);
+    }
+
+    private function sortMonitoringDocs($docs, array $filters)
+    {
+        return $this->sortRevisionFamilies($docs, $filters, fn ($doc) => $doc->masterlistRegistration ?? null);
+    }
+
+    private function sortMasterlistFamilies($records, array $filters)
+    {
+        return $this->sortRevisionFamilies($records, $filters, fn ($ml) => $ml);
+    }
+
+    /**
+     * Sort by the latest revision only, then keep that document's obsolete
+     * revisions immediately after it (not interleaved with other documents).
+     */
+    private function sortRevisionFamilies($rows, array $filters, callable $masterlistOf)
+    {
+        $sort = $filters['sort'] ?? 'effectivity_date';
+        $descending = ($filters['sort_dir'] ?? 'asc') === 'desc';
+        $families = $this->groupByRevisionFamily($rows, $masterlistOf);
+
+        $sorted = $families->sort(function ($a, $b) use ($sort, $descending, $masterlistOf) {
+            $latestA = $this->latestInFamily($a, $masterlistOf);
+            $latestB = $this->latestInFamily($b, $masterlistOf);
+
+            return $this->compareSortValues(
+                $this->familySortValue($latestA, $sort, $masterlistOf),
+                $this->familySortValue($latestB, $sort, $masterlistOf),
+                $descending
+            );
+        });
+
+        $flat = collect();
+        foreach ($sorted as $family) {
+            $flat = $flat->concat($this->orderFamilyMembers($family, $masterlistOf));
+        }
+
+        return $flat->values();
+    }
+
+    private function groupByRevisionFamily($rows, callable $masterlistOf)
+    {
+        $items = collect($rows)->values();
+        $parent = [];
+        $find = function (string $key) use (&$parent, &$find): string {
+            if (! isset($parent[$key])) {
+                $parent[$key] = $key;
+            }
+            if ($parent[$key] !== $key) {
+                $parent[$key] = $find($parent[$key]);
+            }
+
+            return $parent[$key];
+        };
+        $union = function (string $a, string $b) use ($find, &$parent): void {
+            $ra = $find($a);
+            $rb = $find($b);
+            if ($ra !== $rb) {
+                $parent[$rb] = $ra;
+            }
+        };
+
+        foreach ($items as $i => $row) {
+            $ml = $masterlistOf($row);
+            $docNo = strtolower(trim((string) ($ml?->doc_no ?? '')));
+            $key = $docNo !== '' ? $docNo : 'row:'.$i;
+            $find($key);
+            $from = strtolower(trim((string) ($ml?->revised_from_doc_no ?? '')));
+            if ($from !== '') {
+                $union($key, $from);
+            }
+        }
+
+        $families = [];
+        foreach ($items as $i => $row) {
+            $ml = $masterlistOf($row);
+            $docNo = strtolower(trim((string) ($ml?->doc_no ?? '')));
+            $key = $docNo !== '' ? $docNo : 'row:'.$i;
+            $families[$find($key)][] = $row;
+        }
+
+        return collect(array_values($families));
+    }
+
+    private function latestInFamily(array $family, callable $masterlistOf)
+    {
+        foreach ($family as $row) {
+            if (! $this->isObsoleteMasterlist($masterlistOf($row))) {
+                return $row;
+            }
+        }
+
+        return collect($family)->sortByDesc(function ($row) use ($masterlistOf) {
+            return (int) ($masterlistOf($row)?->revise_no ?? 0);
+        })->first();
+    }
+
+    private function orderFamilyMembers(array $family, callable $masterlistOf)
+    {
+        return collect($family)->sort(function ($a, $b) use ($masterlistOf) {
+            $aObs = $this->isObsoleteMasterlist($masterlistOf($a));
+            $bObs = $this->isObsoleteMasterlist($masterlistOf($b));
+            if ($aObs !== $bObs) {
+                return $aObs ? 1 : -1;
+            }
+            $rev = ((int) ($masterlistOf($b)?->revise_no ?? 0)) <=> ((int) ($masterlistOf($a)?->revise_no ?? 0));
+            if ($rev !== 0) {
+                return $rev;
+            }
+
+            return ((int) ($masterlistOf($b)?->id ?? 0)) <=> ((int) ($masterlistOf($a)?->id ?? 0));
+        })->values();
+    }
+
+    private function familySortValue($row, string $sort, callable $masterlistOf): string|int
+    {
+        if ($row === null) {
+            return '';
+        }
+
+        $ml = $masterlistOf($row);
+        $drf = is_object($row) ? ($row->documentRequestForm ?? null) : null;
+
+        return match ($sort) {
+            'doc_no' => trim((string) ($ml?->doc_no ?? '')),
+            'doc_title' => trim((string) ($ml?->doc_title ?? $drf?->doc_title ?? '')),
+            'originator' => trim((string) ($ml?->originator_name ?? '')),
+            'rev_no' => (int) ($ml?->revise_no ?? 0),
+            'registered' => trim((string) ($ml?->doc_registered_date ?? '')),
+            default => trim((string) ($ml?->effectivity_date ?? $drf?->drf_date ?? '')),
+        };
+    }
+
+    private function compareSortValues(string|int $va, string|int $vb, bool $descending): int
+    {
+        $aEmpty = $va === '';
+        $bEmpty = $vb === '';
+        if ($aEmpty && $bEmpty) {
+            return 0;
+        }
+        if ($aEmpty) {
+            return 1;
+        }
+        if ($bEmpty) {
+            return -1;
+        }
+        $cmp = is_int($va) || is_int($vb)
+            ? ((int) $va <=> (int) $vb)
+            : strnatcasecmp((string) $va, (string) $vb);
+
+        return $descending ? -$cmp : $cmp;
+    }
+
     private function isObsoleteMasterlist(?object $ml): bool
     {
         if ($ml === null) {
@@ -478,7 +682,8 @@ class ReportHelper
         $query = $this->applyMasterlistPeriodFilter($query, $dateFrom, $dateTo);
         $query = $this->applyMasterlistCommonFilters($query, $filters);
 
-        $records = RegisterQueryHelper::hydrateMasterlists($query->orderByDesc('ml.id')->get());
+        $records = RegisterQueryHelper::hydrateMasterlists($query->get());
+        $records = $this->sortMasterlistFamilies($records, $filters);
 
         $counter = 0;
         $rows = $records->map(function ($ml) use (&$counter, $filters) {
@@ -499,6 +704,7 @@ class ReportHelper
                     . '|' . (int) ($doc?->sub_type_id ?? 0),
                 'pdf_path'         => $ml->scanned_masterlist
                     ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
+                'revision_status'  => strtolower(trim((string) ($ml->revision_status ?? ''))),
             ];
         })->values();
 
@@ -526,8 +732,8 @@ class ReportHelper
     // ════════════════════════════════════════════
     private function monitoringData(?string $sub, ?string $dateFrom, ?string $dateTo, array $filters = [])
     {
-        if ($sub === 'drf') return $this->drfReport($dateFrom, $dateTo);
-        if ($sub === 'dcn') return $this->dcnReport($dateFrom, $dateTo);
+        if ($sub === 'drf') return $this->drfReport($dateFrom, $dateTo, $filters);
+        if ($sub === 'dcn') return $this->dcnReport($dateFrom, $dateTo, $filters);
         if ($sub === 'internal_docs') return $this->documentMonitoringLog('Internal', $dateFrom, $dateTo, $filters);
         if ($sub === 'external_docs') return $this->documentMonitoringLog('External', $dateFrom, $dateTo, $filters);
         if (in_array($sub, ['internal_forms', 'forms', 'logbooks'])) {
@@ -558,7 +764,14 @@ class ReportHelper
                 ->where('dt.doc_type_name', $docTypeName);
         });
 
-        if ($dateFrom || $dateTo) {
+        $formYear = $filters['form_year'] ?? null;
+        if ($formYear) {
+            $query->whereExists(function ($q) use ($formYear) {
+                $q->select(DB::raw(1))->from('dcs_document_request_form as drf')
+                    ->whereColumn('drf.request_id', 'dr.id')
+                    ->whereYear('drf.drf_date', $formYear);
+            });
+        } elseif ($dateFrom || $dateTo) {
             $query->whereExists(function ($q) use ($dateFrom, $dateTo) {
                 $q->select(DB::raw(1))->from('dcs_masterlist_registration as ml')
                     ->whereColumn('ml.request_id', 'dr.id');
@@ -577,9 +790,12 @@ class ReportHelper
 
         $docs = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
+        $docs = $this->sortMonitoringDocs($docs, $filters);
+        $remarksByRequest = $this->monitoringRemarksByRequestId($docs);
+        $forwardedByRequest = $this->monitoringForwardedDrrByRequestId($docs);
 
         $counter = 0;
-        $rows = $docs->map(function ($doc) use (&$counter, $filters) {
+        $rows = $docs->map(function ($doc) use (&$counter, $filters, $remarksByRequest, $forwardedByRequest) {
             $ml  = $doc->masterlistRegistration;
             $drf = $doc->documentRequestForm;
             $dcn = $doc->documentChangeNotice;
@@ -587,17 +803,13 @@ class ReportHelper
 
             // Date received
             $dateReceived = $drf && $drf->drf_date
-                ? RegisterQueryHelper::formatSmartDate($drf->drf_date) : null;
+                ? $this->formatMonitoringDate($drf->drf_date) : null;
 
             // Time received
             $timeReceived = $drf && $drf->drf_receipt_time
                 ? $this->formatTime($drf->drf_receipt_time) : null;
 
-            // Source
-            $source = ($ml?->sourceOffices?->count() ?? 0) > 0
-                ? $ml->sourceOffices->map(fn($o) => $o->office?->office_name)
-                    ->filter()->implode(', ')
-                : null;
+            $source = $this->monitoringSourceAcronyms($ml);
 
             // Document number
             $docNumber = $ml ? $ml->doc_no : null;
@@ -605,12 +817,11 @@ class ReportHelper
             // Description
             $description = $ml ? $ml->doc_title : ($drf ? $drf->doc_title : null);
 
-            // Category
-            $category = $doc->docType?->doc_type_name ?? null;
+            $category = $this->monitoringNewOrRevised($ml, $dcn);
 
             // Masterlist registration date
             $mlRegDate = $ml && $ml->doc_registered_date
-                ? RegisterQueryHelper::formatSmartDate($ml->doc_registered_date) : null;
+                ? $this->formatMonitoringDate($ml->doc_registered_date) : null;
 
             // Masterlist registration time
             $mlRegTime = $ml && $ml->doc_registered_time
@@ -629,7 +840,7 @@ class ReportHelper
             // Time released date — from distribution when available
             $dist = $doc->documentDistribution;
             $dateReleased = $dist && $dist->doc_distribution_date_actual
-                ? RegisterQueryHelper::formatSmartDate($dist->doc_distribution_date_actual) : null;
+                ? $this->formatMonitoringDate($dist->doc_distribution_date_actual) : null;
 
             // Time released time
             $timeReleased = $dist && $dist->doc_distribution_time_actual
@@ -645,13 +856,10 @@ class ReportHelper
                 $timeSpent2 = ($start && $end) ? CalendarHelper::workingMinutesBetween($start, $end) : null;
             }
 
-            // Forwarded for DRR
-            $forwardedDRR = null;
-
-            // Remarks
-            $remarks = $dcn && $dcn->dcn_no ? 'DCN: ' . $dcn->dcn_no : null;
+            $forwardedDRR = (bool) ($forwardedByRequest[(int) $doc->id] ?? false);
 
             return [
+                'request_id'    => (int) $doc->id,
                 'no'            => $this->reportRowNumber($ml, $counter, $filters),
                 'date_received' => $dateReceived,
                 'time_received' => $timeReceived,
@@ -666,7 +874,7 @@ class ReportHelper
                 'time_released' => $timeReleased,
                 'time_spent2'   => $timeSpent2,
                 'forwarded_drr' => $forwardedDRR,
-                'remarks'       => $remarks,
+                'remarks'       => $remarksByRequest[(int) $doc->id] ?? null,
                 'pdf_path'      => $ml && $ml->scanned_masterlist
                     ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
             ];
@@ -745,7 +953,14 @@ class ReportHelper
                 ->where('dt.doc_type_name', $docTypeName);
         });
 
-        if ($dateFrom || $dateTo) {
+        $formYear = $filters['form_year'] ?? null;
+        if ($formYear) {
+            $query->whereExists(function ($q) use ($formYear) {
+                $q->select(DB::raw(1))->from('dcs_document_request_form as drf')
+                    ->whereColumn('drf.request_id', 'dr.id')
+                    ->whereYear('drf.drf_date', $formYear);
+            });
+        } elseif ($dateFrom || $dateTo) {
             $query->whereExists(function ($q) use ($dateFrom, $dateTo) {
                 $q->select(DB::raw(1))->from('dcs_masterlist_registration as ml')
                     ->whereColumn('ml.request_id', 'dr.id');
@@ -764,9 +979,11 @@ class ReportHelper
 
         $docs = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
+        $docs = $this->sortMonitoringDocs($docs, $filters);
+        $remarksByRequest = $this->monitoringRemarksByRequestId($docs);
 
         $counter = 0;
-        $rows = $docs->map(function ($doc) use (&$counter, $filters) {
+        $rows = $docs->map(function ($doc) use (&$counter, $filters, $remarksByRequest) {
             $ml  = $doc->masterlistRegistration;
             $drf = $doc->documentRequestForm;
             $dcn = $doc->documentChangeNotice;
@@ -777,7 +994,7 @@ class ReportHelper
 
             // Date received (document date)
             $dateReceived = $drf && $drf->drf_date
-                ? RegisterQueryHelper::formatSmartDate($drf->drf_date) : null;
+                ? $this->formatMonitoringDate($drf->drf_date) : null;
 
             // Time received
             $timeReceived = $drf && $drf->drf_receipt_time
@@ -785,7 +1002,7 @@ class ReportHelper
 
             // Registered to masterlist - date
             $dateRegistered = $ml && $ml->doc_registered_date
-                ? RegisterQueryHelper::formatSmartDate($ml->doc_registered_date) : null;
+                ? $this->formatMonitoringDate($ml->doc_registered_date) : null;
 
             // Registered to masterlist - time
             $timeRegistered = $ml && $ml->doc_registered_time
@@ -801,11 +1018,7 @@ class ReportHelper
                 $minsSpent = ($start && $end) ? CalendarHelper::workingMinutesBetween($start, $end) : null;
             }
 
-            // Source (originator)
-            $source = ($ml?->sourceOffices?->count() ?? 0) > 0
-                ? $ml->sourceOffices->map(fn($o) => $o->office?->office_name)
-                    ->filter()->implode(', ')
-                : null;
+            $source = $this->monitoringSourceAcronyms($ml);
 
             // Control number
             $controlNumber = $ml ? $ml->doc_no : null;
@@ -815,7 +1028,7 @@ class ReportHelper
 
             // Effectivity date
             $effectivityDate = $ml && $ml->effectivity_date
-                ? RegisterQueryHelper::formatSmartDate($ml->effectivity_date) : null;
+                ? $this->formatMonitoringDate($ml->effectivity_date) : null;
 
             // Days spent
             $daysSpent = null;
@@ -826,6 +1039,7 @@ class ReportHelper
             }
 
             return [
+                'request_id'       => (int) $doc->id,
                 'no'               => $this->reportRowNumber($ml, $counter, $filters),
                 'drf_no'           => $drfRef,
                 'date_received'    => $dateReceived,
@@ -839,11 +1053,11 @@ class ReportHelper
                 'subject_matter'   => $subjectMatter,
                 'effectivity_date' => $effectivityDate,
                 'deadline'         => $ml && $ml->deadline
-                    ? RegisterQueryHelper::formatSmartDate($ml->deadline) : 'N/A',
+                    ? $this->formatMonitoringDate($ml->deadline) : 'N/A',
                 'date_released'    => $dist && $dist->doc_distribution_date_actual
-                    ? RegisterQueryHelper::formatSmartDate($dist->doc_distribution_date_actual) : null,
+                    ? $this->formatMonitoringDate($dist->doc_distribution_date_actual) : null,
                 'days_spent'       => $daysSpent,
-                'remarks'          => $dcn && $dcn->dcn_no ? 'DCN: ' . $dcn->dcn_no : null,
+                'remarks'          => $remarksByRequest[(int) $doc->id] ?? null,
                 'pdf_path'         => $ml && $ml->scanned_masterlist
                     ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
             ];
@@ -902,7 +1116,7 @@ class ReportHelper
         ]);
     }
 
-    private function drfReport(?string $dateFrom, ?string $dateTo)
+    private function drfReport(?string $dateFrom, ?string $dateTo, array $filters = [])
     {
         $query = DB::table('dcs_document_request_form as drf')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'drf.request_id')
@@ -912,14 +1126,31 @@ class ReportHelper
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
 
-        if ($dateFrom) {
-            $query->where('drf.drf_date', '>=', $dateFrom);
-        }
-        if ($dateTo) {
-            $query->where('drf.drf_date', '<=', $dateTo);
+        $formYear = $filters['form_year'] ?? null;
+        if ($formYear) {
+            $query->whereYear('drf.drf_date', $formYear);
+        } else {
+            if ($dateFrom) {
+                $query->where('drf.drf_date', '>=', $dateFrom);
+            }
+            if ($dateTo) {
+                $query->where('drf.drf_date', '<=', $dateTo);
+            }
         }
 
-        $drfs = $query->orderByDesc('drf.drf_date')->get();
+        $driver = \Illuminate\Support\Facades\Schema::getConnection()->getDriverName();
+        if ($driver === 'pgsql') {
+            $query->orderByRaw('drf.drf_date ASC NULLS LAST')
+                ->orderByRaw('drf.drf_receipt_time ASC NULLS LAST')
+                ->orderBy('drf.id');
+        } else {
+            $query->orderByRaw('CASE WHEN drf.drf_date IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('drf.drf_date')
+                ->orderByRaw('CASE WHEN drf.drf_receipt_time IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('drf.drf_receipt_time')
+                ->orderBy('drf.id');
+        }
+        $drfs = $query->get();
 
         $rows = $drfs->map(function ($drf, $index) {
             return [
@@ -957,7 +1188,7 @@ class ReportHelper
         ]);
     }
 
-    private function dcnReport(?string $dateFrom, ?string $dateTo)
+    private function dcnReport(?string $dateFrom, ?string $dateTo, array $filters = [])
     {
         $query = DB::table('dcs_document_change_notice as dcn')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'dcn.request_id')
@@ -967,14 +1198,31 @@ class ReportHelper
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
 
-        if ($dateFrom) {
-            $query->where('dcn.dcn_date', '>=', $dateFrom);
-        }
-        if ($dateTo) {
-            $query->where('dcn.dcn_date', '<=', $dateTo);
+        $formYear = $filters['form_year'] ?? null;
+        if ($formYear) {
+            $query->whereYear('dcn.dcn_date', $formYear);
+        } else {
+            if ($dateFrom) {
+                $query->where('dcn.dcn_date', '>=', $dateFrom);
+            }
+            if ($dateTo) {
+                $query->where('dcn.dcn_date', '<=', $dateTo);
+            }
         }
 
-        $dcns = $query->orderByDesc('dcn.dcn_date')->get();
+        $driver = \Illuminate\Support\Facades\Schema::getConnection()->getDriverName();
+        if ($driver === 'pgsql') {
+            $query->orderByRaw('dcn.dcn_date ASC NULLS LAST')
+                ->orderByRaw('dcn.dcn_receipt_time ASC NULLS LAST')
+                ->orderBy('dcn.id');
+        } else {
+            $query->orderByRaw('CASE WHEN dcn.dcn_date IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('dcn.dcn_date')
+                ->orderByRaw('CASE WHEN dcn.dcn_receipt_time IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('dcn.dcn_receipt_time')
+                ->orderBy('dcn.id');
+        }
+        $dcns = $query->get();
         $revsByDcn = DB::table('dcs_doc_revision')->whereIn('dcn_id', $dcns->pluck('id'))->orderBy('id')->get()->groupBy('dcn_id');
 
         $rows = $dcns->map(function ($dcn, $index) use ($revsByDcn) {
@@ -1093,11 +1341,11 @@ class ReportHelper
                 ? \Carbon\Carbon::parse($recvDateRaw)->startOfDay()
                 : null;
 
-            $dateReceived = $receivedAt ? RegisterQueryHelper::formatSmartDate($receivedAt) : null;
+            $dateReceived = $receivedAt ? $this->formatMonitoringDate($receivedAt) : null;
             $timeReceived = $recvTimeRaw ? $this->formatTime($recvTimeRaw) : null;
 
             $dateRegistered = ($ml && $ml->doc_registered_date)
-                ? RegisterQueryHelper::formatSmartDate($ml->doc_registered_date)
+                ? $this->formatMonitoringDate($ml->doc_registered_date)
                 : null;
             $timeRegistered = ($ml && $ml->doc_registered_time)
                 ? $this->formatTime($ml->doc_registered_time)
@@ -1108,13 +1356,10 @@ class ReportHelper
             $timeReleased = null;
             if ($dist && $dist->doc_distribution_date_actual) {
                 $releasedAt = \Carbon\Carbon::parse($dist->doc_distribution_date_actual)->startOfDay();
-                $dateReleased = RegisterQueryHelper::formatSmartDate($releasedAt);
+                $dateReleased = $this->formatMonitoringDate($releasedAt);
                 $timeReleased = $dist->doc_distribution_time_actual
                     ? $this->formatTime($dist->doc_distribution_time_actual)
                     : null;
-            } elseif ($ml && $ml->effectivity_date) {
-                $releasedAt = \Carbon\Carbon::parse($ml->effectivity_date)->startOfDay();
-                $dateReleased = RegisterQueryHelper::formatSmartDate($releasedAt);
             }
 
             $compareEnd = $layout === 'masterlist'
@@ -1123,27 +1368,12 @@ class ReportHelper
                     : null)
                 : $releasedAt;
 
-            // Days Advance (+) / Delay (−)
-            // - Masterlist: Registered vs Received (same calendar day = 0). The table only
-            //   shows those two dates — do not mix in deadline/effectivity here.
-            // - Issuance / forms / logbooks: Released vs Deadline (else Effectivity).
-            //   + finished before target, − after target, 0 on time.
+            // Days Advance (+) / Delay (−) uses the two dates shown on the row:
+            // masterlist = registered − received; all others = released − received.
             $daysDiff = null;
             $daysType = null;
-            if ($layout === 'masterlist') {
-                if ($receivedAt && $compareEnd) {
-                    $daysDiff = (int) $compareEnd->diffInDays($receivedAt, false);
-                }
-            } else {
-                $targetAt = null;
-                if ($ml && $ml->deadline) {
-                    $targetAt = \Carbon\Carbon::parse($ml->deadline)->startOfDay();
-                } elseif ($ml && $ml->effectivity_date) {
-                    $targetAt = \Carbon\Carbon::parse($ml->effectivity_date)->startOfDay();
-                }
-                if ($targetAt && $compareEnd) {
-                    $daysDiff = (int) $compareEnd->diffInDays($targetAt, false);
-                }
+            if ($receivedAt && $compareEnd) {
+                $daysDiff = (int) $receivedAt->diffInDays($compareEnd, false);
             }
             if ($daysDiff !== null) {
                 if ($daysDiff > 0) {
@@ -1184,12 +1414,10 @@ class ReportHelper
                 $row['time_received'] = $timeReceived;
                 $row['date_registered'] = $dateRegistered;
                 $row['time_registered'] = $timeRegistered;
-            } elseif ($layout === 'with_times') {
+            } else {
                 $row['time_received'] = $timeReceived;
                 $row['date_released'] = $dateReleased;
                 $row['time_released'] = $timeReleased;
-            } else {
-                $row['date_released'] = $dateReleased;
             }
 
             return $row;
@@ -1203,7 +1431,7 @@ class ReportHelper
                 'time_received'    => 'Time',
                 'date_registered'  => 'Date',
                 'time_registered'  => 'Time',
-                'days_diff'        => 'Days Advance (+) Days Delay (-)',
+                'days_diff'        => 'Days',
                 'rating_q'         => 'Q',
                 'rating_e'         => 'E',
                 'rating_t'         => 'T',
@@ -1233,7 +1461,7 @@ class ReportHelper
                 'time_received'    => 'Time',
                 'date_released'    => 'Date',
                 'time_released'    => 'Time',
-                'days_diff'        => 'Days Advance (+) Days Delay (-)',
+                'days_diff'        => 'Days',
                 'rating_q'         => 'Q',
                 'rating_e'         => 'E',
                 'rating_t'         => 'T',
@@ -1259,9 +1487,11 @@ class ReportHelper
             $columns = [
                 'no'               => 'No.',
                 'control_number'   => 'Control Number',
-                'date_received'    => 'Date Received',
-                'date_released'    => 'Date Released',
-                'days_diff'        => 'Days Advance (+) Days Delay (-)',
+                'date_received'    => 'Date',
+                'time_received'    => 'Time',
+                'date_released'    => 'Date',
+                'time_released'    => 'Time',
+                'days_diff'        => 'Days',
                 'rating_q'         => 'Q',
                 'rating_e'         => 'E',
                 'rating_t'         => 'T',
@@ -1271,8 +1501,10 @@ class ReportHelper
             $groupHeaders = [
                 'no'               => null,
                 'control_number'   => null,
-                'date_received'    => null,
-                'date_released'    => null,
+                'date_received'    => 'Received',
+                'time_received'    => 'Received',
+                'date_released'    => 'Released',
+                'time_released'    => 'Released',
                 'days_diff'        => null,
                 'rating_q'         => 'Ratings',
                 'rating_e'         => 'Ratings',
@@ -1321,6 +1553,104 @@ class ReportHelper
         $query = $this->applySubTypeFilter($query, $filters);
 
         return RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
+    }
+
+    private function ensureMonitoringRemarksTable(): void
+    {
+        if (! Schema::hasTable('dcs_monitoring_remarks')) {
+            Schema::create('dcs_monitoring_remarks', function ($table) {
+                $table->id();
+                $table->unsignedBigInteger('request_id')->unique();
+                $table->text('remarks')->nullable();
+                $table->boolean('forwarded_drr')->default(false);
+                $table->timestamps();
+            });
+
+            return;
+        }
+
+        if (! Schema::hasColumn('dcs_monitoring_remarks', 'forwarded_drr')) {
+            Schema::table('dcs_monitoring_remarks', function ($table) {
+                $table->boolean('forwarded_drr')->default(false);
+            });
+        }
+    }
+
+    private function monitoringNewOrRevised($ml, $dcn = null): string
+    {
+        $rev = (int) ($ml?->revise_no ?? 0);
+        $from = trim((string) ($ml?->revised_from_doc_no ?? ''));
+        if ($rev > 0 || $from !== '' || ($dcn && ($dcn->dcn_no ?? $dcn->id))) {
+            return 'Revised';
+        }
+
+        return 'New';
+    }
+
+    private function monitoringForwardedDrrByRequestId($docs): array
+    {
+        $this->ensureMonitoringRemarksTable();
+        $ids = collect($docs)->pluck('id')->filter()->map(fn ($id) => (int) $id)->unique()->all();
+        if ($ids === []) {
+            return [];
+        }
+
+        return DB::table('dcs_monitoring_remarks')
+            ->whereIn('request_id', $ids)
+            ->pluck('forwarded_drr', 'request_id')
+            ->mapWithKeys(fn ($flag, $id) => [(int) $id => (bool) $flag])
+            ->all();
+    }
+
+    private function monitoringRemarksByRequestId($docs): array
+    {
+        $this->ensureMonitoringRemarksTable();
+        $ids = collect($docs)->pluck('id')->filter()->map(fn ($id) => (int) $id)->unique()->all();
+        if ($ids === []) {
+            return [];
+        }
+
+        return DB::table('dcs_monitoring_remarks')
+            ->whereIn('request_id', $ids)
+            ->pluck('remarks', 'request_id')
+            ->mapWithKeys(fn ($remark, $id) => [(int) $id => $remark])
+            ->all();
+    }
+
+    public function saveMonitoringRemark(int $requestId, $value): ?string
+    {
+        $this->ensureMonitoringRemarksTable();
+        $remarks = $value === null || $value === '' ? null : (string) $value;
+        $now = now();
+        DB::table('dcs_monitoring_remarks')->updateOrInsert(
+            ['request_id' => $requestId],
+            ['remarks' => $remarks, 'updated_at' => $now, 'created_at' => $now]
+        );
+
+        return $remarks;
+    }
+
+    public function saveMonitoringForwardedDrr(int $requestId, bool $value): bool
+    {
+        $this->ensureMonitoringRemarksTable();
+        $now = now();
+        $existing = DB::table('dcs_monitoring_remarks')->where('request_id', $requestId)->first();
+        if ($existing) {
+            DB::table('dcs_monitoring_remarks')->where('request_id', $requestId)->update([
+                'forwarded_drr' => $value,
+                'updated_at' => $now,
+            ]);
+        } else {
+            DB::table('dcs_monitoring_remarks')->insert([
+                'request_id' => $requestId,
+                'remarks' => null,
+                'forwarded_drr' => $value,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+
+        return $value;
     }
 
     /** Persist a single OPCR rating/remarks field without clobbering the others. */
@@ -1530,7 +1860,19 @@ class ReportHelper
             ['category' => $category, 'sub' => $sub, 'format' => $format]
         );
 
-        $data = $this->fetchReportData($category, $sub, $dateFrom, $dateTo, $filters);
+        $data = $this->applySelectedColumns(
+            $this->fetchReportData($category, $sub, $dateFrom, $dateTo, $filters),
+            $request
+        );
+        $isPlainTable = in_array($category, ['monitoring', 'opcr', 'others'], true);
+        $isMlPrint = $category === 'masterlist'
+            && in_array($sub, ['internal_docs', 'external_docs', 'internal_forms', 'forms', 'logbooks'], true);
+        $checkedType = match ($sub) {
+            'external_docs' => 'external',
+            'forms' => 'forms',
+            'logbooks' => 'logbooks',
+            default => 'internal',
+        };
 
         $allRows = collect($data['rows'] ?? [])->values();
         $totalCount = $allRows->count();
@@ -1583,7 +1925,12 @@ class ReportHelper
             'activeSub'          => $sub,
             'activeCategory'     => $category,
             'autoPrint'          => $request->boolean('autoPrint'),
-            'letterheadUrl'      => ReportTemplateHelper::letterheadDataUrl((int) $request->get('template_id', 0)),
+            'plainTable'         => $isPlainTable,
+            'isMlInternal'       => $isMlPrint,
+            'checkedType'        => $checkedType,
+            'letterheadUrl'      => ($isPlainTable || $isMlPrint)
+                ? null
+                : ReportTemplateHelper::letterheadDataUrl((int) $request->get('template_id', 0)),
             'republic'           => 'Republic of the Philippines',
             'institutionName'    => 'Camarines Sur Polytechnic Colleges',
             'institutionAddress' => 'Nabua, Camarines Sur',
@@ -1591,11 +1938,14 @@ class ReportHelper
             'footerLeft'         => 'Effectivity Date:',
             'footerCenter'       => 'Rev.',
             'footerRight'        => '',
+            'footerEffectivity'  => in_array($sub, ['internal_forms', 'external_docs', 'forms', 'logbooks'], true) ? 'August 2021' : 'January 2025',
+            'footerRev'          => in_array($sub, ['internal_forms', 'external_docs', 'forms', 'logbooks'], true) ? '3' : '4',
         ];
 
         // ── CSV ──
-        if ($format === 'xlsx' || $format === 'csv') {
+        if ($format === 'xlsx' || $format === 'csv' || $format === 'excel') {
             $csvContent = $this->buildCsvContent($data['columns'], $rows, $data['group_headers'] ?? []);
+            $asExcel = in_array($format, ['xlsx', 'excel'], true);
             $this->archiveGeneratedReport(
                 $csvContent,
                 'csv',
@@ -1611,8 +1961,10 @@ class ReportHelper
             );
 
             return response($csvContent, 200, [
-                'Content-Type'        => 'text/csv; charset=UTF-8',
-                'Content-Disposition' => 'attachment; filename="' . $filename . '.csv"',
+                'Content-Type'        => $asExcel
+                    ? 'application/vnd.ms-excel; charset=UTF-8'
+                    : 'text/csv; charset=UTF-8',
+                'Content-Disposition' => 'attachment; filename="' . $filename . ($asExcel ? '.xls' : '.csv') . '"',
                 'Cache-Control'       => 'no-cache, no-store, must-revalidate',
             ]);
         }
@@ -1622,7 +1974,7 @@ class ReportHelper
         if ($format === 'pdf') {
             $viewData['isPdf'] = true;
 
-            $html = view('pages.dcs.reports.export', $viewData)->render();
+            $html = view($isMlPrint ? 'pages.dcs.reports.export-masterlist-internal' : 'pages.dcs.reports.export', $viewData)->render();
 
             $options = new \Dompdf\Options();
             $options->set('isHtml5ParserEnabled', true);
@@ -1633,33 +1985,27 @@ class ReportHelper
 
             $dompdf = new \Dompdf\Dompdf($options);
             $dompdf->loadHtml($html);
-            $dompdf->setPaper('a4', 'portrait');
+            $dompdf->setPaper(
+                ($isMlPrint || $isPlainTable) ? 'letter' : 'a4',
+                $isPlainTable ? 'landscape' : 'portrait'
+            );
             $dompdf->render();
 
-            // ── Footer: register page text AFTER render ──
-                        // ── Footer via canvas ──
-            $canvas  = $dompdf->getCanvas();
-            $fm      = $dompdf->getFontMetrics();
-            $font    = $fm->getFont('Helvetica');
-            $w       = $canvas->get_width();
-            $h       = $canvas->get_height();
+            if (! $isPlainTable && ! $isMlPrint) {
+                $canvas  = $dompdf->getCanvas();
+                $fm      = $dompdf->getFontMetrics();
+                $font    = $fm->getFont('Helvetica');
+                $w       = $canvas->get_width();
+                $h       = $canvas->get_height();
+                $footerY = $h - 18;
 
-            // Text position near very bottom
-            $footerY = $h - 18;
-
-            // Line ABOVE the text (smaller Y = higher on page)
-            $canvas->line(40, $footerY - 14, $w - 40, $footerY - 14, [13/255, 42/255, 122/255], 1.5);
-
-            // Left
-            $canvas->page_text(40, $footerY, 'Effectivity Date:', $font, 9, [0, 0, 0], 0, 1, '');
-
-            // Center
-            $centerText = 'Rev.';
-            $centerW    = $fm->getTextWidth($centerText, $font, 9);
-            $canvas->page_text(($w - $centerW) / 2, $footerY, $centerText, $font, 9, [0, 0, 0], 0, 1, '');
-
-            // Right
-            $canvas->page_text($w - 130, $footerY, 'Page {PAGE_NUM} of {PAGE_COUNT}', $font, 9, [0, 0, 0], 0, 1, '');
+                $canvas->line(40, $footerY - 14, $w - 40, $footerY - 14, [13/255, 42/255, 122/255], 1.5);
+                $canvas->page_text(40, $footerY, 'Effectivity Date:', $font, 9, [0, 0, 0], 0, 1, '');
+                $centerText = 'Rev.';
+                $centerW    = $fm->getTextWidth($centerText, $font, 9);
+                $canvas->page_text(($w - $centerW) / 2, $footerY, $centerText, $font, 9, [0, 0, 0], 0, 1, '');
+                $canvas->page_text($w - 130, $footerY, 'Page {PAGE_NUM} of {PAGE_COUNT}', $font, 9, [0, 0, 0], 0, 1, '');
+            }
             $output = $dompdf->output();
             $this->archiveGeneratedReport(
                 $output,
@@ -1728,7 +2074,7 @@ HTML;
         }
 
         // ── HTML (browser view or auto-print) ──
-        return view('pages.dcs.reports.export', $viewData);
+        return view($isMlPrint ? 'pages.dcs.reports.export-masterlist-internal' : 'pages.dcs.reports.export', $viewData);
     }
 
         // ════════════════════════════════════════════
@@ -1804,7 +2150,46 @@ HTML;
             $filters['_template_id'] = $templateId;
         }
 
+        $columnsParam = trim((string) $request->get('columns', ''));
+        if ($columnsParam !== '') {
+            $filters['_export_columns'] = $columnsParam;
+        }
+
         return $filters;
+    }
+
+    /**
+     * Keep export columns in the requested order when the UI sends a subset.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function applySelectedColumns(array $data, Request $request): array
+    {
+        $raw = trim((string) $request->get('columns', ''));
+        if ($raw === '') {
+            return $data;
+        }
+
+        $wanted = array_values(array_filter(array_map('trim', explode(',', $raw))));
+        $columns = $data['columns'] ?? [];
+        $filtered = [];
+        foreach ($wanted as $key) {
+            if (array_key_exists($key, $columns)) {
+                $filtered[$key] = $columns[$key];
+            }
+        }
+        if ($filtered === []) {
+            return $data;
+        }
+
+        $data['columns'] = $filtered;
+        $groups = $data['group_headers'] ?? [];
+        if (is_array($groups) && $groups !== []) {
+            $data['group_headers'] = array_intersect_key($groups, $filtered);
+        }
+
+        return $data;
     }
 
     private function archiveGeneratedReport(
@@ -1913,6 +2298,12 @@ HTML;
                 if ($key === 'pdf_path' && $val) {
                     $val = 'View File';
                 }
+                if ($key === 'forwarded_drr') {
+                    $val = !empty($val) ? 'Yes' : 'No';
+                }
+                if ($key === 'days_diff' && $val !== null && $val !== '') {
+                    $val = abs((int) $val);
+                }
                 $line[] = $val;
             }
             fputcsv($handle, $line);
@@ -1983,6 +2374,12 @@ HTML;
                     if ($key === 'pdf_path' && $val) {
                         $val = 'View File';
                     }
+                    if ($key === 'forwarded_drr') {
+                        $val = !empty($val) ? 'Yes' : 'No';
+                    }
+                    if ($key === 'days_diff' && $val !== null && $val !== '') {
+                        $val = abs((int) $val);
+                    }
                     $line[] = $val;
                 }
                 fputcsv($handle, $line);
@@ -2003,9 +2400,44 @@ HTML;
         if (!$time) return '';
 
         try {
-            return \Carbon\Carbon::parse($time)->format('h:i A');
+            return \Carbon\Carbon::parse($time)->format('g:i A');
         } catch (\Throwable $e) {
             return (string) $time;
+        }
+    }
+
+    private function monitoringSourceAcronyms($ml): ?string
+    {
+        $labels = collect($ml?->sourceOffices ?? [])
+            ->map(function ($row) {
+                $code = strtoupper(trim((string) ($row->office?->office_code ?? '')));
+                if ($code !== '') {
+                    return $code;
+                }
+
+                return trim((string) ($row->office?->office_name ?? ''));
+            })
+            ->filter()
+            ->unique()
+            ->values();
+
+        return $labels->isEmpty() ? null : $labels->implode(', ');
+    }
+
+    private function formatMonitoringDate($val): ?string
+    {
+        if (! $val) {
+            return null;
+        }
+
+        try {
+            $date = $val instanceof \Carbon\Carbon ? $val : \Carbon\Carbon::parse($val);
+
+            return $date->format('M j, Y');
+        } catch (\Throwable $e) {
+            $raw = trim((string) $val);
+
+            return $raw !== '' ? $raw : null;
         }
     }
 

@@ -108,6 +108,16 @@
             @endif
         @endif
 
+        @if($isLimitedDcs && $canOfficeIntake)
+            <li class="nav-item {{ request()->routeIs('dcs.office.random-checks*') ? 'active' : '' }}">
+                <a href="{{ route('dcs.office.random-checks', absolute: false) }}">
+                    <i class="fa-solid fa-clipboard-check"></i>
+                    <span>Random Check</span>
+                    <span class="tooltip">Scheduled visits and results</span>
+                </a>
+            </li>
+        @endif
+
         @if($isFullDcs)
             @php $canReviewIntake = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake(); @endphp
             @if($canRegister)
@@ -218,7 +228,7 @@
             @endif
 
             @if($canRandomCheck)
-                <li class="nav-item {{ request()->routeIs('dcs.random-check') ? 'active' : '' }}">
+                <li class="nav-item {{ request()->routeIs('dcs.random-check*') ? 'active' : '' }}">
                     <a href="{{ route('dcs.random-check', absolute: false) }}">
                         <i class="fa-solid fa-clipboard-check"></i>
                         <span>Random Check</span>

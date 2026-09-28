@@ -308,6 +308,21 @@
         if (letters) {
             letters.value = document.getElementById('docNoInsertRenameLetters')?.checked ? '1' : '0';
         }
+        const revField = document.getElementById('masterlistRevisionNo');
+        if (revField) {
+            revField.value = '0';
+            revField.dataset.userEdited = 'true';
+            revField.readOnly = false;
+            revField.style.background = '';
+            revField.style.borderColor = '';
+            revField.classList.remove('reg-input-invalid');
+        }
+        const revHint = document.getElementById('revNoHint');
+        if (revHint) {
+            revHint.innerHTML = '<i class="fa-solid fa-circle-check"></i> New document at Rev 0. Existing numbers in this group will shift when you save.';
+            revHint.style.color = '#16a34a';
+            revHint.dataset.valid = 'insert';
+        }
         if (typeof window.markDocNoInsertReady === 'function') {
             window.markDocNoInsertReady();
         } else if (typeof window.setSaveEnabled === 'function') {
@@ -320,6 +335,9 @@
             hint.dataset.valid = 'insert';
         }
         closeInsertModal();
+        if (typeof window.scheduleRevNoCheck === 'function') {
+            window.scheduleRevNoCheck();
+        }
     }
 
     function bindInsertModal() {

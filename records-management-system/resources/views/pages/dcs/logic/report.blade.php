@@ -520,8 +520,9 @@ class ReportHelper
     }
 
     /**
-     * Sort by the latest revision only, then keep that document's obsolete
-     * revisions immediately after it (not interleaved with other documents).
+     * Keep each document's revisions together. Date sorts use the earliest
+     * (ASC) or latest (DESC) effectivity in the family so years run in order
+     * instead of following the newest revision.
      */
     private function sortRevisionFamilies($rows, array $filters, callable $masterlistOf)
     {
@@ -530,6 +531,17 @@ class ReportHelper
         $families = $this->groupByRevisionFamily($rows, $masterlistOf);
 
         $sorted = $families->sort(function ($a, $b) use ($sort, $descending, $masterlistOf) {
+            if ($this->isDateSort($sort)) {
+                $cmp = $this->compareSortValues(
+                    $this->familyDateSortValue($a, $sort, $masterlistOf, $descending),
+                    $this->familyDateSortValue($b, $sort, $masterlistOf, $descending),
+                    $descending
+                );
+                if ($cmp !== 0) {
+                    return $cmp;
+                }
+            }
+
             $latestA = $this->latestInFamily($a, $masterlistOf);
             $latestB = $this->latestInFamily($b, $masterlistOf);
 
@@ -542,7 +554,16 @@ class ReportHelper
 
         $flat = collect();
         foreach ($sorted as $family) {
-            $flat = $flat->concat($this->orderFamilyMembers($family, $masterlistOf));
+            $members = $this->orderFamilyMembers($family, $masterlistOf, $sort, $descending);
+            $lead = true;
+            foreach ($members as $row) {
+                $ml = $masterlistOf($row);
+                if ($lead && is_object($ml)) {
+                    $ml->_family_lead = true;
+                }
+                $lead = false;
+                $flat->push($row);
+            }
         }
 
         return $flat->values();
@@ -594,19 +615,59 @@ class ReportHelper
 
     private function latestInFamily(array $family, callable $masterlistOf)
     {
-        foreach ($family as $row) {
-            if (! $this->isObsoleteMasterlist($masterlistOf($row))) {
-                return $row;
-            }
-        }
+        $live = collect($family)->filter(fn ($row) => ! $this->isObsoleteMasterlist($masterlistOf($row)));
+        $pool = $live->isNotEmpty() ? $live : collect($family);
 
-        return collect($family)->sortByDesc(function ($row) use ($masterlistOf) {
-            return (int) ($masterlistOf($row)?->revise_no ?? 0);
+        return $pool->sortByDesc(function ($row) use ($masterlistOf) {
+            $ml = $masterlistOf($row);
+
+            return sprintf('%010d-%010d', (int) ($ml?->revise_no ?? 0), (int) ($ml?->id ?? 0));
         })->first();
     }
 
-    private function orderFamilyMembers(array $family, callable $masterlistOf)
+    private function isDateSort(string $sort): bool
     {
+        return ! in_array($sort, ['doc_no', 'doc_title', 'originator', 'rev_no'], true);
+    }
+
+    private function familyDateSortValue(array $family, string $sort, callable $masterlistOf, bool $descending): string
+    {
+        $stamps = collect($family)
+            ->map(fn ($row) => (string) $this->familySortValue($row, $sort, $masterlistOf))
+            ->filter(fn ($value) => $value !== '')
+            ->values();
+
+        if ($stamps->isEmpty()) {
+            return '';
+        }
+
+        return $descending ? (string) $stamps->max() : (string) $stamps->min();
+    }
+
+    private function orderFamilyMembers(array $family, callable $masterlistOf, string $sort = 'effectivity_date', bool $descending = false)
+    {
+        if ($this->isDateSort($sort)) {
+            return collect($family)->sort(function ($a, $b) use ($masterlistOf, $sort, $descending) {
+                $cmp = $this->compareSortValues(
+                    $this->familySortValue($a, $sort, $masterlistOf),
+                    $this->familySortValue($b, $sort, $masterlistOf),
+                    $descending
+                );
+                if ($cmp !== 0) {
+                    return $cmp;
+                }
+
+                $rev = ((int) ($masterlistOf($a)?->revise_no ?? 0)) <=> ((int) ($masterlistOf($b)?->revise_no ?? 0));
+                if ($rev !== 0) {
+                    return $descending ? -$rev : $rev;
+                }
+
+                $id = ((int) ($masterlistOf($a)?->id ?? 0)) <=> ((int) ($masterlistOf($b)?->id ?? 0));
+
+                return $descending ? -$id : $id;
+            })->values();
+        }
+
         return collect($family)->sort(function ($a, $b) use ($masterlistOf) {
             $aObs = $this->isObsoleteMasterlist($masterlistOf($a));
             $bObs = $this->isObsoleteMasterlist($masterlistOf($b));
@@ -636,9 +697,22 @@ class ReportHelper
             'doc_title' => trim((string) ($ml?->doc_title ?? $drf?->doc_title ?? '')),
             'originator' => trim((string) ($ml?->originator_name ?? '')),
             'rev_no' => (int) ($ml?->revise_no ?? 0),
-            'registered' => trim((string) ($ml?->doc_registered_date ?? '')),
-            default => trim((string) ($ml?->effectivity_date ?? $drf?->drf_date ?? '')),
+            'registered' => $this->sortDateStamp($ml?->doc_registered_date ?? null),
+            default => $this->sortDateStamp($ml?->effectivity_date ?? $drf?->drf_date ?? null),
         };
+    }
+
+    private function sortDateStamp(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        try {
+            return \Carbon\Carbon::parse($value)->format('Y-m-d');
+        } catch (\Throwable $e) {
+            return '';
+        }
     }
 
     private function compareSortValues(string|int $va, string|int $vb, bool $descending): int
@@ -687,6 +761,27 @@ class ReportHelper
         return $counter;
     }
 
+    /**
+     * One item number per revision family, on the first printed row of that group.
+     */
+    private function masterlistItemNumber(?object $ml, int &$counter, array $filters = []): int|string
+    {
+        $obsoleteOnly = ($filters['revision_status'] ?? 'all') === 'obsolete';
+        if ($obsoleteOnly) {
+            $counter++;
+
+            return $counter;
+        }
+
+        if (! is_object($ml) || empty($ml->_family_lead)) {
+            return '';
+        }
+
+        $counter++;
+
+        return $counter;
+    }
+
     // ════════════════════════════════════════════
     // MASTERLIST REPORT
     // ════════════════════════════════════════════
@@ -716,7 +811,7 @@ class ReportHelper
             $doc = $ml->request;
 
             return [
-                'item_no'          => $this->reportRowNumber($ml, $counter, $filters),
+                'item_no'          => $this->masterlistItemNumber($ml, $counter, $filters),
                 'doc_no'           => $ml->doc_no,
                 'rev_no'           => (int) ($ml->revise_no ?? 0),
                 'doc_title'        => $ml->doc_title,

@@ -653,6 +653,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $status = $isDeleted
             ? 'Deleted'
             : $this->revisionStatusLabel($ml?->revision_status ?? null);
+        $allowsRevision = RegisterQueryHelper::supportsAllowsRevisionColumn()
+            ? (bool) ($ml?->allows_revision ?? true)
+            : RegisterQueryHelper::effectiveTypeAllowsRevision($doc->doc_type_id, $doc->sub_type_id);
+        $docNo = $ml ? trim((string) $ml->doc_no) : '';
+        $canEdit = ! $isDeleted;
+        $canRevise = $canEdit
+            && $allowsRevision
+            && $docNo !== ''
+            && strtolower((string) $status) === 'latest';
+        $reviseParams = [
+            'type' => 'revised',
+            'from_id' => $doc->id,
+            'from_doc_no' => $docNo,
+            'doc_type_id' => $doc->doc_type_id,
+        ];
+        if (! empty($doc->sub_type_id)) {
+            $reviseParams['sub_type_id'] = $doc->sub_type_id;
+        }
 
         return [
             'request_id' => $doc->id,
@@ -666,9 +684,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'originator' => $ml?->originator_name,
             'pages' => $ml?->no_pages,
             'status' => $status,
-            'allows_revision' => RegisterQueryHelper::supportsAllowsRevisionColumn()
-                ? (bool) ($ml->allows_revision ?? true)
-                : RegisterQueryHelper::effectiveTypeAllowsRevision($doc->doc_type_id, $doc->sub_type_id),
+            'allows_revision' => $allowsRevision,
+            'can_edit' => $canEdit,
+            'can_revise' => $canRevise,
+            'edit_url' => $canEdit ? route('dcs.register.edit', $doc->id, false) : null,
+            'revise_url' => $canRevise ? route('dcs.register.create', $reviseParams, false) : null,
             'is_deleted' => $isDeleted,
             'deleted_at' => $isDeleted ? Carbon::parse($doc->deleted_at)->format('M d, Y h:i A') : null,
             'revised_from_doc_no' => $ml->revised_from_doc_no ?? null,
@@ -951,6 +971,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     notice: @js($notice),
     groupLabels: @js($groupLabels ?? []),
     groupMenu: { open: false, x: 0, y: 0, group: null },
+    rowMenu: { open: false, x: 0, y: 0, editUrl: '', reviseUrl: '', canEdit: false, canRevise: false, label: '' },
     open: { approval: true, deadline: true, masterlist: true, dcn: true, drf: true, distribution: true, retrieval: true },
     visible: @js($visibleGroups),
     forceDistributionOpen: @js($forceDistributionOpen),
@@ -1120,10 +1141,43 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         x = Math.max(8, Math.min(x, window.innerWidth - menuW - 8));
         y = Math.max(8, Math.min(y, window.innerHeight - menuH - 8));
         this.groupMenu = { open: true, x, y, group };
+        this.closeRowMenu();
     },
     closeGroupMenu() {
         this.groupMenu.open = false;
         this.groupMenu.group = null;
+    },
+    openRowMenu(e, row) {
+        if (!row || (!row.canEdit && !row.canRevise)) {
+            return;
+        }
+        this.closeGroupMenu();
+        const menuW = 220;
+        const menuH = 96;
+        let x = e.clientX;
+        let y = e.clientY;
+        x = Math.max(8, Math.min(x, window.innerWidth - menuW - 8));
+        y = Math.max(8, Math.min(y, window.innerHeight - menuH - 8));
+        this.rowMenu = {
+            open: true,
+            x,
+            y,
+            editUrl: row.editUrl || '',
+            reviseUrl: row.reviseUrl || '',
+            canEdit: !!row.canEdit,
+            canRevise: !!row.canRevise,
+            label: row.label || '',
+        };
+    },
+    closeRowMenu() {
+        this.rowMenu.open = false;
+    },
+    goRowAction(url) {
+        if (!url) {
+            return;
+        }
+        this.closeRowMenu();
+        window.location.href = url;
     },
     hideGroupFromMenu() {
         const g = this.groupMenu.group;
@@ -1428,6 +1482,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             $catSlug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $catName));
                             $itemNo = (int) ($group['type_seq'] ?? ((($list['page'] ?? 1) - 1) * ($list['per_page'] ?? 50) + $i + 1));
                             $revKey = 'rev-' . $r['request_id'];
+                            $rowActions = [
+                                'editUrl' => $r['edit_url'] ?? '',
+                                'reviseUrl' => $r['revise_url'] ?? '',
+                                'canEdit' => ! empty($r['can_edit']),
+                                'canRevise' => ! empty($r['can_revise']),
+                                'label' => ($r['doc_no'] ?? 'Document') . ' · Rev ' . ($r['rev_no'] ?? 0),
+                            ];
                         @endphp
 
                         @if($catName !== $lastCategory)
@@ -1442,7 +1503,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @php $lastCategory = $catName; @endphp
                         @endif
 
-                        <tr class="db-parent-row @if(!empty($r['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}']" @if(!empty($r['is_deleted'])) title="Moved to Recycle Bin{{ !empty($r['deleted_at']) ? ' on ' . $r['deleted_at'] : '' }}" @endif>
+                        <tr class="db-parent-row @if(!empty($r['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}']" @contextmenu.prevent='openRowMenu($event, @json($rowActions))' @if(!empty($r['is_deleted'])) title="Moved to Recycle Bin{{ !empty($r['deleted_at']) ? ' on ' . $r['deleted_at'] : '' }}" @endif>
                             <td>
                                 @if(!empty($group['children']))
                                     <span class="db-expand-btn" :class="{ expanded: expandedRevs['{{ $revKey }}'] }" x-on:click.stop="toggleRev('{{ $revKey }}')" title="Show {{ $group['stack_label'] ?? 'older revisions' }}" x-text="expandedRevs['{{ $revKey }}'] ? '▼' : '▶'"></span>
@@ -1469,7 +1530,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         @endif
 
                         @foreach($group['children'] ?? [] as $ci => $child)
-                            <tr class="db-child-row @if(!empty($child['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}'] && expandedRevs['{{ $revKey }}']" @if(!empty($child['is_deleted'])) title="Moved to Recycle Bin{{ !empty($child['deleted_at']) ? ' on ' . $child['deleted_at'] : '' }}" @endif>
+                            @php
+                                $childActions = [
+                                    'editUrl' => $child['edit_url'] ?? '',
+                                    'reviseUrl' => $child['revise_url'] ?? '',
+                                    'canEdit' => ! empty($child['can_edit']),
+                                    'canRevise' => ! empty($child['can_revise']),
+                                    'label' => ($child['doc_no'] ?? 'Document') . ' · Rev ' . ($child['rev_no'] ?? 0),
+                                ];
+                            @endphp
+                            <tr class="db-child-row @if(!empty($child['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}'] && expandedRevs['{{ $revKey }}']" @contextmenu.prevent='openRowMenu($event, @json($childActions))' @if(!empty($child['is_deleted'])) title="Moved to Recycle Bin{{ !empty($child['deleted_at']) ? ' on ' . $child['deleted_at'] : '' }}" @endif>
                                 <td class="db-child-ind"></td>
                                 @include('pages.dcs.database._row', ['r' => $child])
                             </tr>
@@ -1518,6 +1588,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
              @click.stop>
             <button type="button" @click="hideGroupFromMenu()">
                 Hide <span x-text="groupLabels[groupMenu.group] || groupMenu.group"></span> group
+            </button>
+        </div>
+    </template>
+
+    <template x-teleport="body">
+        <div class="db-col-context-menu db-row-context-menu" x-show="rowMenu.open" x-cloak
+             :style="'left:' + rowMenu.x + 'px;top:' + rowMenu.y + 'px'"
+             @click.outside="closeRowMenu()"
+             @click.stop>
+            <div class="db-row-context-label" x-show="rowMenu.label" x-text="rowMenu.label"></div>
+            <button type="button" x-show="rowMenu.canEdit" @click="goRowAction(rowMenu.editUrl)">
+                <i class="fa-solid fa-pen"></i> Edit
+            </button>
+            <button type="button" x-show="rowMenu.canRevise" @click="goRowAction(rowMenu.reviseUrl)">
+                <i class="fa-solid fa-file-pen"></i> Register revised
             </button>
         </div>
     </template>

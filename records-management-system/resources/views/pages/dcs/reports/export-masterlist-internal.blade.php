@@ -523,10 +523,6 @@
                         @forelse($pageRows as $i => $row)
                             @php
                                 $item = is_array($row) ? ($row['item_no'] ?? '') : ($row->item_no ?? '');
-                                $status = strtolower(trim((string) (is_array($row) ? ($row['revision_status'] ?? '') : ($row->revision_status ?? ''))));
-                                if ($status === 'obsolete') {
-                                    $item = '';
-                                }
                             @endphp
                             <tr>
                                 <td>{{ $item !== '' && $item !== null ? $item : '' }}</td>

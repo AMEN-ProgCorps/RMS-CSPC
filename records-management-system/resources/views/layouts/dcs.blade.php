@@ -90,6 +90,8 @@
         @if(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser())
             @vite(['resources/css/dcs/office-intake.css'])
         @endif
+    @elseif(request()->routeIs('dcs.office.random-checks*'))
+        @vite(['resources/css/dcs/random-check.css'])
     @elseif(request()->routeIs('dcs.office.*'))
         @vite(['resources/css/dcs/register.css', 'resources/css/dcs/office-intake.css'])
     @elseif(request()->routeIs('dcs.requests.*'))
@@ -114,7 +116,7 @@
         @vite(['resources/css/dcs/stamping.css'])
     @elseif(request()->routeIs('dcs.database.index'))
         @vite(['resources/css/dcs/database.css'])
-    @elseif(request()->routeIs('dcs.random-check'))
+    @elseif(request()->routeIs('dcs.random-check*'))
         @vite(['resources/css/dcs/random-check.css'])
     @elseif(request()->routeIs('dcs.manage-files'))
         @vite(['resources/css/dcs/manage-files.css'])

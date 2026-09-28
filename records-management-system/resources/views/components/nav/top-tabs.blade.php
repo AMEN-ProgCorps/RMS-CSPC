@@ -464,13 +464,23 @@
             ];
         }
         // 6a. Random Check
-        elseif (request()->routeIs('dcs.random-check')) {
+        elseif (request()->routeIs('dcs.random-check*')) {
             $sectionTitle = 'Random Check';
             $tabs = [
                 [
                     'label' => 'Random Check',
                     'url' => route('dcs.random-check'),
-                    'active' => request()->routeIs('dcs.random-check'),
+                    'active' => request()->routeIs('dcs.random-check*'),
+                ],
+            ];
+        }
+        elseif (request()->routeIs('dcs.office.random-checks*')) {
+            $sectionTitle = 'Random Check';
+            $tabs = [
+                [
+                    'label' => 'Random Check',
+                    'url' => route('dcs.office.random-checks'),
+                    'active' => request()->routeIs('dcs.office.random-checks*'),
                 ],
             ];
         }

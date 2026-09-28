@@ -2759,10 +2759,7 @@ function docNoPrefixForSelection() {
 function updateDocNoPrefixHint(prefix) {
     const hint = document.getElementById('docNoPrefixHint');
     if (!hint) return;
-    if (prefix === SYLLABI_FORM_DOC_NO) {
-        hint.textContent = 'Filled from the Syllabi/TOS form number — you can still edit it.';
-        hint.style.display = 'block';
-    } else if (prefix) {
+    if (prefix && prefix !== SYLLABI_FORM_DOC_NO) {
         hint.textContent = 'Prefix filled — add dept/section code and control # (e.g. ' + prefix + 'YYY-XX).';
         hint.style.display = 'block';
     } else {
@@ -4451,7 +4448,7 @@ function validateMasterlistRequired(errors, { requireScan = false, forDraft = fa
             type: 'file',
         });
     }
-    if (!forDraft && !window.__isSyllabiMode) {
+    if (!forDraft) {
         const effectivity = (document.getElementById('masterlistEffectivityDate')?.value || '').trim();
         if (!effectivity) {
             errors.push({
@@ -4955,7 +4952,7 @@ async function initSyllabiContextWiring() {
             window.__facultiesCacheKey = null;
 
             if (!this.value) return;
-            await reloadFacultiesForCollege(this.value);
+            await reloadFacultiesForCollege();
 
             try {
                 const programs = ((window.__registerCatalog || {}).programsByCollege || {})[String(this.value)] || [];
@@ -4989,6 +4986,8 @@ async function initSyllabiContextWiring() {
             resetDownstreamFrom(4);
             if (sySel) sySel.disabled = !this.value;
             refreshSyllabiYearLevelDisplay(yearLevelsFromCourses(catalogCoursesForContext()));
+            window.__facultiesCacheKey = null;
+            reloadFacultiesForCollege();
         });
     }
     if (sySel && !sySel.dataset.wired) {
@@ -5105,17 +5104,29 @@ function getSyllabiCollegeId() {
     return select && select.value ? select.value : '';
 }
 
-async function reloadFacultiesForCollege(collegeId) {
+function getSyllabiCourseType() {
+    const hidden = document.getElementById('syllabiCourseTypeHidden');
+    if (hidden && hidden.value) return hidden.value.trim();
+    const select = document.getElementById('syllabiCourseType');
+    return (select && select.value ? select.value : '').trim();
+}
+
+function casCollegeId() {
+    const colleges = (window.__registerCatalog || {}).colleges || [];
+    const cas = colleges.find((c) => {
+        const code = String(c.college_code || '').toUpperCase();
+        const name = String(c.college_name || '');
+        return code === 'CAS'
+            || /college of arts and sciences/i.test(name)
+            || /arts\s*&\s*sciences/i.test(name);
+    });
+    return cas ? String(cas.college_id) : '';
+}
+
+async function reloadFacultiesForCollege() {
     window.__facultiesCacheKey = null;
-    allFaculties = [];
-    if (!collegeId) return;
-    try {
-        const data = ((window.__registerCatalog || {}).faculties || []).filter(f => String(f.college_id) === String(collegeId));
-        allFaculties = Array.isArray(data) ? data : [];
-        window.__facultiesCacheKey = String(collegeId);
-    } catch (err) {
-        console.error('Failed to load faculties for college:', err);
-    }
+    allFaculties = ((window.__registerCatalog || {}).faculties || []).slice();
+    window.__facultiesCacheKey = 'all';
 }
 
 function ensureFacultyState(uid) {
@@ -5132,24 +5143,41 @@ function ensureFacultyState(uid) {
 }
 
 async function ensureFacultiesLoaded() {
-    const collegeId = getSyllabiCollegeId();
-    if (!collegeId) {
-        allFaculties = [];
-        window.__facultiesCacheKey = null;
+    if (window.__facultiesCacheKey === 'all' && Array.isArray(allFaculties) && allFaculties.length > 0) {
         return;
     }
-    const cacheKey = String(collegeId);
-    if (window.__facultiesCacheKey === cacheKey && Array.isArray(allFaculties) && allFaculties.length > 0) {
-        return;
-    }
-    await reloadFacultiesForCollege(collegeId);
+    await reloadFacultiesForCollege();
 }
 
 function getFacultyCandidates() {
     if (!Array.isArray(allFaculties)) return [];
-    const collegeId = getSyllabiCollegeId();
-    if (!collegeId) return [];
-    return allFaculties.filter(f => String(f.college_id) === String(collegeId));
+    const type = getSyllabiCourseType();
+    if (type === 'GE Courses') {
+        const casId = casCollegeId();
+        if (!casId) return [];
+        return allFaculties.filter(f => String(f.college_id) === String(casId));
+    }
+    if (type === 'Major') {
+        const collegeId = getSyllabiCollegeId();
+        if (!collegeId) return [];
+        return allFaculties.filter(f => String(f.college_id) === String(collegeId));
+    }
+    return allFaculties;
+}
+
+function facultyEmptyMessage() {
+    const type = getSyllabiCourseType();
+    if (type === 'GE Courses') {
+        return casCollegeId()
+            ? 'No matching faculty in College of Arts and Sciences'
+            : 'CAS faculty list is not set up yet';
+    }
+    if (type === 'Major') {
+        return getSyllabiCollegeId()
+            ? 'No matching faculty for this college'
+            : 'Select a college first';
+    }
+    return 'No matching faculty';
 }
 
 function getOrCreateSyllabiFacultyDropdown(uid) {
@@ -5327,22 +5355,18 @@ async function renderSyllabiFacultyDropdown(uid, input) {
     dd.innerHTML = '<div class="reg-reldocs-noresult">Loading faculty...</div>';
     dd.style.display = 'block';
 
-    const collegeId = getSyllabiCollegeId();
-    if (!collegeId) {
-        dd.innerHTML = '<div class="reg-reldocs-noresult">Select a college first</div>';
-        return;
-    }
-
     await ensureFacultiesLoaded();
 
+    const usedOnSiblings = siblingFacultyNames(uid);
     const candidates = getFacultyCandidates();
     const matches = candidates.filter(f =>
         f.faculty_name.toLowerCase().includes(q) &&
-        !state.selected.some(s => s.label.toLowerCase() === f.faculty_name.toLowerCase())
+        !state.selected.some(s => s.label.toLowerCase() === f.faculty_name.toLowerCase()) &&
+        !usedOnSiblings.has(f.faculty_name.toLowerCase())
     );
 
     dd.innerHTML = matches.length === 0
-        ? '<div class="reg-reldocs-noresult">No matching faculty for this college</div>'
+        ? `<div class="reg-reldocs-noresult">${facultyEmptyMessage()}</div>`
         : matches.map(f =>
             `<div data-faculty-name="${escapeHtml(f.faculty_name)}">${escapeHtml(f.faculty_name)}</div>`
         ).join('');
@@ -5372,6 +5396,12 @@ window.addSyllabiFaculty = function (uid, name, focusNext) {
     if (!match) return;
 
     const facultyName = match.faculty_name;
+    if (siblingFacultyNames(uid).has(facultyName.toLowerCase())) {
+        if (typeof showToast === 'function') {
+            showToast('This faculty is already assigned to another copy of this syllabi.', 'error');
+        }
+        return;
+    }
     if (state.mode === 'single') {
         state.selected = [{ label: facultyName }];
     } else {
@@ -5386,6 +5416,23 @@ window.addSyllabiFaculty = function (uid, name, focusNext) {
     syncSyllabiFacultyInputDisplay(uid, { focusForNext, force: true });
     if (row) fillReceivedFromGroup(row);
 };
+
+function siblingFacultyNames(uid) {
+    const used = new Set();
+    const row = document.querySelector(`#syllabiTableBody tr[data-uid="${uid}"]`);
+    if (!row) return used;
+    const firstRow = document.querySelector(`#syllabiTableBody tr[data-group="${row.dataset.group}"][data-is-first="true"]`);
+    const copies = parseInt(firstRow?.querySelector('.syllabi-merged-copies')?.value || '1', 10);
+    if (copies < 2) return used;
+    document.querySelectorAll(`#syllabiTableBody tr[data-group="${row.dataset.group}"]`).forEach(tr => {
+        if (String(tr.dataset.uid) === String(uid)) return;
+        const state = window.__syllabiFaculty[tr.dataset.uid];
+        (state?.selected || []).forEach(s => {
+            if (s.label) used.add(s.label.toLowerCase());
+        });
+    });
+    return used;
+}
 
 function renderSyllabiFacultyChips(uid) {
     syncSyllabiFacultyInputDisplay(uid);
@@ -5474,7 +5521,7 @@ async function seedExistingSyllabiGroups() {
 
     unlockSyllabiContextDropdowns();
     syncSyllabiContextHidden();
-    if (first.college_id) await reloadFacultiesForCollege(first.college_id);
+    if (first.college_id) await reloadFacultiesForCollege();
 
     groups.forEach(group => {
         syllabiGroupCounter++;
@@ -5772,6 +5819,7 @@ function propagateReceivedToEmptyRows(source) {
 
     tbody.querySelectorAll('tr[data-uid]').forEach(tr => {
         if (filled.row && tr === filled.row) return;
+        if (!syllabiGroupIsAvailable(tr.dataset.group)) return;
         if (filled.date) stampEmpty(tr.querySelector('input[name="syllabiDateReceived[]"]'), filled.date);
         if (filled.time) stampEmpty(tr.querySelector('input[name="syllabiTimeReceived[]"]'), filled.time);
     });
@@ -5796,18 +5844,23 @@ function propagateDrfToEmptyRows(source) {
 }
 
 function stampGroupReceivedFromPeer(groupId) {
+    stampAvailableRowsFromFirstFilled();
+}
+
+function stampAvailableRowsFromFirstFilled() {
     const peer = findFirstFilledReceived();
-    if (!peer || (!(peer.date || '').trim() && !(peer.time || '').trim())) return;
+    const date = (peer?.date || '').trim();
+    const time = (peer?.time || '').trim();
+    if (!date && !time) return;
 
-    const date = (peer.date || '').trim();
-    const time = (peer.time || '').trim();
-
-    document.querySelectorAll(`#syllabiTableBody tr[data-group="${groupId}"]`).forEach(tr => {
+    const tbody = document.getElementById('syllabiTableBody');
+    if (!tbody) return;
+    tbody.querySelectorAll('tr[data-uid]').forEach(tr => {
+        if (peer.row && tr === peer.row) return;
+        if (!syllabiGroupIsAvailable(tr.dataset.group)) return;
         if (date) stampEmpty(tr.querySelector('input[name="syllabiDateReceived[]"]'), date);
         if (time) stampEmpty(tr.querySelector('input[name="syllabiTimeReceived[]"]'), time);
     });
-
-    propagateReceivedToEmptyRows({ date, time, row: peer.row });
 }
 
 window.cascadeSyllabiField = function (input, fieldName) {
@@ -5856,17 +5909,13 @@ function clearSyllabiFacultyRow(tr) {
 function setSyllabiFacultyRowEnabled(tr, enabled) {
     const input = tr.querySelector('.syllabi-faculty-input');
     if (input) {
-        input.readOnly = !enabled;
+        input.readOnly = false;
         if (tr.dataset.uid) syncSyllabiFacultyInputDisplay(tr.dataset.uid, { force: true });
     }
-    tr.querySelectorAll(
-        'input[name="syllabiDateReceived[]"], input[name="syllabiTimeReceived[]"], .syllabi-merged-copies, .syllabi-merged-pages'
-    ).forEach(el => {
+    tr.querySelectorAll('input[name="syllabiDateReceived[]"], input[name="syllabiTimeReceived[]"]').forEach(el => {
         el.readOnly = !enabled;
         el.classList.toggle('is-locked', !enabled);
-        if (!enabled && (el.name === 'syllabiDateReceived[]' || el.name === 'syllabiTimeReceived[]')) {
-            el.value = '';
-        }
+        if (!enabled) el.value = '';
     });
 }
 
@@ -5961,12 +6010,12 @@ window.syncSyllabiAvailability = function (groupId) {
         setSyllabiFacultyRowEnabled(tr, enabled);
     });
     if (enabled) {
-        stampGroupReceivedFromPeer(groupId);
+        stampAvailableRowsFromFirstFilled();
     }
 };
 
-/** When any row's date/time changes, copy into other empty rows only (never overwrite). */
-window.cascadeSyllabiReceived = function (input, fieldName) {
+/** When a date/time changes, copy into other empty available rows only — never overwrite. */
+window.cascadeSyllabiReceived = function (input) {
     const sourceRow = input?.closest('tr');
     if (!sourceRow) return;
     const date = (sourceRow.querySelector('input[name="syllabiDateReceived[]"]')?.value || '').trim();
@@ -5976,11 +6025,8 @@ window.cascadeSyllabiReceived = function (input, fieldName) {
 };
 
 function fillReceivedFromGroup(tr) {
-    if (!tr || !syllabiGroupIsAvailable(tr.dataset.group) || !syllabiRowHasFaculty(tr)) return;
-    const peer = findFirstFilledReceived(tr);
-    if (!peer) return;
-    if ((peer.date || '').trim()) stampEmpty(tr.querySelector('input[name="syllabiDateReceived[]"]'), peer.date);
-    if ((peer.time || '').trim()) stampEmpty(tr.querySelector('input[name="syllabiTimeReceived[]"]'), peer.time);
+    if (!tr || !syllabiGroupIsAvailable(tr.dataset.group)) return;
+    stampAvailableRowsFromFirstFilled();
 }
 
 function autosizeSyllabiCourse(el) {
@@ -6733,8 +6779,8 @@ function collectMissingFields() {
         if (!window.__isSyllabiMode) {
             checkText("Masterlist", "masterlistDocNo", "Document No.");
             checkText("Masterlist", "masterlistDocTitle", "Document Title");
-            checkText("Masterlist", "masterlistEffectivityDate", "Effectivity Date");
         }
+        checkText("Masterlist", "masterlistEffectivityDate", "Effectivity Date");
         checkText("Masterlist", "masterlistNoOfPages", "No. of Pages");
         checkText("Masterlist", "keywords", "Keywords");
         if (!window.__sourceWidgets.masterlistOriginator || window.__sourceWidgets.masterlistOriginator.selected.length === 0) missing.push("Masterlist: Originator");

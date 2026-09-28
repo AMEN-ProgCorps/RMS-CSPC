@@ -488,6 +488,11 @@ class RegisterPersistHelper
      */
     public static function resolveReviseNo(Request $request, mixed $fallback = null): int
     {
+        $mode = $request->input('registration_mode', 'new');
+        if ($mode !== 'revised' && $request->boolean('insert_shift_confirmed')) {
+            return 0;
+        }
+
         $raw = $request->input('masterlistRevisionNo');
         if ($raw === null || $raw === '') {
             if ($fallback === null || $fallback === '') {
@@ -498,6 +503,65 @@ class RegisterPersistHelper
         }
 
         return max(0, (int) $raw);
+    }
+
+    /**
+     * Split a syllabi faculty field into names without breaking credentials
+     * such as "Bien Paolo Monsalve, MNE".
+     *
+     * @return list<string>
+     */
+    public static function parseSyllabiFacultyNames(?string $raw): array
+    {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return [];
+        }
+
+        $known = [];
+        if (Schema::hasTable('dcs_faculties')) {
+            $q = DB::table('dcs_faculties');
+            if (class_exists(SettingsRecycleHelper::class)) {
+                SettingsRecycleHelper::applyNotDeleted($q, 'dcs_faculties');
+            }
+            $known = $q->pluck('faculty_name')->filter()->map(fn ($n) => trim((string) $n))->values()->all();
+            usort($known, fn ($a, $b) => mb_strlen($b) <=> mb_strlen($a));
+        }
+
+        foreach ($known as $name) {
+            if (strcasecmp($name, $raw) === 0) {
+                return [$name];
+            }
+        }
+
+        $parts = preg_split('/\s*,\s*/', $raw) ?: [];
+        $matched = [];
+        $buffer = '';
+        foreach ($parts as $part) {
+            $candidate = $buffer === '' ? $part : ($buffer.', '.$part);
+            $hit = null;
+            foreach ($known as $name) {
+                if (strcasecmp($name, trim($candidate)) === 0) {
+                    $hit = $name;
+                    break;
+                }
+            }
+            if ($hit !== null) {
+                $matched[] = $hit;
+                $buffer = '';
+            } else {
+                $buffer = $candidate;
+            }
+        }
+
+        if ($matched === []) {
+            return [$raw];
+        }
+        if (trim($buffer) !== '') {
+            $matched[] = trim($buffer);
+        }
+
+        return array_values(array_filter($matched, fn ($n) => $n !== ''));
     }
 
     /**
@@ -651,13 +715,10 @@ class RegisterPersistHelper
         }
 
         if (! $saveAsDraft && $effectivity === '') {
-            $subType = self::dcsDocType($request->input('sub_type_id'));
-            if (! self::isSyllabiLikeSubTypeRow($subType)) {
-                return self::draftErrorResponse(
-                    $request,
-                    'Effectivity Date is required.'
-                );
-            }
+            return self::draftErrorResponse(
+                $request,
+                'Effectivity Date is required.'
+            );
         }
 
         return null;
@@ -1041,6 +1102,13 @@ class RegisterPersistHelper
             if ($newVersionId) {
                 $request->merge(['version_id' => $newVersionId]);
             }
+        }
+
+        if ($mode === 'new' && $request->boolean('insert_shift_confirmed')) {
+            $request->merge([
+                'masterlistRevisionNo' => 0,
+                'revised_from_doc_no' => null,
+            ]);
         }
 
         if ($mode === 'revised' && ! $saveAsDraft) {
@@ -2051,6 +2119,7 @@ class RegisterPersistHelper
                     "{$courseLabel}: Year level is required.");
             }
 
+            $usedFaculty = [];
             for ($c = 0; $c < $copies; $c++) {
                 $rowIdx = $i + $c;
                 if ($rowIdx >= $total) {
@@ -2060,10 +2129,18 @@ class RegisterPersistHelper
                 $rowLabel = "Syllabi \"{$courseLabel}\" (Copy {$copyNum})";
 
                 if ($copies > 1) {
-                    $facultyCount = count(array_filter(array_map('trim', explode(',', $request->syllabiFaculty[$rowIdx] ?? ''))));
-                    if ($facultyCount > 1) {
+                    $rowFaculties = self::parseSyllabiFacultyNames($request->syllabiFaculty[$rowIdx] ?? '');
+                    if (count($rowFaculties) > 1) {
                         return back()->withInput()->with('error',
                             "{$rowLabel}: Only one faculty per row is allowed when copies are split across rows.");
+                    }
+                    $rowName = mb_strtolower($rowFaculties[0] ?? '');
+                    if ($rowName !== '') {
+                        if (isset($usedFaculty[$rowName])) {
+                            return back()->withInput()->with('error',
+                                "{$rowLabel}: The same faculty cannot be used on more than one copy of this syllabi.");
+                        }
+                        $usedFaculty[$rowName] = true;
                     }
                 }
 
@@ -2489,7 +2566,7 @@ class RegisterPersistHelper
                     $uploadedFiles[] = $scannedDrf;
                 }
 
-                $facultyNames = array_filter(array_map('trim', explode(',', $facultyArr[$rowIdx] ?? '')));
+                $facultyNames = self::parseSyllabiFacultyNames($facultyArr[$rowIdx] ?? '');
                 if (empty($facultyNames)) {
                     $facultyNames = [''];
                 }

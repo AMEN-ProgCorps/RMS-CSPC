@@ -1161,6 +1161,35 @@ td.sticky-col-4 {
     color: #0f172a;
 }
 
+.db-col-context-menu button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.db-parent-row,
+.db-child-row {
+    cursor: context-menu;
+}
+
+.db-row-context-label {
+    padding: 6px 12px 4px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    letter-spacing: 0.02em;
+    border-bottom: 1px solid #e2e8f0;
+    margin-bottom: 4px;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.db-row-context-menu button i {
+    width: 14px;
+    margin-right: 6px;
+}
+
 .db-columns-empty-hint {
     margin: 0;
     font-size: 12px;
@@ -1235,6 +1264,15 @@ mark.db-office-hit {
 [data-theme="dark"] .db-col-context-menu button:hover {
     background: #1e293b;
     color: #f8fafc;
+}
+
+[data-theme="dark"] .db-col-context-menu button:disabled {
+    color: #64748b;
+}
+
+[data-theme="dark"] .db-row-context-label {
+    color: #94a3b8;
+    border-bottom-color: #1e293b;
 }
 
 /* Dark inventory rows — beat light !important group/child backgrounds loaded in this file */

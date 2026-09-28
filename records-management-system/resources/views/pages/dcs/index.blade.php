@@ -561,7 +561,7 @@ document.addEventListener('alpine:init', () => {
                                                                         </div>
                                                                         <div class="dash-cl-rev-meta">
                                                                             <span x-text="'Rev ' + rev.revision_no"></span>
-                                                                            <span x-text="rev.effectivity_date"></span>
+                                                                            <span x-text="rev.effectivity_date_label || rev.effectivity_date"></span>
                                                                         </div>
                                                                         <p x-show="rev.brief_purpose && rev.brief_purpose !== '—'" x-text="rev.brief_purpose"></p>
                                                                     </div>
@@ -594,7 +594,7 @@ document.addEventListener('alpine:init', () => {
                                                 >
                                                     <span class="dash-detail-rev-no" x-text="'Rev ' + rev.revise_no"></span>
                                                     <span class="dash-detail-rev-status" x-show="rev.revision_status === 'obsolete'">Obsolete</span>
-                                                    <span class="dash-detail-rev-date" x-text="rev.effectivity_date || '—'"></span>
+                                                    <span class="dash-detail-rev-date" x-text="rev.effectivity_date_label || rev.effectivity_date || '—'"></span>
                                                 </button>
                                             </template>
                                         </div>

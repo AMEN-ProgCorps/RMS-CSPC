@@ -1630,8 +1630,94 @@ document.addEventListener("DOMContentLoaded", async function () {
         if (typeof applyOfficeIntakePrefillFromUrl === 'function') {
             applyOfficeIntakePrefillFromUrl();
         }
+        if (typeof applyInventoryRevisePrefillFromUrl === 'function') {
+            applyInventoryRevisePrefillFromUrl();
+        }
     }, 120);
 });
+
+/**
+ * Prefill Revised registration from Inventory (?type=revised&from_id=&from_doc_no=&doc_type_id=&sub_type_id=).
+ */
+async function applyInventoryRevisePrefillFromUrl() {
+    const params = new URLSearchParams(location.search);
+    if ((params.get('type') || '').toLowerCase() !== 'revised') {
+        return;
+    }
+    const fromId = params.get('from_id');
+    const fromDocNo = (params.get('from_doc_no') || '').trim();
+    const docTypeId = params.get('doc_type_id');
+    const subTypeId = params.get('sub_type_id');
+    if (!fromId && !fromDocNo) {
+        return;
+    }
+    if (window.__inventoryRevisePrefillApplied) {
+        return;
+    }
+    window.__inventoryRevisePrefillApplied = true;
+    window.__inventoryRevisePrefill = true;
+
+    try {
+        const dt = document.getElementById('docType');
+        if (dt && docTypeId) {
+            dt.disabled = false;
+            dt.removeAttribute('disabled');
+            const opt = [...dt.options].find((o) => String(o.value) === String(docTypeId));
+            if (opt) {
+                dt.value = String(docTypeId);
+                dt.dataset.lastValid = String(docTypeId);
+                if (typeof handleDocTypeChange === 'function') {
+                    handleDocTypeChange();
+                }
+            }
+        }
+
+        const st = document.getElementById('subType');
+        if (st && subTypeId) {
+            st.disabled = false;
+            st.removeAttribute('disabled');
+            const opt = [...st.options].find((o) => String(o.value) === String(subTypeId));
+            if (opt) {
+                st.value = String(subTypeId);
+                st.dataset.lastValid = String(subTypeId);
+                st.dispatchEvent(new Event('change', { bubbles: true }));
+                if (typeof validateChecklistState === 'function') {
+                    validateChecklistState();
+                }
+            }
+        }
+
+        if (typeof officeIntakeCheckChecklist === 'function') {
+            officeIntakeCheckChecklist(2);
+        }
+
+        let row = null;
+        for (let i = 0; i < 25; i++) {
+            row = document.querySelector('#revisionTableBody tr');
+            if (row) {
+                break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 80));
+        }
+        if (!row) {
+            return;
+        }
+        if (typeof bindRevisionRowSearch === 'function') {
+            bindRevisionRowSearch(row);
+        }
+
+        const doc = {
+            request_id: fromId ? Number(fromId) : null,
+            doc_no: fromDocNo,
+        };
+        if (typeof applyRevisionDocumentPick === 'function') {
+            await applyRevisionDocumentPick(row, doc);
+        }
+    } catch (err) {
+        console.warn('Inventory revise prefill failed:', err);
+        window.__inventoryRevisePrefillApplied = false;
+    }
+}
 
 /**
  * Prefill New/DCN registration from an office intake submission.
@@ -2514,10 +2600,7 @@ function docNoPrefixForSelection() {
 function updateDocNoPrefixHint(prefix) {
     const hint = document.getElementById('docNoPrefixHint');
     if (!hint) return;
-    if (prefix === SYLLABI_FORM_DOC_NO) {
-        hint.textContent = 'Filled from the Syllabi/TOS form number — you can still edit it.';
-        hint.style.display = 'block';
-    } else if (prefix) {
+    if (prefix && prefix !== SYLLABI_FORM_DOC_NO) {
         hint.textContent = 'Prefix filled — add dept/section code and control # (e.g. ' + prefix + 'YYY-XX).';
         hint.style.display = 'block';
     } else {
@@ -2977,13 +3060,15 @@ async function runRevNoCheck() {
     const subTypeId = document.getElementById('subType')?.value || '';
     const excludeRequestId = document.getElementById('requestId')?.value
         || (window.__draftRequestId ? String(window.__draftRequestId) : '');
+    const insertShift = document.getElementById('insertShiftConfirmed')?.value === '1' ? '1' : '0';
 
     try {
         const url = '/dcs/register/check-revno?doc_no=' + encodeURIComponent(docNo) +
             '&revise_no=' + encodeURIComponent(reviseNo) +
             (docTypeId ? '&doc_type_id=' + encodeURIComponent(docTypeId) : '') +
             (subTypeId ? '&sub_type_id=' + encodeURIComponent(subTypeId) : '') +
-            (excludeRequestId ? '&exclude_request_id=' + encodeURIComponent(excludeRequestId) : '');
+            (excludeRequestId ? '&exclude_request_id=' + encodeURIComponent(excludeRequestId) : '') +
+            '&insert_shift_confirmed=' + encodeURIComponent(insertShift);
         const res = await fetch(url);
         const data = await res.json();
 
@@ -3006,6 +3091,21 @@ async function runRevNoCheck() {
                 hint.dataset.valid = 'stackable';
             }
             setSaveEnabled(true);
+            return;
+        }
+
+        if (data.insert_shift || insertShift === '1') {
+            revNoDuplicate = false;
+            revField.value = '0';
+            revField.style.borderColor = '';
+            revField.classList.remove('reg-input-invalid');
+            if (hint) {
+                hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> ' +
+                    escapeHtml(data.message || 'New document at Rev 0. Existing numbers will shift when you save.');
+                hint.style.color = '#16a34a';
+                hint.dataset.valid = 'insert';
+            }
+            if (!docNoDuplicate) setSaveEnabled(true);
             return;
         }
 
@@ -3055,6 +3155,8 @@ async function runRevNoCheck() {
         resolveRevisedComparePrevious();
     }
 }
+
+window.scheduleRevNoCheck = scheduleRevNoCheck;
 
 // ══════════════════════════════════════════════
 // DCN — REVISION TABLE: DOCUMENT SEARCH + AUTOFILL
@@ -3224,17 +3326,10 @@ async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {
     }
 }
 
-window.pickRevisionDocument = async function (key, idx) {
-    const doc = (revSearchCache[key] || [])[idx];
-    if (!doc) return;
-
-    const uid = key.split('_')[0];
-    const row = document.querySelector(`#revisionTableBody tr[data-uid="${uid}"]`);
-    if (!row) return;
-
-    closeRevSearchDropdown(key);
-
-    // Immediate feedback so the pick doesn't look empty while history loads.
+async function applyRevisionDocumentPick(row, doc) {
+    if (!row || !doc) {
+        return;
+    }
     populateRevisionRowFromDoc(row, doc);
     setRevisionTableLoading(true);
 
@@ -3248,8 +3343,6 @@ window.pickRevisionDocument = async function (key, idx) {
         }
     } catch (e) {
         console.error('Failed to load document revisions:', e);
-    } finally {
-        // Keep loading through fill + masterlist bridge below.
     }
 
     if (!Array.isArray(revisions) || revisions.length === 0) {
@@ -3268,6 +3361,18 @@ window.pickRevisionDocument = async function (key, idx) {
     } finally {
         setRevisionTableLoading(false);
     }
+}
+
+window.pickRevisionDocument = async function (key, idx) {
+    const doc = (revSearchCache[key] || [])[idx];
+    if (!doc) return;
+
+    const uid = key.split('_')[0];
+    const row = document.querySelector(`#revisionTableBody tr[data-uid="${uid}"]`);
+    if (!row) return;
+
+    closeRevSearchDropdown(key);
+    await applyRevisionDocumentPick(row, doc);
 };
 
 function setRevisionTableLoading(on) {
@@ -4891,8 +4996,8 @@ function handleDocTypeChange() {
 
     if (syllabiSection) syllabiSection.style.display = "none";
 
-    // Office intake already filled DCN/DRF/masterlist — don't wipe on type pick.
-    if (!window.__officeIntakePrefill) {
+    // Office intake / Inventory revise already filled DCN/DRF/masterlist — don't wipe on type pick.
+    if (!window.__officeIntakePrefill && !window.__inventoryRevisePrefill) {
         resetRegisterSectionInputs();
     }
 
@@ -5357,7 +5462,7 @@ function validateMasterlistRequired(errors, { requireScan = false, forDraft = fa
             type: 'file',
         });
     }
-    if (!forDraft && !window.__isSyllabiMode) {
+    if (!forDraft) {
         const effectivity = (document.getElementById('masterlistEffectivityDate')?.value || '').trim();
         if (!effectivity) {
             errors.push({
@@ -6031,8 +6136,8 @@ function collectMissingFields() {
         if (!window.__isSyllabiMode) {
             checkText("Masterlist", "masterlistDocNo", "Document No.");
             checkText("Masterlist", "masterlistDocTitle", "Document Title");
-            checkText("Masterlist", "masterlistEffectivityDate", "Effectivity Date");
         }
+        checkText("Masterlist", "masterlistEffectivityDate", "Effectivity Date");
         checkText("Masterlist", "masterlistReceiptDate", "Document Receipt Date");
         checkText("Masterlist", "masterlistReceiptTime", "Document Receipt Time");
         checkText("Masterlist", "masterlistRegisteredDate", "Document Registered Date");
@@ -7362,7 +7467,7 @@ document.addEventListener("DOMContentLoaded", () => {
             window.__facultiesCacheKey = null;
 
             if (!this.value) return;
-            await reloadFacultiesForCollege(this.value);
+            await reloadFacultiesForCollege();
 
             try {
                 const programs = ((window.__registerCatalog || {}).programsByCollege || {})[String(this.value)] || [];
@@ -7398,6 +7503,8 @@ document.addEventListener("DOMContentLoaded", () => {
             resetDownstreamFrom(4);
             if (sySel) sySel.disabled = !this.value;
             refreshSyllabiYearLevelDisplay(yearLevelsFromCourses(catalogCoursesForContext()));
+            window.__facultiesCacheKey = null;
+            reloadFacultiesForCollege();
         });
     }
 
@@ -7500,17 +7607,29 @@ function getSyllabiCollegeId() {
     return select && select.value ? select.value : '';
 }
 
-async function reloadFacultiesForCollege(collegeId) {
+function getSyllabiCourseType() {
+    const hidden = document.getElementById('syllabiCourseTypeHidden');
+    if (hidden && hidden.value) return hidden.value.trim();
+    const select = document.getElementById('syllabiCourseType');
+    return (select && select.value ? select.value : '').trim();
+}
+
+function casCollegeId() {
+    const colleges = (window.__registerCatalog || {}).colleges || [];
+    const cas = colleges.find((c) => {
+        const code = String(c.college_code || '').toUpperCase();
+        const name = String(c.college_name || '');
+        return code === 'CAS'
+            || /college of arts and sciences/i.test(name)
+            || /arts\s*&\s*sciences/i.test(name);
+    });
+    return cas ? String(cas.college_id) : '';
+}
+
+async function reloadFacultiesForCollege() {
     window.__facultiesCacheKey = null;
-    allFaculties = [];
-    if (!collegeId) return;
-    try {
-        const data = ((window.__registerCatalog || {}).faculties || []).filter(f => String(f.college_id) === String(collegeId));
-        allFaculties = Array.isArray(data) ? data : [];
-        window.__facultiesCacheKey = String(collegeId);
-    } catch (err) {
-        console.error('Failed to load faculties for college:', err);
-    }
+    allFaculties = ((window.__registerCatalog || {}).faculties || []).slice();
+    window.__facultiesCacheKey = 'all';
 }
 
 function ensureFacultyState(uid) {
@@ -7527,24 +7646,41 @@ function ensureFacultyState(uid) {
 }
 
 async function ensureFacultiesLoaded() {
-    const collegeId = getSyllabiCollegeId();
-    if (!collegeId) {
-        allFaculties = [];
-        window.__facultiesCacheKey = null;
+    if (window.__facultiesCacheKey === 'all' && Array.isArray(allFaculties) && allFaculties.length > 0) {
         return;
     }
-    const cacheKey = String(collegeId);
-    if (window.__facultiesCacheKey === cacheKey && Array.isArray(allFaculties) && allFaculties.length > 0) {
-        return;
-    }
-    await reloadFacultiesForCollege(collegeId);
+    await reloadFacultiesForCollege();
 }
 
 function getFacultyCandidates() {
     if (!Array.isArray(allFaculties)) return [];
-    const collegeId = getSyllabiCollegeId();
-    if (!collegeId) return [];
-    return allFaculties.filter(f => String(f.college_id) === String(collegeId));
+    const type = getSyllabiCourseType();
+    if (type === 'GE Courses') {
+        const casId = casCollegeId();
+        if (!casId) return [];
+        return allFaculties.filter(f => String(f.college_id) === String(casId));
+    }
+    if (type === 'Major') {
+        const collegeId = getSyllabiCollegeId();
+        if (!collegeId) return [];
+        return allFaculties.filter(f => String(f.college_id) === String(collegeId));
+    }
+    return allFaculties;
+}
+
+function facultyEmptyMessage() {
+    const type = getSyllabiCourseType();
+    if (type === 'GE Courses') {
+        return casCollegeId()
+            ? 'No matching faculty in College of Arts and Sciences'
+            : 'CAS faculty list is not set up yet';
+    }
+    if (type === 'Major') {
+        return getSyllabiCollegeId()
+            ? 'No matching faculty for this college'
+            : 'Select a college first';
+    }
+    return 'No matching faculty';
 }
 
 function escapeHtml(str) {
@@ -7744,22 +7880,18 @@ async function renderSyllabiFacultyDropdown(uid, input) {
     dd.innerHTML = '<div class="reg-reldocs-noresult">Loading faculty...</div>';
     dd.style.display = 'block';
 
-    const collegeId = getSyllabiCollegeId();
-    if (!collegeId) {
-        dd.innerHTML = '<div class="reg-reldocs-noresult">Select a college first</div>';
-        return;
-    }
-
     await ensureFacultiesLoaded();
 
+    const usedOnSiblings = siblingFacultyNames(uid);
     const candidates = getFacultyCandidates();
     const matches = candidates.filter(f =>
         f.faculty_name.toLowerCase().includes(q) &&
-        !state.selected.some(s => s.label.toLowerCase() === f.faculty_name.toLowerCase())
+        !state.selected.some(s => s.label.toLowerCase() === f.faculty_name.toLowerCase()) &&
+        !usedOnSiblings.has(f.faculty_name.toLowerCase())
     );
 
     dd.innerHTML = matches.length === 0
-        ? '<div class="reg-reldocs-noresult">No matching faculty for this college</div>'
+        ? `<div class="reg-reldocs-noresult">${facultyEmptyMessage()}</div>`
         : matches.map(f =>
             `<div data-faculty-name="${escapeHtml(f.faculty_name)}">${escapeHtml(f.faculty_name)}</div>`
         ).join('');
@@ -7789,6 +7921,12 @@ window.addSyllabiFaculty = function (uid, name, focusNext) {
     if (!match) return;
 
     const facultyName = match.faculty_name;
+    if (siblingFacultyNames(uid).has(facultyName.toLowerCase())) {
+        if (typeof showToast === 'function') {
+            showToast('This faculty is already assigned to another copy of this syllabi.', 'error');
+        }
+        return;
+    }
     if (state.mode === 'single') {
         state.selected = [{ label: facultyName }];
     } else {
@@ -7804,6 +7942,23 @@ window.addSyllabiFaculty = function (uid, name, focusNext) {
     syncSyllabiFacultyInputDisplay(uid, { focusForNext, force: true });
     if (row) fillReceivedFromGroup(row);
 };
+
+function siblingFacultyNames(uid) {
+    const used = new Set();
+    const row = document.querySelector(`#syllabiTableBody tr[data-uid="${uid}"]`);
+    if (!row) return used;
+    const firstRow = document.querySelector(`#syllabiTableBody tr[data-group="${row.dataset.group}"][data-is-first="true"]`);
+    const copies = parseInt(firstRow?.querySelector('.syllabi-merged-copies')?.value || '1', 10);
+    if (copies < 2) return used;
+    document.querySelectorAll(`#syllabiTableBody tr[data-group="${row.dataset.group}"]`).forEach(tr => {
+        if (String(tr.dataset.uid) === String(uid)) return;
+        const state = window.__syllabiFaculty[tr.dataset.uid];
+        (state?.selected || []).forEach(s => {
+            if (s.label) used.add(s.label.toLowerCase());
+        });
+    });
+    return used;
+}
 
 function renderSyllabiFacultyChips(uid) {
     syncSyllabiFacultyInputDisplay(uid);
@@ -7964,6 +8119,7 @@ function propagateReceivedToEmptyRows(source) {
 
     tbody.querySelectorAll('tr[data-uid]').forEach(tr => {
         if (filled.row && tr === filled.row) return;
+        if (!syllabiGroupIsAvailable(tr.dataset.group)) return;
         if (filled.date) stampEmpty(tr.querySelector('input[name="syllabiDateReceived[]"]'), filled.date);
         if (filled.time) stampEmpty(tr.querySelector('input[name="syllabiTimeReceived[]"]'), filled.time);
     });
@@ -7988,18 +8144,23 @@ function propagateDrfToEmptyRows(source) {
 }
 
 function stampGroupReceivedFromPeer(groupId) {
+    stampAvailableRowsFromFirstFilled();
+}
+
+function stampAvailableRowsFromFirstFilled() {
     const peer = findFirstFilledReceived();
-    if (!peer || (!(peer.date || '').trim() && !(peer.time || '').trim())) return;
+    const date = (peer?.date || '').trim();
+    const time = (peer?.time || '').trim();
+    if (!date && !time) return;
 
-    const date = (peer.date || '').trim();
-    const time = (peer.time || '').trim();
-
-    document.querySelectorAll(`#syllabiTableBody tr[data-group="${groupId}"]`).forEach(tr => {
+    const tbody = document.getElementById('syllabiTableBody');
+    if (!tbody) return;
+    tbody.querySelectorAll('tr[data-uid]').forEach(tr => {
+        if (peer.row && tr === peer.row) return;
+        if (!syllabiGroupIsAvailable(tr.dataset.group)) return;
         if (date) stampEmpty(tr.querySelector('input[name="syllabiDateReceived[]"]'), date);
         if (time) stampEmpty(tr.querySelector('input[name="syllabiTimeReceived[]"]'), time);
     });
-
-    propagateReceivedToEmptyRows({ date, time, row: peer.row });
 }
 
 /** When any row's DRF Date / Received changes, copy into other empty enabled rows only. */
@@ -8050,17 +8211,13 @@ function clearSyllabiFacultyRow(tr) {
 function setSyllabiFacultyRowEnabled(tr, enabled) {
     const input = tr.querySelector('.syllabi-faculty-input');
     if (input) {
-        input.readOnly = !enabled;
+        input.readOnly = false;
         if (tr.dataset.uid) syncSyllabiFacultyInputDisplay(tr.dataset.uid, { force: true });
     }
-    tr.querySelectorAll(
-        'input[name="syllabiDateReceived[]"], input[name="syllabiTimeReceived[]"], .syllabi-merged-copies, .syllabi-merged-pages'
-    ).forEach(el => {
+    tr.querySelectorAll('input[name="syllabiDateReceived[]"], input[name="syllabiTimeReceived[]"]').forEach(el => {
         el.readOnly = !enabled;
         el.classList.toggle('is-locked', !enabled);
-        if (!enabled && (el.name === 'syllabiDateReceived[]' || el.name === 'syllabiTimeReceived[]')) {
-            el.value = '';
-        }
+        if (!enabled) el.value = '';
     });
 }
 
@@ -8159,37 +8316,23 @@ window.syncSyllabiAvailability = function (groupId) {
         setSyllabiFacultyRowEnabled(tr, enabled);
     });
     if (enabled) {
-        stampGroupReceivedFromPeer(groupId);
+        stampAvailableRowsFromFirstFilled();
     }
 };
 
-/** When first row date/time changes, sync to all rows in the course group. */
-window.cascadeSyllabiReceived = function (input, fieldName) {
+/** When a date/time changes, copy into other empty available rows only — never overwrite. */
+window.cascadeSyllabiReceived = function (input) {
     const sourceRow = input?.closest('tr');
     if (!sourceRow) return;
     const date = (sourceRow.querySelector('input[name="syllabiDateReceived[]"]')?.value || '').trim();
     const time = (sourceRow.querySelector('input[name="syllabiTimeReceived[]"]')?.value || '').trim();
     if (!date && !time) return;
-
-    if (sourceRow.dataset.isFirst === 'true') {
-        document.querySelectorAll(`#syllabiTableBody tr[data-group="${sourceRow.dataset.group}"]`).forEach(tr => {
-            const dateEl = tr.querySelector('input[name="syllabiDateReceived[]"]');
-            const timeEl = tr.querySelector('input[name="syllabiTimeReceived[]"]');
-            if (dateEl && !dateEl.readOnly && date) dateEl.value = date;
-            if (timeEl && !timeEl.readOnly && time) timeEl.value = time;
-        });
-        return;
-    }
-
     propagateReceivedToEmptyRows({ date, time, row: sourceRow });
 };
 
 function fillReceivedFromGroup(tr) {
-    if (!tr || !syllabiGroupIsAvailable(tr.dataset.group) || !syllabiRowHasFaculty(tr)) return;
-    const peer = findFirstFilledReceived(tr);
-    if (!peer) return;
-    if ((peer.date || '').trim()) stampEmpty(tr.querySelector('input[name="syllabiDateReceived[]"]'), peer.date);
-    if ((peer.time || '').trim()) stampEmpty(tr.querySelector('input[name="syllabiTimeReceived[]"]'), peer.time);
+    if (!tr || !syllabiGroupIsAvailable(tr.dataset.group)) return;
+    stampAvailableRowsFromFirstFilled();
 }
 
 /** Update the total copies AND total pages display below the syllabi table. */

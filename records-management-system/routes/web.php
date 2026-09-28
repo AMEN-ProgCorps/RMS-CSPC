@@ -782,6 +782,8 @@ Route::middleware(['auth'])
 
             // Office intake (RFIO full users + limited non-RFIO offices)
             Volt::route('/office/documents', 'pages.dcs.office.documents')->name('office.documents');
+            Volt::route('/office/random-checks', 'pages.dcs.office.random-checks')->name('office.random-checks');
+            Volt::route('/office/random-checks/{id}', 'pages.dcs.office.random-check-show')->name('office.random-checks.show');
 
             // Legacy Request URLs → under Document Registration
             Route::redirect('/requests', '/dcs/register/requests', 301);
@@ -982,6 +984,21 @@ Route::middleware(['auth'])
 
                 Route::middleware(['dcs.module:random_check'])->group(function () {
                     Volt::route('/random-check', 'pages.dcs.random-check.index')->name('random-check');
+                    Route::get('/random-check/{id}/report', function (\Illuminate\Http\Request $request, int $id) {
+                        \App\Helpers\RandomCheckHelper::assertCanAccess();
+                        $filter = $request->input('filter') === 'all' ? 'all' : 'actions';
+                        $payload = \App\Helpers\RandomCheckHelper::reportPayload($id, $filter);
+                        abort_unless($payload !== [], 404);
+                        $logoPath = public_path('images/logo.png');
+                        $logoSrc = is_file($logoPath)
+                            ? ('data:image/png;base64,' . base64_encode((string) file_get_contents($logoPath)))
+                            : '';
+
+                        return response()->view('pages.dcs.reports.export-random-check', [
+                            'check' => $payload,
+                            'logoSrc' => $logoSrc,
+                        ]);
+                    })->name('random-check.report');
                 });
             });
         });

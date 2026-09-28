@@ -43,6 +43,7 @@ new #[Layout('layouts.dcs')] class extends Component {
     public array $bulkRows = [];
     public string $courseListCollegeId = '';
     public string $courseListProgramId = '';
+    public int $courseListEpoch = 0;
     public $csvFile = null;
 
     public string $deleteTitle = '';
@@ -1011,6 +1012,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                 : "{$count} courses added. Keep going or close when finished.",
             'success'
         );
+        $this->bumpCourseList();
         $this->dispatch('settings-focus-course-row');
     }
 
@@ -1205,6 +1207,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         });
 
         $count = count($this->bulkRows);
+        $this->bumpCourseList();
         $this->done($count === 1 ? 'Course updated.' : "{$count} courses updated.");
     }
 
@@ -1381,10 +1384,12 @@ new #[Layout('layouts.dcs')] class extends Component {
         }
         if (\App\Helpers\SettingsRecycleHelper::supports('dcs_program_courses')) {
             \App\Helpers\SettingsRecycleHelper::softDelete('programCourse', $id);
+            $this->bumpCourseList();
             $this->done('Course moved to Recycle Bin.');
             return;
         }
         DB::table('dcs_program_courses')->where('id', $id)->delete();
+        $this->bumpCourseList();
         $this->done('Course deleted.');
     }
 
@@ -1395,6 +1400,11 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->parentId = null;
         $this->modalKind = $kind;
         $this->dispatch('settings-open-modal');
+    }
+
+    private function bumpCourseList(): void
+    {
+        $this->courseListEpoch++;
     }
 
     private function done(string $message): void
@@ -1499,13 +1509,15 @@ new #[Layout('layouts.dcs')] class extends Component {
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($programCoursesQ, 'dcs_program_courses', 'pc');
         $programCourses = $programCoursesQ->get($courseCols);
         if ($this->courseListCollegeId !== '') {
+            $want = (int) $this->courseListCollegeId;
             $programCourses = $programCourses
-                ->where('college_id', (int) $this->courseListCollegeId)
+                ->filter(fn ($row) => (int) ($row->college_id ?? 0) === $want)
                 ->values();
         }
         if ($this->courseListProgramId !== '') {
+            $want = (int) $this->courseListProgramId;
             $programCourses = $programCourses
-                ->where('program_id', (int) $this->courseListProgramId)
+                ->filter(fn ($row) => (int) ($row->program_id ?? 0) === $want)
                 ->values();
         }
 
@@ -1663,7 +1675,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         @endforeach
     </div>
 
-    <section class="tab-panel" x-show="tab === 'doctypes'" x-cloak>
+    <section class="tab-panel" wire:key="settings-tab-doctypes" x-show="tab === 'doctypes'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Top-level types and their sub-types</span>
             <button type="button" class="btn-primary" wire:click="openDocType()"><i class="fa-solid fa-plus"></i> Add Document Type</button>
@@ -1699,7 +1711,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         </div>
     </section>
 
-    <section class="tab-panel" x-show="tab === 'originators'" x-cloak>
+    <section class="tab-panel" wire:key="settings-tab-originators" x-show="tab === 'originators'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Manage document originators (authors/creators)</span>
             <div class="panel-actions">
@@ -1729,7 +1741,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         </div>
     </section>
 
-    <section class="tab-panel" x-show="tab === 'faculties'" x-cloak>
+    <section class="tab-panel" wire:key="settings-tab-faculties" x-show="tab === 'faculties'" x-cloak>
         <div x-data="{ collegeFilter: 'all' }">
         <div class="panel-toolbar">
             <span class="panel-subtitle">Manage faculty members per college</span>
@@ -1784,7 +1796,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         </div>
     </section>
 
-    <section class="tab-panel" x-show="tab === 'colleges'" x-cloak>
+    <section class="tab-panel" wire:key="settings-tab-colleges" x-show="tab === 'colleges'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Academic colleges for programs and syllabi. Link an office only when that office is actually a college (CCS, CEA, etc.).</span>
             <button type="button" class="btn-primary" wire:click="openCollege()"><i class="fa-solid fa-plus"></i> Add College</button>
@@ -1819,7 +1831,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         </div>
     </section>
 
-    <section class="tab-panel" x-show="tab === 'programs'" x-cloak>
+    <section class="tab-panel" wire:key="settings-tab-programs" x-show="tab === 'programs'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Add programs under each academic college.</span>
             <button type="button" class="btn-primary" wire:click="openProgram()"><i class="fa-solid fa-plus"></i> Add Program</button>
@@ -1860,7 +1872,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         </div>
     </section>
 
-    <section class="tab-panel" x-show="tab === 'semesters'" x-cloak>
+    <section class="tab-panel" wire:key="settings-tab-semesters" x-show="tab === 'semesters'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Academic semesters</span>
             <button type="button" class="btn-primary" wire:click="openSemester()"><i class="fa-solid fa-plus"></i> Add Semester</button>
@@ -1887,7 +1899,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         </div>
     </section>
 
-    <section class="tab-panel" x-show="tab === 'schoolyears'" x-cloak>
+    <section class="tab-panel" wire:key="settings-tab-schoolyears" x-show="tab === 'schoolyears'" x-cloak>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Academic school years</span>
             <button type="button" class="btn-primary" wire:click="openSchoolYear()"><i class="fa-solid fa-plus"></i> Add School Year</button>
@@ -1914,7 +1926,7 @@ new #[Layout('layouts.dcs')] class extends Component {
         </div>
     </section>
 
-    <section class="tab-panel" x-show="tab === 'coursenames'" x-cloak>
+    <section class="tab-panel" wire:key="settings-tab-coursenames-{{ $courseListEpoch }}" x-show="tab === 'coursenames'" x-cloak>
         <div>
         <div class="panel-toolbar">
             <span class="panel-subtitle">Curriculum course list per program, semester, year level, and course type — used to auto-fill Syllabi/TOS-Rubrics registration. Faculty is assigned during registration.</span>
@@ -1958,7 +1970,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                 </div>
             @endif
         @endif
-        <div class="table-wrap" wire:key="course-names-{{ $courseListCollegeId }}-{{ $courseListProgramId }}-{{ $programCourses->count() }}">
+        <div class="table-wrap" wire:key="course-names-{{ $courseListEpoch }}-{{ $courseListCollegeId }}-{{ $courseListProgramId }}-{{ $programCourses->count() }}">
             <table class="settings-table">
                 <thead><tr><th>College</th><th>Program</th><th>Semester</th><th>Year Level</th><th>Course Type</th><th>Course Code</th><th>Course Name</th><th style="width:140px;">Actions</th></tr></thead>
                 <tbody>

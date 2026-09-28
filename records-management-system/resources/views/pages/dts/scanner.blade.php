@@ -369,7 +369,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             ->where('office_code', $userOfficeCode)
             ->orderBy('id', 'desc')
             ->first();
-        $isReceivedAtUserOffice = $lastLog && ($lastLog->type === 'received' || (!empty($lastLog->date_in) && $lastLog->type !== 'forwarded'));
+        $isReceivedAtUserOffice = \App\Services\DtsReceiveGuardService::isReceived($lastLog);
 
         // Get next office in sequence
         $nextOfficeName = 'End of Flow (Complete)';
@@ -463,9 +463,27 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             return;
         }
 
+        // A document may only be received ONCE per office visit.
+        $receiveTransId = (string) $this->activeTransaction['id'];
+        if (\App\Services\DtsReceiveGuardService::alreadyReceived($receiveTransId, $userOfficeCode)) {
+            $this->errorMessage = "Document '{$this->activeTransaction['control_number']}' has already been received at your office.";
+            $this->dispatch('scanner-audio-error');
+            $this->logSessionScan($this->activeTransaction['qr_code'], 'Duplicate Receive Blocked', 'warning');
+            return;
+        }
+
+        $alreadyReceived = false;
+
         try {
-            DB::transaction(function () use ($userOfficeCode) {
+            DB::transaction(function () use ($userOfficeCode, &$alreadyReceived) {
                 $transId = $this->activeTransaction['id'];
+
+                // Row lock makes the re-check authoritative against concurrent scans.
+                \App\Services\DtsReceiveGuardService::lockTransaction((string) $transId);
+                if (\App\Services\DtsReceiveGuardService::alreadyReceived((string) $transId, $userOfficeCode)) {
+                    $alreadyReceived = true;
+                    return;
+                }
 
                 $currentLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                     ->where('transaction_id', $transId)
@@ -525,15 +543,21 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                 }
             });
 
-            $this->successMessage = "Document '{$this->activeTransaction['control_number']}' successfully RECEIVED at {$this->activeTransaction['current_office']}!";
+            if ($alreadyReceived) {
+                $this->errorMessage = "Document '{$this->activeTransaction['control_number']}' has already been received at your office.";
+                $this->dispatch('scanner-audio-error');
+                $this->logSessionScan($this->activeTransaction['qr_code'], 'Duplicate Receive Blocked', 'warning');
+                return;
+            }
+
+            $msg = "Document '{$this->activeTransaction['control_number']}' successfully RECEIVED at {$this->activeTransaction['current_office']}!";
             $this->dispatch('scanner-audio-action');
             $this->logSessionScan($this->activeTransaction['qr_code'], 'Received', 'action');
 
-            if ($this->continuousMode) {
-                $this->resetConsole();
-            } else {
-                $this->loadTransaction(); // Refresh active transaction details to show received state
-            }
+            // Reset console to ensure the same scan cannot be actioned again
+            // (e.g. accidentally Forwarding right after Receive).
+            $this->resetConsole();
+            $this->successMessage = $msg;
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to receive document: ' . $e->getMessage();
         }
@@ -735,6 +759,9 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     $this->successMessage = "Document '{$this->activeTransaction['control_number']}' marked as COMPLETED!";
                 }
             });
+
+            // TEMPORARY: hand a fully-completed transaction to RDP intake.
+            \App\Services\DtsRdpIntakeService::recordCompleted($this->activeTransaction['id'] ?? null);
 
             $this->dispatch('scanner-audio-action');
             $this->logSessionScan($this->activeTransaction['qr_code'], 'Forwarded', 'action');

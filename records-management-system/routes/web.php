@@ -523,6 +523,15 @@ Route::middleware(['auth'])
                 'metadata'            => 'nullable|array',
             ]);
 
+            // Only fully-completed DTS transactions may be imported into RDP.
+            if ($validated['source_subsystem'] === 'DTS'
+                && !\App\Services\DtsRdpIntakeService::isCompletedDts($validated['document_code'])) {
+                return response()->json([
+                    'success' => false,
+                    'error'   => "Only completed DTS transactions can be imported to RDP. Transaction '{$validated['document_code']}' has not been completed yet.",
+                ], 422);
+            }
+
             $existing = \Illuminate\Support\Facades\DB::table('rdp_received_documents')
                 ->where('source_subsystem', $validated['source_subsystem'])
                 ->where('document_code', $validated['document_code'])

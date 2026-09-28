@@ -173,7 +173,7 @@ new class extends Component {
             ->where('office_code', $userOfficeCode)
             ->orderBy('id', 'desc')
             ->first();
-        $isReceivedAtUserOffice = $lastLog && ($lastLog->type === 'received' || (!empty($lastLog->date_in) && $lastLog->type !== 'forwarded'));
+        $isReceivedAtUserOffice = \App\Services\DtsReceiveGuardService::isReceived($lastLog);
 
         // Get next office in sequence if flow exists
         $nextOfficeName = 'End of Flow';
@@ -250,13 +250,29 @@ new class extends Component {
             return;
         }
 
+        // A document may only be received ONCE per office visit.
+        $isReceived = (bool) ($this->activeTransaction['is_received_here'] ?? false);
+        $receiveTransId = (string) $this->activeTransaction['id'];
+        if (!$isReceived && \App\Services\DtsReceiveGuardService::alreadyReceived($receiveTransId, $userOfficeCode)) {
+            $this->errorMessage = "Transaction '{$this->activeTransaction['control_number']}' has already been received at your office.";
+            return;
+        }
+
+        $alreadyReceived = false;
+
         try {
-            DB::transaction(function () use ($userOfficeCode) {
+            DB::transaction(function () use ($userOfficeCode, $isReceived, &$alreadyReceived) {
                 $transId = $this->activeTransaction['id'];
-                $isReceived = $this->activeTransaction['is_received_here'];
 
                 // Case 1: Receive incoming transaction
                 if (!$isReceived) {
+                    // Row lock makes the re-check authoritative against concurrent scans.
+                    \App\Services\DtsReceiveGuardService::lockTransaction((string) $transId);
+                    if (\App\Services\DtsReceiveGuardService::alreadyReceived((string) $transId, $userOfficeCode)) {
+                        $alreadyReceived = true;
+                        return;
+                    }
+
                     $currentLog = DB::table('dts_transaction_logs')
                         ->where('transaction_id', $transId)
                         ->where('office_code', $userOfficeCode)
@@ -588,15 +604,20 @@ new class extends Component {
                 }
             });
 
-            if ($isReceived) {
-                // Forwarded or returned for revision - reset active transaction
-                $this->activeTransaction = null;
-                $this->scannedCode = '';
-            } else {
-                // Received - refresh active transaction details
-                $this->loadTransaction();
+            if ($alreadyReceived) {
+                $this->errorMessage = "Transaction '{$this->activeTransaction['control_number']}' has already been received at your office.";
+                return;
             }
+
+            // TEMPORARY: hand a fully-completed transaction to RDP intake.
+            \App\Services\DtsRdpIntakeService::recordCompleted($receiveTransId);
+
+            // Clear the scan so the same document cannot be actioned again
+            // (e.g. accidentally Forwarding right after Receive).
+            $this->activeTransaction = null;
+            $this->scannedCode = '';
             $this->notes = '';
+            $this->dispatch('focus-scanner-input');
             $this->dispatch('dts-transaction-updated');
         } catch (\Throwable $e) {
             $this->errorMessage = 'Action failed: ' . $e->getMessage();
@@ -1124,6 +1145,11 @@ new class extends Component {
     @endif
 
     <script>
+            window.addEventListener('focus-scanner-input', () => {
+                const input = document.getElementById('global-scanner-code-input');
+                if (input) input.focus();
+            });
+
             document.addEventListener('livewire:initialized', () => {
                 let html5QrCode = null;
 

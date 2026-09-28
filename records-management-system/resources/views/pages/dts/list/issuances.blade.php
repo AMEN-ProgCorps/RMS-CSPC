@@ -1450,6 +1450,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                 ]);
         }
 
+        // TEMPORARY: hand a fully-completed transaction to RDP intake.
+        \App\Services\DtsRdpIntakeService::recordCompleted($this->selectedTransactionId);
+
         $this->closeTransaction();
     }
 

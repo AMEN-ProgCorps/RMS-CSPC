@@ -98,8 +98,23 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
             return;
         }
 
+        // A document may only be received ONCE per office visit.
+        if (\App\Services\DtsReceiveGuardService::alreadyReceived($trans->transaction_id, $userOfficeCode)) {
+            $this->errorMessage = "Transaction '{$trans->control_number}' has already been received at your office.";
+            return;
+        }
+
+        $alreadyReceived = false;
+
         try {
-            DB::transaction(function () use ($trans, $userOfficeCode) {
+            DB::transaction(function () use ($trans, $userOfficeCode, &$alreadyReceived) {
+                // Row lock makes the re-check authoritative against concurrent requests.
+                \App\Services\DtsReceiveGuardService::lockTransaction($trans->transaction_id);
+                if (\App\Services\DtsReceiveGuardService::alreadyReceived($trans->transaction_id, $userOfficeCode)) {
+                    $alreadyReceived = true;
+                    return;
+                }
+
                 $currentLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                     ->where('transaction_id', $trans->transaction_id)
                     ->where('office_code', $userOfficeCode)
@@ -155,6 +170,10 @@ new #[Layout('layouts.dts')] #[Title('Incoming Transactions - Document Tracking 
             });
         } catch (\Throwable $e) {
             $this->errorMessage = 'Failed to receive transaction: ' . $e->getMessage();
+        }
+
+        if ($alreadyReceived) {
+            $this->errorMessage = "Transaction '{$trans->control_number}' has already been received at your office.";
         }
     }
 

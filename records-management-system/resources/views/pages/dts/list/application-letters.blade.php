@@ -1388,6 +1388,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                 ]);
         }
 
+        // TEMPORARY: hand a fully-completed transaction to RDP intake.
+        \App\Services\DtsRdpIntakeService::recordCompleted($this->selectedTransactionId);
+
         $this->closeTransaction();
     }
 

@@ -82,48 +82,73 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public bool $isBatchMode = false;
     public array $batchItems = [];
 
+    public function getDefaultMediumId(): ?int
+    {
+        try {
+            $id = DB::table('rdp_recorded_value')
+                ->whereRaw('LOWER(medium_name) = ?', ['paper'])
+                ->value('id');
+            return $id ? (int)$id : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
     public function addBatchItem(): void
     {
         $this->clearMessages();
+
+        $defaultMedium = $this->records_medium ?: $this->getDefaultMediumId();
+        $defaultRestriction = $this->restriction ?: 'Restricted';
+        $defaultDate = !empty($this->date_covered) ? $this->date_covered : Carbon::now()->format('Y-m-d');
 
         if (!$this->isBatchMode) {
             $this->isBatchMode = true;
             $this->batchItems = [
                 [
-                    'description'      => $this->description,
-                    'date_covered'     => $this->date_covered,
-                    'volume'           => $this->volume,
-                    'records_medium'   => $this->records_medium,
-                    'restriction'      => $this->restriction,
-                    'records_location' => $this->records_location,
-                    'frequence_use'    => $this->frequence_use,
-                    'utility_values'   => $this->utility_values,
-                    'time_value'       => $this->time_value ?: 'T',
+                    'description'           => $this->description,
+                    'date_covered'          => $defaultDate,
+                    'volume'                => $this->volume,
+                    'records_medium'        => $defaultMedium,
+                    'restriction'           => $defaultRestriction,
+                    'records_location'      => $this->records_location,
+                    'frequence_use'         => $this->frequence_use,
+                    'utility_values'        => $this->utility_values,
+                    'time_value'            => $this->time_value ?: 'T',
+                    'duplicate_offices'     => $this->duplicate_offices,
+                    'duplicate_search'      => '',
+                    'showDuplicateDropdown' => false,
                 ],
                 [
-                    'description'      => '',
-                    'date_covered'     => $this->date_covered,
-                    'volume'           => '',
-                    'records_medium'   => $this->records_medium,
-                    'restriction'      => $this->restriction,
-                    'records_location' => $this->records_location,
-                    'frequence_use'    => $this->frequence_use,
-                    'utility_values'   => $this->utility_values,
-                    'time_value'       => $this->time_value ?: 'T',
+                    'description'           => '',
+                    'date_covered'          => $defaultDate,
+                    'volume'                => '',
+                    'records_medium'        => $defaultMedium,
+                    'restriction'           => $defaultRestriction,
+                    'records_location'      => $this->records_location,
+                    'frequence_use'         => $this->frequence_use,
+                    'utility_values'        => $this->utility_values,
+                    'time_value'            => $this->time_value ?: 'T',
+                    'duplicate_offices'     => [],
+                    'duplicate_search'      => '',
+                    'showDuplicateDropdown' => false,
                 ],
             ];
         } else {
             $last = end($this->batchItems) ?: [];
             $this->batchItems[] = [
-                'description'      => '',
-                'date_covered'     => $last['date_covered'] ?? $this->date_covered,
-                'volume'           => '',
-                'records_medium'   => $last['records_medium'] ?? $this->records_medium,
-                'restriction'      => $last['restriction'] ?? $this->restriction,
-                'records_location' => $last['records_location'] ?? $this->records_location,
-                'frequence_use'    => $last['frequence_use'] ?? $this->frequence_use,
-                'utility_values'   => $last['utility_values'] ?? $this->utility_values,
-                'time_value'       => $last['time_value'] ?? ($this->time_value ?: 'T'),
+                'description'           => '',
+                'date_covered'          => $last['date_covered'] ?? $defaultDate,
+                'volume'                => '',
+                'records_medium'        => $last['records_medium'] ?? $defaultMedium,
+                'restriction'           => $last['restriction'] ?? $defaultRestriction,
+                'records_location'      => $last['records_location'] ?? $this->records_location,
+                'frequence_use'         => $last['frequence_use'] ?? $this->frequence_use,
+                'utility_values'        => $last['utility_values'] ?? $this->utility_values,
+                'time_value'            => $last['time_value'] ?? ($this->time_value ?: 'T'),
+                'duplicate_offices'     => [],
+                'duplicate_search'      => '',
+                'showDuplicateDropdown' => false,
             ];
         }
     }
@@ -145,6 +170,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         if (isset($this->batchItems[$index])) {
             $clone = $this->batchItems[$index];
             $clone['description'] = $clone['description'] ? ($clone['description'] . ' (COPY)') : '';
+            $clone['duplicate_offices'] = $clone['duplicate_offices'] ?? [];
+            $clone['duplicate_search'] = '';
+            $clone['showDuplicateDropdown'] = false;
             array_splice($this->batchItems, $index + 1, 0, [$clone]);
             $this->batchItems = array_values($this->batchItems);
         }
@@ -154,17 +182,72 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     {
         if (!empty($this->batchItems)) {
             $first = $this->batchItems[0];
-            $this->description      = $first['description'] ?? $this->description;
-            $this->date_covered     = $first['date_covered'] ?? $this->date_covered;
-            $this->volume           = $first['volume'] ?? $this->volume;
-            $this->records_medium   = $first['records_medium'] ?? $this->records_medium;
-            $this->restriction      = $first['restriction'] ?? $this->restriction;
-            $this->records_location = $first['records_location'] ?? $this->records_location;
-            $this->frequence_use    = $first['frequence_use'] ?? $this->frequence_use;
-            $this->utility_values   = $first['utility_values'] ?? $this->utility_values;
+            $this->description       = $first['description'] ?? $this->description;
+            $this->date_covered      = $first['date_covered'] ?? $this->date_covered;
+            $this->volume            = $first['volume'] ?? $this->volume;
+            $this->records_medium    = $first['records_medium'] ?? $this->records_medium;
+            $this->restriction       = $first['restriction'] ?? $this->restriction;
+            $this->records_location  = $first['records_location'] ?? $this->records_location;
+            $this->frequence_use     = $first['frequence_use'] ?? $this->frequence_use;
+            $this->utility_values    = $first['utility_values'] ?? $this->utility_values;
+            $this->duplicate_offices = $first['duplicate_offices'] ?? $this->duplicate_offices;
         }
         $this->batchItems = [];
         $this->isBatchMode = false;
+    }
+
+    public function addBatchDuplicateOffice(int $bIdx, ?string $officeCode = null): void
+    {
+        if (!isset($this->batchItems[$bIdx])) {
+            return;
+        }
+
+        $search = $this->batchItems[$bIdx]['duplicate_search'] ?? '';
+        $codeToAdd = strtoupper(trim($officeCode ?? $search));
+        if (empty($codeToAdd)) {
+            return;
+        }
+
+        $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $exists = DB::table($officeTable)
+            ->where('is_active', true)
+            ->where(function($q) use ($codeToAdd) {
+                $q->where('office_code', $codeToAdd)
+                  ->orWhere('office_name', 'ilike', $codeToAdd);
+            })
+            ->first();
+
+        $offices = $this->batchItems[$bIdx]['duplicate_offices'] ?? [];
+
+        if ($exists) {
+            $realCode = $exists->office_code;
+            if (!in_array($realCode, $offices, true)) {
+                $offices[] = $realCode;
+            }
+        } elseif (!empty($officeCode) && !in_array($officeCode, $offices, true)) {
+            $offices[] = $officeCode;
+        }
+
+        $this->batchItems[$bIdx]['duplicate_offices'] = array_values($offices);
+        $this->batchItems[$bIdx]['duplicate_search'] = '';
+        $this->batchItems[$bIdx]['showDuplicateDropdown'] = false;
+    }
+
+    public function removeBatchDuplicateOffice(int $bIdx, int $dupIdx): void
+    {
+        if (isset($this->batchItems[$bIdx]['duplicate_offices'][$dupIdx])) {
+            unset($this->batchItems[$bIdx]['duplicate_offices'][$dupIdx]);
+            $this->batchItems[$bIdx]['duplicate_offices'] = array_values($this->batchItems[$bIdx]['duplicate_offices']);
+        }
+    }
+
+    public function clearBatchDuplicateOffices(int $bIdx): void
+    {
+        if (isset($this->batchItems[$bIdx])) {
+            $this->batchItems[$bIdx]['duplicate_offices'] = [];
+            $this->batchItems[$bIdx]['duplicate_search'] = '';
+            $this->batchItems[$bIdx]['showDuplicateDropdown'] = false;
+        }
     }
 
     public function updatedUploadedFile(): void
@@ -286,6 +369,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public function mount(): void
     {
         $this->time_value = $this->is_permanent ? 'P' : 'T';
+
+        if ($this->records_medium === null) {
+            $this->records_medium = $this->getDefaultMediumId();
+        }
+        if (empty($this->restriction)) {
+            $this->restriction = 'Restricted';
+        }
+        if (empty($this->date_covered)) {
+            $this->date_covered = Carbon::now()->format('Y-m-d');
+        }
 
         $this->prefill_intake_id = request()->query('prefill_intake_id') ? (int)request()->query('prefill_intake_id') : null;
         $this->prefill_source = request()->query('prefill_source');
@@ -742,28 +835,30 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     $desc = trim($bItem['description'] ?? '');
                     if (empty($desc)) continue;
                     $itemsToProcess[] = [
-                        'description'      => mb_strtoupper($desc),
-                        'volume'           => mb_strtoupper(trim($bItem['volume'] ?? '')),
-                        'records_location' => mb_strtoupper(trim($bItem['records_location'] ?? '')),
-                        'restriction'      => $bItem['restriction'] ?? null,
-                        'records_medium'   => !empty($bItem['records_medium']) ? (int)$bItem['records_medium'] : null,
-                        'time_value'       => $bItem['time_value'] ?? ($this->time_value ?: 'T'),
-                        'frequence_use'    => $bItem['frequence_use'] ?? null,
-                        'utility_values'   => $bItem['utility_values'] ?? [],
-                        'date_covered'     => $bItem['date_covered'] ?? '',
+                        'description'       => mb_strtoupper($desc),
+                        'volume'            => mb_strtoupper(trim($bItem['volume'] ?? '')),
+                        'records_location'  => mb_strtoupper(trim($bItem['records_location'] ?? '')),
+                        'restriction'       => $bItem['restriction'] ?? null,
+                        'records_medium'    => !empty($bItem['records_medium']) ? (int)$bItem['records_medium'] : null,
+                        'time_value'        => $bItem['time_value'] ?? ($this->time_value ?: 'T'),
+                        'frequence_use'     => $bItem['frequence_use'] ?? null,
+                        'utility_values'    => $bItem['utility_values'] ?? [],
+                        'date_covered'      => $bItem['date_covered'] ?? '',
+                        'duplicate_offices' => $bItem['duplicate_offices'] ?? [],
                     ];
                 }
             } else {
                 $itemsToProcess[] = [
-                    'description'      => mb_strtoupper(trim($this->description)),
-                    'volume'           => $formattedVolume,
-                    'records_location' => mb_strtoupper(trim($this->records_location)),
-                    'restriction'      => $this->restriction,
-                    'records_medium'   => $this->records_medium,
-                    'time_value'       => $this->time_value ?: 'T',
-                    'frequence_use'    => $this->frequence_use,
-                    'utility_values'   => $this->utility_values,
-                    'date_covered'     => $this->date_covered,
+                    'description'       => mb_strtoupper(trim($this->description)),
+                    'volume'            => $formattedVolume,
+                    'records_location'  => mb_strtoupper(trim($this->records_location)),
+                    'restriction'       => $this->restriction,
+                    'records_medium'    => $this->records_medium,
+                    'time_value'        => $this->time_value ?: 'T',
+                    'frequence_use'     => $this->frequence_use,
+                    'utility_values'    => $this->utility_values,
+                    'date_covered'      => $this->date_covered,
+                    'duplicate_offices' => $this->duplicate_offices,
                 ];
             }
 
@@ -812,7 +907,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     ]);
                 }
 
-                foreach ($this->duplicate_offices as $dupOffice) {
+                foreach (($rData['duplicate_offices'] ?? []) as $dupOffice) {
                     DB::table('rdp_duplication_section')->insert([
                         'dup_id_manager' => $recordId,
                         'office_code'    => $dupOffice,
@@ -946,30 +1041,32 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     $desc = trim($bItem['description'] ?? '');
                     if (empty($desc)) continue;
                     $itemsToProcess[] = [
-                        'description'      => mb_strtoupper($desc),
-                        'volume'           => mb_strtoupper(trim($bItem['volume'] ?? '')),
-                        'records_location' => mb_strtoupper(trim($bItem['records_location'] ?? '')),
-                        'restriction'      => $bItem['restriction'] ?? null,
-                        'records_medium'   => !empty($bItem['records_medium']) ? (int)$bItem['records_medium'] : null,
-                        'time_value'       => $bItem['time_value'] ?? ($this->time_value ?: 'T'),
-                        'frequence_use'    => $bItem['frequence_use'] ?? null,
-                        'utility_values'   => $bItem['utility_values'] ?? [],
-                        'date_covered'     => $bItem['date_covered'] ?? '',
+                        'description'       => mb_strtoupper($desc),
+                        'volume'            => mb_strtoupper(trim($bItem['volume'] ?? '')),
+                        'records_location'  => mb_strtoupper(trim($bItem['records_location'] ?? '')),
+                        'restriction'       => $bItem['restriction'] ?? null,
+                        'records_medium'    => !empty($bItem['records_medium']) ? (int)$bItem['records_medium'] : null,
+                        'time_value'        => $bItem['time_value'] ?? ($this->time_value ?: 'T'),
+                        'frequence_use'     => $bItem['frequence_use'] ?? null,
+                        'utility_values'    => $bItem['utility_values'] ?? [],
+                        'date_covered'      => $bItem['date_covered'] ?? '',
+                        'duplicate_offices' => $bItem['duplicate_offices'] ?? [],
                     ];
                 }
             } else {
                 $desc = trim($this->description);
                 if (!empty($desc)) {
                     $itemsToProcess[] = [
-                        'description'      => mb_strtoupper($desc),
-                        'volume'           => $formattedVolume,
-                        'records_location' => mb_strtoupper(trim($this->records_location)),
-                        'restriction'      => $this->restriction,
-                        'records_medium'   => $this->records_medium,
-                        'time_value'       => $this->time_value ?: 'T',
-                        'frequence_use'    => $this->frequence_use,
-                        'utility_values'   => $this->utility_values,
-                        'date_covered'     => $this->date_covered,
+                        'description'       => mb_strtoupper($desc),
+                        'volume'            => $formattedVolume,
+                        'records_location'  => mb_strtoupper(trim($this->records_location)),
+                        'restriction'       => $this->restriction,
+                        'records_medium'    => $this->records_medium,
+                        'time_value'        => $this->time_value ?: 'T',
+                        'frequence_use'     => $this->frequence_use,
+                        'utility_values'    => $this->utility_values,
+                        'date_covered'      => $this->date_covered,
+                        'duplicate_offices' => $this->duplicate_offices,
                     ];
                 }
             }
@@ -1019,7 +1116,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     ]);
                 }
 
-                foreach ($this->duplicate_offices as $dupOffice) {
+                foreach (($rData['duplicate_offices'] ?? []) as $dupOffice) {
                     DB::table('rdp_duplication_section')->insert([
                         'dup_id_manager' => $recordId,
                         'office_code'    => $dupOffice,
@@ -1069,8 +1166,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->record_series_id = null;
         $this->description = '';
         $this->volume = '';
-        $this->records_medium = null;
-        $this->restriction = null;
+        $this->records_medium = $this->getDefaultMediumId();
+        $this->restriction = 'Restricted';
         $this->records_location = '';
         $this->frequence_use = null;
         $this->duplication = null;
@@ -1082,7 +1179,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->storage_period = '';
         $this->disposition_provision = '';
         $this->uploadedFile = null;
-        $this->date_covered = '';
+        $this->date_covered = Carbon::now()->format('Y-m-d');
         $this->parentSeriesTitle = '';
         $this->subsections = [];
         $this->duplicate_offices = [];
@@ -1166,39 +1263,41 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         </div>
     @endif
 
-    <!-- Form Card Wrapper (Anchors the Side (+) Action Button) -->
+    <!-- Form Card Wrapper -->
     <div class="ia-form-card-wrapper">
-        <!-- Side Action: Add More / Cancel Batch Mode Button -->
-        <div class="ia-side-action-rail">
-            @if($isBatchMode)
-                <button type="button" 
-                        wire:click="switchToSingleMode" 
-                        class="ia-side-add-btn is-cancel" 
-                        aria-label="Cancel mode"
-                        title="Cancel mode">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                    <span class="ia-side-tooltip">Cancel mode</span>
-                </button>
-            @else
-                <button type="button" 
-                        wire:click="addBatchItem" 
-                        class="ia-side-add-btn" 
-                        aria-label="Add more"
-                        title="Add more">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="12" y1="5" x2="12" y2="19"></line>
-                        <line x1="5" y1="12" x2="19" y2="12"></line>
-                    </svg>
-                    <span class="ia-side-tooltip">Add more</span>
-                </button>
-            @endif
-        </div>
-
         <!-- Main Form Card -->
         <div class="ia-form-card">
+            <!-- Mode Header Bar (Always visible across all monitor resolutions) -->
+            <div class="ia-mode-bar">
+                <div class="ia-mode-info">
+                    <span class="ia-mode-pill {{ $isBatchMode ? 'is-batch' : 'is-single' }}">
+                        {{ $isBatchMode ? 'BATCH ENTRY MODE (' . count($batchItems) . ' RECORDS)' : 'SINGLE ENTRY MODE' }}
+                    </span>
+                    <span class="ia-mode-desc">
+                        {{ $isBatchMode ? 'Add multiple records simultaneously under the selected series' : 'Add an individual inventory and appraisal record' }}
+                    </span>
+                </div>
+                <div class="ia-mode-actions">
+                    @if($isBatchMode)
+                        <button type="button" 
+                                wire:click="switchToSingleMode" 
+                                class="ia-mode-toggle-btn is-exit" 
+                                title="Exit batch mode and return to single mode">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            <span>Exit Batch Mode</span>
+                        </button>
+                    @else
+                        <button type="button" 
+                                wire:click="addBatchItem" 
+                                class="ia-side-add-pill-btn" 
+                                title="Switch to Batch Mode to add multiple records under this series">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                            <span>Batch Mode</span>
+                        </button>
+                    @endif
+                </div>
+            </div>
+
             <div style="padding: 28px 32px;">
                 <!-- Record Series Title -->
                 <div class="ia-form-row" wire:key="ia-row-series">
@@ -1248,7 +1347,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                     </div>
                                     <div style="display: flex; align-items: center; gap: 8px;">
                                         <button type="button" wire:click="duplicateBatchItem({{ $bIdx }})" style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-size: 11.5px; font-weight: 700; color: #475569; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Duplicate this record">
-                                            <span>📋 Duplicate</span>
+                                            <span>Duplicate</span>
                                         </button>
                                         @if(count($batchItems) > 1)
                                             <button type="button" wire:click="removeBatchItem({{ $bIdx }})" style="background: #fee2e2; border: 1px solid #fca5a5; border-radius: 6px; padding: 4px 10px; font-size: 11.5px; font-weight: 700; color: #dc2626; cursor: pointer;" title="Remove this record">
@@ -1314,7 +1413,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                     </div>
                                 </div>
 
-                                <div>
+                                <div style="margin-bottom: 12px;">
                                     <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Utility Values</label>
                                     <div style="display: flex; flex-wrap: wrap; gap: 8px;">
                                         @foreach($utilityValuesList as $uv)
@@ -1328,11 +1427,74 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                         @endforeach
                                     </div>
                                 </div>
+
+                                <!-- Duplicate Offices for this Batch Item -->
+                                <div style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed #cbd5e1;" wire:click.outside="$set('batchItems.{{ $bIdx }}.showDuplicateDropdown', false)">
+                                    <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">Duplicate</label>
+                                    @if(!empty($bItem['duplicate_offices']))
+                                        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
+                                            @foreach($bItem['duplicate_offices'] as $dIdx => $offCode)
+                                                @php
+                                                    $offObj = collect($officesList)->firstWhere('office_code', $offCode);
+                                                    $offName = $offObj->office_name ?? $offCode;
+                                                @endphp
+                                                <span style="display: inline-flex; align-items: center; gap: 6px; background-color: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; padding: 3px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 600;">
+                                                    <span><strong>{{ $offCode }}</strong> — {{ $offName }}</span>
+                                                    <button type="button" wire:click="removeBatchDuplicateOffice({{ $bIdx }}, {{ $dIdx }})" style="border: none; background: none; color: #1e40af; cursor: pointer; font-weight: 900; font-size: 13px; line-height: 1; padding: 0 2px;">&times;</button>
+                                                </span>
+                                            @endforeach
+                                            <button type="button" wire:click="clearBatchDuplicateOffices({{ $bIdx }})" class="ia-btn ia-btn-secondary" style="padding: 2px 8px; font-size: 10.5px; height: 24px; align-self: center;">Clear</button>
+                                        </div>
+                                    @endif
+
+                                    <div style="position: relative;">
+                                        <input type="text"
+                                            class="ia-input"
+                                            wire:model.live.debounce.150ms="batchItems.{{ $bIdx }}.duplicate_search"
+                                            wire:focus="$set('batchItems.{{ $bIdx }}.showDuplicateDropdown', true)"
+                                            wire:keydown.enter.prevent="addBatchDuplicateOffice({{ $bIdx }})"
+                                            placeholder="SEARCH OFFICE CODE OR NAME..."
+                                            style="width: 100%; box-sizing: border-box; background: #ffffff;">
+
+                                        @if(!empty($bItem['showDuplicateDropdown']) && !empty(trim($bItem['duplicate_search'] ?? '')))
+                                            @php
+                                                $bSearchLower = strtolower(trim($bItem['duplicate_search']));
+                                                $bCurDups = $bItem['duplicate_offices'] ?? [];
+                                                $bFilteredOffices = collect($officesList)->filter(function($off) use ($bSearchLower, $bCurDups) {
+                                                    return !in_array($off->office_code, $bCurDups, true) &&
+                                                           (str_contains(strtolower($off->office_code), $bSearchLower) ||
+                                                            str_contains(strtolower($off->office_name), $bSearchLower));
+                                                })->take(8);
+                                            @endphp
+
+                                            <div class="ia-autocomplete-dropdown" style="top: 100%; left: 0; right: 0; z-index: 1050; max-height: 200px; overflow-y: auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); margin-top: 4px; position: absolute;">
+                                                @if($bFilteredOffices->isNotEmpty())
+                                                    @foreach($bFilteredOffices as $off)
+                                                        <div wire:click="addBatchDuplicateOffice({{ $bIdx }}, '{{ $off->office_code }}')"
+                                                             class="ia-autocomplete-item"
+                                                             style="padding: 7px 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f1f5f9;">
+                                                             <div style="display: flex; align-items: center; gap: 8px;">
+                                                                <span style="font-size: 10.5px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px;">
+                                                                    {{ $off->office_code }}
+                                                                </span>
+                                                                <span style="font-size: 12.5px; font-weight: 600; color: #1e293b;">
+                                                                    {{ $off->office_name }}
+                                                                </span>
+                                                             </div>
+                                                             <span style="font-size: 11px; color: #2563eb; font-weight: 700;">+ Add</span>
+                                                        </div>
+                                                    @endforeach
+                                                @else
+                                                    <div style="padding: 10px 12px; color: #64748b; font-size: 12px;">No matching office found</div>
+                                                @endif
+                                            </div>
+                                        @endif
+                                    </div>
+                                </div>
                             </div>
                         @endforeach
 
                         <button type="button" wire:click="addBatchItem" style="border: 2px dashed #818cf8; background: #f5f3ff; color: #4338ca; border-radius: 12px; padding: 14px; font-weight: 800; font-size: 13px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                             <span>+ ADD ANOTHER RECORD ROW</span>
                         </button>
                     </div>
@@ -1406,6 +1568,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     </div>
                 @endif
 
+            @if(!$isBatchMode)
             <!-- Duplicate -->
             <div class="ia-form-row" wire:key="ia-row-duplicate" style="align-items: flex-start;">
                 <span class="ia-label" style="margin-top: 10px;">Duplicate</span>
@@ -1458,8 +1621,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                                 <span style="font-size: 13px; font-weight: 600; color: #1e293b;">
                                                     {{ $off->office_name }}
                                                 </span>
-                                            </div>
-                                            <span style="font-size: 11px; color: #2563eb; font-weight: 700;">+ Add</span>
+                                             </div>
+                                             <span style="font-size: 11px; color: #2563eb; font-weight: 700;">+ Add</span>
                                         </div>
                                     @endforeach
                                 @else
@@ -1475,6 +1638,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     </div>
                 </div>
             </div>
+            @endif
 
             <!-- Time Value -->
             <div class="ia-form-row" wire:key="ia-row-time">

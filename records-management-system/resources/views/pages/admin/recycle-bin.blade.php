@@ -11,7 +11,7 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class extends Component {
-    /** @var string Active tab: 'offices', 'clusters', 'roles', 'flows', or 'users' */
+    /** @var string Active tab: 'offices', 'clusters', 'roles', 'flows', 'users', 'series', or 'types' */
     public string $activeTab = 'offices';
 
     /** @var string Real-time search query */
@@ -206,6 +206,75 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
     }
 
     /**
+     * Restore a single soft-deleted RDP record series (Clear data / Deactivate).
+     */
+    public function restoreSeries(int $id): void
+    {
+        $this->clearMessages();
+
+        try {
+            \DB::transaction(function () use ($id) {
+                $series = \DB::table('rdp_record_series')->where('id', $id)->first();
+
+                if (!$series) {
+                    throw new \Exception('Record series not found.');
+                }
+
+                \DB::table('rdp_record_series')->where('id', $id)->update([
+                    'is_active' => true,
+                    'updated_at' => now(),
+                ]);
+
+                \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
+                    'changes' => "Restored record series from Recycle Bin: {$series->series_title}",
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
+            });
+
+            $this->successMessage = 'Record series restored successfully!';
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to restore record series: ' . $e->getMessage();
+        }
+    }
+
+    /**
+     * Restore a single soft-deleted RDP record series type (Remove).
+     */
+    public function restoreSeriesType(int $id): void
+    {
+        $this->clearMessages();
+
+        try {
+            \DB::transaction(function () use ($id) {
+                $type = \DB::table('rdp_record_series_type')->where('id', $id)->first();
+
+                if (!$type) {
+                    throw new \Exception('Record series type not found.');
+                }
+
+                \DB::table('rdp_record_series_type')->where('id', $id)->update([
+                    'is_active' => true,
+                    'deleted_at' => null,
+                    'updated_at' => now(),
+                ]);
+
+                \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
+                    'changes' => "Restored record series type from Recycle Bin: {$type->type_name}" . (!empty($type->shorted_type) ? " ({$type->shorted_type})" : ''),
+                    'admin_id' => auth()->id(),
+                    'what_system' => 3,
+                    'when_changes' => now(),
+                ]);
+            });
+
+            $this->successMessage = 'Record series type restored successfully!';
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to restore record series type: ' . $e->getMessage();
+        }
+    }
+
+    /**
      * Switch active tab and clear selection/messages.
      */
     public function switchTab(string $tab): void
@@ -287,6 +356,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                           $sub->where('first_name', 'ilike', $searchVal)
                               ->orWhere('last_name', 'ilike', $searchVal);
                       });
+                });
+            }
+            $visibleIds = $query->pluck('id')->toArray();
+        } elseif ($this->activeTab === 'series') {
+            $query = \DB::table('rdp_record_series')
+                ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+                ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
+                ->where('rdp_record_series.is_active', false);
+            if ($this->search !== '') {
+                $query->where(function ($q) use ($searchVal) {
+                    $q->where('rdp_record_series.series_title', 'ilike', $searchVal)
+                      ->orWhere('rdp_record_series_brackets.bracket_name', 'ilike', $searchVal)
+                      ->orWhere('rdp_record_series_type.type_name', 'ilike', $searchVal);
+                });
+            }
+            $visibleIds = $query->pluck('rdp_record_series.id')->toArray();
+        } elseif ($this->activeTab === 'types') {
+            $query = \DB::table('rdp_record_series_type')->whereNotNull('deleted_at');
+            if ($this->search !== '') {
+                $query->where(function ($q) use ($searchVal) {
+                    $q->where('type_name', 'ilike', $searchVal)
+                      ->orWhere('shorted_type', 'ilike', $searchVal);
                 });
             }
             $visibleIds = $query->pluck('id')->toArray();
@@ -381,6 +472,39 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                             'when_changes' => now(),
                         ]);
                     }
+                } elseif ($this->activeTab === 'series') {
+                    $records = \DB::table('rdp_record_series')->whereIn('id', $this->selectedIds)->get();
+                    if ($records->isNotEmpty()) {
+                        $names = $records->pluck('series_title')->implode(', ');
+                        \DB::table('rdp_record_series')->whereIn('id', $records->pluck('id')->toArray())->update([
+                            'is_active' => true,
+                            'updated_at' => now(),
+                        ]);
+
+                        \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
+                            'changes' => \Str::limit("Bulk restored " . $records->count() . " record series from Recycle Bin: {$names}", 245),
+                            'admin_id' => auth()->id(),
+                            'what_system' => 3,
+                            'when_changes' => now(),
+                        ]);
+                    }
+                } elseif ($this->activeTab === 'types') {
+                    $records = \DB::table('rdp_record_series_type')->whereIn('id', $this->selectedIds)->get();
+                    if ($records->isNotEmpty()) {
+                        $names = $records->pluck('type_name')->implode(', ');
+                        \DB::table('rdp_record_series_type')->whereIn('id', $records->pluck('id')->toArray())->update([
+                            'is_active' => true,
+                            'deleted_at' => null,
+                            'updated_at' => now(),
+                        ]);
+
+                        \DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
+                            'changes' => \Str::limit("Bulk restored " . $records->count() . " record series type(s) from Recycle Bin: {$names}", 245),
+                            'admin_id' => auth()->id(),
+                            'what_system' => 3,
+                            'when_changes' => now(),
+                        ]);
+                    }
                 }
             });
 
@@ -469,12 +593,52 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
         }
         $deactivatedUsers = $usersQuery->orderBy('username', 'asc')->get();
 
+        // Deactivated RDP record series (cleared via "Clear data" or row Deactivate)
+        $seriesQuery = \DB::table('rdp_record_series')
+            ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+            ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
+            ->where('rdp_record_series.is_active', false)
+            ->select([
+                'rdp_record_series.id',
+                'rdp_record_series.series_title',
+                'rdp_record_series.item_number',
+                'rdp_record_series.series_type',
+                'rdp_record_series.updated_at',
+                'rdp_record_series_type.type_name',
+                'rdp_record_series_type.shorted_type',
+                'rdp_record_series_brackets.bracket_name',
+            ]);
+
+        if ($this->search !== '' && $this->activeTab === 'series') {
+            $seriesQuery->where(function ($q) use ($searchVal) {
+                $q->where('rdp_record_series.series_title', 'ilike', $searchVal)
+                  ->orWhere('rdp_record_series_brackets.bracket_name', 'ilike', $searchVal)
+                  ->orWhere('rdp_record_series_type.type_name', 'ilike', $searchVal);
+            });
+        }
+        $deactivatedSeries = $seriesQuery->orderBy('rdp_record_series.series_title', 'asc')->get();
+
+        // Removed (soft deleted) RDP record series types. Deactivated types are
+        // intentionally excluded - they are only unusable, not in the bin.
+        $typesQuery = \DB::table('rdp_record_series_type')
+            ->whereNotNull('deleted_at');
+
+        if ($this->search !== '' && $this->activeTab === 'types') {
+            $typesQuery->where(function ($q) use ($searchVal) {
+                $q->where('type_name', 'ilike', $searchVal)
+                  ->orWhere('shorted_type', 'ilike', $searchVal);
+            });
+        }
+        $deactivatedSeriesTypes = $typesQuery->orderBy('type_name', 'asc')->get();
+
         return [
             'deactivatedOffices' => $deactivatedOffices,
             'deactivatedClusters' => $deactivatedClusters,
             'deactivatedRoles' => $deactivatedRoles,
             'deactivatedFlows' => $deactivatedFlows,
             'deactivatedUsers' => $deactivatedUsers,
+            'deactivatedSeries' => $deactivatedSeries,
+            'deactivatedSeriesTypes' => $deactivatedSeriesTypes,
         ];
     }
 };
@@ -486,6 +650,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
     <style>
         .tabs-header {
             display: flex;
+            flex-wrap: wrap;
             gap: 12px;
             border-bottom: 2px solid #e2e8f0;
             margin-bottom: 20px;
@@ -922,6 +1087,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
         </button>
         <button type="button" class="tab-btn {{ $activeTab === 'users' ? 'active' : '' }}" wire:click="switchTab('users')">
             <i class="fa-solid fa-users" style="margin-right: 6px;"></i> Users
+        </button>
+        <button type="button" class="tab-btn {{ $activeTab === 'series' ? 'active' : '' }}" wire:click="switchTab('series')">
+            <i class="fa-solid fa-list-ul" style="margin-right: 6px;"></i> Record Series
+        </button>
+        <button type="button" class="tab-btn {{ $activeTab === 'types' ? 'active' : '' }}" wire:click="switchTab('types')">
+            <i class="fa-solid fa-tags" style="margin-right: 6px;"></i> Record Series Types
         </button>
     </div>
 
@@ -1416,6 +1587,206 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Recycle Bin')] class ext
                             <i class="fa-solid fa-recycle recycle-empty-icon"></i>
                             <h3 class="recycle-empty-title">Recycle Bin is Empty</h3>
                             <p class="recycle-empty-desc">No deactivated users found.</p>
+                        </div>
+                    @endforelse
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- ==================== RECORD SERIES TAB ==================== --}}
+    @if($activeTab === 'series')
+        <div class="admin-offices-container" wire:key="tab-recycle-series">
+            <div class="directory-panel" style="width: 100%; max-width: 100%; max-height: none;">
+                {{-- Header Row --}}
+                <div class="directory-header-row">
+                    <span class="recycle-header-title">
+                        <i class="fa-solid fa-list-ul title-icon"></i>
+                        Cleared Record Series
+                        <span class="count-badge">({{ $deactivatedSeries->count() }})</span>
+                    </span>
+                </div>
+
+                {{-- Search --}}
+                <div class="search-box-wrapper">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" class="search-box" placeholder="Search cleared record series..." wire:model.live="search">
+                </div>
+
+                {{-- Toast Messages --}}
+                @if($successMessage)
+                    <div class="recycle-toast-success">
+                        <i class="fa-solid fa-circle-check" style="color: #059669;"></i>
+                        {{ $successMessage }}
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
+                    </div>
+                @endif
+                @if($errorMessage)
+                    <div class="recycle-toast-error">
+                        <i class="fa-solid fa-circle-xmark" style="color: #dc2626;"></i>
+                        {{ $errorMessage }}
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
+                    </div>
+                @endif
+
+                {{-- Bulk Action Bar --}}
+                @if(count($selectedIds) > 0)
+                    <div class="recycle-bulk-bar">
+                        <span class="selected-count">{{ count($selectedIds) }} selected</span>
+                        <button type="button" x-data
+                            x-on:click="if(confirm('Are you sure you want to restore {{ count($selectedIds) }} selected record series?')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkRestore(); }"
+                            class="recycle-btn-restore">
+                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-rotate-left"></i> Restore Selected</span>
+                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Restoring {{ count($selectedIds) }} item(s)...</span>
+                        </button>
+                    </div>
+                @endif
+
+                {{-- Select All Row --}}
+                @if($deactivatedSeries->count() > 0)
+                    <div class="recycle-select-all-row">
+                        <label class="recycle-select-all-label">
+                            <input type="checkbox" wire:click="toggleAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedIds) > 0 && count($selectedIds) === $deactivatedSeries->count() ? 'checked' : '' }}>
+                            <span>Select All</span>
+                        </label>
+                    </div>
+                @endif
+
+                {{-- Items List --}}
+                <div class="offices-list">
+                    @forelse($deactivatedSeries as $series)
+                        @php
+                            $seriesInitials = strtoupper(substr($series->series_title ?: '?', 0, 3));
+                        @endphp
+                        <div wire:key="recycle-series-{{ $series->id }}" class="recycle-item-card">
+                            {{-- Checkbox --}}
+                            <input type="checkbox" wire:click="toggleSelection({{ $series->id }})" {{ in_array($series->id, $selectedIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0; margin-right: 4px;">
+                            {{-- Avatar --}}
+                            <div class="recycle-item-avatar">
+                                {{ $seriesInitials }}
+                            </div>
+                            {{-- Info --}}
+                            <div class="recycle-item-info">
+                                <span class="recycle-item-title">{{ $series->series_title }}</span>
+                                <span class="recycle-item-sub">
+                                    {{ $series->type_name ?? 'Unregistered' }}
+                                    @if(!empty($series->item_number))
+                                        &bull; Item No. <strong>{{ $series->item_number }}</strong>
+                                    @endif
+                                </span>
+                                @if(!empty($series->bracket_name))
+                                    <span class="recycle-item-sub" style="font-size: 11px;">Bracket: <strong>{{ $series->bracket_name }}</strong></span>
+                                @endif
+                            </div>
+                            {{-- Restore Button --}}
+                            <button type="button"
+                                    wire:click="restoreSeries({{ $series->id }})"
+                                    wire:confirm="Are you sure you want to restore this record series? It will be reactivated and visible again."
+                                    class="recycle-btn-restore">
+                                <i class="fa-solid fa-rotate-left"></i> Restore
+                            </button>
+                        </div>
+                    @empty
+                        <div class="recycle-empty-state">
+                            <i class="fa-solid fa-recycle recycle-empty-icon"></i>
+                            <h3 class="recycle-empty-title">Recycle Bin is Empty</h3>
+                            <p class="recycle-empty-desc">No cleared record series found.</p>
+                        </div>
+                    @endforelse
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- ==================== RECORD SERIES TYPES TAB ==================== --}}
+    @if($activeTab === 'types')
+        <div class="admin-offices-container" wire:key="tab-recycle-types">
+            <div class="directory-panel" style="width: 100%; max-width: 100%; max-height: none;">
+                {{-- Header Row --}}
+                <div class="directory-header-row">
+                    <span class="recycle-header-title">
+                        <i class="fa-solid fa-tags title-icon"></i>
+                        Removed Record Series Types
+                        <span class="count-badge">({{ $deactivatedSeriesTypes->count() }})</span>
+                    </span>
+                </div>
+
+                {{-- Search --}}
+                <div class="search-box-wrapper">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" class="search-box" placeholder="Search removed record series types..." wire:model.live="search">
+                </div>
+
+                {{-- Toast Messages --}}
+                @if($successMessage)
+                    <div class="recycle-toast-success">
+                        <i class="fa-solid fa-circle-check" style="color: #059669;"></i>
+                        {{ $successMessage }}
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
+                    </div>
+                @endif
+                @if($errorMessage)
+                    <div class="recycle-toast-error">
+                        <i class="fa-solid fa-circle-xmark" style="color: #dc2626;"></i>
+                        {{ $errorMessage }}
+                        <button type="button" wire:click="clearMessages" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 14px;">&times;</button>
+                    </div>
+                @endif
+
+                {{-- Bulk Action Bar --}}
+                @if(count($selectedIds) > 0)
+                    <div class="recycle-bulk-bar">
+                        <span class="selected-count">{{ count($selectedIds) }} selected</span>
+                        <button type="button" x-data
+                            x-on:click="if(confirm('Are you sure you want to restore {{ count($selectedIds) }} selected record series type(s)?')) { $el.disabled = true; $el.querySelector('.btn-idle').style.display = 'none'; $el.querySelector('.btn-loading').style.display = 'inline-flex'; $wire.bulkRestore(); }"
+                            class="recycle-btn-restore">
+                            <span class="btn-idle" style="display: inline-flex; align-items: center; gap: 4px;"><i class="fa-solid fa-rotate-left"></i> Restore Selected</span>
+                            <span class="btn-loading" style="display: none; align-items: center; gap: 5px;"><i class="fa-solid fa-circle-notch fa-spin"></i> Restoring {{ count($selectedIds) }} item(s)...</span>
+                        </button>
+                    </div>
+                @endif
+
+                {{-- Select All Row --}}
+                @if($deactivatedSeriesTypes->count() > 0)
+                    <div class="recycle-select-all-row">
+                        <label class="recycle-select-all-label">
+                            <input type="checkbox" wire:click="toggleAll" style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6;" {{ count($selectedIds) > 0 && count($selectedIds) === $deactivatedSeriesTypes->count() ? 'checked' : '' }}>
+                            <span>Select All</span>
+                        </label>
+                    </div>
+                @endif
+
+                {{-- Items List --}}
+                <div class="offices-list">
+                    @forelse($deactivatedSeriesTypes as $type)
+                        @php
+                            $typeInitials = strtoupper(substr($type->shorted_type ?: ($type->type_name ?: '?'), 0, 3));
+                        @endphp
+                        <div wire:key="recycle-type-{{ $type->id }}" class="recycle-item-card">
+                            {{-- Checkbox --}}
+                            <input type="checkbox" wire:click="toggleSelection({{ $type->id }})" {{ in_array($type->id, $selectedIds) ? 'checked' : '' }} style="width: 16px; height: 16px; cursor: pointer; accent-color: #3b82f6; flex-shrink: 0; margin-right: 4px;">
+                            {{-- Avatar --}}
+                            <div class="recycle-item-avatar">
+                                {{ $typeInitials }}
+                            </div>
+                            {{-- Info --}}
+                            <div class="recycle-item-info">
+                                <span class="recycle-item-title">{{ $type->type_name }}</span>
+                                <span class="recycle-item-sub">Short Code: <strong>{{ $type->shorted_type ?: '—' }}</strong></span>
+                            </div>
+                            {{-- Restore Button --}}
+                            <button type="button"
+                                    wire:click="restoreSeriesType({{ $type->id }})"
+                                    wire:confirm="Are you sure you want to restore this record series type? Its tab will be visible again."
+                                    class="recycle-btn-restore">
+                                <i class="fa-solid fa-rotate-left"></i> Restore
+                            </button>
+                        </div>
+                    @empty
+                        <div class="recycle-empty-state">
+                            <i class="fa-solid fa-recycle recycle-empty-icon"></i>
+                            <h3 class="recycle-empty-title">Recycle Bin is Empty</h3>
+                            <p class="recycle-empty-desc">No removed record series types found.</p>
                         </div>
                     @endforelse
                 </div>

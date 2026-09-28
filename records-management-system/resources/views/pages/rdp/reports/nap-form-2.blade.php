@@ -30,8 +30,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             return;
         }
 
-        $userOffice = Auth::user()?->details?->office_code ?? 'OFFICE';
-        $this->clusterName = 'RDS Schedule Cluster — ' . $userOffice . ' (' . Carbon::now()->format('Y-m-d') . ')';
+        $user = Auth::user();
+        $perms = $user?->permissions;
+        $isSadm = (bool)($perms->is_sadm ?? false);
+        $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        if (empty($userOffice) && !empty($user?->details?->office_id)) {
+            $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+            $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+        }
+        if (empty($userOffice) && $isSadm && !empty($this->officeFilter)) {
+            $userOffice = $this->officeFilter;
+        }
+
+        $officeDisplay = $userOffice ?: 'OFFICE';
+        $this->clusterName = 'RDS Schedule Cluster — ' . $officeDisplay . ' (' . Carbon::now()->format('Y-m-d') . ')';
         $this->clusterNotes = '';
         $this->showClusterModal = true;
     }
@@ -52,7 +64,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             DB::beginTransaction();
 
             $user = Auth::user();
-            $userOffice = $user?->details?->office_code ?? null;
+            $perms = $user?->permissions;
+            $isSadm = (bool)($perms->is_sadm ?? false);
+            $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+            if (empty($userOffice) && !empty($user?->details?->office_id)) {
+                $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+                $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+            }
+            if (empty($userOffice) && $isSadm && !empty($this->officeFilter)) {
+                $userOffice = $this->officeFilter;
+            }
+            if (empty($userOffice) && !empty($this->selectedIds)) {
+                $firstRec = DB::table('rdp_record_series')->whereIn('id', array_map('intval', $this->selectedIds))->first();
+                $userOffice = $firstRec?->recorded_at_office ?? null;
+            }
 
             $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
             $mainPendingId = DB::table($mainPendingTbl)->insertGetId([
@@ -259,8 +284,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         }
         $record = DB::table('rdp_record_series')->where('id', $id)->first();
         if ($record) {
-            // Edit-others clearance
-            $userOffice = Auth::user()?->details?->office_code ?? null;
+            $userOffice = Auth::user()?->details?->office?->office_code ?? Auth::user()?->details?->office_code ?? null;
+            if (empty($userOffice) && !empty(Auth::user()?->details?->office_id)) {
+                $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+                $userOffice = DB::table($officeTbl)->where('id', Auth::user()->details->office_id)->value('office_code');
+            }
             $isOtherOffice = $userOffice && $record->recorded_at_office && $record->recorded_at_office !== $userOffice;
             if (!$isSadm && $isOtherOffice && !(bool)($perms->can_rdp_edit_others_form_2 ?? false)) {
                 $this->errorMessage = 'You do not have clearance to edit records from another office on NAP Form 2.';
@@ -1230,7 +1258,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 @foreach($dataPages as $pageIndex => $pageItems)
                     @php
                         $pageNumber = $pageIndex + 1;
-                        $fillerHeight = empty($pageItems) ? 650 : max(40, 650 - (count($pageItems) * 26));
+                        $fillerHeight = empty($pageItems) ? 880 : max(40, 880 - (count($pageItems) * 26));
                     @endphp
                     <div class="print-sheet">
                         <!-- Top Form Identifier -->

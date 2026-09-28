@@ -129,7 +129,11 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
     {
         try {
             $user = Auth::user();
-            $userOffice = $user?->details?->office_code;
+            $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+            if (empty($userOffice) && !empty($user?->details?->office_id)) {
+                $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+                $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+            }
 
             // Create a pending cluster in rdp_pending_record_series
             $series = DB::table('rdp_record_series')->where('id', $seriesId)->first();

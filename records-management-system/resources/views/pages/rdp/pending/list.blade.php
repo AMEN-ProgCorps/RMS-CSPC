@@ -5,6 +5,7 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use App\Helpers\RdpExportHelper;
 
 new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List')] class extends Component {
     public string $search = '';
@@ -16,6 +17,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     public bool $showDetailModal = false;
     public ?object $selectedCluster = null;
     public array $clusterItems = [];
+
+    // Cancel Cluster Confirmation Modal
+    public bool $showCancelConfirmModal = false;
+
+    // Download Modal Properties
+    public bool $showDownloadModal = false;
+    public ?int $downloadClusterId = null;
+    public ?string $downloadFormType = null;
+    public ?object $downloadCluster = null;
+    public int $downloadTotalItems = 0;
 
     // Print Modal & Fill-up Properties
     public bool $showPrintModal = false;
@@ -52,6 +63,122 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     public string $effectivePrintLocation = '';
     public string $effectivePrintVolume = '';
 
+    // Status Messages
+    public string $successMessage = '';
+    public string $errorMessage = '';
+
+    public function clearMessages(): void
+    {
+        $this->successMessage = '';
+        $this->errorMessage = '';
+    }
+
+    public function openCancelConfirmModal(): void
+    {
+        $this->showCancelConfirmModal = true;
+    }
+
+    public function closeCancelConfirmModal(): void
+    {
+        $this->showCancelConfirmModal = false;
+    }
+
+    public function cancelCluster(): void
+    {
+        $this->showCancelConfirmModal = false;
+
+        $this->clearMessages();
+
+        if (!$this->selectedCluster) {
+            return;
+        }
+
+        $clusterId = (int)($this->selectedCluster->cluster_id ?? 0);
+        $formCode = strtolower($this->selectedCluster->form_code ?? '');
+        $formLabel = strtolower($this->selectedCluster->form_label ?? '');
+        $statusId = (int)($this->selectedCluster->status_id ?? 1);
+
+        if ($clusterId <= 0) {
+            $this->errorMessage = 'Invalid cluster ID.';
+            return;
+        }
+
+        if ($statusId === 2) {
+            $this->errorMessage = 'Approved or verified clusters cannot be cancelled.';
+            return;
+        }
+
+        $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
+
+        DB::beginTransaction();
+        try {
+            if ($formCode === 'nap2' || str_contains($formLabel, 'form 2')) {
+                DB::table('rdp_grouped_record_series')->where('group_head', $clusterId)->delete();
+                DB::table('rdp_pending_record_series')->where('cluster_id', $clusterId)->delete();
+            } else {
+                DB::table('rdp_grouped_record')->where('group_head', $clusterId)->delete();
+                DB::table('rdp_pending_record')->where('cluster_id', $clusterId)->delete();
+            }
+
+            DB::table($mainPendingTbl)->where('id', $clusterId)->delete();
+
+            DB::commit();
+
+            $clusterName = $this->selectedCluster->cluster_name ?? 'Cluster';
+            $this->closeDetailModal();
+            $this->successMessage = "Cluster '{$clusterName}' was successfully cancelled. Its items have been released.";
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->errorMessage = 'Failed to cancel cluster: ' . $e->getMessage();
+        }
+    }
+
+    public function markClusterPrinted(): void
+    {
+        $clusterId = (int)($this->printCluster?->cluster_id ?? 0);
+        if ($clusterId <= 0) return;
+
+        $formCode = strtolower($this->printCluster?->form_code ?? '');
+        $formLabel = strtolower($this->printCluster?->form_label ?? '');
+
+        if ($formCode === 'nap2' || str_contains($formLabel, 'form 2')) {
+            DB::table('rdp_pending_record_series')
+                ->where('cluster_id', $clusterId)
+                ->update([
+                    'is_printed' => true,
+                    'updated_at' => now(),
+                ]);
+        } else {
+            DB::table('rdp_pending_record')
+                ->where('cluster_id', $clusterId)
+                ->update([
+                    'is_printed' => true,
+                    'updated_at' => now(),
+                ]);
+        }
+    }
+
+    public function markClusterDownloaded(int $clusterId, string $formCode): void
+    {
+        if ($clusterId <= 0) return;
+
+        if ($formCode === 'nap2' || str_contains(strtolower($formCode), 'form 2')) {
+            DB::table('rdp_pending_record_series')
+                ->where('cluster_id', $clusterId)
+                ->update([
+                    'is_downloaded' => true,
+                    'updated_at' => now(),
+                ]);
+        } else {
+            DB::table('rdp_pending_record')
+                ->where('cluster_id', $clusterId)
+                ->update([
+                    'is_downloaded' => true,
+                    'updated_at' => now(),
+                ]);
+        }
+    }
+
     public function mount(): void
     {
         $perms = Auth::user()?->permissions;
@@ -83,27 +210,32 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $this->activeTab = $tab;
         $this->search = '';
         $this->statusFilter = '';
+        $this->clearMessages();
     }
 
-    public function openDetailModal(int $clusterId, string $formType): void
+    public function fetchClusterData(int $clusterId, string $formType): array
     {
         $cluster = null;
         $items = [];
 
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
         if ($formType === 'nap2' || $formType === 'NAP Form 2') {
             $cluster = DB::table('rdp_pending_record_series')
                 ->leftJoin('rdp_pending_status', 'rdp_pending_record_series.status_id', '=', 'rdp_pending_status.id')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_pending_record_series.office', '=', 'office.office_code')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as account_details', 'rdp_pending_record_series.created_by', '=', 'account_details.account_id')
+                ->leftJoin($officeTbl . ' as office', 'rdp_pending_record_series.office', '=', 'office.office_code')
+                ->leftJoin($accDetailsTbl . ' as account_details', 'rdp_pending_record_series.created_by', '=', 'account_details.account_id')
+                ->leftJoin($officeTbl . ' as submitter_office', 'account_details.office_id', '=', 'submitter_office.id')
                 ->where('rdp_pending_record_series.cluster_id', $clusterId)
                 ->select([
                     'rdp_pending_record_series.cluster_id',
                     'rdp_pending_record_series.cluster_name',
                     'rdp_pending_record_series.status_id',
-                    'rdp_pending_record_series.office',
+                    DB::raw("COALESCE(rdp_pending_record_series.office, submitter_office.office_code) as office"),
                     'rdp_pending_record_series.created_at',
                     'rdp_pending_status.status_name',
-                    'office.office_name',
+                    DB::raw("COALESCE(office.office_name, submitter_office.office_name) as office_name"),
                     DB::raw("CONCAT(account_details.first_name, ' ', account_details.last_name) as submitter_name"),
                     DB::raw("'NAP Form 2' as form_label"),
                     DB::raw("'nap2' as form_code")
@@ -129,19 +261,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         } else {
             $cluster = DB::table('rdp_pending_record')
                 ->leftJoin('rdp_pending_status', 'rdp_pending_record.status_id', '=', 'rdp_pending_status.id')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_pending_record.office', '=', 'office.office_code')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as account_details', 'rdp_pending_record.created_by', '=', 'account_details.account_id')
+                ->leftJoin($officeTbl . ' as office', 'rdp_pending_record.office', '=', 'office.office_code')
+                ->leftJoin($accDetailsTbl . ' as account_details', 'rdp_pending_record.created_by', '=', 'account_details.account_id')
+                ->leftJoin($officeTbl . ' as submitter_office', 'account_details.office_id', '=', 'submitter_office.id')
                 ->where('rdp_pending_record.cluster_id', $clusterId)
                 ->select([
                     'rdp_pending_record.cluster_id',
                     'rdp_pending_record.cluster_name',
                     'rdp_pending_record.status_id',
-                    'rdp_pending_record.office',
+                    DB::raw("COALESCE(rdp_pending_record.office, submitter_office.office_code) as office"),
                     'rdp_pending_record.is_for_nap_one',
                     'rdp_pending_record.is_for_nap_three',
                     'rdp_pending_record.created_at',
                     'rdp_pending_status.status_name',
-                    'office.office_name',
+                    DB::raw("COALESCE(office.office_name, submitter_office.office_name) as office_name"),
                     DB::raw("CONCAT(account_details.first_name, ' ', account_details.last_name) as submitter_name"),
                     DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'NAP Form 3' ELSE 'NAP Form 1' END as form_label"),
                     DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'nap3' ELSE 'nap1' END as form_code")
@@ -224,9 +357,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             }
         }
 
-        if ($cluster) {
-            $this->selectedCluster = $cluster;
-            $this->clusterItems = $items;
+        return ['cluster' => $cluster, 'items' => $items];
+    }
+
+    public function openDetailModal(int $clusterId, string $formType): void
+    {
+        $data = $this->fetchClusterData($clusterId, $formType);
+        if ($data['cluster']) {
+            $this->selectedCluster = $data['cluster'];
+            $this->clusterItems = $data['items'];
             $this->showDetailModal = true;
         }
     }
@@ -234,20 +373,255 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     public function closeDetailModal(): void
     {
         $this->showDetailModal = false;
+        $this->showCancelConfirmModal = false;
         $this->selectedCluster = null;
         $this->clusterItems = [];
     }
 
+    public function openDownloadModal(int $clusterId, string $formType): void
+    {
+        $this->downloadClusterId = $clusterId;
+        $this->downloadFormType = $formType;
+        $data = $this->fetchClusterData($clusterId, $formType);
+        $this->downloadCluster = $data['cluster'];
+        $this->downloadTotalItems = count($data['items']);
+        $this->showDownloadModal = true;
+    }
+
+    public function closeDownloadModal(): void
+    {
+        $this->showDownloadModal = false;
+        $this->downloadClusterId = null;
+        $this->downloadFormType = null;
+        $this->downloadCluster = null;
+        $this->downloadTotalItems = 0;
+    }
+
+    public function downloadAsXlsx()
+    {
+        if (!$this->downloadClusterId || !$this->downloadFormType) {
+            if ($this->printCluster) {
+                $this->downloadClusterId = (int)($this->printCluster->cluster_id ?? 0);
+                $this->downloadFormType = $this->printCluster->form_type ?? $this->printCluster->form_code ?? 'nap1';
+            } else {
+                return null;
+            }
+        }
+
+        $data = $this->fetchClusterData($this->downloadClusterId, $this->downloadFormType);
+        $cluster = $data['cluster'];
+        $items = $data['items'];
+
+        if (!$cluster) {
+            return;
+        }
+
+        $formCode = strtolower($cluster->form_code ?? 'nap1');
+        $formLabel = strtolower($cluster->form_label ?? '');
+        $isNap1 = $formCode === 'nap1' || str_contains($formLabel, 'form 1');
+        $isNap2 = $formCode === 'nap2' || str_contains($formLabel, 'form 2');
+        $isNap3 = $formCode === 'nap3' || str_contains($formLabel, 'form 3');
+
+        $agencyName = !empty($this->agencyName) ? $this->agencyName : ($cluster->office_name ?? $cluster->office ?? 'Camarines Sur Polytechnic Colleges');
+        $preparedBy = !empty($this->preparedBy) ? $this->preparedBy : ($cluster->submitter_name ?? '');
+        $personInCharge = !empty($this->personInCharge) ? $this->personInCharge : ($cluster->submitter_name ?? '');
+        $datePrepared = $this->datePrepared ?: \Carbon\Carbon::parse($cluster->created_at ?? now())->format('m/d/Y');
+
+        $signatures = [
+            'agencyName'            => $agencyName,
+            'departmentDivision'    => $this->departmentDivision,
+            'sectionUnit'           => $this->sectionUnit,
+            'telephoneNumber'       => $this->telephoneNumber,
+            'emailAddress'          => $this->emailAddress,
+            'agencyAddress'         => $this->agencyAddress,
+            'personInCharge'        => $personInCharge,
+            'datePrepared'          => $datePrepared,
+            'preparedBy'            => $preparedBy,
+            'preparedPosition'      => $this->preparedPosition,
+            'assistedBy'            => $this->assistedBy,
+            'assistedPosition'      => $this->assistedPosition,
+            'recommendingBy'        => $this->recommendingBy,
+            'recommendingPosition'  => $this->recommendingPosition,
+            'approvedBy'            => $this->approvedBy,
+            'approvedPosition'      => $this->approvedPosition,
+            'committeeChairmanName' => $this->committeeChairmanName,
+            'executiveDirectorName' => $this->executiveDirectorName,
+        ];
+
+        $fileName = \Illuminate\Support\Str::slug($cluster->cluster_name . '-' . $formCode) . '-' . now()->format('Ymd-His') . '.xlsx';
+        $targetClusterId = (int)($cluster->cluster_id ?? $this->downloadClusterId);
+        $this->markClusterDownloaded($targetClusterId, $formCode);
+
+        if ($isNap1) {
+            $treeData = $this->buildNapRecordTree($targetClusterId, false);
+            $exportItems = $treeData['tree'];
+            $this->closeDownloadModal();
+            return RdpExportHelper::streamNap1Xlsx($fileName, $cluster, $exportItems, $signatures);
+        }
+
+        if ($isNap2) {
+            $exportItems = $this->buildNap2Tree($items);
+            $this->closeDownloadModal();
+            return RdpExportHelper::streamNap2Xlsx($fileName, $cluster, $exportItems, $signatures);
+        }
+
+        if ($isNap3) {
+            $treeData = $this->buildNapRecordTree((int)($cluster->cluster_id ?? $this->downloadClusterId), true);
+            $signatures['effectiveLocation'] = $treeData['location'];
+            $signatures['effectiveVolume'] = $treeData['volume'];
+            $this->closeDownloadModal();
+            return RdpExportHelper::streamNap3Xlsx($fileName, $cluster, $treeData['tree'], $signatures);
+        }
+
+        $meta = [
+            'Cluster Name'     => $cluster->cluster_name ?? 'N/A',
+            'Form Type'        => $cluster->form_label ?? 'NAP Form',
+            'Submitting Office'=> $cluster->office_name ?? $cluster->office ?? 'N/A',
+            'Submitted By'     => $cluster->submitter_name ?: 'System User',
+            'Date Submitted'   => \Carbon\Carbon::parse($cluster->created_at)->format('Y-m-d H:i'),
+            'Total Records'    => count($items),
+        ];
+
+        if ($isNap2) {
+            $treeItems = $this->buildNap2Tree($items);
+            $headers = ['Item No.', 'Record Series Title', 'Parent Series', 'Active Period', 'Storage Period', 'Total Retention', 'Remarks'];
+            $rows = [];
+            foreach ($treeItems as $it) {
+                $rows[] = [
+                    $it->display_item_no ?: ($it->item_number ?? ''),
+                    ($it->depth > 0 ? str_repeat('   ', $it->depth) . '└ ' : '') . ($it->series_title ?? ''),
+                    $it->parent_title ?? '',
+                    $it->effective_active ?? $it->active_period ?? '',
+                    $it->effective_storage ?? $it->storage_period ?? '',
+                    $it->effective_is_permanent ? 'Permanent' : ($it->effective_total ?? $it->total_period ?? ''),
+                    $it->remarks ?? '',
+                ];
+            }
+        } else {
+            // NAP Form 3
+            $headers = ['GRDS / RDS Item No.', 'Record Series Title', 'Description', 'Period Covered', 'Volume (Cu. M.)', 'Total Retention', 'Remarks'];
+            $rows = [];
+            foreach ($items as $it) {
+                $rows[] = [
+                    $it->item_number ?? '',
+                    $it->series_title ?? $it->parent_title ?? '',
+                    $it->description ?? '',
+                    $it->period_covered ?? '',
+                    $it->volume ?? '',
+                    $it->total_period ?? '',
+                    $it->remarks ?? '',
+                ];
+            }
+        }
+
+        $title = ($cluster->form_label ?? 'NAP Form') . ' - ' . ($cluster->cluster_name ?? 'Cluster Records');
+
+        $this->closeDownloadModal();
+
+        return RdpExportHelper::streamXlsx($fileName, $title, $meta, $headers, $rows);
+    }
+
+    public function downloadAsPdf()
+    {
+        if (!$this->downloadClusterId || !$this->downloadFormType) {
+            if ($this->printCluster) {
+                $this->downloadClusterId = (int)($this->printCluster->cluster_id ?? 0);
+                $this->downloadFormType = $this->printCluster->form_type ?? $this->printCluster->form_code ?? 'nap1';
+            } else {
+                return null;
+            }
+        }
+
+        $data = $this->fetchClusterData($this->downloadClusterId, $this->downloadFormType);
+        $cluster = $data['cluster'];
+        $items = $data['items'];
+
+        if (!$cluster) {
+            return;
+        }
+
+        $formCode = strtolower($cluster->form_code ?? 'nap1');
+        $formLabel = strtolower($cluster->form_label ?? '');
+        $isNap1 = $formCode === 'nap1' || str_contains($formLabel, 'form 1');
+        $isNap2 = $formCode === 'nap2' || str_contains($formLabel, 'form 2');
+        $isNap3 = $formCode === 'nap3' || str_contains($formLabel, 'form 3');
+
+        $agencyName = !empty($this->agencyName) ? $this->agencyName : ($cluster->office_name ?? $cluster->office ?? 'Camarines Sur Polytechnic Colleges');
+        $preparedBy = !empty($this->preparedBy) ? $this->preparedBy : ($cluster->submitter_name ?? '');
+        $personInCharge = !empty($this->personInCharge) ? $this->personInCharge : ($cluster->submitter_name ?? '');
+
+        $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+        $includeDesc = (\Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_include_description_on_print')->value('value') === 'true');
+
+        $effectiveLocation = '';
+        $effectiveVolume = '';
+
+        if ($isNap2) {
+            $datePrepared = $this->datePrepared ?: \Carbon\Carbon::parse($cluster->created_at ?? now())->format('F d, Y');
+            $exportItems = $this->buildNap2Tree($items);
+            $formCode = 'nap2';
+        } elseif ($isNap3) {
+            $datePrepared = $this->datePrepared ?: \Carbon\Carbon::parse($cluster->created_at ?? now())->format('F d, Y');
+            $treeData = $this->buildNapRecordTree((int)($cluster->cluster_id ?? $this->downloadClusterId), true);
+            $exportItems = $treeData['tree'];
+            $effectiveLocation = $treeData['location'];
+            $effectiveVolume = $treeData['volume'];
+            $formCode = 'nap3';
+        } else {
+            $datePrepared = $this->datePrepared ?: \Carbon\Carbon::parse($cluster->created_at ?? now())->format('m/d/Y');
+            $treeData = $this->buildNapRecordTree((int)($cluster->cluster_id ?? $this->downloadClusterId), false);
+            $exportItems = $treeData['tree'];
+            $effectiveLocation = $treeData['location'];
+            $effectiveVolume = $treeData['volume'];
+            $formCode = 'nap1';
+        }
+
+        $signatures = [
+            'agencyName'            => $agencyName,
+            'departmentDivision'    => $this->departmentDivision,
+            'sectionUnit'           => $this->sectionUnit,
+            'telephoneNumber'       => $this->telephoneNumber,
+            'emailAddress'          => $this->emailAddress,
+            'agencyAddress'         => $this->agencyAddress,
+            'personInCharge'        => $personInCharge,
+            'datePrepared'          => $datePrepared,
+            'preparedBy'            => $preparedBy,
+            'preparedPosition'      => $this->preparedPosition,
+            'assistedBy'            => $this->assistedBy,
+            'assistedPosition'      => $this->assistedPosition,
+            'recommendingBy'        => $this->recommendingBy,
+            'recommendingPosition'  => $this->recommendingPosition,
+            'approvedBy'            => $this->approvedBy,
+            'approvedPosition'      => $this->approvedPosition,
+            'committeeChairmanName' => $this->committeeChairmanName,
+            'executiveDirectorName' => $this->executiveDirectorName,
+            'includeDescription'    => $includeDesc,
+            'effectiveLocation'     => $effectiveLocation,
+            'effectiveVolume'       => $effectiveVolume,
+        ];
+
+        $fileName = \Illuminate\Support\Str::slug($cluster->cluster_name . '-' . $formCode) . '-' . now()->format('Ymd-His') . '.pdf';
+        $targetClusterId = (int)($cluster->cluster_id ?? $this->downloadClusterId);
+        $this->markClusterDownloaded($targetClusterId, $formCode);
+
+        $this->closeDownloadModal();
+
+        return RdpExportHelper::streamPdf($fileName, $cluster, $exportItems, $formCode, $signatures);
+    }
+
     public function openPrintModal(int $clusterId, string $formType): void
     {
-        $this->openDetailModal($clusterId, $formType);
+        $this->showDetailModal = false;
+        $data = $this->fetchClusterData($clusterId, $formType);
+        $this->selectedCluster = $data['cluster'];
+        $this->clusterItems = $data['items'];
         $this->printCluster = $this->selectedCluster;
         $this->printItems = $this->clusterItems;
 
         $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
         $this->includeDescriptionOnPrint = (\Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_include_description_on_print')->value('value') === 'true');
-        $this->rdpPrintFontFamily = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_print_font_family')->value('value') ?: 'Arial, sans-serif';
-        $this->rdpPrintFontSize = \Illuminate\Support\Facades\DB::table($sysTable)->where('key', 'rdp_print_font_size')->value('value') ?: '8.5pt';
+        $this->rdpPrintFontFamily = 'Arial, sans-serif';
+        $this->rdpPrintFontSize = '12px';
 
         if ($this->printCluster) {
             if (!empty($this->printCluster->office_name)) {
@@ -1020,23 +1394,29 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 ->leftJoin('rdp_pending_status', 'rdp_pending_record_series.status_id', '=', 'rdp_pending_status.id')
                 ->leftJoin($officeTbl, 'rdp_pending_record_series.office', '=', "{$officeTbl}.office_code")
                 ->leftJoin($accDetailsTbl, 'rdp_pending_record_series.created_by', '=', "{$accDetailsTbl}.account_id")
+                ->leftJoin($officeTbl . ' as submitter_office', "{$accDetailsTbl}.office_id", '=', "submitter_office.id")
                 ->select([
                     "{$mainPendingTbl}.id as main_id",
                     'rdp_pending_record_series.cluster_id',
                     'rdp_pending_record_series.cluster_name',
                     'rdp_pending_record_series.status_id',
-                    'rdp_pending_record_series.office',
+                    DB::raw("COALESCE(rdp_pending_record_series.office, submitter_office.office_code) as office"),
                     'rdp_pending_record_series.created_at',
                     'rdp_pending_status.status_name',
-                    "{$officeTbl}.office_name",
+                    DB::raw("COALESCE({$officeTbl}.office_name, submitter_office.office_name) as office_name"),
                     DB::raw("CONCAT({$accDetailsTbl}.first_name, ' ', {$accDetailsTbl}.last_name) as submitter_name"),
                     DB::raw("'NAP Form 2' as form_label"),
                     DB::raw("'nap2' as form_code"),
+                    'rdp_pending_record_series.is_printed',
+                    'rdp_pending_record_series.is_downloaded',
                     DB::raw("(SELECT COUNT(*) FROM rdp_grouped_record_series WHERE group_head = rdp_pending_record_series.cluster_id) as total_items")
                 ]);
 
             if (!$canViewAll && $userOffice) {
-                $qSeries->where('rdp_pending_record_series.office', $userOffice);
+                $qSeries->where(function($sub) use ($userOffice) {
+                    $sub->where('rdp_pending_record_series.office', $userOffice)
+                        ->orWhere('submitter_office.office_code', $userOffice);
+                });
             }
 
             if (!empty($this->statusFilter)) {
@@ -1047,7 +1427,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 $term = '%' . trim($this->search) . '%';
                 $qSeries->where(function($q) use ($term, $officeTbl) {
                     $q->where('rdp_pending_record_series.cluster_name', 'ILIKE', $term)
-                      ->orWhere("{$officeTbl}.office_name", 'ILIKE', $term);
+                      ->orWhere("{$officeTbl}.office_name", 'ILIKE', $term)
+                      ->orWhere("submitter_office.office_name", 'ILIKE', $term);
                 });
             }
 
@@ -1061,26 +1442,30 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 ->leftJoin('rdp_pending_status', 'rdp_pending_record.status_id', '=', 'rdp_pending_status.id')
                 ->leftJoin($officeTbl, 'rdp_pending_record.office', '=', "{$officeTbl}.office_code")
                 ->leftJoin($accDetailsTbl, 'rdp_pending_record.created_by', '=', "{$accDetailsTbl}.account_id")
+                ->leftJoin($officeTbl . ' as submitter_office', "{$accDetailsTbl}.office_id", '=', "submitter_office.id")
                 ->select([
                     "{$mainPendingTbl}.id as main_id",
                     'rdp_pending_record.cluster_id',
                     'rdp_pending_record.cluster_name',
                     'rdp_pending_record.status_id',
-                    'rdp_pending_record.office',
+                    DB::raw("COALESCE(rdp_pending_record.office, submitter_office.office_code) as office"),
                     'rdp_pending_record.is_for_nap_one',
                     'rdp_pending_record.is_for_nap_three',
                     'rdp_pending_record.created_at',
                     'rdp_pending_status.status_name',
-                    "{$officeTbl}.office_name",
+                    DB::raw("COALESCE({$officeTbl}.office_name, submitter_office.office_name) as office_name"),
                     DB::raw("CONCAT({$accDetailsTbl}.first_name, ' ', {$accDetailsTbl}.last_name) as submitter_name"),
                     DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'NAP Form 3' ELSE 'NAP Form 1' END as form_label"),
                     DB::raw("CASE WHEN rdp_pending_record.is_for_nap_three = true THEN 'nap3' ELSE 'nap1' END as form_code"),
+                    'rdp_pending_record.is_printed',
+                    'rdp_pending_record.is_downloaded',
                     DB::raw("(SELECT COUNT(*) FROM rdp_grouped_record WHERE group_head = rdp_pending_record.cluster_id) as total_items")
                 ]);
 
             if (!$canViewAll && $userOffice) {
                 $qRec->where(function($sub) use ($userOffice) {
                     $sub->where('rdp_pending_record.office', $userOffice)
+                        ->orWhere('submitter_office.office_code', $userOffice)
                         ->orWhereExists(function($dupQ) use ($userOffice) {
                             $dupQ->select(DB::raw(1))
                                 ->from('rdp_grouped_record')
@@ -1106,7 +1491,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 $term = '%' . trim($this->search) . '%';
                 $qRec->where(function($q) use ($term, $officeTbl) {
                     $q->where('rdp_pending_record.cluster_name', 'ILIKE', $term)
-                      ->orWhere("{$officeTbl}.office_name", 'ILIKE', $term);
+                      ->orWhere("{$officeTbl}.office_name", 'ILIKE', $term)
+                      ->orWhere("submitter_office.office_name", 'ILIKE', $term);
                 });
             }
 
@@ -1291,7 +1677,75 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         }
         .btn-print:hover { background: #0f172a; }
 
-        /* Box / Card Grid Layout */
+        .btn-download {
+            background: #ecfdf5;
+            color: #047857;
+            border: 1px solid #a7f3d0;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.15s, border-color 0.15s;
+        }
+        .btn-download:hover {
+            background: #d1fae5;
+            border-color: #6ee7b7;
+        }
+
+        .download-format-btn {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px 16px;
+            border-radius: 10px;
+            border: 1.5px solid #e2e8f0;
+            background: #ffffff;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+            text-align: left;
+            box-sizing: border-box;
+        }
+        .download-format-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+        .download-format-btn.xlsx-btn:hover {
+            border-color: #10b981;
+            background: #f0fdf4;
+        }
+        .download-format-btn.pdf-btn:hover {
+            border-color: #ef4444;
+            background: #fef2f2;
+        }
+        .format-icon-box {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .format-icon-box.xlsx-icon {
+            background: #dcfce7;
+            color: #15803d;
+        }
+        .format-icon-box.pdf-icon {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+        .format-action-arrow {
+            color: #94a3b8;
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            transition: color 0.15s ease;
+        }
+        .download-format-btn:hover .format-action-arrow {
+            color: #0f172a;
+        }
         .card-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -1453,6 +1907,54 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             background: #1e293b !important;
         }
 
+        [data-theme="dark"] .btn-download {
+            background: #064e3b !important;
+            color: #6ee7b7 !important;
+            border-color: #047857 !important;
+        }
+
+        [data-theme="dark"] .btn-download:hover {
+            background: #047857 !important;
+            border-color: #059669 !important;
+        }
+
+        [data-theme="dark"] .download-modal-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .download-format-btn {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+        }
+
+        [data-theme="dark"] .download-format-btn.xlsx-btn:hover {
+            border-color: #10b981 !important;
+            background: rgba(6, 78, 59, 0.25) !important;
+        }
+
+        [data-theme="dark"] .download-format-btn.pdf-btn:hover {
+            border-color: #ef4444 !important;
+            background: rgba(127, 29, 29, 0.25) !important;
+        }
+
+        [data-theme="dark"] .format-title {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .format-desc {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .format-action-arrow {
+            color: #64748b !important;
+        }
+
+        [data-theme="dark"] .download-format-btn:hover .format-action-arrow {
+            color: #f8fafc !important;
+        }
+
         [data-theme="dark"] .modal-card {
             background: #131c2e !important;
             border: 1px solid #1e293b !important;
@@ -1461,11 +1963,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
         /* Print Modal & Media Query Defaults */
         @media print {
-            @page {
-                size: portrait;
-                margin: 10px;
-            }
-
             :root {
                 zoom: 1 !important;
             }
@@ -1479,11 +1976,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 max-height: none !important;
                 overflow: visible !important;
                 position: static !important;
-                font-family: Arial, sans-serif !important;
-                font-size: 12px !important;
             }
 
-            /* Hide web application layout components (header, sidebar, chatify, etc.) */
+            /* Hide web application layout components (header, sidebar, chatify, tables, buttons, etc.) */
             header,
             nav,
             .navigation,
@@ -1494,7 +1989,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             .pending-table-wrapper,
             .card-grid,
             .no-print,
-            .modal-card > *:not(.printable-report-area) {
+            .modal-card > .no-print,
+            footer {
                 display: none !important;
             }
 
@@ -1526,7 +2022,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 overflow: visible !important;
                 margin: 0 !important;
                 padding: 0 !important;
-                background: #ffffff !important;
+                background: transparent !important;
             }
 
             .modal-card {
@@ -1539,71 +2035,44 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 overflow: visible !important;
                 margin: 0 !important;
                 padding: 0 !important;
-                background: #ffffff !important;
+                background: transparent !important;
                 border: none !important;
                 box-shadow: none !important;
             }
 
-            .printable-report-area {
+            .print-sheet {
                 display: block !important;
                 visibility: visible !important;
-                position: static !important;
-                width: 100% !important;
-                height: auto !important;
-                overflow: visible !important;
-                margin: 0 !important;
-                padding: 10px !important;
-                box-sizing: border-box !important;
-                border: none !important;
-                background: #ffffff !important;
                 box-shadow: none !important;
-                font-family: Arial, sans-serif !important;
-                font-size: 12px !important;
+                padding: 0 !important;
+                width: 100% !important;
+                margin: 0 0 0 0 !important;
+                background: #ffffff !important;
+                page-break-after: always;
+                break-after: page;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
             }
 
-            .printable-report-area * {
+            .print-sheet:last-child {
+                page-break-after: auto;
+                break-after: auto;
+            }
+
+            .print-sheet,
+            .print-sheet * {
                 visibility: visible !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
             }
 
-            .printable-report-area table {
-                font-size: 12px !important;
+            .print-sheet table {
                 width: 100% !important;
             }
 
-            .printable-report-area thead {
-                display: table-header-group !important;
-            }
-
-            .printable-report-area tr {
+            .print-sheet tr {
                 page-break-inside: avoid !important;
                 break-inside: avoid !important;
-            }
-
-            .nap-form-2-print,
-            .nap-form-2-print *,
-            .nap-form-3-print,
-            .nap-form-3-print * {
-                font-family: Arial, sans-serif !important;
-                font-size: 12px !important;
-            }
-
-            .nap-form-2-print table,
-            .nap-form-3-print table {
-                font-size: 12px !important;
-            }
-
-            .nap-form-2-print th, .nap-form-2-print td,
-            .nap-form-3-print th, .nap-form-3-print td {
-                font-size: 12px !important;
-                padding: 6px 8px !important;
-            }
-
-            .print-signatures-block {
-                page-break-before: always !important;
-                break-before: page !important;
-                page-break-inside: avoid !important;
-                break-inside: avoid !important;
-                display: block !important;
             }
         }
     </style>
@@ -1635,6 +2104,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         </div>
     </div>
 
+    @if(!empty($successMessage))
+        <div class="alert-msg alert-success" style="padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; font-weight: 500; background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; display: flex; justify-content: space-between; align-items: center;">
+            <span>{{ $successMessage }}</span>
+            <button type="button" wire:click="clearMessages" style="background: none; border: none; font-size: 18px; color: #15803d; cursor: pointer; line-height: 1;">&times;</button>
+        </div>
+    @endif
+    @if(!empty($errorMessage))
+        <div class="alert-msg alert-error" style="padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; font-weight: 500; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; display: flex; justify-content: space-between; align-items: center;">
+            <span>{{ $errorMessage }}</span>
+            <button type="button" wire:click="clearMessages" style="background: none; border: none; font-size: 18px; color: #b91c1c; cursor: pointer; line-height: 1;">&times;</button>
+        </div>
+    @endif
+
     @if($layoutMode === 'table')
         <div class="pending-table-wrapper">
             <table class="pending-table">
@@ -1642,33 +2124,47 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     <tr>
                         <th style="width: 90px;">Main ID</th>
                         <th>Cluster Name</th>
-                        <th>Submitting Office</th>
                         <th>Submitted By</th>
                         <th style="width: 110px; text-align: center;">Total Items</th>
                         <th style="width: 140px;">Date Submitted</th>
-                        <th style="width: 160px; text-align: center;">Actions</th>
+                        <th style="width: 220px; text-align: center;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse($clusters as $c)
+                        @php
+                            $isSubmittedForApproval = (bool)($c->is_printed || $c->is_downloaded);
+                        @endphp
                         <tr>
                             <td><strong>#{{ $c->main_id }}</strong></td>
                             <td>
-                                <span class="form-type-pill">{{ $c->form_label }}</span>
+                                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px;">
+                                    <span class="form-type-pill">{{ $c->form_label }}</span>
+                                    @if($isSubmittedForApproval)
+                                        <span style="background: #ecfdf5; color: #15803d; border: 1px solid #bbf7d0; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 4px;" title="This document has been finalized (printed/downloaded) and is now submitted for approval.">
+                                            <svg style="width: 11px; height: 11px;" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>
+                                            Submitted for Approval
+                                        </span>
+                                    @else
+                                        <span style="background: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 4px;" title="Print or download this document to make it visible on the For Approval page.">
+                                            <svg style="width: 11px; height: 11px;" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                                            Pending Print / Download
+                                        </span>
+                                    @endif
+                                </div>
                                 <strong>{{ $c->cluster_name }}</strong>
                             </td>
-                            <td>{{ $c->office_name ?? $c->office ?? 'N/A' }}</td>
                             <td>{{ $c->submitter_name ?: 'System User' }}</td>
                             <td style="text-align: center;"><strong>{{ $c->total_items }}</strong></td>
                             <td>{{ \Carbon\Carbon::parse($c->created_at)->format('M d, Y g:i A') }}</td>
-                            <td style="text-align: center;">
+                            <td style="text-align: center; white-space: nowrap;">
                                 <button wire:click="openDetailModal({{ $c->cluster_id }}, '{{ $c->form_code }}')" class="btn-view">View</button>
                                 <button wire:click="openPrintModal({{ $c->cluster_id }}, '{{ $c->form_code }}')" class="btn-print">Print</button>
                             </td>
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" style="text-align: center; padding: 48px; color: #64748b;">
+                            <td colspan="6" style="text-align: center; padding: 48px; color: #64748b;">
                                 No pending clusters found matching your query.
                             </td>
                         </tr>
@@ -1679,12 +2175,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     @else
         <div class="card-grid">
             @forelse($clusters as $c)
+                @php
+                    $isSubmittedForApproval = (bool)($c->is_printed || $c->is_downloaded);
+                @endphp
                 <div class="cluster-card">
                     <div>
                         <div class="card-header">
-                            <div>
+                            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                                 <span class="form-type-pill">{{ $c->form_label }}</span>
                                 <span style="font-size: 12px; font-weight: 700; color: #64748b;">#{{ $c->main_id }}</span>
+                                @if($isSubmittedForApproval)
+                                    <span style="background: #ecfdf5; color: #15803d; border: 1px solid #bbf7d0; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 9999px;">
+                                        Submitted for Approval
+                                    </span>
+                                @else
+                                    <span style="background: #fffbeb; color: #b45309; border: 1px solid #fde68a; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 9999px;">
+                                        Pending Print / Download
+                                    </span>
+                                @endif
                             </div>
                         </div>
                         <h3 class="card-title">{{ $c->cluster_name }}</h3>
@@ -1696,7 +2204,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     </div>
                     <div class="card-footer">
                         <span style="font-size: 12px; color: #94a3b8;">{{ \Carbon\Carbon::parse($c->created_at)->format('M d, Y') }}</span>
-                        <div>
+                        <div style="display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end;">
                             <button wire:click="openDetailModal({{ $c->cluster_id }}, '{{ $c->form_code }}')" class="btn-view">View</button>
                             <button wire:click="openPrintModal({{ $c->cluster_id }}, '{{ $c->form_code }}')" class="btn-print">Print</button>
                         </div>
@@ -1710,9 +2218,105 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         </div>
     @endif
 
+    {{-- Download Format Choice Modal --}}
+    @if($showDownloadModal && $downloadCluster)
+        <div class="modal-overlay" style="z-index: 1050;">
+            <div class="modal-card download-modal-card" style="width: 520px; max-width: 94vw; padding: 24px; border-radius: 14px; position: relative;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div style="width: 40px; height: 40px; border-radius: 10px; background: #ecfdf5; display: flex; align-items: center; justify-content: center; color: #059669; flex-shrink: 0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 style="font-size: 17px; font-weight: 700; color: #0f172a; margin: 0;">
+                                Download Cluster Records
+                            </h3>
+                            <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">
+                                [{{ $downloadCluster->form_label }}] {{ $downloadCluster->cluster_name }} &bull; {{ $downloadTotalItems }} {{ $downloadTotalItems === 1 ? 'record' : 'records' }}
+                            </p>
+                        </div>
+                    </div>
+                    <button wire:click="closeDownloadModal" style="background: none; border: none; font-size: 22px; color: #94a3b8; cursor: pointer; padding: 0 4px; line-height: 1;">&times;</button>
+                </div>
+
+                <p style="font-size: 13.5px; color: #334155; margin: 0 0 16px 0; font-weight: 500;">
+                    Choose your preferred download format:
+                </p>
+
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                    {{-- Option: Excel Spreadsheet (.xlsx) --}}
+                    <button type="button" wire:click="downloadAsXlsx" class="download-format-btn xlsx-btn" wire:loading.attr="disabled">
+                        <div class="format-icon-box xlsx-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="8" y1="13" x2="16" y2="13"></line>
+                                <line x1="8" y1="17" x2="16" y2="17"></line>
+                                <line x1="10" y1="9" x2="10.01" y2="9"></line>
+                            </svg>
+                        </div>
+                        <div style="text-align: left; flex: 1;">
+                            <div style="font-size: 14.5px; font-weight: 700; color: #0f172a;" class="format-title">
+                                Excel Spreadsheet (.xlsx)
+                            </div>
+                            <div style="font-size: 12px; color: #64748b; margin-top: 2px;" class="format-desc">
+                                Clean spreadsheet with structured columns for series titles, period covered, volumes, mediums, restrictions, and retention periods.
+                            </div>
+                        </div>
+                        <div class="format-action-arrow">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </div>
+                    </button>
+
+                    {{-- Option: PDF Document (.pdf) --}}
+                    <button type="button" wire:click="downloadAsPdf" class="download-format-btn pdf-btn" wire:loading.attr="disabled">
+                        <div class="format-icon-box pdf-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <path d="M9 15h6"></path>
+                                <path d="M9 11h6"></path>
+                            </svg>
+                        </div>
+                        <div style="text-align: left; flex: 1;">
+                            <div style="font-size: 14.5px; font-weight: 700; color: #0f172a;" class="format-title">
+                                PDF Document (.pdf)
+                            </div>
+                            <div style="font-size: 12px; color: #64748b; margin-top: 2px;" class="format-desc">
+                                Official National Archives of the Philippines document layout with CSPC header, compliance tables, and signature blocks.
+                            </div>
+                        </div>
+                        <div class="format-action-arrow">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </div>
+                    </button>
+                </div>
+
+                {{-- Loading Indicator --}}
+                <div wire:loading wire:target="downloadAsXlsx,downloadAsPdf" style="margin-top: 14px; text-align: center; font-size: 12.5px; color: #0284c7; font-weight: 600;">
+                    ⏳ Generating and downloading file, please wait...
+                </div>
+
+                <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
+                    <button type="button" wire:click="closeDownloadModal" style="padding: 7px 16px; font-size: 13px; font-weight: 600; color: #64748b; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px; cursor: pointer;">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
     {{-- Detail Modal --}}
     @if($showDetailModal && $selectedCluster)
-        <div class="modal-overlay">
+        <div class="modal-overlay no-print">
             <div class="modal-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
                     <div>
@@ -1763,6 +2367,51 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         @endforeach
                     </tbody>
                 </table>
+                <div style="margin-top: 20px; padding-top: 14px; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
+                    @if(($selectedCluster->status_id ?? 1) != 2)
+                        <button type="button"
+                            wire:click="openCancelConfirmModal"
+                            style="padding: 8px 14px; background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; border-radius: 6px; font-weight: 700; font-size: 12.5px; cursor: pointer;"
+                            onmouseover="this.style.background='#fecaca'" onmouseout="this.style.background='#fee2e2'">
+                            Cancel Cluster
+                        </button>
+                    @endif
+                    <button type="button" wire:click="closeDetailModal" style="padding: 8px 16px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 600; font-size: 12.5px; cursor: pointer;">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Cancel Cluster Confirmation Modal --}}
+    @if($showCancelConfirmModal)
+        <div class="modal-overlay" style="z-index: 1100;">
+            <div class="modal-card" style="width: 420px; max-width: 94vw; padding: 24px;">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
+                    <div style="width: 40px; height: 40px; border-radius: 50%; background: #fee2e2; display: flex; align-items: center; justify-content: center; color: #dc2626; flex-shrink: 0;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                            <line x1="12" y1="9" x2="12" y2="13"></line>
+                            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                        </svg>
+                    </div>
+                    <h3 style="font-size: 16.5px; font-weight: 700; color: #0f172a; margin: 0;">
+                        Are you sure you want to cancel this cluster?
+                    </h3>
+                </div>
+                <p style="font-size: 13.5px; color: #64748b; margin: 0 0 20px 0; line-height: 1.6;">
+                    <strong style="color: #334155;">{{ $selectedCluster->cluster_name ?? 'This cluster' }}</strong> will be removed and its items will be returned to your records/series list. This action cannot be undone.
+                </p>
+                <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
+                    <button type="button" wire:click="closeCancelConfirmModal" style="padding: 8px 16px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 600; font-size: 12.5px; cursor: pointer;">
+                        No, Keep It
+                    </button>
+                    <button type="button" wire:click="cancelCluster" style="padding: 8px 16px; background: #dc2626; color: #ffffff; border: 1px solid #dc2626; border-radius: 6px; font-weight: 700; font-size: 12.5px; cursor: pointer;"
+                        onmouseover="this.style.background='#b91c1c'" onmouseout="this.style.background='#dc2626'">
+                        Yes, Cancel Cluster
+                    </button>
+                </div>
             </div>
         </div>
     @endif
@@ -1786,8 +2435,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         @endphp
         <style>
             :root {
-                --rdp-print-font: {{ $rdpPrintFontFamily ?: 'Arial, sans-serif' }};
-                --rdp-print-size: {{ $rdpPrintFontSize ?: '8.5pt' }};
+                --rdp-print-font: Arial, sans-serif;
+                --rdp-print-size: 12px;
             }
             .print-sheet {
                 width: 100%;
@@ -1796,18 +2445,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 padding: 24px 28px;
                 box-sizing: border-box;
                 color: #000000;
-                font-family: var(--rdp-print-font), Arial, Helvetica, sans-serif !important;
-                font-size: var(--rdp-print-size) !important;
+                font-family: Arial, sans-serif !important;
+                font-size: 12px !important;
                 margin-bottom: 24px;
             }
             .print-sheet table, .print-sheet th, .print-sheet td, .print-sheet div, .print-sheet span, .print-sheet strong {
-                font-family: var(--rdp-print-font), Arial, Helvetica, sans-serif !important;
+                font-family: Arial, sans-serif !important;
             }
             .print-table {
                 width: 100%;
                 border-collapse: collapse;
                 border: 2px solid #000000;
-                font-size: var(--rdp-print-size) !important;
+                font-size: 12px !important;
                 margin-top: 0;
                 background: #ffffff;
             }
@@ -1817,7 +2466,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 background: #ffffff;
                 text-align: center;
                 font-weight: bold;
-                font-size: var(--rdp-print-size) !important;
+                font-size: 12px !important;
                 vertical-align: middle;
                 color: #000000;
             }
@@ -1828,20 +2477,63 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 border-bottom: none;
                 padding: 3px 4px;
                 vertical-align: top;
-                font-size: var(--rdp-print-size) !important;
+                font-size: 12px !important;
                 color: #000000;
                 background: #ffffff;
             }
             @media print {
-                body { background: #ffffff !important; margin: 0 !important; padding: 0 !important; }
-                header, #navigation, .no-print, .modal-overlay > :not(.modal-card), footer { display: none !important; }
-                .modal-overlay { position: static !important; background: none !important; padding: 0 !important; display: block !important; }
-                .modal-card { background: none !important; max-width: 100% !important; max-height: none !important; padding: 0 !important; box-shadow: none !important; overflow: visible !important; width: 100% !important; border: none !important; }
-                .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; margin-bottom: 0 !important; page-break-after: always; break-after: page; }
-                .print-sheet:last-child { page-break-after: auto; break-after: auto; }
                 @page {
-                    size: {{ $isNap1 ? 'legal landscape' : 'legal portrait' }};
-                    margin: {{ $isNap1 ? '0.4in' : '0.5in' }};
+                    size: {{ $isNap1 ? '13in 8.5in' : '8.5in 13in' }};
+                    margin: 0.4in;
+                }
+                body {
+                    background: #ffffff !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    font-family: Arial, sans-serif !important;
+                    font-size: 12px !important;
+                }
+                header, #navigation, .no-print, .modal-overlay.no-print, .modal-overlay > :not(.modal-card), footer {
+                    display: none !important;
+                }
+                .modal-overlay {
+                    position: static !important;
+                    background: none !important;
+                    padding: 0 !important;
+                    display: block !important;
+                }
+                .modal-card {
+                    background: none !important;
+                    max-width: 100% !important;
+                    max-height: none !important;
+                    padding: 0 !important;
+                    box-shadow: none !important;
+                    overflow: visible !important;
+                    width: 100% !important;
+                    border: none !important;
+                }
+                .print-sheet {
+                    display: block !important;
+                    visibility: visible !important;
+                    box-shadow: none !important;
+                    padding: 0 !important;
+                    width: 100% !important;
+                    margin: 0 0 0 0 !important;
+                    page-break-after: always;
+                    break-after: page;
+                    background: #ffffff !important;
+                    font-family: Arial, sans-serif !important;
+                    font-size: 12px !important;
+                }
+                .print-sheet:last-child {
+                    page-break-after: auto;
+                    break-after: auto;
+                }
+                .print-sheet, .print-sheet * {
+                    visibility: visible !important;
+                    font-family: Arial, sans-serif !important;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
                 }
             }
         </style>
@@ -1856,9 +2548,45 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             Form: <strong>{{ $printCluster->form_label }}</strong> &bull; Print Font: <strong>{{ $rdpPrintFontFamily }}</strong> (<strong>{{ $rdpPrintFontSize }}</strong>) &bull; Configure details and signatures before printing.
                         </p>
                     </div>
-                    <div>
-                        <button onclick="window.print()" class="btn-print" style="padding: 8px 18px; margin-right: 8px; font-weight: 700; background: #16a34a; color: #fff; border: none; border-radius: 6px; cursor: pointer;">🖨️ Print Now</button>
-                        <button wire:click="closePrintModal" class="btn-view" style="padding: 8px 16px; background: #ffffff; color: #0f172a; font-weight: 700; border: none; border-radius: 6px; cursor: pointer;">✕ Close</button>
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        {{-- Single Download Split Button with Dropdown --}}
+                        <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; display: inline-flex; vertical-align: middle;">
+                            <button type="button" wire:click="downloadAsPdf" wire:loading.attr="disabled"
+                                style="padding: 8px 16px; font-weight: 700; background: #2563eb; color: #ffffff; border: none; border-top-left-radius: 6px; border-bottom-left-radius: 6px; border-top-right-radius: 0; border-bottom-right-radius: 0; cursor: pointer; font-size: 12.5px; border-right: 1px solid rgba(255,255,255,0.25); display: inline-flex; align-items: center; gap: 6px;"
+                                title="Download as PDF">
+                                <span wire:loading.remove wire:target="downloadAsPdf,downloadAsXlsx">Download</span>
+                                <span wire:loading wire:target="downloadAsPdf,downloadAsXlsx">Downloading...</span>
+                            </button>
+                            <button type="button" @click="open = !open"
+                                style="padding: 8px 10px; background: #2563eb; color: #ffffff; border: none; border-top-right-radius: 6px; border-bottom-right-radius: 6px; border-top-left-radius: 0; border-bottom-left-radius: 0; cursor: pointer; font-size: 11px; display: inline-flex; align-items: center; justify-content: center;"
+                                title="Select file format">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" :style="open ? 'transform: rotate(180deg);' : ''" style="transition: transform 0.15s ease;">
+                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                </svg>
+                            </button>
+                            <div x-show="open" x-cloak
+                                style="position: absolute; top: calc(100% + 4px); right: 0; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); min-width: 195px; z-index: 1000; padding: 4px 0; overflow: hidden;">
+                                <button type="button" wire:click="downloadAsPdf" @click="open = false" wire:loading.attr="disabled"
+                                    style="width: 100%; text-align: left; padding: 9px 14px; font-size: 12px; font-weight: 600; color: #1e293b; background: transparent; border: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between;"
+                                    onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">
+                                    <span>Download as PDF</span>
+                                    <span style="font-size: 10px; color: #dc2626; background: #fef2f2; padding: 2px 6px; border-radius: 4px; font-weight: 700;">.pdf</span>
+                                </button>
+                                <button type="button" wire:click="downloadAsXlsx" @click="open = false" wire:loading.attr="disabled"
+                                    style="width: 100%; text-align: left; padding: 9px 14px; font-size: 12px; font-weight: 600; color: #1e293b; background: transparent; border: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between;"
+                                    onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='transparent'">
+                                    <span>Download as Excel</span>
+                                    <span style="font-size: 10px; color: #16a34a; background: #ecfdf5; padding: 2px 6px; border-radius: 4px; font-weight: 700;">.xlsx</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <button type="button" @click="$wire.markClusterPrinted().then(() => window.print()).catch(() => window.print())" class="btn-print" style="padding: 8px 16px; font-weight: 700; background: #16a34a; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 12.5px;">
+                            Print Now
+                        </button>
+                        <button type="button" wire:click="closePrintModal" class="btn-view" style="padding: 8px 14px; background: #ffffff; color: #0f172a; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; font-size: 12.5px;">
+                            Close
+                        </button>
                     </div>
                 </div>
 
@@ -1866,7 +2594,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     <!-- FILL-UP FORM PANEL (Fields 1 to 8 + Signatures) - NO-PRINT -->
                     <div class="no-print" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 18px; margin-bottom: 24px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
                         <h4 style="margin: 0 0 14px 0; font-size: 13px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
-                            📋 Top Header Configuration (Fields 1 – 8)
+                            Top Header Configuration (Fields 1 – 8)
                         </h4>
                         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px;">
                             <div>
@@ -1907,7 +2635,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         </div>
 
                         <h4 style="margin: 14px 0 12px 0; font-size: 13px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
-                            ✍️ Official Signatures Block
+                            Official Signatures Block
                         </h4>
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
                             <div>
@@ -1931,7 +2659,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     <!-- FILL-UP FORM PANEL FOR NAP FORM 2 - NO-PRINT -->
                     <div class="no-print" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 18px; margin-bottom: 24px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
                         <h4 style="margin: 0 0 14px 0; font-size: 13px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
-                            📋 RDS Header & Details (Boxes 1 – 4)
+                            RDS Header & Details (Boxes 1 – 4)
                         </h4>
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px;">
                             <div>
@@ -1949,7 +2677,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         </div>
 
                         <h4 style="margin: 14px 0 12px 0; font-size: 13px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
-                            ✍️ Signatures & Approvals (Page 2)
+                            Signatures & Approvals (Page 2)
                         </h4>
                         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
                             <div>
@@ -1978,7 +2706,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     <!-- FILL-UP FORM PANEL FOR NAP FORM 3 - NO-PRINT -->
                     <div class="no-print" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 18px; margin-bottom: 24px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);">
                         <h4 style="margin: 0 0 14px 0; font-size: 13px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
-                            📋 Request Header Information
+                            Request Header Information
                         </h4>
                         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px;">
                             <div>
@@ -2000,7 +2728,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         </div>
 
                         <h4 style="margin: 14px 0 12px 0; font-size: 13px; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
-                            ✍️ Signatures & Certifications
+                            Signatures & Certifications
                         </h4>
                         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
                             <div>
@@ -2090,14 +2818,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             $isLastPage = ($pageIndex + 1) === $totalPages;
                             $cellBorder = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;";
                             $computedFiller = $isLastPage 
-                                ? max(60, 360 - (count($pageItems) * 22)) 
-                                : max(60, 460 - (count($pageItems) * 22));
+                                ? max(40, 290 - (count($pageItems) * 20)) 
+                                : max(60, 480 - (count($pageItems) * 20));
                         @endphp
                         <div class="print-sheet">
                             <!-- Top Form Identifier -->
-                            <div style="font-size: 8px; font-weight: normal; margin-bottom: 3px; line-height: 1.25;">
+                            <div style="font-size: 8px; font-weight: normal; margin-bottom: 2px; line-height: 1.25;">
                                 NAP Records Inventory and Appraisal Form<br>2024
                             </div>
+                            <br>
 
                             <!-- TOP HEADER GRID BOX (Fields 1 to 8) -->
                             <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-bottom: none; font-size: 8px; text-align: left; table-layout: fixed;">
@@ -2288,15 +3017,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             <!-- LEGEND SECTION (Visible on every page) -->
                             <div style="font-size: 8px; margin-top: 6px; line-height: 1.35;">
                                 <div style="font-weight: bold;">LEGEND:</div>
-                                <div style="display: flex; gap: 30px; margin-top: 1px;">
+                                <div style="display: flex; gap: 30px; margin-top: 1px; padding-left: 50px;">
                                     <div style="display: flex; gap: 15px;">
-                                        <span style="font-weight: bold; width: 90px;">TIME VALUE:</span>
+                                        <span style="font-weight: normal; width: 90px;">TIME VALUE:</span>
                                         <span><strong>T</strong> - Temporary &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>P</strong> - Permanent</span>
                                     </div>
                                 </div>
-                                <div style="display: flex; gap: 30px; margin-top: 1px;">
+                                <div style="display: flex; gap: 30px; margin-top: 1px; padding-left: 50px;">
                                     <div style="display: flex; gap: 15px;">
-                                        <span style="font-weight: bold; width: 90px;">UTILITY VALUE:</span>
+                                        <span style="font-weight: normal; width: 90px;">UTILITY VALUE:</span>
                                         <span><strong>Adm</strong> - Administrative &nbsp;&nbsp;&nbsp;&nbsp; <strong>F</strong> - Fiscal &nbsp;&nbsp;&nbsp;&nbsp; <strong>L</strong> - Legal &nbsp;&nbsp;&nbsp;&nbsp; <strong>Arc</strong> - Archival</span>
                                     </div>
                                 </div>
@@ -2357,7 +3086,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     @foreach($dataPages as $pageIndex => $pageItems)
                         @php
                             $pageNumber = $pageIndex + 1;
-                            $fillerHeight = empty($pageItems) ? 650 : max(40, 650 - (count($pageItems) * 26));
+                            $fillerHeight = empty($pageItems) ? 880 : max(40, 880 - (count($pageItems) * 26));
                         @endphp
                         <div class="print-sheet">
                             <!-- Top Form Identifier -->
@@ -2680,8 +3409,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             $isLastPage = ($pageIndex + 1) === $totalPages;
                             $cellBorder = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;";
                             $computedFiller = $isLastPage 
-                                ? max(60, 480 - (count($pageItems) * 22)) 
-                                : max(60, 680 - (count($pageItems) * 22));
+                                ? max(60, 750 - (count($pageItems) * 22)) 
+                                : max(60, 900 - (count($pageItems) * 22));
                         @endphp
                         <div class="print-sheet">
                             <!-- Top Form ID Line -->

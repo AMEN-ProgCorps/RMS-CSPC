@@ -166,8 +166,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             return;
         }
 
-        $userOffice = Auth::user()?->details?->office_code ?? 'OFFICE';
-        $this->clusterName = 'Inventory Cluster — ' . $userOffice . ' (' . Carbon::now()->format('Y-m-d') . ')';
+        $user = Auth::user();
+        $perms = $user?->permissions;
+        $isSadm = (bool)($perms->is_sadm ?? false);
+        $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        if (empty($userOffice) && !empty($user?->details?->office_id)) {
+            $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+            $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+        }
+        if (empty($userOffice) && $isSadm && !empty($this->officeFilter)) {
+            $userOffice = $this->officeFilter;
+        }
+        if (empty($userOffice) && !empty($this->selectedIds)) {
+            $firstRec = DB::table('rdp_record')->whereIn('id', array_map('intval', $this->selectedIds))->first();
+            $userOffice = $firstRec?->office_own ?? null;
+        }
+
+        $officeDisplay = $userOffice ?: 'OFFICE';
+        $this->clusterName = 'Inventory Cluster — ' . $officeDisplay . ' (' . Carbon::now()->format('Y-m-d') . ')';
         $this->clusterNotes = '';
         $this->showClusterModal = true;
     }
@@ -188,7 +204,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             DB::beginTransaction();
 
             $user = Auth::user();
-            $userOffice = $user?->details?->office_code ?? null;
+            $perms = $user?->permissions;
+            $isSadm = (bool)($perms->is_sadm ?? false);
+            $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+            if (empty($userOffice) && !empty($user?->details?->office_id)) {
+                $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+                $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+            }
+            if (empty($userOffice) && $isSadm && !empty($this->officeFilter)) {
+                $userOffice = $this->officeFilter;
+            }
+            if (empty($userOffice) && !empty($this->selectedIds)) {
+                $firstRec = DB::table('rdp_record')->whereIn('id', array_map('intval', $this->selectedIds))->first();
+                $userOffice = $firstRec?->office_own ?? null;
+            }
 
             $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
             $mainPendingId = DB::table($mainPendingTbl)->insertGetId([
@@ -1790,14 +1819,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         $isLastPage = ($pageIndex + 1) === $totalPages;
                         $cellBorder = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;";
                         $computedFiller = $isLastPage 
-                            ? max(60, 360 - (count($pageItems) * 22)) 
-                            : max(60, 460 - (count($pageItems) * 22));
+                            ? max(40, 290 - (count($pageItems) * 20)) 
+                            : max(60, 480 - (count($pageItems) * 20));
                     @endphp
                     <div class="print-sheet">
                         <!-- Top Form Identifier -->
-                        <div style="font-size: 8px; font-weight: normal; margin-bottom: 3px; font-family: Arial, sans-serif; line-height: 1.25;">
+                        <div style="font-size: 8px; font-weight: normal; margin-bottom: 2px; font-family: Arial, sans-serif; line-height: 1.25;">
                             NAP Records Inventory and Appraisal Form<br>2024
                         </div>
+                        <br>
 
                         <!-- TOP HEADER GRID BOX (Fields 1 to 8) -->
                         <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-bottom: none; font-size: 8px; text-align: left; table-layout: fixed; font-family: Arial, sans-serif;">
@@ -1988,15 +2018,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         <!-- LEGEND SECTION (Visible on every page) -->
                         <div style="font-size: 8px; font-family: Arial, sans-serif; margin-top: 6px; line-height: 1.35;">
                             <div style="font-weight: bold;">LEGEND:</div>
-                            <div style="display: flex; gap: 30px; margin-top: 1px;">
+                            <div style="display: flex; gap: 30px; margin-top: 1px; padding-left: 50px;">
                                 <div style="display: flex; gap: 15px;">
-                                    <span style="font-weight: bold; width: 90px;">TIME VALUE:</span>
+                                    <span style="font-weight: normal; width: 90px;">TIME VALUE:</span>
                                     <span><strong>T</strong> - Temporary &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <strong>P</strong> - Permanent</span>
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 30px; margin-top: 1px;">
+                            <div style="display: flex; gap: 30px; margin-top: 1px; padding-left: 50px;">
                                 <div style="display: flex; gap: 15px;">
-                                    <span style="font-weight: bold; width: 90px;">UTILITY VALUE:</span>
+                                    <span style="font-weight: normal; width: 90px;">UTILITY VALUE:</span>
                                     <span><strong>Adm</strong> - Administrative &nbsp;&nbsp;&nbsp;&nbsp; <strong>F</strong> - Fiscal &nbsp;&nbsp;&nbsp;&nbsp; <strong>L</strong> - Legal &nbsp;&nbsp;&nbsp;&nbsp; <strong>Arc</strong> - Archival</span>
                                 </div>
                             </div>

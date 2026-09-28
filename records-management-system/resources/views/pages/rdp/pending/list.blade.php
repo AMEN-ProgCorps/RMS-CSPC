@@ -18,6 +18,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     public ?object $selectedCluster = null;
     public array $clusterItems = [];
 
+    // Cancel Cluster Confirmation Modal
+    public bool $showCancelConfirmModal = false;
+
     // Download Modal Properties
     public bool $showDownloadModal = false;
     public ?int $downloadClusterId = null;
@@ -70,8 +73,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $this->errorMessage = '';
     }
 
+    public function openCancelConfirmModal(): void
+    {
+        $this->showCancelConfirmModal = true;
+    }
+
+    public function closeCancelConfirmModal(): void
+    {
+        $this->showCancelConfirmModal = false;
+    }
+
     public function cancelCluster(): void
     {
+        $this->showCancelConfirmModal = false;
+
         $this->clearMessages();
 
         if (!$this->selectedCluster) {
@@ -358,6 +373,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     public function closeDetailModal(): void
     {
         $this->showDetailModal = false;
+        $this->showCancelConfirmModal = false;
         $this->selectedCluster = null;
         $this->clusterItems = [];
     }
@@ -2351,26 +2367,50 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         @endforeach
                     </tbody>
                 </table>
-                <div style="margin-top: 20px; padding-top: 14px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        @if(($selectedCluster->status_id ?? 1) != 2)
-                            <button type="button"
-                                wire:click="cancelCluster"
-                                wire:confirm="Are you sure you want to cancel and remove this cluster? The items will be returned to your records/series list."
-                                style="padding: 8px 14px; background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; border-radius: 6px; font-weight: 700; font-size: 12.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;"
-                                onmouseover="this.style.background='#fecaca'" onmouseout="this.style.background='#fee2e2'">
-                                <svg style="width: 15px; height: 15px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                </svg>
-                                Cancel Cluster
-                            </button>
-                        @endif
-                    </div>
-                    <div>
-                        <button type="button" wire:click="closeDetailModal" style="padding: 8px 16px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 600; font-size: 12.5px; cursor: pointer;">
-                            Close
+                <div style="margin-top: 20px; padding-top: 14px; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
+                    @if(($selectedCluster->status_id ?? 1) != 2)
+                        <button type="button"
+                            wire:click="openCancelConfirmModal"
+                            style="padding: 8px 14px; background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; border-radius: 6px; font-weight: 700; font-size: 12.5px; cursor: pointer;"
+                            onmouseover="this.style.background='#fecaca'" onmouseout="this.style.background='#fee2e2'">
+                            Cancel Cluster
                         </button>
+                    @endif
+                    <button type="button" wire:click="closeDetailModal" style="padding: 8px 16px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 600; font-size: 12.5px; cursor: pointer;">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Cancel Cluster Confirmation Modal --}}
+    @if($showCancelConfirmModal)
+        <div class="modal-overlay" style="z-index: 1100;">
+            <div class="modal-card" style="width: 420px; max-width: 94vw; padding: 24px;">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
+                    <div style="width: 40px; height: 40px; border-radius: 50%; background: #fee2e2; display: flex; align-items: center; justify-content: center; color: #dc2626; flex-shrink: 0;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                            <line x1="12" y1="9" x2="12" y2="13"></line>
+                            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                        </svg>
                     </div>
+                    <h3 style="font-size: 16.5px; font-weight: 700; color: #0f172a; margin: 0;">
+                        Are you sure you want to cancel this cluster?
+                    </h3>
+                </div>
+                <p style="font-size: 13.5px; color: #64748b; margin: 0 0 20px 0; line-height: 1.6;">
+                    <strong style="color: #334155;">{{ $selectedCluster->cluster_name ?? 'This cluster' }}</strong> will be removed and its items will be returned to your records/series list. This action cannot be undone.
+                </p>
+                <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
+                    <button type="button" wire:click="closeCancelConfirmModal" style="padding: 8px 16px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 600; font-size: 12.5px; cursor: pointer;">
+                        No, Keep It
+                    </button>
+                    <button type="button" wire:click="cancelCluster" style="padding: 8px 16px; background: #dc2626; color: #ffffff; border: 1px solid #dc2626; border-radius: 6px; font-weight: 700; font-size: 12.5px; cursor: pointer;"
+                        onmouseover="this.style.background='#b91c1c'" onmouseout="this.style.background='#dc2626'">
+                        Yes, Cancel Cluster
+                    </button>
                 </div>
             </div>
         </div>

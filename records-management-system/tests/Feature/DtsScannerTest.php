@@ -451,6 +451,128 @@ class DtsScannerTest extends TestCase
     }
 
     /**
+     * A document may only be received ONCE per office visit.
+     */
+    public function test_scanner_blocks_duplicate_receive()
+    {
+        $user = User::find(1);
+        Auth::login($user);
+
+        $flowId = 995;
+        DB::table('dts_transaction_flow')->insert([
+            'id' => $flowId,
+            'flow_name' => 'Scan Test Flow 5',
+            'flow_code' => 'FLOW-SCAN-TEST-5',
+            'added_by' => 1,
+            'date_added' => now(),
+            'flow_use' => 'internal',
+            'is_active' => true,
+        ]);
+
+        DB::table('dts_sequence_list')->insert([
+            [
+                'control_id' => $flowId,
+                'sequence_ranking' => 1,
+                'office_code' => $this->myOfficeCode,
+                'date_in' => now()->subMinutes(5),
+                'date_out' => null,
+                'action_needed' => null,
+                'note' => null,
+                'total_time_completed' => null,
+                'scanned_id' => false,
+            ],
+            [
+                'control_id' => $flowId,
+                'sequence_ranking' => 2,
+                'office_code' => 'ORIGIN',
+                'date_in' => null,
+                'date_out' => null,
+                'action_needed' => null,
+                'note' => null,
+                'total_time_completed' => null,
+                'scanned_id' => false,
+            ],
+        ]);
+
+        DB::table('dts_qr_code')->insert([
+            'code_id' => 'QR-SCAN-5',
+            'qr_status' => 'used',
+            'created_at' => now(),
+        ]);
+
+        DB::table('dts_transactions')->insert([
+            'transaction_id' => 'TRANS-SCAN-5',
+            'trans_type' => 'internal',
+            'qr_code' => 'QR-SCAN-5',
+            'current_office' => $this->myOfficeCode,
+            'status' => 'ongoing',
+            'sequence' => 1,
+        ]);
+
+        $reqId = $this->createRequestor('Tester User 5');
+        DB::table('dts_transaction_details')->insert([
+            'id' => 'TRANS-SCAN-5',
+            'type' => 'internal',
+            'created_by' => 1,
+            'originated_from' => $this->myOfficeCode,
+            'current_office_hold' => $this->myOfficeCode,
+            'status' => 'ongoing',
+            'control_number' => 'CTRL-SCAN-5',
+            'subject' => 'Duplicate Receive Test Document',
+            'requestor_id' => $reqId,
+            'transaction_flow' => 'FLOW-SCAN-TEST-5',
+            'date_created' => now(),
+        ]);
+
+        // Pending receipt at this office (forwarded to us, date_in not yet stamped)
+        DB::table($this->logsTable)->insert([
+            'transaction_id' => 'TRANS-SCAN-5',
+            'office_code' => $this->myOfficeCode,
+            'type' => 'forwarded',
+            'date_in' => null,
+            'date_out' => null,
+            'notes' => '',
+            'performed_by' => null,
+        ]);
+
+        $component = Volt::test('pages.dts.scanner')
+            ->set('scannedCode', 'QR-SCAN-5')
+            ->call('loadTransaction')
+            ->assertSet('errorMessage', '')
+            ->assertSet('activeTransaction.is_received_here', false);
+
+        // First receive succeeds, then the console clears itself so the same
+        // scan cannot be used for a second action (e.g. accidental Forward).
+        $component->call('executeReceive')
+            ->assertSet('errorMessage', '')
+            ->assertSet('activeTransaction', null)
+            ->assertSet('scannedCode', '');
+
+        $this->assertStringContainsString('RECEIVED', $component->get('successMessage'));
+
+        // Re-scanning the same code reports it as already received here...
+        $component->call('loadTransaction')
+            ->assertSet('errorMessage', '')
+            ->assertSet('activeTransaction.is_received_here', true);
+
+        // ...and a second Receive is rejected by the server-side guard
+        $component->call('executeReceive')
+            ->assertSet('errorMessage', "Document 'CTRL-SCAN-5' has already been received at your office.");
+
+        // Exactly one received log row for this office - no duplicates
+        $this->assertEquals(1, DB::table($this->logsTable)
+            ->where('transaction_id', 'TRANS-SCAN-5')
+            ->where('office_code', $this->myOfficeCode)
+            ->where('type', 'received')
+            ->count());
+
+        $this->assertEquals(1, DB::table($this->logsTable)
+            ->where('transaction_id', 'TRANS-SCAN-5')
+            ->where('office_code', $this->myOfficeCode)
+            ->count());
+    }
+
+    /**
      * Test that the portal access page displays the DTS Scanner shortcut link only for users with receive permission.
      */
     public function test_portal_page_shows_scanner_shortcut_based_on_permissions()

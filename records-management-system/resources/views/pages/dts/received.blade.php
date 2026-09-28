@@ -370,6 +370,9 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                 }
             });
 
+            // TEMPORARY: hand a fully-completed transaction to RDP intake.
+            \App\Services\DtsRdpIntakeService::recordCompleted($this->forwardTransId);
+
             $this->closeForwardModal();
         } catch (\Throwable $e) {
             $this->errorMessage = 'Failed to forward transaction: ' . $e->getMessage();

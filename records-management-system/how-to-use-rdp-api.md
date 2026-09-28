@@ -52,6 +52,11 @@ Creates an incoming document intake record in RDP and returns the URLs to either
 | `document_id_handler` | String | No | Storage ID or hash from `sys_document_data` |
 | `metadata` | Object / JSON | No | Optional key-value object with extra subsystem data |
 
+> **DTS rule**: when `source_subsystem` is `'DTS'`, the `document_code` must belong to a
+> DTS transaction whose status is **`completed`**. Intake/ongoing/cancelled/re-opened
+> transactions are rejected with **HTTP 422** — only fully completed transactions are
+> recorded in RDP. (DCS and OTHER sources are unaffected.)
+
 #### Example Request Payload:
 ```json
 {
@@ -94,6 +99,16 @@ If the document code has already been sent to RDP, the API detects it safely wit
   "status": "pending",
   "landing_url": "http://your-domain.com/rdp/received-documents/dts",
   "appraise_url": "http://your-domain.com/rdp/add-records/inventory-and-appraisal?prefill_intake_id=3&..."
+}
+```
+
+#### Rejected Transaction Response (HTTP 422 - DTS not completed):
+Only DTS transactions with status `completed` may be imported. Anything still in flight
+(or re-opened after completion) is refused:
+```json
+{
+  "success": false,
+  "error": "Only completed DTS transactions can be imported to RDP. Transaction 'DTS-2026-0042' has not been completed yet."
 }
 ```
 

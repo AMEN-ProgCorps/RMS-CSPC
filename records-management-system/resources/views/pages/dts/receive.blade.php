@@ -169,7 +169,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             ->orderBy('id', 'desc')
             ->first();
 
-        $transaction->is_received = $currentLog && ($currentLog->type === 'received' || (!empty($currentLog->date_in) && $currentLog->type !== 'forwarded'));
+        $transaction->is_received = \App\Services\DtsReceiveGuardService::isReceived($currentLog);
 
         // Pre-resolve name of the next destination office in sequence
         $nextOfficeName = 'N/A';
@@ -226,8 +226,26 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             return;
         }
 
+        // A document may only be received ONCE per office visit.
+        $receiveTransId = (string) $this->activeTransaction['transaction_id'];
+        if (\App\Services\DtsReceiveGuardService::alreadyReceived($receiveTransId, $userOfficeCode)) {
+            $this->errorMessage = 'This document has already been received at your office.';
+            return;
+        }
+
+        $alreadyReceived = false;
+
         try {
-            DB::transaction(function () use ($userOfficeCode) {
+            DB::transaction(function () use ($userOfficeCode, &$alreadyReceived) {
+                $transId = (string) $this->activeTransaction['transaction_id'];
+
+                // Row lock makes the re-check authoritative against concurrent scans.
+                \App\Services\DtsReceiveGuardService::lockTransaction($transId);
+                if (\App\Services\DtsReceiveGuardService::alreadyReceived($transId, $userOfficeCode)) {
+                    $alreadyReceived = true;
+                    return;
+                }
+
                 $log = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
                     ->where('transaction_id', $this->activeTransaction['transaction_id'])
                     ->where('office_code', $userOfficeCode)
@@ -287,10 +305,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                 }
 
                 $this->successMessage = "Transaction {$this->activeTransaction['control_number']} has been successfully RECEIVED at your office. Timer reset to 0.";
-                $this->activeTransaction['is_received'] = true;
+
+                // Clear the scan so the same document cannot be actioned again
+                // (e.g. accidentally Forwarding right after Receive).
+                $this->scannedCode = '';
+                $this->notes = '';
+                $this->activeTransaction = null;
+                $this->dispatch('focus-scanner-input');
             });
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to receive transaction: ' . $e->getMessage();
+        }
+
+        if ($alreadyReceived) {
+            $this->errorMessage = 'This document has already been received at your office.';
         }
     }
 
@@ -701,6 +729,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 @push('scripts')
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js" type="text/javascript"></script>
     <script>
+        window.addEventListener('focus-scanner-input', () => {
+            const input = document.getElementById('scanner-text-input');
+            if (input) input.focus();
+        });
+
         document.addEventListener('DOMContentLoaded', () => {
             const previewId = "scanner-preview";
             const selectElement = document.getElementById("camera-select");

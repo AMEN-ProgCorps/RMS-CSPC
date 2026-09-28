@@ -154,6 +154,14 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
             return;
         }
 
+        // Only fully-completed transactions may be imported into RDP.
+        $txStatus = DB::table('dts_transactions')->where('transaction_id', $dtd->id)->value('status');
+        if ($txStatus !== 'completed') {
+            $this->errorMessage = "Only completed DTS transactions can be imported to RDP. Transaction '{$controlNumber}' is still "
+                . ($txStatus ?: 'unknown') . ".";
+            return;
+        }
+
         // Find attached document if exists
         $sysDoc = DB::table('sys_document_data')
             ->where('document_id', $dtd->control_number)
@@ -170,7 +178,7 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
             'description'         => 'Imported from DTS Transaction #' . $dtd->control_number,
             'origin_office'       => $dtd->originated_from ?? null,
             'target_office'       => null,
-            'date_received'       => $dtd->created_at ? Carbon::parse($dtd->created_at)->toDateString() : now()->toDateString(),
+            'date_received'       => $dtd->date_created ? Carbon::parse($dtd->date_created)->toDateString() : now()->toDateString(),
             'file_path'           => $sysDoc?->document_path ?? null,
             'file_name'           => $sysDoc?->document_name ?? null,
             'document_id_handler' => $sysDoc?->document_id ?? null,
@@ -221,7 +229,11 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
         $availableDts = collect();
         if ($this->showImportModal) {
             $iq = DB::table('dts_transaction_details')
-                ->select('control_number', 'subject', 'originated_from', 'created_at');
+                ->select('control_number', 'subject', 'originated_from', 'date_created')
+                // Only fully-completed transactions may be imported into RDP
+                ->whereIn('id', function ($q) {
+                    $q->select('transaction_id')->from('dts_transactions')->where('status', 'completed');
+                });
 
             if (!empty($this->importSearch)) {
                 $is = '%' . trim($this->importSearch) . '%';
@@ -232,7 +244,7 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
                 });
             }
 
-            $availableDts = $iq->orderBy('created_at', 'desc')->limit(12)->get();
+            $availableDts = $iq->orderBy('date_created', 'desc')->limit(12)->get();
         }
 
         return [

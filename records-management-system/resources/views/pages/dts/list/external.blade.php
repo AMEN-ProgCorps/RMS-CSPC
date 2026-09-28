@@ -1403,6 +1403,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                 ]);
         }
 
+        // TEMPORARY: hand a fully-completed transaction to RDP intake.
+        \App\Services\DtsRdpIntakeService::recordCompleted($this->selectedTransactionId);
+
         $this->closeTransaction();
     }
 

@@ -1042,7 +1042,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             height: 48px;
             margin-bottom: -1px;
             position: relative;
-            z-index: 10;
+            z-index: 2;
         }
 
         .rdp-folder-tabs {

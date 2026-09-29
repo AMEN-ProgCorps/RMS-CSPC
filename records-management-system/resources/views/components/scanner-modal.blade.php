@@ -93,11 +93,22 @@ new class extends Component {
         // Clean common barcode gun framing artifacts (trailing bracket, quotes, semicolons)
         $cleanedCode = trim($rawCode, " \t\n\r\0\x0B[]{}()\"'<>");
 
-        // Decode base64 if valid base64
+        // Attempt Base64 decode: accept if decoded result is printable ASCII (32–126)
+        // or matches the XXXX-XXXX-... QR code dash-segment pattern.
+        // (ctype_print rejects multi-byte chars that can appear in base64-decoded QR codes)
         $code = $cleanedCode;
-        $decoded = base64_decode($cleanedCode, true);
-        if ($decoded !== false && ctype_print($decoded)) {
-            $code = trim($decoded);
+        if (preg_match('/^[A-Za-z0-9+\/]+=*$/', $cleanedCode) && strlen($cleanedCode) >= 8) {
+            $tryDecode = base64_decode($cleanedCode, true);
+            if ($tryDecode !== false) {
+                $decodedClean = trim($tryDecode);
+                // Accept if all chars are printable ASCII OR matches QR dash-segment pattern
+                if (
+                    preg_match('/^[\x20-\x7E]+$/', $decodedClean) ||
+                    preg_match('/^[A-Z0-9]{4}(-[A-Z0-9]{4})+$/i', $decodedClean)
+                ) {
+                    $code = $decodedClean;
+                }
+            }
         }
 
         $this->lastScannedCode = $code;
@@ -1255,6 +1266,15 @@ new class extends Component {
                             return { width: boxSize, height: boxSize };
                         };
 
+                        const decodeIfBase64 = (raw) => {
+                            if (!/^[A-Za-z0-9+/]+=*$/.test(raw) || raw.length < 8) return raw;
+                            try {
+                                const decoded = atob(raw);
+                                if (/^[\x20-\x7E]+$/.test(decoded)) return decoded.trim();
+                            } catch (e) { /* not valid Base64 */ }
+                            return raw;
+                        };
+
                         const onScanSuccess = (decodedText) => {
                             if (!decodedText) return;
                             const now = Date.now();
@@ -1264,11 +1284,14 @@ new class extends Component {
                             lastModalScannedText = decodedText;
                             lastModalScanTime = now;
 
+                            // Decode Base64 before displaying and passing to backend
+                            const code = decodeIfBase64(decodedText);
+
                             const input = document.getElementById('global-scanner-code-input');
                             if (input) {
-                                input.value = decodedText;
+                                input.value = code;
                             }
-                            @this.loadTransaction(decodedText);
+                            @this.loadTransaction(code);
                         };
 
                         const hdConfig = {

@@ -129,12 +129,23 @@
         overlay.classList.add('is-visible');
     }
 
-    function setAutosaveStatus() {
+    function setAutosaveStatus(message, state) {
         const el = document.getElementById('regAutosaveStatus');
         if (!el) return;
-        el.hidden = true;
-        el.textContent = '';
-        el.removeAttribute('data-state');
+        const text = message == null ? '' : String(message);
+        if (!text) {
+            el.hidden = true;
+            el.textContent = '';
+            el.removeAttribute('data-state');
+            return;
+        }
+        el.hidden = false;
+        el.textContent = text;
+        if (state) {
+            el.setAttribute('data-state', state);
+        } else {
+            el.removeAttribute('data-state');
+        }
     }
 
     function submitAsDraft(leaveUrl) {

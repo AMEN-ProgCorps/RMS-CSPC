@@ -62,23 +62,27 @@ return new class extends Migration
                 }
             });
 
-            try {
+            if (
+                Schema::hasColumn('dcs_random_checks', 'schedule_id')
+                && Schema::hasTable('dcs_random_check_schedules')
+                && ! $this->constraintExists('dcs_random_checks_schedule_id_foreign')
+            ) {
                 Schema::table('dcs_random_checks', function (Blueprint $table) {
                     $table->foreign('schedule_id', 'dcs_random_checks_schedule_id_foreign')
                         ->references('id')
                         ->on('dcs_random_check_schedules')
                         ->nullOnDelete();
                 });
-            } catch (\Throwable) {
-                //
             }
 
-            try {
+            if (
+                Schema::hasColumn('dcs_random_checks', 'check_year')
+                && Schema::hasColumn('dcs_random_checks', 'cycle')
+                && ! $this->indexExists('dcs_rc_office_year_cycle')
+            ) {
                 Schema::table('dcs_random_checks', function (Blueprint $table) {
                     $table->index(['office_id', 'check_year', 'cycle'], 'dcs_rc_office_year_cycle');
                 });
-            } catch (\Throwable) {
-                //
             }
         }
 
@@ -100,53 +104,38 @@ return new class extends Migration
 
     public function down(): void
     {
-        if (Schema::hasTable('dcs_random_checks')) {
-            try {
-                Schema::table('dcs_random_checks', function (Blueprint $table) {
-                    $table->dropForeign('dcs_random_checks_schedule_id_foreign');
-                });
-            } catch (\Throwable) {
-                //
-            }
+        if (Schema::hasTable('dcs_random_checks') && $this->constraintExists('dcs_random_checks_schedule_id_foreign')) {
+            Schema::table('dcs_random_checks', function (Blueprint $table) {
+                $table->dropForeign('dcs_random_checks_schedule_id_foreign');
+            });
         }
 
         Schema::dropIfExists('dcs_random_check_schedules');
     }
 
+    /**
+     * Keep historical random-check item rows even if a masterlist registration is removed.
+     * Avoid empty try/catch around DDL — a swallowed Postgres error aborts the whole migration TX.
+     */
     private function preventSnapshotCascade(): void
     {
-        foreach ([
-            'dcs_random_check_items_masterlist_id_foreign',
-            'dcs_rc_items_masterlist_id_foreign',
-        ] as $name) {
-            try {
-                Schema::table('dcs_random_check_items', function (Blueprint $table) use ($name) {
-                    $table->dropForeign($name);
-                });
-                break;
-            } catch (\Throwable) {
-                //
-            }
+        $fkName = $this->foreignKeyNameOn('dcs_random_check_items', 'masterlist_id');
+        if ($fkName) {
+            Schema::table('dcs_random_check_items', function (Blueprint $table) use ($fkName) {
+                $table->dropForeign($fkName);
+            });
         }
 
-        try {
-            Schema::table('dcs_random_check_items', function (Blueprint $table) {
-                $table->dropForeign(['masterlist_id']);
-            });
-        } catch (\Throwable) {
-            //
+        if ($this->foreignKeyNameOn('dcs_random_check_items', 'masterlist_id')) {
+            return;
         }
 
-        try {
-            Schema::table('dcs_random_check_items', function (Blueprint $table) {
-                $table->foreign('masterlist_id')
-                    ->references('id')
-                    ->on('dcs_masterlist_registration')
-                    ->restrictOnDelete();
-            });
-        } catch (\Throwable) {
-            // Historical snapshots stay even if the FK cannot be rebuilt.
-        }
+        Schema::table('dcs_random_check_items', function (Blueprint $table) {
+            $table->foreign('masterlist_id')
+                ->references('id')
+                ->on('dcs_masterlist_registration')
+                ->restrictOnDelete();
+        });
     }
 
     private function backfillYearsAndCycles(): void
@@ -169,5 +158,44 @@ return new class extends Migration
                 'finalized_at' => $row->checked_at,
             ]);
         }
+    }
+
+    private function constraintExists(string $name): bool
+    {
+        $row = DB::selectOne(
+            'select 1 as x from pg_constraint where conname = ? limit 1',
+            [$name]
+        );
+
+        return $row !== null;
+    }
+
+    private function indexExists(string $name): bool
+    {
+        $row = DB::selectOne(
+            'select 1 as x from pg_indexes where schemaname = current_schema() and indexname = ? limit 1',
+            [$name]
+        );
+
+        return $row !== null;
+    }
+
+    private function foreignKeyNameOn(string $table, string $column): ?string
+    {
+        $row = DB::selectOne(
+            'select tc.constraint_name
+             from information_schema.table_constraints as tc
+             join information_schema.key_column_usage as kcu
+               on tc.constraint_name = kcu.constraint_name
+              and tc.table_schema = kcu.table_schema
+             where tc.constraint_type = ?
+               and tc.table_schema = current_schema()
+               and tc.table_name = ?
+               and kcu.column_name = ?
+             limit 1',
+            ['FOREIGN KEY', $table, $column]
+        );
+
+        return $row->constraint_name ?? null;
     }
 };

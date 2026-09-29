@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 new class extends Component {
     public bool $isOpen = false;
     public string $scannedCode = '';
+    public string $lastScannedCode = '';
     public ?array $activeTransaction = null;
     public string $actionNeeded = '';
     public string $notes = '';
@@ -20,10 +21,16 @@ new class extends Component {
 
     public function mount(): void
     {
-        $this->actionOptions = DB::table('dts_action_options')
-            ->orderBy('option_name', 'asc')
-            ->pluck('option_name')
-            ->toArray();
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('dts_action_options')) {
+                $this->actionOptions = DB::table('dts_action_options')
+                    ->orderBy('option_name', 'asc')
+                    ->pluck('option_name')
+                    ->toArray();
+            }
+        } catch (\Throwable $e) {
+            $this->actionOptions = [];
+        }
 
         if (empty($this->actionOptions)) {
             $this->actionOptions = ['For Approval', 'For Review', 'For Signature', 'For Release', 'For Filing', 'For Action'];
@@ -39,7 +46,11 @@ new class extends Component {
         $this->isOpen = true;
         $this->clearMessages();
         $this->activeTransaction = null;
-        $this->scannedCode = '';
+        $this->scannedCode = trim($code);
+
+        if (!empty($this->scannedCode)) {
+            $this->loadTransaction($this->scannedCode);
+        }
 
         $this->dispatch('init-camera-scanner');
     }
@@ -60,22 +71,36 @@ new class extends Component {
         $this->errorMessage = '';
     }
 
-    public function loadTransaction(): void
+    public function loadTransaction(?string $codeToLoad = null): void
     {
         $this->clearMessages();
         $this->activeTransaction = null;
 
+        if ($codeToLoad !== null && trim($codeToLoad) !== '') {
+            $this->scannedCode = trim($codeToLoad);
+        }
+
         $rawCode = trim($this->scannedCode);
+        if (empty($rawCode) && !empty($this->lastScannedCode)) {
+            $rawCode = trim($this->lastScannedCode);
+            $this->scannedCode = $rawCode;
+        }
+
         if (empty($rawCode)) {
             return;
         }
 
+        // Clean common barcode gun framing artifacts (trailing bracket, quotes, semicolons)
+        $cleanedCode = trim($rawCode, " \t\n\r\0\x0B[]{}()\"'<>");
+
         // Decode base64 if valid base64
-        $code = $rawCode;
-        $decoded = base64_decode($rawCode, true);
+        $code = $cleanedCode;
+        $decoded = base64_decode($cleanedCode, true);
         if ($decoded !== false && ctype_print($decoded)) {
             $code = trim($decoded);
         }
+
+        $this->lastScannedCode = $code;
 
         // Log scan
         try {
@@ -98,20 +123,18 @@ new class extends Component {
             // Silently ignore log write failures
         }
 
-        $qrExists = DB::table('dts_qr_code')->where('code_id', $code)->exists();
-        if (!$qrExists) {
-            $this->errorMessage = 'Invalid QR Code: Only valid, registered QR codes can be processed by the scanner.';
-            $this->dispatch('scanner-code-invalid');
-            return;
-        }
-
+        // Search by QR Code OR Control Number (supporting raw, cleaned, or decoded format)
         $transaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data') . ' as doc', 'doc.document_path', '=', 'dt.doc_dir')
-            ->where('dt.qr_code', $code)
+            ->where(function($q) use ($code, $cleanedCode, $rawCode) {
+                $candidates = array_unique(array_filter([$code, $cleanedCode, $rawCode]));
+                $q->whereIn('dt.qr_code', $candidates)
+                  ->orWhereIn('dtd.control_number', $candidates);
+            })
             ->select(
                 'dt.transaction_id',
                 'dt.trans_type as type',
@@ -135,7 +158,14 @@ new class extends Component {
             ->first();
 
         if (!$transaction) {
-            $this->errorMessage = 'Inactive QR Code: Code registered in system but not yet linked to any transaction.';
+            $candidates = array_unique(array_filter([$code, $cleanedCode, $rawCode]));
+            $qrExists = DB::table('dts_qr_code')->whereIn('code_id', $candidates)->exists();
+
+            if ($qrExists) {
+                $this->errorMessage = 'Inactive QR Code: Code registered in system but not yet linked to any transaction.';
+            } else {
+                $this->errorMessage = 'Invalid QR Code: Only valid, registered QR codes can be processed by the scanner.';
+            }
             $this->dispatch('scanner-code-invalid');
             return;
         }
@@ -163,12 +193,14 @@ new class extends Component {
         }
 
         if ($transaction->current_office !== $userOfficeCode) {
-            $this->errorMessage = 'That QR code is no longer within your office transaction list.';
+            $currOfficeName = $transaction->current_office_name ?: $transaction->current_office;
+            $this->errorMessage = "That QR code is no longer within your office transaction list. Current station: {$currOfficeName}.";
             $this->dispatch('scanner-code-invalid');
             return;
         }
 
-        $lastLog = DB::table('dts_transaction_logs')
+        $logsTbl = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
+        $lastLog = DB::table($logsTbl)
             ->where('transaction_id', $transaction->transaction_id)
             ->where('office_code', $userOfficeCode)
             ->orderBy('id', 'desc')
@@ -598,6 +630,9 @@ new class extends Component {
                                 \App\Services\DtsNotificationService::notifyCompleted($userOfficeCode, $controlNumber, $transId);
                             }
 
+                            // Hand fully-completed transaction to RDP intake
+                            \App\Services\DtsRdpIntakeService::recordCompleted($transId);
+
                             $this->successMessage = "Transaction '{$this->activeTransaction['control_number']}' marked as COMPLETED!";
                         }
                     }
@@ -608,9 +643,6 @@ new class extends Component {
                 $this->errorMessage = "Transaction '{$this->activeTransaction['control_number']}' has already been received at your office.";
                 return;
             }
-
-            // TEMPORARY: hand a fully-completed transaction to RDP intake.
-            \App\Services\DtsRdpIntakeService::recordCompleted($receiveTransId);
 
             // Clear the scan so the same document cannot be actioned again
             // (e.g. accidentally Forwarding right after Receive).
@@ -627,7 +659,12 @@ new class extends Component {
 ?>
 
 <div>
-    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script src="{{ asset('vendor/html5-qrcode/html5-qrcode.min.js') }}"></script>
+    <script>
+    if (typeof Html5Qrcode === 'undefined') {
+        document.write('<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"><\/script>');
+    }
+    </script>
 
     @if($isOpen)
         <div class="global-scanner-backdrop">
@@ -1165,14 +1202,24 @@ new class extends Component {
                     }
                 }
 
+                let lastModalScannedText = '';
+                let lastModalScanTime = 0;
+
                 Livewire.on('init-camera-scanner', async () => {
-                    const placeholder = document.getElementById('camera-loading-placeholder');
                     const codeInput = document.getElementById('global-scanner-code-input');
                     if (codeInput) {
                         codeInput.focus();
                         codeInput.select();
                     }
 
+                    // Await DOM morph so #modal-qr-preview is present in the DOM
+                    let attempts = 0;
+                    while (!document.getElementById('modal-qr-preview') && attempts < 15) {
+                        await new Promise(r => setTimeout(r, 50));
+                        attempts++;
+                    }
+
+                    const placeholder = document.getElementById('camera-loading-placeholder');
                     if (!document.getElementById('modal-qr-preview')) return;
 
                     // If camera is already actively scanning, keep it running smoothly
@@ -1205,21 +1252,45 @@ new class extends Component {
                             };
                         };
 
-                        await html5QrCode.start(
-                            { facingMode: "environment" },
-                            { 
-                                fps: 20, 
-                                qrbox: calculateQrboxSize
-                            },
-                            (decodedText) => {
-                                if (codeInput) {
-                                    codeInput.value = decodedText;
-                                }
-                                @this.set('scannedCode', decodedText);
-                                @this.loadTransaction();
-                            },
-                            () => {}
-                        );
+                        const onScanSuccess = (decodedText) => {
+                            if (!decodedText) return;
+                            const now = Date.now();
+                            if (decodedText === lastModalScannedText && (now - lastModalScanTime) < 1500) {
+                                return;
+                            }
+                            lastModalScannedText = decodedText;
+                            lastModalScanTime = now;
+
+                            const input = document.getElementById('global-scanner-code-input');
+                            if (input) {
+                                input.value = decodedText;
+                            }
+                            @this.loadTransaction(decodedText);
+                        };
+
+                        try {
+                            await html5QrCode.start(
+                                { facingMode: "environment" },
+                                { 
+                                    fps: 20, 
+                                    qrbox: calculateQrboxSize
+                                },
+                                onScanSuccess,
+                                () => {}
+                            );
+                        } catch (envErr) {
+                            // Fallback to default video camera
+                            await html5QrCode.start(
+                                { facingMode: "user" },
+                                { 
+                                    fps: 20, 
+                                    qrbox: calculateQrboxSize
+                                },
+                                onScanSuccess,
+                                () => {}
+                            );
+                        }
+
                         if (placeholder) placeholder.style.display = 'none';
                     } catch (err) {
                         if (placeholder) {

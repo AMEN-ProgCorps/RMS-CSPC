@@ -18,6 +18,9 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     /** @var string The scanned barcode, QR code or manual control number */
     public string $scannedCode = '';
 
+    /** @var string The last scanned barcode/control code (for re-checks/guards) */
+    public string $lastScannedCode = '';
+
     /** @var array|null Loaded active transaction record */
     public ?array $activeTransaction = null;
 
@@ -63,10 +66,16 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             abort(403, 'Unauthorized access to DTS Scanner.');
         }
 
-        $this->actionOptions = DB::table('dts_action_options')
-            ->orderBy('option_name', 'asc')
-            ->pluck('option_name')
-            ->toArray();
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('dts_action_options')) {
+                $this->actionOptions = DB::table('dts_action_options')
+                    ->orderBy('option_name', 'asc')
+                    ->pluck('option_name')
+                    ->toArray();
+            }
+        } catch (\Throwable $e) {
+            $this->actionOptions = [];
+        }
 
         if (empty($this->actionOptions)) {
             $this->actionOptions = ['For Action', 'For Approval', 'For Review', 'For Signature', 'For Appropriate Action', 'For Information'];
@@ -246,22 +255,36 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     /**
      * Search and load transaction details by scanned QR code or Control Number.
      */
-    public function loadTransaction(): void
+    public function loadTransaction(?string $codeToLoad = null): void
     {
         $this->clearAlerts();
         $this->activeTransaction = null;
 
+        if ($codeToLoad !== null && trim($codeToLoad) !== '') {
+            $this->scannedCode = trim($codeToLoad);
+        }
+
         $rawCode = trim($this->scannedCode);
+        if (empty($rawCode) && !empty($this->lastScannedCode)) {
+            $rawCode = trim($this->lastScannedCode);
+            $this->scannedCode = $rawCode;
+        }
+
         if (empty($rawCode)) {
             return;
         }
 
+        // Clean common barcode gun framing artifacts (trailing bracket, quotes, semicolons)
+        $cleanedCode = trim($rawCode, " \t\n\r\0\x0B[]{}()\"'<>");
+
         // Base64 decode if applicable
-        $code = $rawCode;
-        $decoded = base64_decode($rawCode, true);
+        $code = $cleanedCode;
+        $decoded = base64_decode($cleanedCode, true);
         if ($decoded !== false && ctype_print($decoded)) {
             $code = trim($decoded);
         }
+
+        $this->lastScannedCode = $code;
 
         // File log
         try {
@@ -285,21 +308,18 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             // Silently ignore log write failures
         }
 
-        $qrExists = DB::table('dts_qr_code')->where('code_id', $code)->exists();
-        if (!$qrExists) {
-            $this->errorMessage = 'Invalid QR Code: Only valid, registered QR codes can be processed by the scanner.';
-            $this->dispatch('scanner-audio-error');
-            $this->logSessionScan($rawCode, 'Invalid QR Code', 'error');
-            return;
-        }
-
+        // Search by QR Code OR Control Number (supporting raw, cleaned, or decoded format)
         $transaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data') . ' as doc', 'doc.document_path', '=', 'dt.doc_dir')
-            ->where('dt.qr_code', $code)
+            ->where(function($q) use ($code, $cleanedCode, $rawCode) {
+                $candidates = array_unique(array_filter([$code, $cleanedCode, $rawCode]));
+                $q->whereIn('dt.qr_code', $candidates)
+                  ->orWhereIn('dtd.control_number', $candidates);
+            })
             ->select(
                 'dt.transaction_id',
                 'dt.trans_type as type',
@@ -326,9 +346,18 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             ->first();
 
         if (!$transaction) {
-            $this->errorMessage = 'Inactive QR Code: Code registered in system but not yet linked to any transaction.';
-            $this->dispatch('scanner-audio-error');
-            $this->logSessionScan($rawCode, 'Inactive QR Code', 'warning');
+            $candidates = array_unique(array_filter([$code, $cleanedCode, $rawCode]));
+            $qrExists = DB::table('dts_qr_code')->whereIn('code_id', $candidates)->exists();
+
+            if ($qrExists) {
+                $this->errorMessage = 'Inactive QR Code: Code registered in system but not yet linked to any transaction.';
+                $this->dispatch('scanner-audio-error');
+                $this->logSessionScan($rawCode, 'Inactive QR Code', 'warning');
+            } else {
+                $this->errorMessage = 'Invalid QR Code: Only valid, registered QR codes can be processed by the scanner.';
+                $this->dispatch('scanner-audio-error');
+                $this->logSessionScan($rawCode, 'Invalid QR Code', 'error');
+            }
             return;
         }
 
@@ -359,6 +388,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         // Office Scope Check: Document must currently be assigned to user's office
         if ($transaction->current_office !== $userOfficeCode) {
             $this->errorMessage = 'That QR code is no longer within your office transaction list.';
+            $currOfficeName = $transaction->current_office_name ?: $transaction->current_office;
+            $this->infoMessage = "Document is currently stationed at {$currOfficeName} ({$transaction->current_office}). It must be forwarded to your office before you can take action here.";
             $this->dispatch('scanner-audio-error');
             $this->logSessionScan($code, 'Out of Office Scope', 'error');
             return;
@@ -1528,8 +1559,13 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 </div>
 
 @push('scripts')
-{{-- Include HTML5 QR Code Scanner Library if not present --}}
-<script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+{{-- Include HTML5 QR Code Scanner Library locally with CDN fallback --}}
+<script src="{{ asset('vendor/html5-qrcode/html5-qrcode.min.js') }}"></script>
+<script>
+if (typeof Html5Qrcode === 'undefined') {
+    document.write('<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"><\/script>');
+}
+</script>
 
 <script>
 (function() {
@@ -1595,7 +1631,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
     window.addEventListener('focus-scanner-input', () => {
         const input = document.getElementById('scanner-main-input');
-        if (input) input.focus();
+        if (input) {
+            input.focus();
+            input.select();
+        }
     });
 
     async function stopScanner() {
@@ -1666,7 +1705,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     if (cameraSelectContainer) cameraSelectContainer.style.display = devices.length > 1 ? 'block' : 'none';
                 }
 
-                await startScanning({ deviceId: { exact: activeCameraId } });
+                await startScanning(activeCameraId ? { deviceId: activeCameraId } : { facingMode: "environment" });
             } else {
                 await startScanning({ facingMode: "environment" });
             }
@@ -1703,34 +1742,41 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             aspectRatio: 1.0,
         };
 
-        await html5QrCode.start(
-            cameraConfig,
-            config,
-            (decodedText) => {
-                if (!decodedText) return;
-                const now = Date.now();
-                if (decodedText === lastScannedText && (now - lastScanTime) < 1500) {
-                    return;
-                }
-                lastScannedText = decodedText;
-                lastScanTime = now;
+        const onScanSuccess = (decodedText) => {
+            if (!decodedText) return;
+            const now = Date.now();
+            if (decodedText === lastScannedText && (now - lastScanTime) < 1500) {
+                return;
+            }
+            lastScannedText = decodedText;
+            lastScanTime = now;
 
-                const input = document.getElementById('scanner-main-input');
-                if (input) {
-                    input.value = decodedText;
-                }
-                @this.set('scannedCode', decodedText);
-                @this.loadTransaction();
-            },
-            () => {} // suppress frame decode errors
-        );
+            const input = document.getElementById('scanner-main-input');
+            if (input) {
+                input.value = decodedText;
+            }
+            // Atomically load the scanned code in a single Livewire call
+            @this.loadTransaction(decodedText);
+        };
+
+        try {
+            await html5QrCode.start(cameraConfig, config, onScanSuccess, () => {});
+        } catch (startErr) {
+            console.warn('Initial camera start failed, attempting facingMode fallback:', startErr);
+            if (cameraConfig.deviceId) {
+                // Fallback to environment facingMode
+                await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {});
+            } else {
+                throw startErr;
+            }
+        }
     }
 
     window.switchCamera = async function(cameraId) {
         if (!isScanning || !html5QrCode) return;
         try {
             await html5QrCode.stop();
-            await startScanning({ deviceId: { exact: cameraId } });
+            await startScanning(cameraId ? { deviceId: cameraId } : { facingMode: "environment" });
             activeCameraId = cameraId;
         } catch (e) {
             console.error('Failed to switch camera:', e);

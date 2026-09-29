@@ -412,8 +412,12 @@ new #[Layout('layouts.portal')] #[Title('Track Document')] class extends Compone
             }
         }
     });
+<script src="{{ asset('vendor/html5-qrcode/html5-qrcode.min.js') }}"></script>
+<script>
+if (typeof Html5Qrcode === 'undefined') {
+    document.write('<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"><\/script>');
+}
 </script>
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script>
 (function() {
     let publicHtml5QrCode = null;

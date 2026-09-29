@@ -87,7 +87,7 @@ class ReportTemplateHelper
         $footerEffectivity = '';
         if ($effectivityRaw !== '') {
             try {
-                $footerEffectivity = \Carbon\Carbon::parse($effectivityRaw)->format('F Y');
+                $footerEffectivity = RegisterQueryHelper::formatSmartDate($effectivityRaw, '', true);
             } catch (\Throwable $e) {
                 $footerEffectivity = $effectivityRaw;
             }

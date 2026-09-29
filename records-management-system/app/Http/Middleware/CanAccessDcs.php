@@ -56,7 +56,7 @@ class CanAccessDcs
         }
 
         // Iframe PDF preview — never bounce to the portal (looks like a blank/wrong page).
-        if ($request->is('dcs/view-document', 'dts/view-document')
+        if ($request->is('dcs/view-document', 'dcs/view-document/*', 'dts/view-document')
             || str_starts_with(ltrim($request->path(), '/'), 'dcs/api/signed-scan-url')) {
             abort($reason === 'unauthenticated' ? 401 : 403, $message);
         }

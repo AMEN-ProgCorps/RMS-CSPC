@@ -2037,6 +2037,7 @@ body.dash-cl-open {
 .ev-modal-icon.is-add  { background: var(--dash-accent-subtle); color: var(--dash-accent); }
 .ev-modal-icon.is-edit { background: var(--dash-amber-bg); color: var(--dash-amber); }
 .ev-modal-icon.is-view { background: #f0f9ff; color: #0284c7; }
+.ev-modal-icon.is-delete { background: #fef2f2; color: #dc2626; }
 
 .ev-modal-close {
     width: 36px;

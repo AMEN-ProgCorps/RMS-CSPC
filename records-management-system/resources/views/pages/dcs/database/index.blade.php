@@ -150,10 +150,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'Dist. Actual Time',
             'Receiving Office(s)',
             'Scanned Dist.',
-            'Retrieval On File',
-            'Retrieval Actual',
             'Retrieved Office(s)',
-            'Scanned Ret.',
         ];
 
         $mainIndexes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 21];
@@ -542,6 +539,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     return $catCompare;
                 }
 
+                // Keep sequential document numbers together (CSPC-PM-01, CSPC-PM-02, …).
+                $docA = (string) ($a['parent']['doc_no'] ?? $a['doc_no'] ?? '');
+                $docB = (string) ($b['parent']['doc_no'] ?? $b['doc_no'] ?? '');
+                $byDoc = strnatcasecmp($docA, $docB);
+                if ($byDoc !== 0) {
+                    return $byDoc;
+                }
+
                 return ($b['parent']['request_id'] ?? 0) <=> ($a['parent']['request_id'] ?? 0);
             })->values();
 
@@ -656,6 +661,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $status = $isDeleted
             ? 'Deleted'
             : $this->revisionStatusLabel($ml?->revision_status ?? null);
+        $allowsRevision = RegisterQueryHelper::supportsAllowsRevisionColumn()
+            ? (bool) ($ml?->allows_revision ?? true)
+            : RegisterQueryHelper::effectiveTypeAllowsRevision($doc->doc_type_id, $doc->sub_type_id);
+        $docNo = $ml ? trim((string) $ml->doc_no) : '';
+        $canEdit = ! $isDeleted;
+        $canRevise = $canEdit
+            && $allowsRevision
+            && $docNo !== ''
+            && strtolower((string) $status) === 'latest';
+        $reviseParams = [
+            'type' => 'revised',
+            'from_id' => $doc->id,
+            'from_doc_no' => $docNo,
+            'doc_type_id' => $doc->doc_type_id,
+        ];
+        if (! empty($doc->sub_type_id)) {
+            $reviseParams['sub_type_id'] = $doc->sub_type_id;
+        }
 
         return [
             'request_id' => $doc->id,
@@ -665,13 +688,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'doc_no' => $ml ? $ml->doc_no : 'N/A',
             'rev_no' => $ml ? (int) $ml->revise_no : 0,
             'title' => ($ml && $ml->doc_title) ? $ml->doc_title : (($drf && $drf->doc_title) ? $drf->doc_title : 'N/A'),
-            'effectivity' => ($ml && $ml->effectivity_date) ? Carbon::parse($ml->effectivity_date)->format('M d, Y') : null,
+            'effectivity' => ($ml && $ml->effectivity_date) ? RegisterQueryHelper::formatSmartDate($ml->effectivity_date) : null,
             'originator' => $ml?->originator_name,
             'pages' => $ml?->no_pages,
             'status' => $status,
-            'allows_revision' => RegisterQueryHelper::supportsAllowsRevisionColumn()
-                ? (bool) ($ml->allows_revision ?? true)
-                : RegisterQueryHelper::effectiveTypeAllowsRevision($doc->doc_type_id, $doc->sub_type_id),
+            'allows_revision' => $allowsRevision,
+            'can_edit' => $canEdit,
+            'can_revise' => $canRevise,
+            'edit_url' => $canEdit ? route('dcs.register.edit', $doc->id, false) : null,
+            'revise_url' => $canRevise ? route('dcs.register.create', $reviseParams, false) : null,
             'is_deleted' => $isDeleted,
             'deleted_at' => $isDeleted ? Carbon::parse($doc->deleted_at)->format('M d, Y h:i A') : null,
             'revised_from_doc_no' => $ml->revised_from_doc_no ?? null,
@@ -683,36 +708,33 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ])->values() : [],
             'syllabi_courses' => $syllabiCourses,
             'approval_no' => $appr?->approval_no,
-            'approval_date' => ($appr && $appr->approval_date) ? Carbon::parse($appr->approval_date)->format('M d, Y') : null,
-            'deadline_date' => ($ml && $ml->deadline) ? Carbon::parse($ml->deadline)->format('M d, Y') : null,
+            'approval_date' => ($appr && $appr->approval_date) ? RegisterQueryHelper::formatSmartDate($appr->approval_date) : null,
+            'deadline_date' => ($ml && $ml->deadline) ? RegisterQueryHelper::formatSmartDate($ml->deadline) : 'N/A',
             'deadline_diff' => $deadlineDiff !== null ? $deadlineDiff . ' days' : null,
-            'ml_receipt_date' => ($ml && $ml->doc_receipt_date) ? Carbon::parse($ml->doc_receipt_date)->format('M d, Y') : null,
+            'ml_receipt_date' => ($ml && $ml->doc_receipt_date) ? RegisterQueryHelper::formatSmartDate($ml->doc_receipt_date) : null,
             'ml_receipt_time' => $ml && $ml->doc_receipt_time ? $this->formatTime($ml->doc_receipt_time) : null,
-            'ml_register_date' => ($ml && $ml->doc_registered_date) ? Carbon::parse($ml->doc_registered_date)->format('M d, Y') : null,
+            'ml_register_date' => ($ml && $ml->doc_registered_date) ? RegisterQueryHelper::formatSmartDate($ml->doc_registered_date) : null,
             'ml_register_time' => $ml && $ml->doc_registered_time ? $this->formatTime($ml->doc_registered_time) : null,
             'ml_time_spent' => ($ml && $ml->time_spent !== null && $ml->time_spent !== '') ? (int) $ml->time_spent : null,
             'dcn_no' => $dcn?->dcn_no,
-            'dcn_date' => ($dcn && $dcn->dcn_date) ? Carbon::parse($dcn->dcn_date)->format('M d, Y') : null,
-            'dcn_receipt_date' => ($dcn && $dcn->dcn_receipt_date) ? Carbon::parse($dcn->dcn_receipt_date)->format('M d, Y') : null,
+            'dcn_date' => ($dcn && $dcn->dcn_date) ? RegisterQueryHelper::formatSmartDate($dcn->dcn_date) : null,
+            'dcn_receipt_date' => ($dcn && $dcn->dcn_receipt_date) ? RegisterQueryHelper::formatSmartDate($dcn->dcn_receipt_date) : null,
             'dcn_receipt_time' => $dcn && $dcn->dcn_receipt_time ? $this->formatTime($dcn->dcn_receipt_time) : null,
             'dcn_purpose' => $dcnPurpose,
             'dcn_scan' => ($dcn && $dcn->scanned_dcn) ? RegisterQueryHelper::scanUrl($dcn->scanned_dcn) : null,
             'drf_no' => $drf?->drf_no,
-            'drf_date' => ($drf && $drf->drf_date) ? Carbon::parse($drf->drf_date)->format('M d, Y') : null,
-            'drf_receipt_date' => ($drf && $drf->drf_receipt_date) ? Carbon::parse($drf->drf_receipt_date)->format('M d, Y') : null,
+            'drf_date' => ($drf && $drf->drf_date) ? RegisterQueryHelper::formatSmartDate($drf->drf_date) : null,
+            'drf_receipt_date' => ($drf && $drf->drf_receipt_date) ? RegisterQueryHelper::formatSmartDate($drf->drf_receipt_date) : null,
             'drf_receipt_time' => $drf && $drf->drf_receipt_time ? $this->formatTime($drf->drf_receipt_time) : null,
             'drf_scan' => ($drf && $drf->scanned_drf) ? RegisterQueryHelper::scanUrl($drf->scanned_drf) : null,
-            'dist_onfile_date' => ($dist && $dist->doc_distribution_date_file) ? Carbon::parse($dist->doc_distribution_date_file)->format('M d, Y') : null,
+            'dist_onfile_date' => ($dist && $dist->doc_distribution_date_file) ? RegisterQueryHelper::formatSmartDate($dist->doc_distribution_date_file) : null,
             'dist_onfile_time' => $dist && $dist->doc_distribution_time_file ? $this->formatTime($dist->doc_distribution_time_file) : null,
-            'dist_actual_date' => ($dist && $dist->doc_distribution_date_actual) ? Carbon::parse($dist->doc_distribution_date_actual)->format('M d, Y') : null,
+            'dist_actual_date' => ($dist && $dist->doc_distribution_date_actual) ? RegisterQueryHelper::formatSmartDate($dist->doc_distribution_date_actual) : null,
             'dist_actual_time' => $dist && $dist->doc_distribution_time_actual ? $this->formatTime($dist->doc_distribution_time_actual) : null,
             'dist_offices' => $distOffices,
             'dist_office_ids' => $distOfficeIds,
             'dist_scan' => ($dist && $dist->scanned_distribution) ? RegisterQueryHelper::scanUrl($dist->scanned_distribution) : null,
-            'ret_onfile' => ($ret && $ret->doc_retrieval_date_file) ? Carbon::parse($ret->doc_retrieval_date_file)->format('M d, Y') : null,
-            'ret_actual' => ($ret && $ret->doc_retrieval_date_actual) ? Carbon::parse($ret->doc_retrieval_date_actual)->format('M d, Y') : null,
             'ret_offices' => $retOffices,
-            'ret_scan' => ($ret && $ret->scanned_retrieval) ? RegisterQueryHelper::scanUrl($ret->scanned_retrieval) : null,
         ];
     }
 
@@ -906,10 +928,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $r['dist_actual_time'] ?? '',
             $r['dist_offices'] ?? '',
             $this->exportFileUrl($r['dist_scan'] ?? null),
-            $r['ret_onfile'] ?? '',
-            $r['ret_actual'] ?? '',
             $r['ret_offices'] ?? '',
-            $this->exportFileUrl($r['ret_scan'] ?? null),
         ];
     }
 
@@ -960,6 +979,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     notice: @js($notice),
     groupLabels: @js($groupLabels ?? []),
     groupMenu: { open: false, x: 0, y: 0, group: null },
+    rowMenu: { open: false, x: 0, y: 0, editUrl: '', reviseUrl: '', canEdit: false, canRevise: false, label: '' },
     open: { approval: true, deadline: true, masterlist: true, dcn: true, drf: true, distribution: true, retrieval: true },
     visible: @js($visibleGroups),
     forceDistributionOpen: @js($forceDistributionOpen),
@@ -1129,10 +1149,43 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         x = Math.max(8, Math.min(x, window.innerWidth - menuW - 8));
         y = Math.max(8, Math.min(y, window.innerHeight - menuH - 8));
         this.groupMenu = { open: true, x, y, group };
+        this.closeRowMenu();
     },
     closeGroupMenu() {
         this.groupMenu.open = false;
         this.groupMenu.group = null;
+    },
+    openRowMenu(e, row) {
+        if (!row || (!row.canEdit && !row.canRevise)) {
+            return;
+        }
+        this.closeGroupMenu();
+        const menuW = 220;
+        const menuH = 96;
+        let x = e.clientX;
+        let y = e.clientY;
+        x = Math.max(8, Math.min(x, window.innerWidth - menuW - 8));
+        y = Math.max(8, Math.min(y, window.innerHeight - menuH - 8));
+        this.rowMenu = {
+            open: true,
+            x,
+            y,
+            editUrl: row.editUrl || '',
+            reviseUrl: row.reviseUrl || '',
+            canEdit: !!row.canEdit,
+            canRevise: !!row.canRevise,
+            label: row.label || '',
+        };
+    },
+    closeRowMenu() {
+        this.rowMenu.open = false;
+    },
+    goRowAction(url) {
+        if (!url) {
+            return;
+        }
+        this.closeRowMenu();
+        window.location.href = url;
     },
     hideGroupFromMenu() {
         const g = this.groupMenu.group;
@@ -1385,7 +1438,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <th colspan="{{ $groupColspans['distribution'] ?? 6 }}" class="col-group-distribution col-group-expanded db-group-header" x-show="visible.distribution && open.distribution" x-on:click="toggle('distribution')" @contextmenu.prevent="openGroupMenu($event, 'distribution')">DISTRIBUTION <span class="collapse-arrow">&#9664;</span></th>
 
                         <th rowspan="3" class="col-group-summary db-group-header" data-group="retrieval" x-show="visible.retrieval && !open.retrieval" x-on:click="toggle('retrieval')" @contextmenu.prevent="openGroupMenu($event, 'retrieval')">RETRIEVAL <span class="collapse-arrow">&#9654;</span></th>
-                        <th colspan="{{ $groupColspans['retrieval'] ?? 4 }}" class="col-group-retrieval col-group-expanded db-group-header" x-show="visible.retrieval && open.retrieval" x-on:click="toggle('retrieval')" @contextmenu.prevent="openGroupMenu($event, 'retrieval')">RETRIEVAL <span class="collapse-arrow">&#9664;</span></th>
+                        <th rowspan="3" class="col-group-retrieval col-group-expanded db-group-header db-offices-col" x-show="visible.retrieval && open.retrieval" x-on:click="toggle('retrieval')" @contextmenu.prevent="openGroupMenu($event, 'retrieval')">RETRIEVED OFFICE(S) <span class="collapse-arrow">&#9664;</span></th>
                     </tr>
 
                     <tr class="db-head-secondary">
@@ -1408,9 +1461,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <th colspan="2" class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DISTRIBUTION (ACTUAL)</th>
                         <th rowspan="2" class="col-group-distribution col-group-expanded db-offices-col" x-show="visible.distribution && open.distribution">RECEIVING OFFICE(S)</th>
                         <th rowspan="2" class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">SCANNED DIST.</th>
-                        <th colspan="2" class="col-group-retrieval col-group-expanded" x-show="visible.retrieval && open.retrieval">DATE</th>
-                        <th rowspan="2" class="col-group-retrieval col-group-expanded db-offices-col" x-show="visible.retrieval && open.retrieval">RETRIEVED OFFICE(S)</th>
-                        <th rowspan="2" class="col-group-retrieval col-group-expanded" x-show="visible.retrieval && open.retrieval">SCANNED RET.</th>
                     </tr>
 
                     <tr class="db-head-tertiary">
@@ -1428,8 +1478,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">TIME</th>
                         <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">DATE</th>
                         <th class="col-group-distribution col-group-expanded" x-show="visible.distribution && open.distribution">TIME</th>
-                        <th class="col-group-retrieval col-group-expanded" x-show="visible.retrieval && open.retrieval">ON FILE</th>
-                        <th class="col-group-retrieval col-group-expanded" x-show="visible.retrieval && open.retrieval">ACTUAL</th>
                     </tr>
                 </thead>
 
@@ -1442,6 +1490,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             $catSlug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $catName));
                             $itemNo = (int) ($group['type_seq'] ?? ((($list['page'] ?? 1) - 1) * ($list['per_page'] ?? 50) + $i + 1));
                             $revKey = 'rev-' . $r['request_id'];
+                            $rowActions = [
+                                'editUrl' => $r['edit_url'] ?? '',
+                                'reviseUrl' => $r['revise_url'] ?? '',
+                                'canEdit' => ! empty($r['can_edit']),
+                                'canRevise' => ! empty($r['can_revise']),
+                                'label' => ($r['doc_no'] ?? 'Document') . ' · Rev ' . ($r['rev_no'] ?? 0),
+                            ];
                         @endphp
 
                         @if($catName !== $lastCategory)
@@ -1456,7 +1511,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             @php $lastCategory = $catName; @endphp
                         @endif
 
-                        <tr class="db-parent-row @if(!empty($r['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}']" @if(!empty($r['is_deleted'])) title="Moved to Recycle Bin{{ !empty($r['deleted_at']) ? ' on ' . $r['deleted_at'] : '' }}" @endif>
+                        <tr class="db-parent-row @if(!empty($r['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}']" @contextmenu.prevent='openRowMenu($event, @json($rowActions))' @if(!empty($r['is_deleted'])) title="Moved to Recycle Bin{{ !empty($r['deleted_at']) ? ' on ' . $r['deleted_at'] : '' }}" @endif>
                             <td>
                                 @if(!empty($group['children']))
                                     <span class="db-expand-btn" :class="{ expanded: expandedRevs['{{ $revKey }}'] }" x-on:click.stop="toggleRev('{{ $revKey }}')" title="Show {{ $group['stack_label'] ?? 'older revisions' }}" x-text="expandedRevs['{{ $revKey }}'] ? '▼' : '▶'"></span>
@@ -1483,7 +1538,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         @endif
 
                         @foreach($group['children'] ?? [] as $ci => $child)
-                            <tr class="db-child-row @if(!empty($child['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}'] && expandedRevs['{{ $revKey }}']" @if(!empty($child['is_deleted'])) title="Moved to Recycle Bin{{ !empty($child['deleted_at']) ? ' on ' . $child['deleted_at'] : '' }}" @endif>
+                            @php
+                                $childActions = [
+                                    'editUrl' => $child['edit_url'] ?? '',
+                                    'reviseUrl' => $child['revise_url'] ?? '',
+                                    'canEdit' => ! empty($child['can_edit']),
+                                    'canRevise' => ! empty($child['can_revise']),
+                                    'label' => ($child['doc_no'] ?? 'Document') . ' · Rev ' . ($child['rev_no'] ?? 0),
+                                ];
+                            @endphp
+                            <tr class="db-child-row @if(!empty($child['is_deleted'])) db-deleted-row @endif" x-show="categories['{{ $catSlug }}'] && expandedRevs['{{ $revKey }}']" @contextmenu.prevent='openRowMenu($event, @json($childActions))' @if(!empty($child['is_deleted'])) title="Moved to Recycle Bin{{ !empty($child['deleted_at']) ? ' on ' . $child['deleted_at'] : '' }}" @endif>
                                 <td class="db-child-ind"></td>
                                 @include('pages.dcs.database._row', ['r' => $child])
                             </tr>
@@ -1532,6 +1596,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
              @click.stop>
             <button type="button" @click="hideGroupFromMenu()">
                 Hide <span x-text="groupLabels[groupMenu.group] || groupMenu.group"></span> group
+            </button>
+        </div>
+    </template>
+
+    <template x-teleport="body">
+        <div class="db-col-context-menu db-row-context-menu" x-show="rowMenu.open" x-cloak
+             :style="'left:' + rowMenu.x + 'px;top:' + rowMenu.y + 'px'"
+             @click.outside="closeRowMenu()"
+             @click.stop>
+            <div class="db-row-context-label" x-show="rowMenu.label" x-text="rowMenu.label"></div>
+            <button type="button" x-show="rowMenu.canEdit" @click="goRowAction(rowMenu.editUrl)">
+                <i class="fa-solid fa-pen"></i> Edit
+            </button>
+            <button type="button" x-show="rowMenu.canRevise" @click="goRowAction(rowMenu.reviseUrl)">
+                <i class="fa-solid fa-file-pen"></i> Register revised
             </button>
         </div>
     </template>

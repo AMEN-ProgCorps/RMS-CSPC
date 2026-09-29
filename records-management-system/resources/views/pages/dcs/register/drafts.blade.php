@@ -20,15 +20,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public ?int $deleteId = null;
     public string $deleteTitle = '';
     public int $deleteRev = 0;
-    public string $deleteReason = '';
-    public string $deleteError = '';
 
     public function with(): array
     {
         return [
             'docTypes' => RegisterQueryHelper::parentDocTypes(),
             'list' => RegisterQueryHelper::draftList($this->search, $this->docTypeId, $this->page),
-            'canReviewRecycleBin' => RegisterQueryHelper::isDocumentControlHead(),
         ];
     }
 
@@ -59,8 +56,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->deleteId = $id;
         $this->deleteTitle = $title;
         $this->deleteRev = $rev;
-        $this->deleteReason = '';
-        $this->deleteError = '';
     }
 
     public function closeDelete(): void
@@ -68,8 +63,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->deleteId = null;
         $this->deleteTitle = '';
         $this->deleteRev = 0;
-        $this->deleteReason = '';
-        $this->deleteError = '';
     }
 
     public function destroy(): void
@@ -78,19 +71,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             return;
         }
 
-        $reason = trim(preg_replace('/\s+/u', ' ', $this->deleteReason) ?? '');
-        if ($reason === '' || mb_strlen($reason) < 5) {
-            $this->deleteError = 'Please enter a delete reason (at least 5 characters).';
-
-            return;
-        }
-        if (mb_strlen($reason) > 1000) {
-            $this->deleteError = 'Delete reason must be 1000 characters or fewer.';
-
-            return;
-        }
-
-        $response = RegisterUpdateHelper::destroy($this->deleteId, $reason);
+        $response = RegisterUpdateHelper::destroyDraftPermanently($this->deleteId);
         if ($response instanceof RedirectResponse) {
             $this->redirect($response->getTargetUrl(), navigate: true);
         }
@@ -202,31 +183,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     <div id="deleteModal" class="upd-modal-overlay" style="display:flex;">
         <div class="upd-modal upd-modal-wide">
             <div class="upd-modal-icon upd-modal-icon-recycle"><i class="fa-solid fa-trash-can"></i></div>
-            <h3>Delete Draft?</h3>
+            <h3>Delete Draft Permanently?</h3>
             <p>
-                This will move <strong>{{ $deleteTitle }}</strong> to the Recycle Bin
-                for HEAD Admin of DCS review. It is not permanently deleted.
-                @if($canReviewRecycleBin)
-                    You can review it in the
-                    <a href="{{ route('dcs.recycle-bin', absolute: false) }}" class="upd-modal-link">Recycle Bin</a>.
-                @else
-                    Only the HEAD Admin of DCS can review it in the Recycle Bin or permanently delete it.
-                @endif
+                This will permanently delete the draft
+                <strong>{{ $deleteTitle }}</strong>@if($deleteRev !== null) (Rev {{ $deleteRev }})@endif.
+                The registered document is not a draft and will not be deleted.
             </p>
-            <div class="upd-modal-field">
-                <label for="updDraftDeleteReason">Delete reason <span>*</span></label>
-                <textarea id="updDraftDeleteReason" class="upd-modal-textarea" rows="3"
-                    wire:model="deleteReason"
-                    placeholder="Explain why this draft is being deleted..."
-                    maxlength="1000"></textarea>
-                @if($deleteError !== '')
-                    <div class="upd-modal-error">{{ $deleteError }}</div>
-                @endif
-            </div>
             <div class="upd-modal-actions">
                 <button type="button" class="upd-modal-btn upd-modal-cancel" wire:click="closeDelete">Cancel</button>
                 <button type="button" class="upd-modal-btn upd-modal-confirm" wire:click="destroy" wire:loading.attr="disabled">
-                    <i class="fa-solid fa-trash-can"></i> Move to Recycle Bin
+                    <i class="fa-solid fa-trash-can"></i> Delete permanently
                 </button>
             </div>
         </div>

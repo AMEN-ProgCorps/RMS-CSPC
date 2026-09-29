@@ -191,8 +191,10 @@
         .hdr-rule-line {
             flex: 1 1 auto !important;
             min-width: 0 !important;
-            height: 3px !important;
-            background: #0071BC !important;
+            height: 2.5pt !important;
+            min-height: 2.5pt !important;
+            max-height: 2.5pt !important;
+            background: #0070C0 !important;
             border: none !important;
             margin: 0 !important;
             padding: 0 !important;
@@ -417,29 +419,31 @@
 
         /* Signature table */
         .sig-table {
-            width: 7.58in !important;
+            width: 7.57in !important;
             max-width: 100% !important;
             border-collapse: collapse !important;
             table-layout: fixed !important;
             margin: 0 !important;
             font-family: Arial, Helvetica, sans-serif !important;
             font-size: 11pt !important;
-            line-height: 1 !important;
+            line-height: 1.0 !important;
             background: transparent !important;
         }
         .sig-table col.c1 { width: 1.01in !important; }
-        .sig-table col.c2 { width: 1.88in !important; }
+        .sig-table col.c2 { width: 1.87in !important; }
         .sig-table col.c3 { width: 2.50in !important; }
         .sig-table col.c4 { width: 2.19in !important; }
         .sig-table th,
         .sig-table td {
-            border: 1px solid #000 !important;
+            border: 0.5pt solid #000 !important;
             height: 0.2in !important;
+            min-height: 0.2in !important;
             max-height: 0.2in !important;
             padding: 0 3px !important;
             vertical-align: middle !important;
-            line-height: 1 !important;
+            line-height: 1.0 !important;
             overflow: hidden !important;
+            white-space: nowrap !important;
             background: transparent !important;
             background-color: transparent !important;
             color: #000 !important;
@@ -451,7 +455,6 @@
         }
         .sig-table .col-c {
             text-align: center !important;
-            font-size: 11pt !important;
             font-weight: 400 !important;
         }
         .sig-table thead th {
@@ -460,14 +463,12 @@
             text-align: center !important;
         }
         .sig-table .name-bold {
-            font-size: 10pt !important;
             font-weight: 700 !important;
             text-transform: uppercase !important;
             text-align: center !important;
             background: transparent !important;
         }
         .sig-table .desig {
-            font-size: 11pt !important;
             font-weight: 400 !important;
             text-align: center !important;
             background: transparent !important;
@@ -476,32 +477,30 @@
             text-align: center !important;
             white-space: nowrap !important;
             overflow: hidden !important;
+            max-width: 0 !important;
             padding: 0 2px !important;
         }
         .sig-table .sig-fit {
             display: inline-block !important;
-            max-width: 100% !important;
             white-space: nowrap !important;
             line-height: 1 !important;
             vertical-align: middle !important;
-        }
-        .sig-table .sig-fit.name-bold {
-            font-size: 10pt !important;
+            max-width: 100% !important;
         }
         .sig-table .sig-fit.desig,
         .sig-table .sig-fit.col-c {
-            font-size: 11pt !important;
             font-weight: 400 !important;
             text-transform: none !important;
         }
 
         .footer-rule {
             border: none !important;
-            border-top: 3px solid #0071BC !important;
-            margin: 7px 0 0 !important;
+            margin: 7px calc(-0.5in + 0.35in) 0 calc(-0.5in + 0.4in) !important;
             padding: 0 !important;
-            height: 0 !important;
-            background: transparent !important;
+            height: 2.5pt !important;
+            min-height: 2.5pt !important;
+            max-height: 2.5pt !important;
+            background: #0070C0 !important;
         }
         .footer {
             display: flex !important;
@@ -545,7 +544,7 @@
         }
         .attach-table th,
         .attach-table td {
-            border: 1px solid #000 !important;
+            border: 0.5pt solid #000 !important;
             padding: 0 4px !important;
             vertical-align: middle !important;
             text-align: left !important;
@@ -678,13 +677,21 @@
                 border-bottom: 1px solid #000 !important;
             }
             .hdr-rule-line {
-                height: 3px !important;
-                background: #0071BC !important;
+                height: 2.5pt !important;
+                min-height: 2.5pt !important;
+                max-height: 2.5pt !important;
+                background: #0070C0 !important;
                 -webkit-print-color-adjust: exact !important;
                 print-color-adjust: exact !important;
             }
             .footer-rule {
-                border-top: 3px solid #0071BC !important;
+                border: none !important;
+                height: 2.5pt !important;
+                min-height: 2.5pt !important;
+                max-height: 2.5pt !important;
+                background: #0070C0 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
             }
         }
     </style>
@@ -754,6 +761,27 @@
     $reviewedDesig = trim((string) ($drf->reviewed_by_designation ?? ''));
     $approvedName = trim((string) ($drf->approved_by_name ?? ''));
     $approvedDesig = trim((string) ($drf->approved_by_designation ?? ''));
+
+    $sigFitPt = static function (string $text, float $cellIn, float $startPt, bool $bold = false): float {
+        $text = trim($text);
+        if ($text === '') {
+            return $startPt;
+        }
+        $avgEm = $bold ? 0.84 : 0.68;
+        $usablePt = max(16.0, ($cellIn * 72) - 8);
+        $needed = mb_strlen($text) * $startPt * $avgEm;
+        if ($needed <= $usablePt) {
+            return $startPt;
+        }
+
+        return max(5.0, round($startPt * ($usablePt / $needed), 2));
+    };
+    $preparedNamePt = $sigFitPt($preparedName, 1.87, 11, true);
+    $reviewedNamePt = $sigFitPt($reviewedName, 2.50, 11, true);
+    $approvedNamePt = $sigFitPt($approvedName, 2.19, 11, true);
+    $preparedDesigPt = $sigFitPt($preparedDesig, 1.87, 11, false);
+    $reviewedDesigPt = $sigFitPt($reviewedDesig, 2.50, 11, false);
+    $approvedDesigPt = $sigFitPt($approvedDesig, 2.19, 11, false);
 
     $docTitle = trim((string) ($drf->doc_title ?? ''));
     $drfDate = $drf->drf_date
@@ -877,15 +905,15 @@
                 </tr>
                 <tr>
                     <td class="row-label">Name</td>
-                    <td class="sig-fit-cell"><span class="sig-fit name-bold" data-sig-fit data-fit-pt="10">{{ $preparedName }}</span></td>
-                    <td class="sig-fit-cell"><span class="sig-fit name-bold" data-sig-fit data-fit-pt="10">{{ $reviewedName }}</span></td>
-                    <td class="sig-fit-cell"><span class="sig-fit name-bold" data-sig-fit data-fit-pt="10">{{ $approvedName }}</span></td>
+                    <td class="sig-fit-cell"><span class="sig-fit name-bold" data-sig-fit data-fit-width="1.87" data-fit-base="11" data-fit-pt="{{ $preparedNamePt }}" style="font-size: {{ $preparedNamePt }}pt !important;">{{ $preparedName }}</span></td>
+                    <td class="sig-fit-cell"><span class="sig-fit name-bold" data-sig-fit data-fit-width="2.50" data-fit-base="11" data-fit-pt="{{ $reviewedNamePt }}" style="font-size: {{ $reviewedNamePt }}pt !important;">{{ $reviewedName }}</span></td>
+                    <td class="sig-fit-cell"><span class="sig-fit name-bold" data-sig-fit data-fit-width="2.19" data-fit-base="11" data-fit-pt="{{ $approvedNamePt }}" style="font-size: {{ $approvedNamePt }}pt !important;">{{ $approvedName }}</span></td>
                 </tr>
                 <tr>
                     <td class="row-label">Designation</td>
-                    <td class="sig-fit-cell"><span class="sig-fit col-c" data-sig-fit data-fit-pt="11">{{ $preparedDesig }}</span></td>
-                    <td class="sig-fit-cell"><span class="sig-fit desig" data-sig-fit data-fit-pt="11">{{ $reviewedDesig }}</span></td>
-                    <td class="sig-fit-cell"><span class="sig-fit desig" data-sig-fit data-fit-pt="11">{{ $approvedDesig }}</span></td>
+                    <td class="sig-fit-cell"><span class="sig-fit col-c" data-sig-fit data-fit-width="1.87" data-fit-base="11" data-fit-pt="{{ $preparedDesigPt }}" style="font-size: {{ $preparedDesigPt }}pt !important;">{{ $preparedDesig }}</span></td>
+                    <td class="sig-fit-cell"><span class="sig-fit desig" data-sig-fit data-fit-width="2.50" data-fit-base="11" data-fit-pt="{{ $reviewedDesigPt }}" style="font-size: {{ $reviewedDesigPt }}pt !important;">{{ $reviewedDesig }}</span></td>
+                    <td class="sig-fit-cell"><span class="sig-fit desig" data-sig-fit data-fit-width="2.19" data-fit-base="11" data-fit-pt="{{ $approvedDesigPt }}" style="font-size: {{ $approvedDesigPt }}pt !important;">{{ $approvedDesig }}</span></td>
                 </tr>
                 <tr>
                     <td class="row-label">Date</td>
@@ -973,17 +1001,31 @@
 <script>
 function ofiFitSigText() {
     document.querySelectorAll('[data-sig-fit]').forEach(function (el) {
-        var cell = el.parentElement;
-        if (!cell) return;
-        var startPt = parseFloat(el.getAttribute('data-fit-pt') || '10') || 10;
-        var maxPx = startPt * 96 / 72;
-        var minPx = 5 * 96 / 72;
-        el.style.fontSize = maxPx + 'px';
-        var guard = 48;
-        while (guard-- > 0 && el.scrollWidth > cell.clientWidth && maxPx > minPx) {
-            maxPx -= 0.25;
-            el.style.fontSize = maxPx + 'px';
+        var text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!text) return;
+        var widthIn = parseFloat(el.getAttribute('data-fit-width') || '0') || 0;
+        var avail = widthIn > 0
+            ? (widthIn * 96) - 8
+            : Math.max(8, ((el.closest('td') || el.parentElement).clientWidth || 0) - 6);
+        var basePt = 11;
+        var lo = 4.5;
+        var hi = basePt;
+        var best = lo;
+        el.style.whiteSpace = 'nowrap';
+        el.style.maxWidth = 'none';
+        el.style.transform = 'none';
+        for (var i = 0; i < 22; i++) {
+            var mid = (lo + hi) / 2;
+            el.style.setProperty('font-size', mid + 'pt', 'important');
+            if (el.scrollWidth <= avail) {
+                best = mid;
+                lo = mid;
+            } else {
+                hi = mid;
+            }
         }
+        el.style.setProperty('font-size', best + 'pt', 'important');
+        el.style.maxWidth = '100%';
     });
 }
 

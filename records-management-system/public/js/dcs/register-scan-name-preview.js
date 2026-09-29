@@ -2,6 +2,7 @@
  * Live preview of DCS scan file naming convention.
  * Mirrors RegisterPersistHelper::buildScanBasename:
  *   {Y-m-d}_{FORM}_{DOCTYPE}_{Title}_Rev{N}.pdf
+ *   D&R: {Y-m-d}_D&R_{Title}_Rev{N}.pdf (Rev from masterlist)
  *
  * FORM tokens: DRF | DOC | D&R | DCN | DRR
  */
@@ -28,12 +29,6 @@
             fileIds: ['uploadScannedCopy'],
         },
         {
-            key: 'retrieval',
-            formToken: 'DRR',
-            dateIds: ['retrievalDate', 'retrievalFormDate'],
-            fileIds: ['scannedRet'],
-        },
-        {
             key: 'distribution',
             formToken: 'D&R',
             dateIds: ['distributionFormDate'],
@@ -50,8 +45,6 @@
         'masterlistEffectivityDate',
         'masterlistRevisionNo',
         'syllabiDocTitle',
-        'retrievalDate',
-        'retrievalFormDate',
         'distributionFormDate',
     ];
 
@@ -135,6 +128,9 @@
         const typeCode = parentDocTypeCode();
         const titlePart = titleToScanSegment(syncedDocTitle());
         const rev = resolveReviseNo();
+        if (formToken === 'D&R') {
+            return `${datePart}_${formToken}_${titlePart}_Rev${rev}`;
+        }
         return `${datePart}_${formToken}_${typeCode}_${titlePart}_Rev${rev}`;
     }
 

@@ -2,6 +2,8 @@
     $enableTopTabs = auth()->user()?->enableTopTabs() ?? true;
     $isLimitedDcs = \App\Helpers\RegisterQueryHelper::isLimitedDcsUser();
     $isFullDcs = \App\Helpers\RegisterQueryHelper::isFullDcsUser();
+    $isDcsPathPending = \App\Helpers\RegisterQueryHelper::isDcsPathPending();
+    $canOfficeIntake = \App\Helpers\RegisterQueryHelper::canAccessOfficeIntake();
     $canRegister = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('register');
     $canReports = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('reports');
     $canReview = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('review');
@@ -40,16 +42,31 @@
         <li data-page="dashboard" class="nav-item {{ request()->routeIs('dcs') || request()->routeIs('dcs.dashboard') ? 'active' : '' }}">
             <a href="{{ route('dcs', absolute: false) }}">
                 <i class="fa-regular fa-square"></i>
-                <span>Dashboard</span>
-                <span class="tooltip">Dashboard</span>
+                <span>{{ $isDcsPathPending ? 'Home' : 'Dashboard' }}</span>
+                <span class="tooltip">{{ $isDcsPathPending ? 'Waiting for DCS clearance' : 'Dashboard' }}</span>
             </a>
         </li>
 
-        @if($isLimitedDcs)
+        @if($isLimitedDcs && $canOfficeIntake)
             @php
-                $officeDocGroups = \App\Helpers\OfficeIntakeHelper::officeDocumentGroups(null, false);
+                $officeDocGroups = \App\Helpers\OfficeIntakeHelper::officeDocumentGroups(null, false, 'received');
+                $incomingCount = \App\Helpers\OfficeIntakeHelper::officeDocumentTotal(null, 'pending');
                 $activeDocType = request()->query('type', 'all');
             @endphp
+            <li class="nav-item {{ request()->routeIs('dcs.office.incoming') ? 'active' : '' }}">
+                <a href="{{ route('dcs.office.incoming', absolute: false) }}">
+                    <i class="fa-solid fa-inbox"></i>
+                    <span>Incoming</span>
+                    <span
+                        id="ofiIncomingBadge"
+                        class="ofi-nav-empty-hint"
+                        style="opacity:1;background:#2563eb;color:#fff;border-radius:999px;padding:0 6px;font-size:11px;{{ $incomingCount > 0 ? '' : 'display:none;' }}"
+                        data-ofi-incoming-badge
+                        @if($incomingCount < 1) hidden @endif
+                    >{{ $incomingCount }}</span>
+                    <span class="tooltip">Documents to receive</span>
+                </a>
+            </li>
             <li class="nav-item {{ request()->routeIs('dcs.office.drf.*') ? 'active' : '' }}">
                 <a href="{{ route('dcs.office.drf.index', absolute: false) }}">
                     <i class="fa-regular fa-file-lines"></i>
@@ -64,37 +81,47 @@
                     <span class="tooltip">My Document Change Notices</span>
                 </a>
             </li>
-            <li class="nav-item dropdown {{ request()->routeIs('dcs.office.documents') ? 'active' : '' }}">
-                <details {{ request()->routeIs('dcs.office.documents') ? 'open' : '' }}>
-                    <summary class="dropdown-trigger">
-                        <i class="fa-solid fa-folder-open"></i>
-                        <span>Documents</span>
-                        <i class="fas fa-caret-down arrow"></i>
-                        <span class="tooltip">Office Documents</span>
-                    </summary>
-                    <ul class="sub-dropdown">
-                        <li>
-                            <a
-                                href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}"
-                                class="{{ request()->routeIs('dcs.office.documents') && $activeDocType === 'all' ? 'active-sub' : '' }}"
-                            >All</a>
-                        </li>
-                        @foreach($officeDocGroups as $group)
+            @if($enableTopTabs)
+                <li class="nav-item {{ request()->routeIs('dcs.office.documents') ? 'active' : '' }}">
+                    <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}">
+                        <i class="fa-solid fa-book"></i>
+                        <span>Masterlist</span>
+                        <span class="tooltip">Received office masterlist</span>
+                    </a>
+                </li>
+            @else
+                <li class="nav-item dropdown {{ request()->routeIs('dcs.office.documents') ? 'active' : '' }}">
+                    <details {{ request()->routeIs('dcs.office.documents') ? 'open' : '' }}>
+                        <summary class="dropdown-trigger">
+                            <i class="fa-solid fa-book"></i>
+                            <span>Masterlist</span>
+                            <i class="fas fa-caret-down arrow"></i>
+                            <span class="tooltip">Received office masterlist</span>
+                        </summary>
+                        <ul class="sub-dropdown">
                             <li>
                                 <a
-                                    href="{{ route('dcs.office.documents', ['type' => $group['key']], absolute: false) }}"
-                                    class="{{ request()->routeIs('dcs.office.documents') && $activeDocType === $group['key'] ? 'active-sub' : '' }}"
-                                >
-                                    {{ $group['label'] }}
-                                    @if($group['count'] < 1)
-                                        <span class="ofi-nav-empty-hint">0</span>
-                                    @endif
-                                </a>
+                                    href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}"
+                                    class="{{ request()->routeIs('dcs.office.documents') && $activeDocType === 'all' ? 'active-sub' : '' }}"
+                                >All</a>
                             </li>
-                        @endforeach
-                    </ul>
-                </details>
-            </li>
+                            @foreach($officeDocGroups as $group)
+                                <li>
+                                    <a
+                                        href="{{ route('dcs.office.documents', ['type' => $group['key']], absolute: false) }}"
+                                        class="{{ request()->routeIs('dcs.office.documents') && $activeDocType === $group['key'] ? 'active-sub' : '' }}"
+                                    >
+                                        {{ $group['label'] }}
+                                        @if($group['count'] < 1)
+                                            <span class="ofi-nav-empty-hint">0</span>
+                                        @endif
+                                    </a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    </details>
+                </li>
+            @endif
         @endif
 
         @if($isFullDcs)
@@ -207,7 +234,7 @@
             @endif
 
             @if($canRandomCheck)
-                <li class="nav-item {{ request()->routeIs('dcs.random-check') ? 'active' : '' }}">
+                <li class="nav-item {{ request()->routeIs('dcs.random-check*') ? 'active' : '' }}">
                     <a href="{{ route('dcs.random-check', absolute: false) }}">
                         <i class="fa-solid fa-clipboard-check"></i>
                         <span>Random Check</span>
@@ -248,10 +275,10 @@
         @endif
     </ul>
 
-    <div class="dcs-account-footer" style="padding: 12px 18px; margin-top: auto; border-top: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; gap: 2px;">
+    <div class="dcs-account-footer">
         @if(\App\Services\ServerManagementService::isMultiServerActive())
-            <span style="font-size: 12px; font-weight: 700; color: #38bdf8;">{{ \App\Services\ServerManagementService::getServerLabel() }}</span>
+            <span class="dcs-account-server">{{ \App\Services\ServerManagementService::getServerLabel() }}</span>
         @endif
-        <span style="font-size: 11px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ auth()->user()?->details?->email }}</span>
+        <span class="dcs-account-email">{{ auth()->user()?->details?->email }}</span>
     </div>
 </nav>

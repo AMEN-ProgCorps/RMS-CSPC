@@ -348,6 +348,27 @@
                 ];
             }
         }
+        elseif (request()->routeIs('dcs.office.documents')) {
+            $sectionTitle = 'Documents';
+            $activeDocType = request()->query('type', 'all');
+            if ($activeDocType === '') {
+                $activeDocType = 'all';
+            }
+            $tabs = [
+                [
+                    'label' => 'All',
+                    'url' => route('dcs.office.documents', ['type' => 'all']),
+                    'active' => $activeDocType === 'all',
+                ],
+            ];
+            foreach (\App\Helpers\OfficeIntakeHelper::documentGroupDefs() as $key => $label) {
+                $tabs[] = [
+                    'label' => $label,
+                    'url' => route('dcs.office.documents', ['type' => $key]),
+                    'active' => $activeDocType === $key,
+                ];
+            }
+        }
         // 2. Document Registration (+ Request for RFIO)
         elseif (request()->routeIs('dcs.register.*') || request()->routeIs('dcs.requests.*')) {
             $sectionTitle = 'Document Registration';
@@ -443,13 +464,23 @@
             ];
         }
         // 6a. Random Check
-        elseif (request()->routeIs('dcs.random-check')) {
+        elseif (request()->routeIs('dcs.random-check*')) {
             $sectionTitle = 'Random Check';
             $tabs = [
                 [
                     'label' => 'Random Check',
                     'url' => route('dcs.random-check'),
-                    'active' => request()->routeIs('dcs.random-check'),
+                    'active' => request()->routeIs('dcs.random-check*'),
+                ],
+            ];
+        }
+        elseif (request()->routeIs('dcs.office.random-checks*')) {
+            $sectionTitle = 'Random Check';
+            $tabs = [
+                [
+                    'label' => 'Random Check',
+                    'url' => route('dcs.office.random-checks'),
+                    'active' => request()->routeIs('dcs.office.random-checks*'),
                 ],
             ];
         }

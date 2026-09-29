@@ -90,14 +90,11 @@
 <td class="col-group-distribution" x-show="visible.distribution && open.distribution">@include('pages.dcs.database._scan', ['url' => $r['dist_scan'] ?? null])</td>
 
 <td class="col-group-summary-body col-group-summary-retrieval" x-show="visible.retrieval && !open.retrieval">
-    @if($r['ret_onfile'] || $r['ret_actual'] || $r['ret_offices'] || $r['ret_scan'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
+    @if($r['ret_offices'])<span class="db-summary-check">✓</span>@else<span class="db-summary-x">—</span>@endif
 </td>
-<td class="col-group-retrieval" x-show="visible.retrieval && open.retrieval">{{ $r['ret_onfile'] ?: '—' }}</td>
-<td class="col-group-retrieval" x-show="visible.retrieval && open.retrieval">{{ $r['ret_actual'] ?: '—' }}</td>
 <td class="col-group-retrieval db-offices-cell" x-show="visible.retrieval && open.retrieval" wire:key="ret-offices-{{ $r['request_id'] ?? 0 }}">
     @include('pages.dcs.database._offices-clamp', [
         'officesText' => $r['ret_offices'] ?? '',
         'clampKey' => 'r' . ($r['request_id'] ?? 0),
     ])
 </td>
-<td class="col-group-retrieval" x-show="visible.retrieval && open.retrieval">@include('pages.dcs.database._scan', ['url' => $r['ret_scan'] ?? null])</td>

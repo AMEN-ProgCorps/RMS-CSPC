@@ -544,6 +544,15 @@
         scheduleUnreadPoll(300);
     });
 
+    document.addEventListener('livewire:init', function() {
+        if (window.Livewire && typeof window.Livewire.on === 'function') {
+            window.Livewire.on('rms-notification-updated', function() {
+                updateUnreadBadge();
+                setTimeout(updateUnreadBadge, 300);
+            });
+        }
+    });
+
     window.addEventListener('rms-play-sound', function() {
         playNotificationSound();
     });

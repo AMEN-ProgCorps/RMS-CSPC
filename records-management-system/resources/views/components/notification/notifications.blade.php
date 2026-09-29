@@ -98,25 +98,13 @@ new class extends Component {
         $allowedSubsystems = \App\Helpers\RegisterQueryHelper::scopeBellSubsystemsForRequest($allowedSubsystems);
 
         // Fetch notifications list, combining with read/unread statuses in notification_div table
-        $this->notifications = DB::table($notifTbl)
-            ->join($notifContentTbl, "{$notifTbl}.contents", '=', "{$notifContentTbl}.id")
-            ->join($subsystemsTbl, "{$notifContentTbl}.system", '=', "{$subsystemsTbl}.subsystem_id")
-            ->leftJoin($notifDivTbl, function ($join) use ($userId, $notifTbl, $notifDivTbl) {
-                $join->on("{$notifTbl}.id", '=', "{$notifDivTbl}.id")
-                     ->where("{$notifDivTbl}.account_rec", '=', $userId);
-            })
-            ->where("{$notifTbl}.office", $office->office_code)
-            ->whereIn("{$subsystemsTbl}.subsystem_name", $allowedSubsystems)
-            ->where(function ($query) use ($notifDivTbl) {
-                $query->whereNull("{$notifDivTbl}.is_in_user_list")
-                      ->orWhere("{$notifDivTbl}.is_in_user_list", 1);
-            })
-            ->where(function ($query) use ($notifDivTbl) {
-                $query->whereNull("{$notifDivTbl}.is_dismissed")
-                      ->orWhere("{$notifDivTbl}.is_dismissed", false);
-            })
-            ->where(function ($query) use ($notifDivTbl) {
-                $sessionId = session()->getId();
+        $sessionId = session()->getId();
+        $this->notifications = \App\Helpers\RegisterQueryHelper::bellNotificationsBaseQuery(
+            (int) $userId,
+            (string) $office->office_code,
+            $allowedSubsystems
+        )
+            ->where(function ($query) use ($notifDivTbl, $sessionId) {
                 $query->whereNull("{$notifDivTbl}.status")
                       ->orWhere("{$notifDivTbl}.status", '!=', 'read')
                       ->orWhere(function ($subQuery) use ($notifDivTbl, $sessionId) {
@@ -220,7 +208,22 @@ new class extends Component {
                     return;
                 }
 
-                $this->redirect(route('dcs.office.drf.index', absolute: false), navigate: true);
+                // Incoming / Masterlist / other office intake pages keep their target URL.
+                if (
+                    $path === 'dcs/office/incoming'
+                    || str_starts_with($path, 'dcs/office/incoming/')
+                    || $path === 'dcs/office/documents'
+                    || str_starts_with($path, 'dcs/office/documents')
+                    || $path === 'dcs/office/drf'
+                    || $path === 'dcs/office/dcn'
+                    || str_starts_with($path, 'dcs/office/')
+                ) {
+                    $this->redirect($notification->redirect_url, navigate: true);
+
+                    return;
+                }
+
+                $this->redirect(route('dcs.office.incoming', absolute: false), navigate: true);
 
                 return;
             }
@@ -351,6 +354,8 @@ new class extends Component {
             ],
             [
                 'is_dismissed' => true,
+                'status' => 'read',
+                'read_at_session' => session()->getId(),
                 'processed_on' => now()
             ]
         );
@@ -377,6 +382,8 @@ new class extends Component {
                     ],
                     [
                         'is_dismissed' => true,
+                        'status' => 'read',
+                        'read_at_session' => session()->getId(),
                         'processed_on' => now()
                     ]
                 );

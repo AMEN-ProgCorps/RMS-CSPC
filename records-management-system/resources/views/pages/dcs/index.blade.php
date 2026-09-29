@@ -10,29 +10,50 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
     public function with(): array
     {
-        if (RegisterQueryHelper::isLimitedDcsUser()) {
+        $userDisplayName = trim(implode(' ', array_filter([
+            auth()->user()?->details?->first_name,
+            auth()->user()?->details?->last_name,
+        ]))) ?: (auth()->user()?->username ?? 'User');
+        $headerDate = now('Asia/Manila')->format('l, F j, Y');
+        $headerTime = now('Asia/Manila')->format('g:i:s A');
+
+        if (RegisterQueryHelper::isDcsPathPending()) {
+            return [
+                'isDcsPathPending' => true,
+                'isLimitedDcs' => false,
+                'userDisplayName' => $userDisplayName,
+                'headerDate' => $headerDate,
+                'headerTime' => $headerTime,
+                'officeDrfCount' => 0,
+                'officeDcnCount' => 0,
+                'stats' => [],
+                'holidays' => [],
+            ];
+        }
+
+        if (RegisterQueryHelper::isLimitedDcsUser() && RegisterQueryHelper::canAccessOfficeIntake()) {
             $drfRows = OfficeIntakeHelper::listMyDrf();
             $dcnRows = OfficeIntakeHelper::listMyDcn();
-            $docGroups = OfficeIntakeHelper::officeDocumentGroups(null, false);
-            $docTotal = OfficeIntakeHelper::officeDocumentTotal();
+            $docGroups = OfficeIntakeHelper::officeDocumentGroups(null, false, 'received');
+            $docTotal = OfficeIntakeHelper::officeDocumentTotal(null, 'received');
+            $incomingTotal = OfficeIntakeHelper::officeDocumentTotal(null, 'pending');
 
             return [
+                'isDcsPathPending' => false,
                 'isLimitedDcs' => true,
                 'officeName' => auth()->user()?->details?->office?->office_name
                     ?? auth()->user()?->details?->office?->office_code
                     ?? 'Your office',
-                'userDisplayName' => trim(implode(' ', array_filter([
-                    auth()->user()?->details?->first_name,
-                    auth()->user()?->details?->last_name,
-                ]))) ?: (auth()->user()?->username ?? ''),
+                'userDisplayName' => $userDisplayName,
                 'officeDrfCount' => $drfRows->count(),
                 'officeDcnCount' => $dcnRows->count(),
                 'officeDocTotal' => $docTotal,
+                'officeIncomingTotal' => $incomingTotal,
                 'officeDocGroups' => $docGroups,
                 'recentDrf' => $drfRows->take(4)->values(),
                 'recentDcn' => $dcnRows->take(4)->values(),
-                'headerDate' => now('Asia/Manila')->format('l, F j, Y'),
-                'headerTime' => now('Asia/Manila')->format('g:i:s A'),
+                'headerDate' => $headerDate,
+                'headerTime' => $headerTime,
                 'stats' => [],
                 'holidays' => [],
             ];
@@ -86,17 +107,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $holidays = \App\Helpers\CalendarHelper::philippineHolidays($year, $year + 1);
 
         return [
+            'isDcsPathPending' => false,
             'isLimitedDcs' => false,
             'officeDrfCount' => 0,
             'officeDcnCount' => 0,
             'stats' => $stats,
             'typeIds' => $typeIds,
-            'userDisplayName' => trim(implode(' ', array_filter([
-                auth()->user()?->details?->first_name,
-                auth()->user()?->details?->last_name,
-            ]))) ?: (auth()->user()?->username ?? 'User'),
-            'headerDate' => now('Asia/Manila')->format('l, F j, Y'),
-            'headerTime' => now('Asia/Manila')->format('g:i:s A'),
+            'userDisplayName' => $userDisplayName,
+            'headerDate' => $headerDate,
+            'headerTime' => $headerTime,
             'holidays' => $holidays,
             'canDatabase' => RegisterQueryHelper::canAccessDcsModule('database'),
             'canRegister' => RegisterQueryHelper::canAccessDcsModule('register'),
@@ -106,7 +125,81 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     }
 }; ?>
 
-@if(!empty($isLimitedDcs))
+@if(!empty($isDcsPathPending))
+<div class="ofi-page ofi-dash" x-data="ofiDashboardClock()">
+    <div class="ofi-inner ofi-inner-wide">
+        <div class="ofi-dash-hero">
+            <div class="ofi-dash-hero-copy">
+                <p class="ofi-dash-kicker">Document Control System</p>
+                <h1>Welcome{{ $userDisplayName !== '' ? ', ' . explode(' ', $userDisplayName)[0] : '' }}</h1>
+                <p>Your role can open DCS, but no working path is assigned yet.</p>
+            </div>
+            <div class="ofi-dash-hero-meta" aria-live="polite">
+                <div class="ofi-dash-date">
+                    <i class="fa-regular fa-calendar"></i>
+                    <div>
+                        <span class="ofi-dash-date-label">Today</span>
+                        <strong>{{ $headerDate }}</strong>
+                        <span class="ofi-dash-clock" x-text="nowClock" x-cloak>{{ $headerTime }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if(session('error'))
+            <div class="ofi-alert err">{{ session('error') }}</div>
+        @endif
+        @if(session('info'))
+            <div class="ofi-alert ok">{{ session('info') }}</div>
+        @endif
+
+        <section class="ofi-dash-panel">
+            <div class="ofi-dash-panel-head">
+                <div>
+                    <h2>Choose a DCS clearance</h2>
+                    <p>Ask an administrator to enable one of these on your role (not both).</p>
+                </div>
+            </div>
+            <div class="ofi-dash-empty" style="text-align:left;max-width:40rem;margin:0 auto;gap:1rem;">
+                <p style="margin:0;">
+                    <strong>Office Intake (Client)</strong> — My DRF, My DCN, and office documents for submitting offices.
+                </p>
+                <p style="margin:0;">
+                    <strong>Document Controller (Admin DCS)</strong> — Register, Database, Review, Stamping, Reports, and other admin pages campus-wide.
+                </p>
+                <p style="margin:0.5rem 0 0;color:#64748b;font-size:0.9rem;">
+                    Access DCS alone only unlocks this landing page. Until a path is granted, other DCS menus stay hidden.
+                </p>
+            </div>
+        </section>
+    </div>
+</div>
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('ofiDashboardClock', () => ({
+        nowClock: @json($headerTime),
+        _timer: null,
+        tick() {
+            try {
+                this.nowClock = new Date().toLocaleTimeString([], {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: true,
+                });
+            } catch (e) {}
+        },
+        init() {
+            this.tick();
+            this._timer = setInterval(() => this.tick(), 1000);
+        },
+        destroy() {
+            if (this._timer) clearInterval(this._timer);
+        },
+    }));
+});
+</script>
+@elseif(!empty($isLimitedDcs))
 <div class="ofi-page ofi-dash" x-data="ofiDashboardClock()">
     <div class="ofi-inner ofi-inner-wide">
         <div class="ofi-dash-hero">
@@ -158,12 +251,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <span class="ofi-dash-stat-hint">Change notices you created</span>
                 </div>
             </a>
-            <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}" class="ofi-dash-stat is-docs">
-                <div class="ofi-dash-stat-icon"><i class="fa-solid fa-folder-open"></i></div>
+            <a href="{{ route('dcs.office.incoming', absolute: false) }}" class="ofi-dash-stat is-incoming">
+                <div class="ofi-dash-stat-icon"><i class="fa-solid fa-inbox"></i></div>
                 <div class="ofi-dash-stat-body">
-                    <span class="ofi-dash-stat-label">Office Documents</span>
+                    <span class="ofi-dash-stat-label">Incoming</span>
+                    <strong class="ofi-dash-stat-value">{{ (int) ($officeIncomingTotal ?? 0) }}</strong>
+                    <span class="ofi-dash-stat-hint">Waiting to be received</span>
+                </div>
+            </a>
+            <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}" class="ofi-dash-stat is-docs">
+                <div class="ofi-dash-stat-icon"><i class="fa-solid fa-book"></i></div>
+                <div class="ofi-dash-stat-body">
+                    <span class="ofi-dash-stat-label">Masterlist</span>
                     <strong class="ofi-dash-stat-value">{{ (int) $officeDocTotal }}</strong>
-                    <span class="ofi-dash-stat-hint">Distributed to your office</span>
+                    <span class="ofi-dash-stat-hint">Received by your office</span>
                 </div>
             </a>
         </section>
@@ -171,8 +272,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <section class="ofi-dash-panel">
             <div class="ofi-dash-panel-head">
                 <div>
-                    <h2>Document types</h2>
-                    <p>Open a type to view registered documents for your office.</p>
+                    <h2>Masterlist by type</h2>
+                    <p>Open a type to view the latest documents your office has received.</p>
                 </div>
                 <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}" class="ofi-dash-link">View all</a>
             </div>
@@ -561,7 +662,7 @@ document.addEventListener('alpine:init', () => {
                                                                         </div>
                                                                         <div class="dash-cl-rev-meta">
                                                                             <span x-text="'Rev ' + rev.revision_no"></span>
-                                                                            <span x-text="rev.effectivity_date"></span>
+                                                                            <span x-text="rev.effectivity_date_label || rev.effectivity_date"></span>
                                                                         </div>
                                                                         <p x-show="rev.brief_purpose && rev.brief_purpose !== '—'" x-text="rev.brief_purpose"></p>
                                                                     </div>
@@ -594,7 +695,7 @@ document.addEventListener('alpine:init', () => {
                                                 >
                                                     <span class="dash-detail-rev-no" x-text="'Rev ' + rev.revise_no"></span>
                                                     <span class="dash-detail-rev-status" x-show="rev.revision_status === 'obsolete'">Obsolete</span>
-                                                    <span class="dash-detail-rev-date" x-text="rev.effectivity_date || '—'"></span>
+                                                    <span class="dash-detail-rev-date" x-text="rev.effectivity_date_label || rev.effectivity_date || '—'"></span>
                                                 </button>
                                             </template>
                                         </div>
@@ -740,6 +841,23 @@ document.addEventListener('alpine:init', () => {
             <div class="dash-calendar-backdrop" @click="modal = null"></div>
             <div class="dash-event-layer" x-cloak x-bind:style="modal !== null ? 'display:flex' : 'display:none'">
                 <div class="dash-event-panel" @click.stop>
+                <template x-if="modal === 'delete'">
+                    <div class="ev-modal">
+                        <div class="ev-modal-top">
+                            <div class="ev-modal-icon is-delete"><i class="fa-solid fa-trash-can"></i></div>
+                            <button type="button" class="ev-modal-close" x-on:click="cancelDeleteEvent()"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <h3 class="ev-modal-title">Delete event?</h3>
+                        <p class="ev-modal-desc" x-text="pendingDeleteTitle ? ('“' + pendingDeleteTitle + '” will be removed from the calendar.') : 'This event will be removed from the calendar.'"></p>
+                        <div class="ev-actions-row">
+                            <button type="button" class="ev-btn ev-btn-ghost" x-on:click="cancelDeleteEvent()">Cancel</button>
+                            <button type="button" class="ev-btn ev-btn-danger" x-on:click="confirmRemoveEvent()" :disabled="saving">
+                                <i class="fa-solid fa-trash-can"></i>
+                                <span x-text="saving ? 'Deleting…' : 'Delete'"></span>
+                            </button>
+                        </div>
+                    </div>
+                </template>
                 <template x-if="modal === 'day'">
                     <div class="ev-modal">
                         <div class="ev-modal-top">
@@ -765,7 +883,7 @@ document.addEventListener('alpine:init', () => {
                                             </div>
                                             <div class="ev-card-btns" x-show="!ev.readonly">
                                                 <button type="button" class="ev-card-btn" x-on:click="openEdit(ev.id)"><i class="fa-solid fa-pen"></i></button>
-                                                <button type="button" class="ev-card-btn ev-card-btn-danger" x-on:click="removeEvent(ev.id)"><i class="fa-solid fa-trash-can"></i></button>
+                                                <button type="button" class="ev-card-btn ev-card-btn-danger" x-on:click="askDeleteEvent(ev.id)"><i class="fa-solid fa-trash-can"></i></button>
                                             </div>
                                         </div>
                                         <div class="ev-card-time">
@@ -1091,6 +1209,8 @@ document.addEventListener('alpine:init', () => {
         modal: null,
         activeIso: '',
         editingId: null,
+        pendingDeleteId: null,
+        pendingDeleteTitle: '',
         saving: false,
         addingCategory: false,
         newCategory: '',
@@ -1399,7 +1519,28 @@ document.addEventListener('alpine:init', () => {
         async removeEvent(id) {
             const ev = this.events.find(e => String(e.id) === String(id));
             if (ev?.readonly) return;
-            if (!confirm('Delete this event?')) return;
+            this.askDeleteEvent(id);
+        },
+        askDeleteEvent(id) {
+            const ev = this.events.find(e => String(e.id) === String(id));
+            if (!ev || ev.readonly) return;
+            this.pendingDeleteId = id;
+            this.pendingDeleteTitle = ev.title || '';
+            this.modal = 'delete';
+        },
+        cancelDeleteEvent() {
+            this.pendingDeleteId = null;
+            this.pendingDeleteTitle = '';
+            if (this.activeIso) {
+                this.modal = 'day';
+            } else {
+                this.modal = null;
+            }
+        },
+        async confirmRemoveEvent() {
+            const id = this.pendingDeleteId;
+            if (id == null) return;
+            this.saving = true;
             try {
                 const res = await fetch('/dcs/api/calendar/events/' + id, {
                     method: 'DELETE',
@@ -1410,8 +1551,17 @@ document.addEventListener('alpine:init', () => {
                     return;
                 }
                 this.events = this.events.filter(e => e.id !== id);
+                this.pendingDeleteId = null;
+                this.pendingDeleteTitle = '';
+                if (this.activeIso) {
+                    this.modal = 'day';
+                } else {
+                    this.modal = null;
+                }
             } catch (e) {
                 alert('Could not delete event.');
+            } finally {
+                this.saving = false;
             }
         },
     }));

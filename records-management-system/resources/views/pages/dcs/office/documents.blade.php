@@ -7,7 +7,7 @@ use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class extends Component {
+new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends Component {
     #[Url]
     public string $type = 'all';
 
@@ -18,7 +18,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
             session()->flash(
                 'info',
-                'Office document lists are available to each office. RFIO can browse the full inventory in Database and Reports.'
+                'Office masterlists are available to each office. RFIO can browse the full inventory in Database and Reports.'
             );
 
             $this->redirect(route('dcs', absolute: false));
@@ -40,17 +40,11 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
         }
     }
 
-    public function markReceived(int $requestId): void
-    {
-        OfficeIntakeHelper::assertCanAccessIntake();
-        $result = OfficeIntakeHelper::markOfficeDocumentReceived($requestId);
-        session()->flash($result['ok'] ? 'success' : 'error', $result['message']);
-    }
-
     public function with(): array
     {
-        $groups = OfficeIntakeHelper::officeDocumentGroups(null, false);
-        $total = OfficeIntakeHelper::officeDocumentTotal();
+        $groups = OfficeIntakeHelper::officeDocumentGroups(null, false, 'received');
+        $total = OfficeIntakeHelper::officeDocumentTotal(null, 'received');
+        $pendingTotal = OfficeIntakeHelper::officeDocumentTotal(null, 'pending');
         $active = $this->type;
         $keys = array_column($groups, 'key');
 
@@ -62,7 +56,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
             ? 'All'
             : OfficeIntakeHelper::documentGroupLabel($active);
 
-        $rows = OfficeIntakeHelper::listOfficeDocuments($active);
+        $rows = OfficeIntakeHelper::listOfficeDocuments($active, null, 'received');
         $activeCount = $active === 'all'
             ? $total
             : (int) (collect($groups)->firstWhere('key', $active)['count'] ?? count($rows));
@@ -70,6 +64,7 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
         return [
             'groups' => $groups,
             'total' => $total,
+            'pendingTotal' => $pendingTotal,
             'activeType' => $active,
             'activeLabel' => $activeLabel,
             'activeCount' => $activeCount,
@@ -85,14 +80,18 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
     <div class="ofi-inner ofi-inner-wide">
         <div class="ofi-header">
             <div>
-                <h1>Office Documents</h1>
+                <h1>Masterlist</h1>
                 <p>
-                    Documents appear here when RFIO distributes a controlled document to
-                    <strong>{{ $officeName }}</strong>
-                    (Internal, Internal Forms, External, Forms, and Logbooks).
-                    Mark a row received after the physical copy arrives so Document Control can see it.
+                    Latest controlled documents your office has already received —
+                    <strong>{{ $officeName }}</strong>.
                 </p>
             </div>
+            @if(($pendingTotal ?? 0) > 0)
+                <a href="{{ route('dcs.office.incoming', absolute: false) }}" class="ofi-btn primary">
+                    <i class="fa-solid fa-inbox"></i>
+                    {{ $pendingTotal }} to receive
+                </a>
+            @endif
         </div>
 
         @if(session('success'))
@@ -101,7 +100,11 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
         @if(session('error'))
             <div class="ofi-alert err">{{ session('error') }}</div>
         @endif
+        @if(session('info'))
+            <div class="ofi-alert ok">{{ session('info') }}</div>
+        @endif
 
+        @unless(auth()->user()?->enableTopTabs() ?? true)
         <nav class="ofi-doc-nav" aria-label="Document types">
             <button
                 type="button"
@@ -120,19 +123,19 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                     wire:click="selectType('{{ $group['key'] }}')"
                     wire:loading.attr="disabled"
                     wire:target="selectType"
-                    title="{{ $group['count'] < 1 ? 'No ' . $group['label'] . ' documents yet' : $group['count'] . ' ' . $group['label'] }}"
                 >
                     <span>{{ $group['label'] }}</span>
                     <span class="ofi-doc-nav-count">{{ $group['count'] }}</span>
                 </button>
             @endforeach
         </nav>
+        @endunless
 
         <div class="ofi-card" style="position:relative;" wire:loading.class="is-loading">
-            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType,markReceived">
+            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType">
                 <div class="dcs-loading-spinner" aria-hidden="true"></div>
-                <h4>Loading documents…</h4>
-                <p>Fetching records and preparing the list.</p>
+                <h4>Loading masterlist…</h4>
+                <p>Fetching received documents.</p>
             </div>
             <div class="ofi-doc-panel-head">
                 <h2>{{ $activeLabel }}</h2>
@@ -143,16 +146,16 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                 <div class="ofi-doc-empty" role="status">
                     <i class="fa-regular fa-folder-open" aria-hidden="true"></i>
                     @if($total < 1)
-                        <strong>No documents yet</strong>
+                        <strong>No received documents yet</strong>
                         <p>
-                            No controlled documents list your office in Document Distribution yet.
+                            Mark incoming distributions as received first.
+                            @if(($pendingTotal ?? 0) > 0)
+                                <a href="{{ route('dcs.office.incoming', absolute: false) }}">View incoming ({{ $pendingTotal }})</a>
+                            @endif
                         </p>
                     @else
                         <strong>No {{ strtolower($activeLabel) }} documents</strong>
-                        <p>
-                            Your office has other document types, but none under
-                            <strong>{{ $activeLabel }}</strong> yet.
-                        </p>
+                        <p>Your office has other received types, but none under <strong>{{ $activeLabel }}</strong>.</p>
                     @endif
                 </div>
             @else
@@ -160,45 +163,21 @@ new #[Layout('layouts.dcs')] #[Title('Office Documents — CSPC DCS')] class ext
                     <table class="ofi-table">
                         <thead>
                             <tr>
-                                <th style="width:88px;">Item No.</th>
                                 <th style="width:160px;">Document No.</th>
                                 <th style="width:72px;">Rev.</th>
                                 <th>Document Title</th>
-                                <th style="width:100px;">Pages</th>
                                 <th style="width:140px;">Effectivity Date</th>
-                                <th style="width:200px;">Physical receipt</th>
+                                <th style="width:100px;">Pages</th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach($rows as $row)
                                 <tr>
-                                    <td>{{ $row['item_no'] }}</td>
                                     <td>{{ $row['doc_no'] !== '' ? $row['doc_no'] : '—' }}</td>
                                     <td>{{ $row['rev_no'] }}</td>
                                     <td>{{ $row['doc_title'] !== '' ? $row['doc_title'] : '—' }}</td>
-                                    <td>{{ ($row['pages'] ?? '') !== '' ? $row['pages'] : '—' }}</td>
                                     <td>{{ $row['effectivity_date'] ?? '—' }}</td>
-                                    <td class="ofi-receive-cell">
-                                        @if(!empty($row['can_receive']) && (int) ($row['request_id'] ?? 0) > 0)
-                                            <button
-                                                type="button"
-                                                class="ofi-btn ofi-btn-sm primary"
-                                                wire:click="markReceived({{ (int) $row['request_id'] }})"
-                                                wire:loading.attr="disabled"
-                                                wire:target="markReceived"
-                                            >
-                                                Mark received
-                                            </button>
-                                        @elseif(!empty($row['received_at']))
-                                            <span class="ofi-status-pill is-received">Received</span>
-                                            <span class="ofi-receive-meta">
-                                                {{ ($row['received_by_name'] ?? '') !== '' ? $row['received_by_name'] : 'Your office' }}
-                                                · {{ $row['received_at'] }}
-                                            </span>
-                                        @else
-                                            —
-                                        @endif
-                                    </td>
+                                    <td>{{ ($row['pages'] ?? '') !== '' ? $row['pages'] : '—' }}</td>
                                 </tr>
                             @endforeach
                         </tbody>

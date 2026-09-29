@@ -207,7 +207,6 @@ class RegisterPersistHelper
             'drfFile' => $rule,
             'dcnFile' => $rule,
             'uploadScannedCopy' => $rule,
-            'scannedRet' => $rule,
             'scanneddist' => $rule,
             'scannedCopy.*' => $rule,
             'syllabiScannedDrf.*' => $rule,
@@ -489,6 +488,11 @@ class RegisterPersistHelper
      */
     public static function resolveReviseNo(Request $request, mixed $fallback = null): int
     {
+        $mode = $request->input('registration_mode', 'new');
+        if ($mode !== 'revised' && $request->boolean('insert_shift_confirmed')) {
+            return 0;
+        }
+
         $raw = $request->input('masterlistRevisionNo');
         if ($raw === null || $raw === '') {
             if ($fallback === null || $fallback === '') {
@@ -499,6 +503,65 @@ class RegisterPersistHelper
         }
 
         return max(0, (int) $raw);
+    }
+
+    /**
+     * Split a syllabi faculty field into names without breaking credentials
+     * such as "Bien Paolo Monsalve, MNE".
+     *
+     * @return list<string>
+     */
+    public static function parseSyllabiFacultyNames(?string $raw): array
+    {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return [];
+        }
+
+        $known = [];
+        if (Schema::hasTable('dcs_faculties')) {
+            $q = DB::table('dcs_faculties');
+            if (class_exists(SettingsRecycleHelper::class)) {
+                SettingsRecycleHelper::applyNotDeleted($q, 'dcs_faculties');
+            }
+            $known = $q->pluck('faculty_name')->filter()->map(fn ($n) => trim((string) $n))->values()->all();
+            usort($known, fn ($a, $b) => mb_strlen($b) <=> mb_strlen($a));
+        }
+
+        foreach ($known as $name) {
+            if (strcasecmp($name, $raw) === 0) {
+                return [$name];
+            }
+        }
+
+        $parts = preg_split('/\s*,\s*/', $raw) ?: [];
+        $matched = [];
+        $buffer = '';
+        foreach ($parts as $part) {
+            $candidate = $buffer === '' ? $part : ($buffer.', '.$part);
+            $hit = null;
+            foreach ($known as $name) {
+                if (strcasecmp($name, trim($candidate)) === 0) {
+                    $hit = $name;
+                    break;
+                }
+            }
+            if ($hit !== null) {
+                $matched[] = $hit;
+                $buffer = '';
+            } else {
+                $buffer = $candidate;
+            }
+        }
+
+        if ($matched === []) {
+            return [$raw];
+        }
+        if (trim($buffer) !== '') {
+            $matched[] = trim($buffer);
+        }
+
+        return array_values(array_filter($matched, fn ($n) => $n !== ''));
     }
 
     /**
@@ -651,7 +714,25 @@ class RegisterPersistHelper
             }
         }
 
+        if (! $saveAsDraft && $effectivity === '') {
+            return self::draftErrorResponse(
+                $request,
+                'Effectivity Date is required.'
+            );
+        }
+
         return null;
+    }
+
+    public static function masterlistDeadlineValue(Request $request): ?string
+    {
+        if ($request->boolean('deadlineNotApplicable')) {
+            return null;
+        }
+
+        $deadline = trim((string) $request->input('deadlineOfSubmission', ''));
+
+        return $deadline !== '' ? $deadline : null;
     }
 
     /** Ensure checklist id 3 (Masterlist) is always included. */
@@ -714,7 +795,50 @@ class RegisterPersistHelper
         $titlePart = self::titleToScanSegment($title);
         $rev = self::resolveReviseNo($request);
 
+        if (strcasecmp($formToken, 'D&R') === 0) {
+            return "{$datePart}_{$formToken}_{$titlePart}_Rev{$rev}";
+        }
+
         return "{$datePart}_{$formToken}_{$typeCode}_{$titlePart}_Rev{$rev}";
+    }
+
+    public static function dccGroupKeyFromDocType(mixed $docTypeId): string
+    {
+        return DocumentStorageService::dccGroupKeyFromDocTypeId($docTypeId);
+    }
+
+    /** @return array{cluster: string, office_name: string} */
+    public static function dccSourceUnitFromRequest(Request $request): array
+    {
+        $ids = array_values(array_filter(array_map('intval', array_merge(
+            (array) $request->input('masterlistOfficeIds', []),
+            (array) $request->input('drfSourceUnit', []),
+            (array) $request->input('dcnSourceUnit', [])
+        ))));
+
+        return DocumentStorageService::sourceClusterOfficeForOfficeId((int) ($ids[0] ?? 0));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function dccContextFromRequest(Request $request, string $category, bool $latest = true): array
+    {
+        $date = match (DocumentStorageService::normalizeDcsCategory($category)) {
+            'drf', 'syllabi' => $request->input('drfDate') ?: $request->input('syllabiEffectivityDate'),
+            'dcn', 'revisions' => $request->input('noticeDate'),
+            'distribution', 'retrieval' => $request->input('distributionFormDate'),
+            default => $request->input('masterlistEffectivityDate'),
+        };
+        $source = self::dccSourceUnitFromRequest($request);
+
+        return [
+            'date' => $date,
+            'group' => self::dccGroupKeyFromDocType($request->input('doc_type_id')),
+            'latest' => $latest,
+            'cluster' => $source['cluster'],
+            'office_name' => $source['office_name'],
+        ];
     }
 
     public static function formatScanDatePart(?string $date): string
@@ -740,7 +864,7 @@ class RegisterPersistHelper
         return $title !== '' ? $title : 'Untitled';
     }
 
-    public static function storeDcsScanUpload($file, array &$uploadedFiles, string $category, ?string $conventionBase = null): string
+    public static function storeDcsScanUpload($file, array &$uploadedFiles, string $category, ?string $conventionBase = null, array $dccContext = []): string
     {
         $original = null;
         $useConvention = false;
@@ -753,7 +877,10 @@ class RegisterPersistHelper
             $original = DocumentStorageService::sanitizeDcsScanBasename($base) . '.' . $ext;
             $useConvention = true;
         }
-        $path = DocumentStorageService::storeDcsScan($file, auth()->user(), $original, $category, $useConvention);
+        if ($dccContext === [] && request()) {
+            $dccContext = self::dccContextFromRequest(request(), $category, true);
+        }
+        $path = DocumentStorageService::storeDcsScan($file, auth()->user(), $original, $category, $useConvention, $dccContext);
         $uploadedFiles[] = $path;
 
         return $path;
@@ -882,6 +1009,42 @@ class RegisterPersistHelper
         return back()->withInput()->with('error', $message);
     }
 
+    public static function normalizeDrfNo(mixed $raw): string
+    {
+        return trim((string) $raw);
+    }
+
+    public static function drfNoTaken(string $drfNo, int $excludeRequestId = 0): bool
+    {
+        $drfNo = self::normalizeDrfNo($drfNo);
+        if ($drfNo === '' || ! Schema::hasTable('dcs_document_request_form')) {
+            return false;
+        }
+
+        $query = DB::table('dcs_document_request_form')
+            ->whereNotNull('drf_no')
+            ->whereRaw("TRIM(drf_no) <> ''")
+            ->whereRaw('LOWER(TRIM(drf_no)) = ?', [mb_strtolower($drfNo)]);
+        if ($excludeRequestId > 0) {
+            $query->where('request_id', '!=', $excludeRequestId);
+        }
+
+        return $query->exists();
+    }
+
+    public static function rejectDuplicateDrfNo(Request $request, int $excludeRequestId = 0): RedirectResponse|\Illuminate\Http\JsonResponse|null
+    {
+        $drfNo = self::normalizeDrfNo($request->input('drfNo'));
+        if ($drfNo === '' || ! self::drfNoTaken($drfNo, $excludeRequestId)) {
+            return null;
+        }
+
+        return self::draftErrorResponse(
+            $request,
+            'DRF No. "' . $drfNo . '" is already used. Please enter a unique DRF number.'
+        );
+    }
+
     /**
      * @return \Illuminate\Http\JsonResponse
      */
@@ -939,6 +1102,13 @@ class RegisterPersistHelper
             if ($newVersionId) {
                 $request->merge(['version_id' => $newVersionId]);
             }
+        }
+
+        if ($mode === 'new' && $request->boolean('insert_shift_confirmed')) {
+            $request->merge([
+                'masterlistRevisionNo' => 0,
+                'revised_from_doc_no' => null,
+            ]);
         }
 
         if ($mode === 'revised' && ! $saveAsDraft) {
@@ -1031,6 +1201,10 @@ class RegisterPersistHelper
             return $redirect;
         }
 
+        if ($redirect = self::rejectDuplicateDrfNo($request)) {
+            return $redirect;
+        }
+
         if ($mode === 'new') {
             $request->validate([
                 'doc_type_id' => 'required|integer|exists:dcs_doc_types,id',
@@ -1050,6 +1224,9 @@ class RegisterPersistHelper
         $isSyllabi = self::isSyllabiLikeSubTypeRow($subType);
         $allowsRevision = self::effectiveAllowsRevision($request->doc_type_id, $request->sub_type_id);
 
+        if ($redirect = self::rejectDuplicateSyllabiContext($request)) {
+            return $redirect;
+        }
         if (! $saveAsDraft) {
             if ($redirect = self::validateSyllabiLikeRequestRows($request)) {
                 return $redirect;
@@ -1060,6 +1237,27 @@ class RegisterPersistHelper
         }
         if ($redirect = self::validateMasterlistHasData($request, requireScan: false)) {
             return $redirect;
+        }
+
+        if ($saveAsDraft && RegisterQueryHelper::supportsDrafts()) {
+            $draftDocNo = trim((string) $request->input('masterlistDocNo', ''));
+            $existingDraftId = $draftDocNo !== ''
+                ? RegisterQueryHelper::findExistingDraftRequestId(
+                    $draftDocNo,
+                    (int) $request->input('doc_type_id'),
+                    $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null
+                )
+                : null;
+            if ($existingDraftId) {
+                RegisterUpdateHelper::collapseDuplicateDrafts($existingDraftId);
+                $existingDraftId = RegisterQueryHelper::findExistingDraftRequestId(
+                    $draftDocNo,
+                    (int) $request->input('doc_type_id'),
+                    $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null
+                ) ?: $existingDraftId;
+
+                return RegisterUpdateHelper::update($request, $existingDraftId);
+            }
         }
 
         if ($mode === 'new' && $allowsRevision) {
@@ -1076,7 +1274,7 @@ class RegisterPersistHelper
                     if (RegisterQueryHelper::supportsDrafts()) {
                         $publishedMatches = $publishedMatches->filter(fn ($row) => empty($row->is_draft))->values();
                     }
-                    if ($publishedMatches->isNotEmpty()) {
+                    if ($publishedMatches->isNotEmpty() && ! $request->boolean('insert_shift_confirmed')) {
                         $latest = DB::table('dcs_masterlist_registration')
                             ->whereIn('request_id', $publishedMatches->pluck('id'))
                             ->where('doc_no', $docNo)
@@ -1101,6 +1299,18 @@ class RegisterPersistHelper
         try {
             $now = now();
             $userId = auth()->id();
+
+            if ($mode === 'new' && $allowsRevision && ! $saveAsDraft && $request->boolean('insert_shift_confirmed')) {
+                $shift = \App\Helpers\DocumentNumberSeriesHelper::applyInsertShift($request);
+                if (empty($shift['ok'])) {
+                    DB::rollBack();
+
+                    return self::draftErrorResponse(
+                        $request,
+                        $shift['error'] ?? 'Could not insert this document number into the series.'
+                    );
+                }
+            }
 
             $requestId = DB::table('dcs_document_requests')->insertGetId(array_filter([
                 'version_id' => $request->version_id,
@@ -1229,7 +1439,8 @@ class RegisterPersistHelper
                         $request->file('uploadScannedCopy'),
                         $uploadedFiles,
                         'masterlist',
-                        self::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate'))
+                        self::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate')),
+                        self::dccContextFromRequest($request, 'masterlist', ! $saveAsDraft)
                     );
                     $uploadedFiles[] = $masterlistFile;
                 }
@@ -1254,7 +1465,7 @@ class RegisterPersistHelper
                     'revise_no' => self::resolveReviseNo($request),
                     'no_pages' => $request->masterlistNoOfPages,
                     'originator_name' => $originator['originator_name'],
-                    'deadline' => $request->deadlineOfSubmission,
+                    'deadline' => self::masterlistDeadlineValue($request),
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
@@ -1316,7 +1527,8 @@ class RegisterPersistHelper
                         $request->file('uploadScannedCopy'),
                         $uploadedFiles,
                         'masterlist',
-                        self::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate'))
+                        self::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate')),
+                        self::dccContextFromRequest($request, 'masterlist', ! $saveAsDraft)
                     );
                     $uploadedFiles[] = $masterlistFile;
                 }
@@ -1337,7 +1549,7 @@ class RegisterPersistHelper
                     'doc_registered_time' => $request->masterlistRegisteredTime,
                     'time_spent' => $masterlistTimeSpent,
                     'effectivity_date' => $request->masterlistEffectivityDate,
-                    'deadline' => $request->deadlineOfSubmission,
+                    'deadline' => self::masterlistDeadlineValue($request),
                     'revise_no' => self::resolveReviseNo($request),
                     'no_pages' => $totalPages,
                     'originator_name' => $originator['originator_name'],
@@ -1398,37 +1610,12 @@ class RegisterPersistHelper
             }
 
             if (in_array(4, $checkedChecklists, true)) {
-                $retrievalFile = null;
-                if ($request->hasFile('scannedRet')) {
-                    $retrievalFile = self::storeDcsScanUpload(
-                        $request->file('scannedRet'),
-                        $uploadedFiles,
-                        'retrieval',
-                        self::buildScanBasename(
-                            $request,
-                            'DRR',
-                            $request->input('retrievalDate') ?: $request->input('retrievalFormDate')
-                        )
-                    );
-                }
-
-                $retrievalTimeSpent = null;
-                if ($request->filled('retrievalTimeSpent') && is_numeric($request->retrievalTimeSpent) && $request->retrievalTimeSpent >= 0) {
-                    $retrievalTimeSpent = intval($request->retrievalTimeSpent);
-                }
-
-                $retrievalId = DB::table('dcs_document_retrieval')->insertGetId(array_merge([
+                $retrievalId = DB::table('dcs_document_retrieval')->insertGetId([
                     'request_id' => $requestId,
-                    'doc_retrieval_date_actual' => $request->retrievalDate,
-                    'doc_retrieval_time_actual' => $request->retrievalTime,
-                    'doc_retrieval_date_file' => $request->retrievalFormDate,
-                    'doc_retrieval_time_file' => $request->retrievalFormTime,
-                    'time_spent' => $retrievalTimeSpent,
-                    'remarks' => $request->retrievalRemarks,
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
-                ], self::dcsScanFields('dcs_document_retrieval', 'scanned_retrieval', $retrievalFile)));
+                ]);
 
                 if ($request->has('retrievalOffice')) {
                     foreach ($request->retrievalOffice as $i => $officeId) {
@@ -1696,6 +1883,16 @@ class RegisterPersistHelper
         return RegisterQueryHelper::isSyllabiLikeName($subType->doc_type_name ?? null);
     }
 
+    public static function normalizeSyllabiYearLevel(mixed $year): ?string
+    {
+        $year = trim((string) $year);
+        if ($year === '' || ! in_array($year, SyllabiMonitoringHelper::YEAR_LEVELS, true)) {
+            return null;
+        }
+
+        return $year;
+    }
+
     /** True when the effective type/subtype does not allow Revised / DCN. */
     public static function typeBlocksRevision(?object $typeRow): bool
     {
@@ -1730,7 +1927,7 @@ class RegisterPersistHelper
         }
     }
 
-    public static function findMatchingRegistrationRows(string $docNo, int $docTypeId, ?int $subTypeId): array
+    public static function findMatchingRegistrationRows(string $docNo, int $docTypeId, ?int $subTypeId, bool $anySubType = false): array
     {
         $allMl = DB::table('dcs_masterlist_registration')->where('doc_no', $docNo)->get();
 
@@ -1750,9 +1947,12 @@ class RegisterPersistHelper
 
         $hasSubType = $subTypeId && (int) $subTypeId > 0;
 
-        $matching = $relatedDocRequests->filter(function ($dr) use ($docTypeId, $subTypeId, $hasSubType) {
+        $matching = $relatedDocRequests->filter(function ($dr) use ($docTypeId, $subTypeId, $hasSubType, $anySubType) {
             if ((int) $dr->doc_type_id !== (int) $docTypeId) {
                 return false;
+            }
+            if ($anySubType) {
+                return true;
             }
             if ($hasSubType) {
                 return $dr->sub_type_id && (int) $dr->sub_type_id === (int) $subTypeId;
@@ -1827,17 +2027,79 @@ class RegisterPersistHelper
             . '", not the selected Document Type.';
     }
 
+    /**
+     * Block a second Syllabi/TOS pack for the same college + program + semester
+     * + school year + course type, even when course rows were cleared.
+     *
+     * @return \Illuminate\Http\RedirectResponse|\Illuminate\Http\JsonResponse|null
+     */
+    public static function rejectDuplicateSyllabiContext(Request $request, ?int $exceptRequestId = null)
+    {
+        $subType = self::dcsDocType($request->sub_type_id);
+        if (! self::isSyllabiLikeSubTypeRow($subType)) {
+            return null;
+        }
+
+        $collegeId = (int) $request->input('college_id', 0);
+        $programId = (int) $request->input('program_id', 0);
+        $semesterId = (int) $request->input('semester_id', 0);
+        $schoolYearId = (int) $request->input('school_year_id', 0);
+        $courseType = trim((string) $request->input('course_type', ''));
+        $subTypeId = $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null;
+
+        if ($collegeId < 1 || $programId < 1 || $semesterId < 1 || $schoolYearId < 1 || $courseType === '') {
+            return null;
+        }
+
+        $duplicate = self::findSyllabiContextDuplicate(
+            $collegeId,
+            $programId,
+            $semesterId,
+            $schoolYearId,
+            $courseType,
+            $subTypeId,
+            $exceptRequestId
+        );
+        if (! $duplicate) {
+            return null;
+        }
+
+        $label = RegisterQueryHelper::isSyllabiLikeName($subType->doc_type_name ?? null)
+            ? trim((string) ($subType->doc_type_name ?? 'Syllabi'))
+            : 'Syllabi';
+        $sy = DB::table('dcs_school_years')->where('id', $schoolYearId)->value('school_year');
+        $sem = DB::table('dcs_semesters')->where('id', $semesterId)->value('semester_name');
+
+        return self::draftErrorResponse(
+            $request,
+            "{$label} for {$courseType}, {$sem}, S/Y {$sy} is already registered. "
+            . 'Only one registration is allowed per semester and school year for this course type.'
+        );
+    }
+
     public static function validateSyllabiLikeRequestRows(Request $request, ?int $exceptRequestId = null): ?RedirectResponse
     {
         $subType = self::dcsDocType($request->sub_type_id);
         $isSyllabi = self::isSyllabiLikeSubTypeRow($subType);
 
-        if (!$isSyllabi || !$request->has('syllabiCourseName')) {
+        if (! $isSyllabi) {
+            return null;
+        }
+
+        if ($redirect = self::rejectDuplicateSyllabiContext($request, $exceptRequestId)) {
+            return $redirect instanceof \Illuminate\Http\RedirectResponse ? $redirect : back()->withInput()->with(
+                'error',
+                $redirect->getData(true)['message'] ?? 'This semester and school year are already registered.'
+            );
+        }
+
+        if (! $request->has('syllabiCourseName')) {
             return null;
         }
 
         $courseNames = $request->syllabiCourseName;
         $copiesArr = $request->syllabiCopies ?? [];
+        $yearArr = $request->syllabiYearLevel ?? [];
         $total = count($courseNames);
         $i = 0;
 
@@ -1851,6 +2113,13 @@ class RegisterPersistHelper
                 continue;
             }
 
+            $rowYear = self::normalizeSyllabiYearLevel($yearArr[$i] ?? null);
+            if ($rowYear === null && Schema::hasColumn('dcs_program_courses', 'year_level')) {
+                return back()->withInput()->with('error',
+                    "{$courseLabel}: Year level is required.");
+            }
+
+            $usedFaculty = [];
             for ($c = 0; $c < $copies; $c++) {
                 $rowIdx = $i + $c;
                 if ($rowIdx >= $total) {
@@ -1860,10 +2129,18 @@ class RegisterPersistHelper
                 $rowLabel = "Syllabi \"{$courseLabel}\" (Copy {$copyNum})";
 
                 if ($copies > 1) {
-                    $facultyCount = count(array_filter(array_map('trim', explode(',', $request->syllabiFaculty[$rowIdx] ?? ''))));
-                    if ($facultyCount > 1) {
+                    $rowFaculties = self::parseSyllabiFacultyNames($request->syllabiFaculty[$rowIdx] ?? '');
+                    if (count($rowFaculties) > 1) {
                         return back()->withInput()->with('error',
                             "{$rowLabel}: Only one faculty per row is allowed when copies are split across rows.");
+                    }
+                    $rowName = mb_strtolower($rowFaculties[0] ?? '');
+                    if ($rowName !== '') {
+                        if (isset($usedFaculty[$rowName])) {
+                            return back()->withInput()->with('error',
+                                "{$rowLabel}: The same faculty cannot be used on more than one copy of this syllabi.");
+                        }
+                        $usedFaculty[$rowName] = true;
                     }
                 }
 
@@ -1888,7 +2165,10 @@ class RegisterPersistHelper
             'semester_id' => 'required|integer|exists:dcs_semesters,id',
             'school_year_id' => 'required|integer|exists:dcs_school_years,id',
             'course_type' => 'required|string|max:50|in:GE Courses,PE Courses,NSTP,Major',
-            'year_level' => 'required|string|max:50|in:1st Year,2nd Year,3rd Year,4th Year,5th Year',
+            'year_levels' => 'nullable|array',
+            'year_levels.*' => 'nullable|string|max:50|in:1st Year,2nd Year,3rd Year,4th Year,5th Year',
+            'syllabiYearLevel' => 'nullable|array',
+            'syllabiYearLevel.*' => 'nullable|string|max:50|in:1st Year,2nd Year,3rd Year,4th Year,5th Year',
             'syllabiDocNo' => 'nullable|string',
             'syllabiDocTitle' => 'nullable|string',
             'syllabiEffectivityDate' => 'nullable|date',
@@ -1901,7 +2181,6 @@ class RegisterPersistHelper
             (int) $request->input('semester_id'),
             (int) $request->input('school_year_id'),
             trim((string) $request->input('course_type')),
-            trim((string) $request->input('year_level')),
             $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null,
             $exceptRequestId
         );
@@ -1913,12 +2192,11 @@ class RegisterPersistHelper
             $sy = DB::table('dcs_school_years')->where('id', (int) $request->input('school_year_id'))->value('school_year');
             $sem = DB::table('dcs_semesters')->where('id', (int) $request->input('semester_id'))->value('semester_name');
             $courseType = trim((string) $request->input('course_type'));
-            $yearLevel = trim((string) $request->input('year_level'));
 
             return back()->withInput()->with(
                 'error',
-                "{$label} for {$courseType}, {$yearLevel}, {$sem}, S/Y {$sy} is already registered. "
-                . 'Only one registration is allowed per semester and school year for this course type and year level.'
+                "{$label} for {$courseType}, {$sem}, S/Y {$sy} is already registered. "
+                . 'Only one registration is allowed per semester and school year for this course type.'
             );
         }
 
@@ -1927,7 +2205,8 @@ class RegisterPersistHelper
 
     /**
      * Syllabi / TOS-like registrations are once per college + program + semester
-     * + school year + course type + year level (+ document sub-type).
+     * + school year + course type (+ document sub-type). Year levels live on
+     * the course rows inside that one pack.
      */
     public static function findSyllabiContextDuplicate(
         int $collegeId,
@@ -1935,14 +2214,13 @@ class RegisterPersistHelper
         int $semesterId,
         int $schoolYearId,
         string $courseType,
-        string $yearLevel,
         ?int $subTypeId = null,
         ?int $exceptRequestId = null
     ): ?object {
         if ($collegeId < 1 || $programId < 1 || $semesterId < 1 || $schoolYearId < 1) {
             return null;
         }
-        if ($courseType === '' || $yearLevel === '') {
+        if ($courseType === '') {
             return null;
         }
         if (! Schema::hasTable('dcs_syllabi')) {
@@ -1968,15 +2246,9 @@ class RegisterPersistHelper
             $query->whereNull('dr.deleted_at');
         }
 
-        if (Schema::hasColumn('dcs_program_courses', 'course_type')
-            || Schema::hasColumn('dcs_program_courses', 'year_level')) {
-            $query->join('dcs_program_courses as pc', 'pc.id', '=', 's.course_id');
-            if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
-                $query->where('pc.course_type', $courseType);
-            }
-            if (Schema::hasColumn('dcs_program_courses', 'year_level')) {
-                $query->where('pc.year_level', $yearLevel);
-            }
+        if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
+            $query->join('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
+                ->where('pc.course_type', $courseType);
         }
 
         return $query
@@ -2186,14 +2458,14 @@ class RegisterPersistHelper
         $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
         $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
         $hasCourseType = Schema::hasColumn('dcs_program_courses', 'course_type');
-        $yearLevel = $hasYearLevel ? trim((string) ($request->input('year_level') ?? '')) : '';
+        $yearArr = $request->syllabiYearLevel ?? [];
         $courseType = $hasCourseType ? trim((string) ($request->input('course_type') ?? '')) : '';
-        $yearLevel = $yearLevel !== '' ? $yearLevel : null;
         $courseType = $courseType !== '' ? $courseType : null;
 
         while ($i < $total) {
             $courseName = $courseNames[$i];
             $copies = max(1, (int) ($copiesArr[$i] ?? 1));
+            $yearLevel = $hasYearLevel ? self::normalizeSyllabiYearLevel($yearArr[$i] ?? null) : null;
 
             if (empty($courseName)) {
                 $i += $copies;
@@ -2294,7 +2566,7 @@ class RegisterPersistHelper
                     $uploadedFiles[] = $scannedDrf;
                 }
 
-                $facultyNames = array_filter(array_map('trim', explode(',', $facultyArr[$rowIdx] ?? '')));
+                $facultyNames = self::parseSyllabiFacultyNames($facultyArr[$rowIdx] ?? '');
                 if (empty($facultyNames)) {
                     $facultyNames = [''];
                 }
@@ -2387,7 +2659,8 @@ class RegisterPersistHelper
             auth()->user(),
             $original,
             $category,
-            $useConvention
+            $useConvention,
+            self::dccContextFromRequest($request, $category, true)
         );
     }
 
@@ -2577,5 +2850,7 @@ class RegisterPersistHelper
         DB::table('dcs_masterlist_registration')
             ->where('id', $tipId)
             ->update(['revision_status' => 'latest', 'updated_at' => now()]);
+
+        DocumentStorageService::moveObsoleteDocinfoFilesForFamily($familyNos, $requestIds, $tipId);
     }
 }

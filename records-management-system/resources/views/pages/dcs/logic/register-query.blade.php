@@ -277,6 +277,29 @@ class RegisterQueryHelper
         return Carbon::parse($val)->format('Y-m-d');
     }
 
+    /**
+     * Display dates: the 1st of a month is month + year only (Jan 2025).
+     * Any other day keeps the full date (Jan 2, 2025).
+     */
+    public static function formatSmartDate(mixed $val, string $empty = '', bool $longMonth = false): string
+    {
+        if (! $val) {
+            return $empty;
+        }
+
+        try {
+            $date = $val instanceof Carbon ? $val : Carbon::parse($val);
+        } catch (\Throwable $e) {
+            return trim((string) $val);
+        }
+
+        if ((int) $date->day === 1) {
+            return $date->format($longMonth ? 'F Y' : 'M Y');
+        }
+
+        return $date->format($longMonth ? 'F j, Y' : 'M d, Y');
+    }
+
     public static function formatTime(mixed $val): string
     {
         if (!$val) {
@@ -284,6 +307,26 @@ class RegisterQueryHelper
         }
 
         return Carbon::parse($val)->format('H:i');
+    }
+
+    /** Display dates: 1st of month → September 2026; other days → September 2, 2026. */
+    public static function formatDisplayDate(mixed $val, string $empty = ''): string
+    {
+        return self::formatSmartDate($val, $empty, true);
+    }
+
+    /** Display times with AM/PM (e.g. 8:36 AM). */
+    public static function formatDisplayTime(mixed $val, string $empty = ''): string
+    {
+        if (! $val) {
+            return $empty;
+        }
+
+        try {
+            return Carbon::parse($val)->format('g:i A');
+        } catch (\Throwable $e) {
+            return trim((string) $val);
+        }
     }
 
     public static function parentDocTypes()
@@ -316,8 +359,8 @@ class RegisterQueryHelper
     }
 
     /**
-     * Inventory / campus-wide DCS scope: super admin, or Access DCS on an
-     * RFIO/RFOIU office account. Other offices stay office DRF/DCN intake only.
+     * Inventory / campus-wide DCS scope: Super Admin or Admin DCS clearance
+     * (role-based; office assignment does not matter).
      */
     public static function canViewAllDocuments(): bool
     {
@@ -381,13 +424,22 @@ class RegisterQueryHelper
         ];
     }
 
-    public static function hasAnyDcsModuleFlag(?object $perms = null): bool
+    /** Admin DCS pages — every module except Recycle Bin. */
+    public static function dcsAdminModuleColumns(): array
+    {
+        $columns = self::dcsModuleColumns();
+        unset($columns['recycle_bin']);
+
+        return $columns;
+    }
+
+    public static function hasDcsAdminAccess(?object $perms = null): bool
     {
         $perms ??= auth()->user()?->permissions;
         if (!$perms) {
             return false;
         }
-        foreach (self::dcsModuleColumns() as $column) {
+        foreach (self::dcsAdminModuleColumns() as $column) {
             if (!empty($perms->{$column})) {
                 return true;
             }
@@ -396,13 +448,38 @@ class RegisterQueryHelper
         return false;
     }
 
+    public static function hasAnyDcsModuleFlag(?object $perms = null): bool
+    {
+        return self::hasDcsAdminAccess($perms);
+    }
+
+    public static function canAccessOfficeIntake(): bool
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms) {
+            return false;
+        }
+        if (!empty($perms->is_sadm) || self::isFullDcsUser()) {
+            return true;
+        }
+        if (empty($perms->can_access_dcs)) {
+            return false;
+        }
+        $details = Schema::hasTable('sys_condition_details') ? 'sys_condition_details' : 'condition_details';
+        if (Schema::hasColumn($details, 'dcs_can_office_intake')) {
+            return !empty($perms->dcs_can_office_intake);
+        }
+
+        return self::isLimitedDcsUser();
+    }
+
     /**
-     * Full / admin DCS operator (not office intake-only):
-     * - super admin, or
-     * - Access DCS + assigned to RFIO/RFOIU office
+     * Full / Admin DCS operator (role clearances only — office does not gate):
+     * - Super Admin, or
+     * - Access DCS + Document Controller (Admin DCS) clearances
      *
-     * Put Document Controllers under RFOIU and turn on the module clearances they need.
-     * Other offices with Access DCS only get office DRF/DCN intake.
+     * Office Intake is mutually exclusive and never grants full access.
+     * Recycle Bin is Head Admin only (separate flag).
      */
     public static function isFullDcsUser(): bool
     {
@@ -416,11 +493,15 @@ class RegisterQueryHelper
         if (empty($perms->can_access_dcs)) {
             return false;
         }
+        $details = Schema::hasTable('sys_condition_details') ? 'sys_condition_details' : 'condition_details';
+        if (Schema::hasColumn($details, 'dcs_can_office_intake') && ! empty($perms->dcs_can_office_intake)) {
+            return false;
+        }
 
-        return self::isRfioOffice();
+        return self::hasDcsAdminAccess($perms);
     }
 
-    /** Non-full DCS user with DCS access: DRF/DCN intake only. */
+    /** Non-full DCS user with DCS access: office pages only when Office Intake is on. */
     public static function isLimitedDcsUser(): bool
     {
         $perms = auth()->user()?->permissions;
@@ -438,9 +519,25 @@ class RegisterQueryHelper
     }
 
     /**
-     * Per-module clearance. Requires full DCS (RFIO/RFOIU + Access DCS, or SADM) plus the module flag.
-     * Super Admin bypasses module flags — except Recycle Bin (HEAD Admin of DCS),
-     * which requires an explicit dcs_can_recycle_bin grant and is not Super Admin identity.
+     * Access DCS is on, but neither Office Intake nor Document Controller (Admin DCS)
+     * clearances were granted — user can open DCS shell only.
+     */
+    public static function isDcsPathPending(): bool
+    {
+        $perms = auth()->user()?->permissions;
+        if (! $perms || ! empty($perms->is_sadm)) {
+            return false;
+        }
+        if (empty($perms->can_access_dcs)) {
+            return false;
+        }
+
+        return ! self::isFullDcsUser() && ! self::canAccessOfficeIntake();
+    }
+
+    /**
+     * Admin DCS (Access DCS + Admin DCS clearances, or Super Admin) gets every admin page.
+     * Recycle Bin stays Head Admin only (dcs_can_recycle_bin) and is not Super Admin identity.
      */
     public static function canAccessDcsModule(string $module): bool
     {
@@ -450,12 +547,10 @@ class RegisterQueryHelper
         }
 
         $columns = self::dcsModuleColumns();
-        $column = $columns[$module] ?? null;
-        if ($column === null) {
+        if (! isset($columns[$module])) {
             return false;
         }
 
-        // HEAD Admin of DCS = Recycle Bin clearance only (not Super Admin / not system-wide admin).
         if ($module === 'recycle_bin') {
             if (empty($perms->dcs_can_recycle_bin)) {
                 return false;
@@ -467,11 +562,8 @@ class RegisterQueryHelper
         if (! empty($perms->is_sadm)) {
             return true;
         }
-        if (! self::isFullDcsUser()) {
-            return false;
-        }
 
-        return ! empty($perms->{$column});
+        return self::isFullDcsUser();
     }
 
     /**
@@ -676,6 +768,96 @@ class RegisterQueryHelper
                 return ! OfficeIntakeHelper::isIntakeRegistered($intake['type'], $intake['id']);
             })
             ->values();
+    }
+
+    /**
+     * Shared visibility for the header bell and /chat/unread-count.
+     * Excludes removed / dismissed notices so the red dot matches an empty inbox.
+     *
+     * @param  list<string>  $allowedSubsystems
+     * @return \Illuminate\Database\Query\Builder
+     */
+    public static function bellNotificationsBaseQuery(int $userId, string $officeCode, array $allowedSubsystems)
+    {
+        $notifTbl = Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifContentTbl = Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $subsystemsTbl = Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+        $notifDivTbl = Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+
+        $officeCodes = [];
+        $pushOffice = static function (?string $code) use (&$officeCodes): void {
+            $code = trim((string) $code);
+            if ($code === '') {
+                return;
+            }
+            $resolved = \App\Services\DcsNotificationService::resolveOfficeCode($code) ?? $code;
+            foreach ([$resolved, $code] as $candidate) {
+                $candidate = trim((string) $candidate);
+                if ($candidate === '') {
+                    continue;
+                }
+                foreach ($officeCodes as $existing) {
+                    if (strcasecmp($existing, $candidate) === 0) {
+                        continue 2;
+                    }
+                }
+                $officeCodes[] = $candidate;
+            }
+        };
+
+        $pushOffice($officeCode);
+        // Admin DCS / Super Admin may be assigned outside RFOIU — still surface RFIO queue notices
+        // (e.g. office marked a distributed document received).
+        if (self::isFullDcsUser()) {
+            $pushOffice(self::rfioNotificationOfficeCode());
+            foreach (self::rfioOfficeCodes() as $alias) {
+                $pushOffice($alias);
+            }
+        }
+
+        $query = DB::table($notifTbl)
+            ->join($notifContentTbl, $notifTbl . '.contents', '=', $notifContentTbl . '.id')
+            ->join($subsystemsTbl, $notifContentTbl . '.system', '=', $subsystemsTbl . '.subsystem_id')
+            ->leftJoin($notifDivTbl, function ($join) use ($userId, $notifTbl, $notifDivTbl) {
+                $join->on($notifTbl . '.id', '=', $notifDivTbl . '.id')
+                    ->where($notifDivTbl . '.account_rec', '=', $userId);
+            })
+            ->whereIn($notifTbl . '.office', $officeCodes !== [] ? $officeCodes : [trim($officeCode)])
+            ->whereIn($subsystemsTbl . '.subsystem_name', $allowedSubsystems)
+            ->where(function ($q) use ($notifDivTbl) {
+                $q->whereNull($notifDivTbl . '.is_in_user_list')
+                    ->orWhere($notifDivTbl . '.is_in_user_list', 1);
+            });
+
+        if (Schema::hasColumn($notifDivTbl, 'is_dismissed')) {
+            $query->where(function ($q) use ($notifDivTbl) {
+                $q->whereNull($notifDivTbl . '.is_dismissed')
+                    ->orWhere($notifDivTbl . '.is_dismissed', false);
+            });
+        }
+
+        return $query;
+    }
+
+    /** Unread system notices that still appear in the bell (after the same filters). */
+    public static function countVisibleUnreadNotifications(int $userId, string $officeCode, array $allowedSubsystems): int
+    {
+        $notifTbl = Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifContentTbl = Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $notifDivTbl = Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+
+        $query = self::bellNotificationsBaseQuery($userId, $officeCode, $allowedSubsystems)
+            ->where(function ($q) use ($notifDivTbl) {
+                $q->whereNull($notifDivTbl . '.status')
+                    ->orWhere($notifDivTbl . '.status', 'unread');
+            })
+            ->select(
+                $notifTbl . '.id',
+                $notifContentTbl . '.redirect_url',
+                $notifContentTbl . '.content'
+            );
+
+        return self::filterBellNotifications($query->get())->count();
     }
 
     /**
@@ -1106,6 +1288,111 @@ class RegisterQueryHelper
         self::applyExcludeDrafts($query, $drAlias);
     }
 
+    /** @return list<string> */
+    public static function consolidatedDrfYears(): array
+    {
+        if (! Schema::hasTable('dcs_document_request_form') || ! Schema::hasTable('dcs_document_requests')) {
+            return [];
+        }
+
+        $query = DB::table('dcs_document_request_form as drf')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'drf.request_id')
+            ->whereNotNull('drf.drf_date');
+        self::applyExcludeOfficeIntakeDrf($query, 'drf');
+        self::applyNotDeleted($query, 'dr');
+        self::applyRegisteredDocumentScope($query, 'dr');
+
+        return $query
+            ->orderBy('drf.drf_date')
+            ->pluck('drf.drf_date')
+            ->map(function ($date) {
+                try {
+                    return \Carbon\Carbon::parse($date)->format('Y');
+                } catch (\Throwable) {
+                    return null;
+                }
+            })
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /** @return list<string> */
+    public static function consolidatedDcnYears(): array
+    {
+        if (! Schema::hasTable('dcs_document_change_notice') || ! Schema::hasTable('dcs_document_requests')) {
+            return [];
+        }
+
+        $query = DB::table('dcs_document_change_notice as dcn')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'dcn.request_id')
+            ->whereNotNull('dcn.dcn_date');
+        self::applyExcludeOfficeIntakeDcn($query, 'dcn');
+        self::applyNotDeleted($query, 'dr');
+        self::applyRegisteredDocumentScope($query, 'dr');
+
+        return self::yearsFromDates($query->orderBy('dcn.dcn_date')->pluck('dcn.dcn_date'));
+    }
+
+    /**
+     * Calendar years available for a monitoring tab (form date / registration date).
+     *
+     * @return list<string>
+     */
+    public static function monitoringReportYears(string $sub): array
+    {
+        if ($sub === 'drf') {
+            return self::consolidatedDrfYears();
+        }
+        if ($sub === 'dcn') {
+            return self::consolidatedDcnYears();
+        }
+
+        $docTypeName = match ($sub) {
+            'internal_docs' => 'Internal',
+            'external_docs' => 'External',
+            'internal_forms' => 'Internal Forms',
+            'forms' => 'Forms',
+            'logbooks' => 'Logbooks',
+            default => null,
+        };
+        if ($docTypeName === null || ! Schema::hasTable('dcs_document_request_form') || ! Schema::hasTable('dcs_document_requests')) {
+            return [];
+        }
+
+        $query = DB::table('dcs_document_request_form as drf')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'drf.request_id')
+            ->whereNotNull('drf.drf_date')
+            ->whereExists(function ($q) use ($docTypeName) {
+                $q->select(DB::raw(1))->from('dcs_doc_types as dt')
+                    ->whereColumn('dt.id', 'dr.doc_type_id')
+                    ->where('dt.doc_type_name', $docTypeName);
+            });
+        self::applyExcludeOfficeIntakeDrf($query, 'drf');
+        self::applyNotDeleted($query, 'dr');
+        self::applyRegisteredDocumentScope($query, 'dr');
+
+        return self::yearsFromDates($query->orderBy('drf.drf_date')->pluck('drf.drf_date'));
+    }
+
+    /** @param \Illuminate\Support\Collection<int, mixed> $dates */
+    private static function yearsFromDates($dates): array
+    {
+        return $dates
+            ->map(function ($date) {
+                try {
+                    return \Carbon\Carbon::parse($date)->format('Y');
+                } catch (\Throwable) {
+                    return null;
+                }
+            })
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
     public static function supportsDrafts(): bool
     {
         return Schema::hasColumn('dcs_document_requests', 'is_draft');
@@ -1136,6 +1423,42 @@ class RegisterQueryHelper
         return self::intIds($q->pluck('dr.id'));
     }
 
+    /**
+     * Newest open draft for this document number + type (one draft per document).
+     */
+    public static function findExistingDraftRequestId(
+        string $docNo,
+        int $docTypeId,
+        ?int $subTypeId = null,
+        int $excludeRequestId = 0
+    ): ?int {
+        if (! self::supportsDrafts()) {
+            return null;
+        }
+
+        $docNo = trim($docNo);
+        if ($docNo === '' || $docTypeId < 1) {
+            return null;
+        }
+
+        $query = DB::table('dcs_document_requests as dr')
+            ->join('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+            ->where('dr.is_draft', true)
+            ->where('dr.doc_type_id', $docTypeId)
+            ->where('ml.doc_no', $docNo);
+        self::applyNotDeleted($query, 'dr');
+        self::applyOfficeScope($query, 'dr');
+        self::applyExcludeOfficeIntakeRequests($query, 'dr');
+
+        if ($excludeRequestId > 0) {
+            $query->where('dr.id', '!=', $excludeRequestId);
+        }
+
+        $id = $query->orderByDesc('dr.updated_at')->orderByDesc('dr.id')->value('dr.id');
+
+        return $id ? (int) $id : null;
+    }
+
     public static function isOfficeIntakeScanPath(string $path): bool
     {
         $path = DocumentStorageService::normalizeDcsScanPath($path);
@@ -1144,18 +1467,16 @@ class RegisterQueryHelper
         }
 
         foreach ([
-            ['table' => 'dcs_document_request_form', 'column' => 'scanned_drf'],
-            ['table' => 'dcs_document_change_notice', 'column' => 'scanned_dcn'],
+            ['table' => 'dcs_office_intake_drf', 'column' => 'scanned_drf'],
+            ['table' => 'dcs_office_intake_dcn', 'column' => 'scanned_dcn'],
         ] as $source) {
             if (! Schema::hasTable($source['table'])
-                || ! Schema::hasColumn($source['table'], $source['column'])
-                || ! Schema::hasColumn($source['table'], 'is_office_intake')) {
+                || ! Schema::hasColumn($source['table'], $source['column'])) {
                 continue;
             }
 
             if (DB::table($source['table'])
                 ->where($source['column'], $path)
-                ->where('is_office_intake', true)
                 ->exists()) {
                 return true;
             }
@@ -2253,6 +2574,8 @@ class RegisterQueryHelper
             'last_page' => 1,
             'per_page' => $perPage,
         ];
+
+        RegisterUpdateHelper::collapseDuplicateDrafts();
 
         $draftIds = self::draftRequestIds();
         if ($draftIds === []) {
@@ -3522,7 +3845,7 @@ class RegisterQueryHelper
 
     private static function hstDate(mixed $val): string
     {
-        return $val ? Carbon::parse($val)->format('M d, Y') : '—';
+        return self::formatSmartDate($val, '—');
     }
 
     private static function hstDateTime(mixed $val): string
@@ -3644,8 +3967,8 @@ class RegisterQueryHelper
             self::hstRow('registered_by', 'Registered by', $lookups['creators'][(int) $creatorId] ?? null),
             self::hstRow('originator', 'Originator', $ml->originator_name),
             self::hstOfficeRow('sources', 'Source offices', $mlHydrated->sourceOffices ?? collect()),
-            self::hstRow('effectivity', 'Effectivity', self::hstDate($ml->effectivity_date)),
-            self::hstRow('deadline', 'Deadline', self::hstDate($ml->deadline)),
+            self::hstRow('effectivity', 'Effectivity', self::formatSmartDate($ml->effectivity_date, '—')),
+            self::hstRow('deadline', 'Deadline', $ml->deadline ? self::formatSmartDate($ml->deadline) : 'N/A'),
             self::hstRow('pages', 'Pages', $ml->no_pages === null ? null : (string) $ml->no_pages),
             self::hstRow('receipt_date', 'Date received', self::hstDate($ml->doc_receipt_date)),
             self::hstRow('receipt_time', 'Time received', self::hstTime($ml->doc_receipt_time)),
@@ -3677,7 +4000,7 @@ class RegisterQueryHelper
                     'document_no' => $rev->document_no ?: '—',
                     'title' => $rev->title ?: '—',
                     'revision_no' => $rev->revision_no !== null ? (string) $rev->revision_no : '—',
-                    'effectivity_date' => self::hstDate($rev->effectivity_date) ?: '—',
+                    'effectivity_date' => self::formatSmartDate($rev->effectivity_date, '—'),
                     'brief_purpose' => $rev->brief_purpose ?: '—',
                 ];
             })->all();
@@ -3687,7 +4010,7 @@ class RegisterQueryHelper
                     $rev->title ?: null,
                     $rev->document_no ? 'No. ' . $rev->document_no : null,
                     $rev->revision_no !== null ? 'Rev ' . $rev->revision_no : null,
-                    $rev->effectivity_date ? self::hstDate($rev->effectivity_date) : null,
+                    $rev->effectivity_date ? self::formatSmartDate($rev->effectivity_date) : null,
                     $rev->brief_purpose ?: null,
                 ]);
 
@@ -3722,15 +4045,8 @@ class RegisterQueryHelper
 
         if ($ret) {
             self::hstPushSection($sections, 'retrieval', 'Retrieval', [
-                self::hstRow('ret_date_actual', 'Actual date', self::hstDate($ret->doc_retrieval_date_actual ?? null)),
-                self::hstRow('ret_time_actual', 'Actual time', self::hstTime($ret->doc_retrieval_time_actual ?? null)),
-                self::hstRow('ret_date_file', 'File date', self::hstDate($ret->doc_retrieval_date_file ?? null)),
-                self::hstRow('ret_time_file', 'File time', self::hstTime($ret->doc_retrieval_time_file ?? null)),
-                self::hstRow('ret_spent', 'Time spent', $ret->time_spent ?? null),
                 self::hstOfficeRow('ret_offices', 'Offices / copies', $ret->offices ?? collect(), true),
-                self::hstRow('ret_remarks', 'Remarks', $ret->remarks ?? null),
-                self::hstRow('ret_scan', 'Scanned copy', self::hstFile($ret->scanned_retrieval ?? null)),
-            ], self::hstScanMeta($ret->scanned_retrieval ?? null));
+            ]);
         }
 
         $approvalText = collect($approvals)->map(function ($a) use ($lookups) {
@@ -4006,12 +4322,28 @@ class RegisterQueryHelper
             ->limit($allRevisions ? 50 : ($dashboardSearch ? 60 : 30))
             ->get($select);
 
+        $forRevision = $request->boolean('for_revision') || in_array($field, ['no', 'title'], true);
+        if ($rows->isEmpty() && $forRevision && $docTypeId) {
+            $rows = self::searchRevisionDocumentsFallback(
+                $q,
+                (string) $field,
+                (int) $docTypeId,
+                $subTypeId ? (int) $subTypeId : null,
+                (int) $request->input('exclude_request_id', 0),
+                $select
+            );
+        }
+
         if ($rows->isEmpty()) {
             return [];
         }
 
         if ($dashboardSearch) {
             $rows = self::resolveDashboardSearchHits($rows, $visibleIds, $hasKeywords, $q);
+        } elseif ($forRevision && !$allRevisions) {
+            // Documents for Revision must show the published current rev, not a
+            // leftover revision draft or the next unused number.
+            $rows = self::resolveRevisionSearchHits($rows, $visibleIds, $hasKeywords);
         } elseif (!$allRevisions) {
             $seen = [];
             $rows = $rows->filter(function ($m) use (&$seen) {
@@ -4082,6 +4414,65 @@ class RegisterQueryHelper
         })
             ->values()
             ->all();
+    }
+
+    /**
+     * Revision picker fallback: same parent type, optional subtype, include drafts,
+     * and do not require revision_status = latest. Used when the strict search misses
+     * a just-saved New registration the user is trying to revise.
+     */
+    private static function searchRevisionDocumentsFallback(
+        string $q,
+        string $field,
+        int $docTypeId,
+        ?int $subTypeId,
+        int $excludeRequestId,
+        array $select
+    ): Collection {
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
+            ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
+            ->where(function ($q) use ($docTypeId) {
+                $q->where('dr.doc_type_id', $docTypeId)
+                    ->orWhere('dr.sub_type_id', $docTypeId)
+                    ->orWhereIn('dr.doc_type_id', function ($sub) use ($docTypeId) {
+                        $sub->select('id')->from('dcs_doc_types')->where('parent_id', $docTypeId);
+                    })
+                    ->orWhereIn('dr.sub_type_id', function ($sub) use ($docTypeId) {
+                        $sub->select('id')->from('dcs_doc_types')->where('parent_id', $docTypeId);
+                    });
+            })
+            ->whereNotNull('ml.doc_no')
+            ->where('ml.doc_no', '!=', '');
+
+        self::applyNotDeleted($query, 'dr');
+        self::applyExcludeOfficeIntakeRequests($query, 'dr');
+
+        if ($excludeRequestId > 0) {
+            $query->where('ml.request_id', '!=', $excludeRequestId);
+        }
+
+        $query->where(function ($qr) use ($q, $field) {
+            if ($field === 'title') {
+                $qr->where('ml.doc_title', 'ilike', "%{$q}%");
+            } else {
+                $qr->where('ml.doc_no', 'ilike', "%{$q}%");
+            }
+        });
+
+        if ($subTypeId) {
+            $query->orderByRaw('CASE WHEN dr.sub_type_id = ? THEN 0 ELSE 1 END', [$subTypeId]);
+        }
+        if (self::supportsDrafts()) {
+            $query->orderByRaw('CASE WHEN dr.is_draft = true THEN 1 ELSE 0 END');
+        }
+        if (self::supportsRevisionStatus()) {
+            $query->orderByRaw("CASE WHEN ml.revision_status = 'latest' OR ml.revision_status IS NULL OR ml.revision_status = '' THEN 0 ELSE 1 END");
+        }
+        $query->orderByDesc('ml.revise_no')->orderBy('ml.doc_no');
+
+        return $query->limit(30)->get($select);
     }
 
     /**
@@ -4199,6 +4590,41 @@ class RegisterQueryHelper
         return $tip;
     }
 
+    /**
+     * Revision picker: one row per document, always the published current rev.
+     * A leftover revision draft (next unused Rev) must not win over Latest.
+     */
+    private static function resolveRevisionSearchHits(Collection $rows, array $visibleIds, bool $hasKeywords): Collection
+    {
+        $out = collect();
+        $seenKeys = [];
+
+        foreach ($rows as $hit) {
+            $tip = self::resolveLineageTipMasterlist($hit, $visibleIds);
+            $source = $tip ?: $hit;
+            $key = strtolower(trim((string) ($source->doc_no ?? ''))) . '|'
+                . (int) ($source->doc_type_id ?? $hit->doc_type_id ?? 0) . '|'
+                . (int) ($source->sub_type_id ?? $hit->sub_type_id ?? 0);
+            if ($key === '|0|0' || isset($seenKeys[$key])) {
+                continue;
+            }
+            $seenKeys[$key] = true;
+
+            if ($tip) {
+                $enriched = self::loadSearchDocumentRow((int) $tip->id, $hasKeywords);
+                if ($enriched) {
+                    $enriched->originator_name = $enriched->originator_name ?? ($hit->originator_name ?? null);
+                    $out->push($enriched);
+                    continue;
+                }
+            }
+
+            $out->push($hit);
+        }
+
+        return $out->values();
+    }
+
     private static function loadSearchDocumentRow(int $masterlistId, bool $hasKeywords): ?object
     {
         $select = [
@@ -4209,6 +4635,7 @@ class RegisterQueryHelper
             'ml.revise_no',
             'ml.effectivity_date',
             'ml.scanned_masterlist',
+            'ml.originator_name',
             'dr.doc_type_id',
             'dr.sub_type_id',
             'dt.doc_type_name as type_name',
@@ -4241,7 +4668,24 @@ class RegisterQueryHelper
             ? self::visibleOriginatorRequestIds()
             : self::visibleRequestIds();
         if (! in_array($requestId, $visibleIds, true)) {
-            abort(403, 'You do not have access to this document revision.');
+            $draftAnchor = DB::table('dcs_masterlist_registration as ml')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                ->where('ml.request_id', $requestId)
+                ->select('ml.doc_no', 'ml.revise_no', 'dr.doc_type_id', 'dr.sub_type_id')
+                ->first();
+            $tip = $draftAnchor && trim((string) ($draftAnchor->doc_no ?? '')) !== ''
+                ? self::latestMasterlistForDocNo(
+                    trim((string) $draftAnchor->doc_no),
+                    (int) $draftAnchor->doc_type_id,
+                    $draftAnchor->sub_type_id ? (int) $draftAnchor->sub_type_id : null,
+                    $visibleIds
+                )
+                : null;
+            if ($tip && in_array((int) $tip->request_id, $visibleIds, true)) {
+                $requestId = (int) $tip->request_id;
+            } else {
+                abort(403, 'You do not have access to this document revision.');
+            }
         }
 
         $anchor = DB::table('dcs_masterlist_registration as ml')
@@ -5105,6 +5549,9 @@ class RegisterQueryHelper
             'effectivity_date' => $row->effectivity_date
                 ? Carbon::parse($row->effectivity_date)->format('Y-m-d')
                 : null,
+            'effectivity_date_label' => $row->effectivity_date
+                ? self::formatDisplayDate($row->effectivity_date)
+                : null,
             'brief_purpose' => $row->brief_purpose ?? null,
             'scanned_copy_url' => $row->scanned_masterlist
                 ? self::scanUrl($row->scanned_masterlist)
@@ -5235,9 +5682,9 @@ class RegisterQueryHelper
             'doc_title' => $drf->doc_title,
             'fields' => [
                 self::previewField('DRF No.', $drf->drf_no),
-                self::previewField('DRF Date', self::formatDate($drf->drf_date)),
-                self::previewField('Receipt Date', self::formatDate($drf->drf_receipt_date)),
-                self::previewField('Receipt Time', self::formatTime($drf->drf_receipt_time)),
+                self::previewField('DRF Date', self::formatDisplayDate($drf->drf_date)),
+                self::previewField('Receipt Date', self::formatDisplayDate($drf->drf_receipt_date)),
+                self::previewField('Receipt Time', self::formatDisplayTime($drf->drf_receipt_time)),
                 self::previewField('Document Title', $drf->doc_title),
             ],
             'sections' => array_values(array_filter([
@@ -5268,7 +5715,7 @@ class RegisterQueryHelper
                 'title' => $rev->title ?: '—',
                 'document_no' => $rev->document_no ?: '—',
                 'revision_no' => $rev->revision_no !== null ? (string) $rev->revision_no : '—',
-                'effectivity_date' => self::formatDate($rev->effectivity_date) ?: '—',
+                'effectivity_date' => self::formatDisplayDate($rev->effectivity_date, '—'),
                 'brief_purpose' => $rev->brief_purpose ?: '—',
             ])
             ->all();
@@ -5280,9 +5727,9 @@ class RegisterQueryHelper
             'doc_title' => null,
             'fields' => [
                 self::previewField('DCN No.', $dcn->dcn_no),
-                self::previewField('DCN Date', self::formatDate($dcn->dcn_date)),
-                self::previewField('Receipt Date', self::formatDate($dcn->dcn_receipt_date)),
-                self::previewField('Receipt Time', self::formatTime($dcn->dcn_receipt_time)),
+                self::previewField('DCN Date', self::formatDisplayDate($dcn->dcn_date)),
+                self::previewField('Receipt Date', self::formatDisplayDate($dcn->dcn_receipt_date)),
+                self::previewField('Receipt Time', self::formatDisplayTime($dcn->dcn_receipt_time)),
             ],
             'sections' => array_values(array_filter([
                 self::previewOfficesSection('Offices', $offices),
@@ -5314,14 +5761,14 @@ class RegisterQueryHelper
                 self::previewField('Document No.', $ml->doc_no),
                 self::previewField('Document Title', $ml->doc_title),
                 self::previewField('Revision No.', $ml->revise_no),
-                self::previewField('Receipt Date', self::formatDate($ml->doc_receipt_date)),
-                self::previewField('Receipt Time', self::formatTime($ml->doc_receipt_time)),
-                self::previewField('Registered Date', self::formatDate($ml->doc_registered_date)),
-                self::previewField('Registered Time', self::formatTime($ml->doc_registered_time)),
-                self::previewField('Effectivity Date', self::formatDate($ml->effectivity_date)),
+                self::previewField('Receipt Date', self::formatDisplayDate($ml->doc_receipt_date)),
+                self::previewField('Receipt Time', self::formatDisplayTime($ml->doc_receipt_time)),
+                self::previewField('Registered Date', self::formatDisplayDate($ml->doc_registered_date)),
+                self::previewField('Registered Time', self::formatDisplayTime($ml->doc_registered_time)),
+                self::previewField('Effectivity Date', self::formatDisplayDate($ml->effectivity_date)),
                 self::previewField('No. of Pages', $ml->no_pages),
                 self::previewField('Originator', $ml->originator_name),
-                self::previewField('Deadline', self::formatDate($ml->deadline)),
+                self::previewField('Deadline', $ml->deadline ? self::formatDisplayDate($ml->deadline) : 'N/A'),
                 self::previewField('Time Spent (mins)', $ml->time_spent),
             ],
             'sections' => array_values(array_filter([
@@ -5349,7 +5796,7 @@ class RegisterQueryHelper
             'doc_title' => null,
             'fields' => [
                 self::previewField('Approving Body', $approval?->approval_name),
-                self::previewField('Approval Date', self::formatDate($approval?->approval_date)),
+                self::previewField('Approval Date', self::formatDisplayDate($approval?->approval_date)),
                 self::previewField('Approval No.', $approval?->approval_no),
             ],
             'sections' => [],
@@ -5378,10 +5825,10 @@ class RegisterQueryHelper
             'doc_no' => null,
             'doc_title' => null,
             'fields' => [
-                self::previewField('Distribution Date (Actual)', self::formatDate($dist->doc_distribution_date_actual)),
-                self::previewField('Distribution Time (Actual)', self::formatTime($dist->doc_distribution_time_actual)),
-                self::previewField('Distribution Date (File)', self::formatDate($dist->doc_distribution_date_file)),
-                self::previewField('Distribution Time (File)', self::formatTime($dist->doc_distribution_time_file)),
+                self::previewField('Distribution Date (Actual)', self::formatDisplayDate($dist->doc_distribution_date_actual)),
+                self::previewField('Distribution Time (Actual)', self::formatDisplayTime($dist->doc_distribution_time_actual)),
+                self::previewField('Distribution Date (File)', self::formatDisplayDate($dist->doc_distribution_date_file)),
+                self::previewField('Distribution Time (File)', self::formatDisplayTime($dist->doc_distribution_time_file)),
                 self::previewField('Time Spent (mins)', $dist->time_spent),
                 self::previewField('Remarks', $dist->remarks),
             ],
@@ -5412,14 +5859,7 @@ class RegisterQueryHelper
             'type' => 'retrieval',
             'doc_no' => null,
             'doc_title' => null,
-            'fields' => [
-                self::previewField('Retrieval Date (Actual)', self::formatDate($ret->doc_retrieval_date_actual)),
-                self::previewField('Retrieval Time (Actual)', self::formatTime($ret->doc_retrieval_time_actual)),
-                self::previewField('Retrieval Date (File)', self::formatDate($ret->doc_retrieval_date_file)),
-                self::previewField('Retrieval Time (File)', self::formatTime($ret->doc_retrieval_time_file)),
-                self::previewField('Time Spent (mins)', $ret->time_spent),
-                self::previewField('Remarks', $ret->remarks),
-            ],
+            'fields' => [],
             'sections' => array_values(array_filter([
                 self::previewOfficesSection('Retrieval Offices', $offices, true),
             ])),
@@ -5443,11 +5883,23 @@ class RegisterQueryHelper
             $docTypeId,
             $subTypeId ? (int) $subTypeId : null
         );
+        if (
+            ! ($result['found'] ?? false)
+            && $request->boolean('include_drafts')
+            && in_array($result['reason'] ?? '', ['wrong_subtype', 'wrong_type'], true)
+        ) {
+            $result = RegisterPersistHelper::findMatchingRegistrationRows(
+                $docNo,
+                $docTypeId,
+                $subTypeId ? (int) $subTypeId : null,
+                true
+            );
+        }
 
         if ($result['found']) {
             $matches = $result['matches'];
             // Draft rows must not make a Doc No look "already registered" while still being edited.
-            if (self::supportsDrafts()) {
+            if (self::supportsDrafts() && ! $request->boolean('include_drafts')) {
                 $matches = $matches->filter(fn ($row) => empty($row->is_draft))->values();
             }
             if ($excludeRequestId > 0) {
@@ -5462,8 +5914,10 @@ class RegisterQueryHelper
                 ];
             }
             $result['matches'] = $matches;
+            $matchIds = $matches->pluck('id');
+            $publishedIds = $matches->filter(fn ($row) => empty($row->is_draft))->pluck('id');
             $latest = DB::table('dcs_masterlist_registration')
-                ->whereIn('request_id', $matches->pluck('id'))
+                ->whereIn('request_id', $publishedIds->isNotEmpty() ? $publishedIds : $matchIds)
                 ->where('doc_no', $docNo)
                 ->orderByDesc('revise_no')
                 ->first();
@@ -5654,6 +6108,17 @@ class RegisterQueryHelper
         $subTypeId = $request->input('sub_type_id');
         $excludeRequestId = (int) $request->input('exclude_request_id', 0);
 
+        if ($request->boolean('insert_shift_confirmed')) {
+            return [
+                'taken' => false,
+                'insert_shift' => true,
+                'revise_no' => 0,
+                'taken_revs' => [],
+                'next_rev' => 0,
+                'message' => 'Insert confirmed. This is a new document at Rev 0. Existing numbers in this group will shift when you save.',
+            ];
+        }
+
         if ($docNo === '') {
             return [
                 'taken' => false,
@@ -5779,16 +6244,15 @@ class RegisterQueryHelper
         $semesterId = (int) $request->input('semester_id', 0);
         $schoolYearId = (int) $request->input('school_year_id', 0);
         $courseType = trim((string) $request->input('course_type', ''));
-        $yearLevel = trim((string) $request->input('year_level', ''));
         $subTypeId = $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null;
         $excludeRequestId = (int) $request->input('exclude_request_id', 0);
 
         if ($collegeId < 1 || $programId < 1 || $semesterId < 1 || $schoolYearId < 1
-            || $courseType === '' || $yearLevel === '') {
+            || $courseType === '') {
             return [
                 'taken' => false,
                 'incomplete' => true,
-                'message' => 'Select college, program, semester, course type, year level, and school year first.',
+                'message' => 'Select college, program, semester, course type, and school year first.',
             ];
         }
 
@@ -5798,7 +6262,6 @@ class RegisterQueryHelper
             $semesterId,
             $schoolYearId,
             $courseType,
-            $yearLevel,
             $subTypeId,
             $excludeRequestId > 0 ? $excludeRequestId : null
         );
@@ -5816,8 +6279,8 @@ class RegisterQueryHelper
         return [
             'taken' => true,
             'request_id' => (int) ($duplicate->request_id ?? 0),
-            'message' => "Already registered for {$courseType}, {$yearLevel}, {$sem}, S/Y {$sy}. "
-                . 'Only one registration is allowed per semester and school year for this course type and year level.',
+            'message' => "Already registered for {$courseType}, {$sem}, S/Y {$sy}. "
+                . 'Only one registration is allowed per semester and school year for this course type.',
         ];
     }
 
@@ -6284,10 +6747,13 @@ class RegisterQueryHelper
             $sourceByMl = DB::table('dcs_masterlist_source_offices as so')
                 ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'so.office_id')
                 ->whereIn('so.masterlist_id', $mlIds)
-                ->get(['so.masterlist_id', 'so.office_id', 'o.office_name'])
+                ->get(['so.masterlist_id', 'so.office_id', 'o.office_name', 'o.office_code'])
                 ->groupBy('masterlist_id')
                 ->map(fn ($rows) => $rows->map(function ($row) {
-                    $row->office = (object) ['office_name' => $row->office_name];
+                    $row->office = (object) [
+                        'office_name' => $row->office_name,
+                        'office_code' => $row->office_code ?? null,
+                    ];
 
                     return $row;
                 }));
@@ -6424,10 +6890,13 @@ class RegisterQueryHelper
         $sourceByMl = DB::table('dcs_masterlist_source_offices as so')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'so.office_id')
             ->whereIn('so.masterlist_id', $mlIds)
-            ->get(['so.masterlist_id', 'so.office_id', 'o.office_name'])
+            ->get(['so.masterlist_id', 'so.office_id', 'o.office_name', 'o.office_code'])
             ->groupBy('masterlist_id')
             ->map(fn ($rows) => $rows->map(function ($row) {
-                $row->office = (object) ['office_name' => $row->office_name];
+                $row->office = (object) [
+                    'office_name' => $row->office_name,
+                    'office_code' => $row->office_code ?? null,
+                ];
 
                 return $row;
             }));
@@ -6597,10 +7066,15 @@ class RegisterQueryHelper
                 : [],
             'checklistsByVersion' => $checklistsByVersion,
             'colleges' => tap(DB::table('dcs_colleges')->orderBy('college_name'), fn ($q) => SettingsRecycleHelper::applyNotDeleted($q, 'dcs_colleges'))
-                ->get(['id', 'college_name'])
+                ->get(array_values(array_filter([
+                    'id',
+                    'college_name',
+                    Schema::hasColumn('dcs_colleges', 'college_code') ? 'college_code' : null,
+                ])))
                 ->map(fn ($c) => [
                     'college_id' => $c->id,
                     'college_name' => $c->college_name,
+                    'college_code' => $c->college_code ?? null,
                 ])
                 ->values()
                 ->all(),
@@ -6622,15 +7096,40 @@ class RegisterQueryHelper
                 ->all(),
             'programsByCollege' => $programsByCollege,
             'coursesByProgramSemester' => $coursesByProgramSemester,
-            'faculties' => tap(DB::table('dcs_faculties')->orderBy('faculty_name'), fn ($q) => SettingsRecycleHelper::applyNotDeleted($q, 'dcs_faculties'))
-                ->get(['id', 'faculty_name', 'college_id'])
-                ->map(fn ($f) => [
+            'faculties' => (function () {
+                $q = DB::table('dcs_faculties')->orderBy('faculty_name');
+                SettingsRecycleHelper::applyNotDeleted($q, 'dcs_faculties');
+                $rows = $q->get(['id', 'faculty_name']);
+                $collegeMap = \App\Helpers\FacultyCollegeHelper::collegeIdsByFaculty(
+                    $rows->pluck('id')->map(fn ($id) => (int) $id)->all()
+                );
+
+                return $rows->map(fn ($f) => [
                     'id' => $f->id,
                     'faculty_name' => $f->faculty_name,
-                    'college_id' => $f->college_id,
-                ])
-                ->values()
-                ->all(),
+                    'college_ids' => $collegeMap[(int) $f->id] ?? [],
+                    // Legacy single-college key for older cached front-end code.
+                    'college_id' => ($collegeMap[(int) $f->id][0] ?? null),
+                ])->values()->all();
+            })(),
         ];
+    }
+
+    public static function checkDrfNo(Request $request): array
+    {
+        $drfNo = RegisterPersistHelper::normalizeDrfNo($request->input('drf_no'));
+        $excludeRequestId = (int) $request->input('exclude_request_id', 0);
+        if ($drfNo === '') {
+            return ['exists' => false, 'message' => ''];
+        }
+
+        if (RegisterPersistHelper::drfNoTaken($drfNo, $excludeRequestId)) {
+            return [
+                'exists' => true,
+                'message' => 'DRF No. "' . $drfNo . '" is already used. Please enter a unique DRF number.',
+            ];
+        }
+
+        return ['exists' => false, 'message' => 'DRF number is available.'];
     }
 }

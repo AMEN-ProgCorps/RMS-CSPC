@@ -103,8 +103,8 @@ class DcsNotificationTest extends TestCase
         );
 
         $this->assertDatabaseHas($this->contentTable(), [
-            'content' => 'Incoming document "Continuation of the Curriculum" (CSPC-F-COL, Rev 1) will be distributed to your office.',
-            'redirect_url' => '/dcs/office/documents',
+            'content' => 'Your office has a new controlled document to receive: "Continuation of the Curriculum" (CSPC-F-COL, Rev 1).',
+            'redirect_url' => '/dcs/office/incoming',
         ]);
     }
 
@@ -121,6 +121,27 @@ class DcsNotificationTest extends TestCase
         $this->assertDatabaseHas($this->contentTable(), [
             'content' => 'Maria Santos marked incoming document "Continuation of the Curriculum" as received.',
             'redirect_url' => '/dcs/office/documents?ack_by=15',
+        ]);
+    }
+
+    public function test_notify_admin_when_office_receives_distributed_document(): void
+    {
+        DcsNotificationService::notifyAdminOfficeReceivedDocument(
+            'College of Computer Studies',
+            'Niño Bermundo',
+            'Human Rights Education Process',
+            'CSPC-WI-CHRE-01',
+            42,
+            1
+        );
+
+        $adminOffice = \App\Helpers\RegisterQueryHelper::rfioNotificationOfficeCode();
+        $this->assertDatabaseHas($this->contentTable(), [
+            'content' => 'College of Computer Studies received "Human Rights Education Process" (CSPC-WI-CHRE-01, Rev 1) (marked by Niño Bermundo).',
+            'redirect_url' => '/dcs/register/42/edit',
+        ]);
+        $this->assertDatabaseHas($this->notifTable(), [
+            'office' => $adminOffice,
         ]);
     }
 

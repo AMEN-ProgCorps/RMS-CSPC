@@ -527,6 +527,46 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     letter-spacing: 0.03em;
 }
 
+.reg-req {
+    color: #dc2626;
+    font-weight: 700;
+}
+
+.reg-deadline-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.reg-deadline-row input[type="date"] {
+    flex: 1;
+    min-width: 0;
+}
+
+.reg-na-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 0 2px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--reg-text-muted);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+}
+
+.reg-na-check input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    accent-color: var(--reg-accent, #0d2a7a);
+    cursor: pointer;
+}
+
 .reg-field input[type="text"],
 .reg-field input[type="number"],
 .reg-field input[type="date"],
@@ -1230,6 +1270,12 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 .reg-card-body {
     padding: 24px;
     overflow: visible;
+}
+
+#section-4 .reg-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
 }
 
 /* ══════════════════════════════════════════════
@@ -2019,6 +2065,94 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     text-align: center;
 }
 
+.reg-syllabi-years {
+    min-height: 42px;
+    padding: 8px 10px;
+    border: 1px solid var(--reg-border, #cbd5e1);
+    border-radius: 8px;
+    background: var(--reg-bg, #fff);
+    color: var(--reg-text, #0f172a);
+    font-size: 0.9rem;
+    line-height: 1.35;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.reg-syllabi-years.is-empty {
+    color: var(--reg-text-muted, #64748b);
+    display: block;
+}
+
+.reg-syllabi-year-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border: 1px solid var(--reg-border, #cbd5e1);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--reg-accent, #1d4ed8) 6%, var(--reg-bg, #fff));
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--reg-text, #0f172a);
+    cursor: pointer;
+    user-select: none;
+}
+
+.reg-syllabi-year-chip:hover {
+    border-color: var(--reg-accent, #1d4ed8);
+}
+
+.reg-syllabi-year-chip input {
+    accent-color: var(--reg-accent, #1d4ed8);
+    margin: 0;
+}
+
+.reg-syllabi-year-chip:has(input:not(:checked)) {
+    opacity: 0.55;
+    background: var(--reg-bg, #fff);
+}
+
+#syllabiWizardTable tbody tr.syllabi-year-header td {
+    background: color-mix(in srgb, var(--reg-accent, #1d4ed8) 10%, var(--reg-bg, #fff));
+    color: var(--reg-text, #0f172a);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 10px 12px;
+    border-top: 1px solid var(--reg-border, #cbd5e1);
+}
+
+#syllabiWizardTable thead th.col-year,
+#syllabiWizardTable tbody td.col-year {
+    width: 118px;
+    min-width: 118px;
+    max-width: 118px;
+    padding-left: 4px;
+    padding-right: 4px;
+    text-align: center;
+}
+
+#syllabiWizardTable .syllabi-merged-year {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+    padding-left: 2px;
+    padding-right: 2px;
+    font-size: 0.78rem;
+}
+
+#syllabiWizardTable .syllabi-year-lock {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.3;
+    text-align: center;
+    color: var(--reg-text, #0f172a);
+}
+
 #syllabiWizardTable .syllabi-merged-code {
     max-width: 100%;
     min-width: 0;
@@ -2214,6 +2348,7 @@ input[name="syllabiTimeReceived[]"].is-locked,
 
 #syllabiWizardTable[data-active-step="2"] .syllabi-merged-course,
 #syllabiWizardTable[data-active-step="2"] .syllabi-merged-code,
+#syllabiWizardTable[data-active-step="2"] .syllabi-merged-year,
 #syllabiWizardTable[data-active-step="2"] .syllabi-faculty-input {
     pointer-events: none;
     cursor: default;
@@ -2221,6 +2356,7 @@ input[name="syllabiTimeReceived[]"].is-locked,
 
 #syllabiWizardTable[data-active-step="2"] td.col-pinned:first-child,
 #syllabiWizardTable[data-active-step="2"] td.col-code,
+#syllabiWizardTable[data-active-step="2"] td.col-year,
 #syllabiWizardTable[data-active-step="2"] td.col-shared {
     background: var(--reg-bg);
 }
@@ -2820,19 +2956,7 @@ select.reg-field-locked:disabled {
 }
 
 .reg-autosave-status {
-    display: inline-flex;
-    align-items: center;
-    align-self: center;
-    margin-left: 10px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1.3;
-    color: #334155;
-    background: #f1f5f9;
-    border: 1px solid #e2e8f0;
-    max-width: min(360px, 46vw);
+    display: none !important;
 }
 
 .reg-autosave-status[hidden],
@@ -2988,6 +3112,7 @@ select.reg-field-locked:disabled {
 }
 
 .reg-modal-body--preview {
+    position: relative;
     padding: 0;
     overflow: hidden;
     flex: 1;
@@ -3000,6 +3125,25 @@ select.reg-field-locked:disabled {
     height: min(72vh, 720px);
     border: 0;
     background: #f8fafc;
+}
+
+.reg-preview-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(248, 250, 252, 0.92);
+    color: #475569;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.reg-preview-loading[hidden] {
+    display: none !important;
 }
 
 .reg-modal-body--compare {
@@ -3815,4 +3959,106 @@ select.reg-field-locked:disabled {
     .reg-modal {
         max-height: 90vh;
     }
+}
+
+.reg-number-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: #475569;
+}
+
+.reg-number-hint button {
+    margin-left: 6px;
+    border: 0;
+    background: none;
+    color: #1d4ed8;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+}
+
+.reg-modal--insert {
+    max-width: 560px;
+}
+
+#docNoInsertModal.is-open {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 40000;
+    pointer-events: auto;
+}
+
+.reg-insert-lead {
+    margin: 0 0 12px;
+    color: var(--reg-text-muted, #475569);
+    font-size: 0.9rem;
+}
+
+.reg-insert-choices {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.reg-insert-choice {
+    text-align: left;
+    border: 1px solid var(--reg-border, #cbd5e1);
+    background: #fff;
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+}
+
+.reg-insert-choice:hover {
+    border-color: #2563eb;
+    background: #f8fafc;
+}
+
+.reg-insert-choice strong {
+    display: block;
+    margin-bottom: 2px;
+}
+
+.reg-insert-choice span {
+    font-size: 12px;
+    color: #64748b;
+}
+
+.reg-insert-letters {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 13px;
+}
+
+.reg-insert-preview {
+    margin-top: 14px;
+}
+
+.reg-insert-preview-table-wrap {
+    max-height: 220px;
+    overflow: auto;
+    border: 1px solid var(--reg-border, #cbd5e1);
+    border-radius: 6px;
+}
+
+.reg-insert-preview table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.reg-insert-preview th,
+.reg-insert-preview td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #e2e8f0;
+    text-align: left;
+}
+
+.reg-insert-error {
+    color: #dc2626;
+    font-size: 12px;
 }

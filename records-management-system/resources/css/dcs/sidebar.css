@@ -241,6 +241,29 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-divider {
     margin: 0 16px;
 }
 
+.dcs-account-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 18px;
+    margin-top: auto;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dcs-account-server {
+    font-size: 12px;
+    font-weight: 700;
+    color: #38bdf8;
+}
+
+.dcs-account-email {
+    font-size: 11px;
+    color: #94a3b8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* ─── Nav Links ─── */
 .nav-links {
     list-style: none;
@@ -670,6 +693,11 @@ body:has(#dcs-sidebar-collapsed:checked) .side-nav .nav-item.dropdown summary > 
     overflow: hidden;
     transform: translateX(-8px);
     pointer-events: none;
+}
+
+body:has(#dcs-sidebar-collapsed:checked) .side-nav .dcs-account-footer,
+html[data-dcs-sidebar-collapsed="1"] .side-nav .dcs-account-footer {
+    display: none;
 }
 
 body:has(#dcs-sidebar-collapsed:checked) .side-nav .arrow {

@@ -306,18 +306,6 @@ Route::middleware(['auth'])
             $officeTbl = \Illuminate\Support\Facades\Cache::remember('tbl_office', 3600, fn () =>
                 \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office'
             );
-            $notifTbl = \Illuminate\Support\Facades\Cache::remember('tbl_notifications', 3600, fn () =>
-                \Illuminate\Support\Facades\Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications'
-            );
-            $notifContentTbl = \Illuminate\Support\Facades\Cache::remember('tbl_notif_content', 3600, fn () =>
-                \Illuminate\Support\Facades\Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content'
-            );
-            $subsystemsTbl = \Illuminate\Support\Facades\Cache::remember('tbl_subsystems', 3600, fn () =>
-                \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems'
-            );
-            $notifDivTbl = \Illuminate\Support\Facades\Cache::remember('tbl_notification_div', 3600, fn () =>
-                \Illuminate\Support\Facades\Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div'
-            );
 
             $office = \Illuminate\Support\Facades\DB::table($accDetailsTbl)
                 ->join($officeTbl, "{$accDetailsTbl}.office_id", '=', "{$officeTbl}.id")
@@ -349,31 +337,11 @@ Route::middleware(['auth'])
 
                 $allowedSubsystems = \App\Helpers\RegisterQueryHelper::scopeBellSubsystemsForRequest($allowedSubsystems);
 
-                $systemUnreadQuery = \Illuminate\Support\Facades\DB::table($notifTbl)
-                    ->join($notifContentTbl, "{$notifTbl}.contents", '=', "{$notifContentTbl}.id")
-                    ->join($subsystemsTbl, "{$notifContentTbl}.system", '=', "{$subsystemsTbl}.subsystem_id")
-                    ->leftJoin($notifDivTbl, function ($join) use ($userId, $notifTbl, $notifDivTbl) {
-                        $join->on("{$notifTbl}.id", '=', "{$notifDivTbl}.id")
-                             ->where("{$notifDivTbl}.account_rec", '=', $userId);
-                    })
-                    ->where("{$notifTbl}.office", $office->office_code)
-                    ->whereIn("{$subsystemsTbl}.subsystem_name", $allowedSubsystems)
-                    ->where(function ($query) use ($notifDivTbl) {
-                        $query->whereNull("{$notifDivTbl}.is_in_user_list")
-                              ->orWhere("{$notifDivTbl}.is_in_user_list", 1);
-                    })
-                    ->where(function ($query) use ($notifDivTbl) {
-                        $query->whereNull("{$notifDivTbl}.status")
-                              ->orWhere("{$notifDivTbl}.status", 'unread');
-                    });
-
-                // Same visibility rules as the notification dropdown (limited DCS + registered intake).
-                $systemUnread = \App\Helpers\RegisterQueryHelper::filterBellNotifications(
-                    $systemUnreadQuery->select(
-                        "{$notifContentTbl}.redirect_url",
-                        "{$notifContentTbl}.content"
-                    )->get()
-                )->count();
+                $systemUnread = \App\Helpers\RegisterQueryHelper::countVisibleUnreadNotifications(
+                    (int) $userId,
+                    (string) $office->office_code,
+                    $allowedSubsystems
+                );
             }
         } catch (\Throwable $e) {
             $systemUnread = 0;
@@ -758,7 +726,7 @@ Route::middleware(['auth'])
         Route::prefix('dcs')->name('dcs.')->group(function () {
             Volt::route('/dashboard', 'pages.dcs.index')->name('dashboard');
 
-            Route::get('/view-document', function (\Illuminate\Http\Request $request) {
+            Route::get('/view-document/{downloadAs?}', function (\Illuminate\Http\Request $request, ?string $downloadAs = null) {
                 // Relative signed URLs validate with absolute:false; absolute APP_URL
                 // links use whileIgnoring(['v']). Accept either so local + deployed View both work.
                 $signatureOk = $request->hasValidSignatureWhileIgnoring(['v'])
@@ -778,7 +746,8 @@ Route::middleware(['auth'])
 
                 $path = \App\Services\DocumentStorageService::normalizeDcsScanPath($path);
                 abort_unless($path, 404);
-                $filename = basename($path) ?: 'document.pdf';
+                $filename = \App\Services\DocumentStorageService::dcsDownloadFilename($downloadAs, $path);
+                $disposition = \App\Services\DocumentStorageService::dcsInlineDisposition($filename);
 
                 if (\App\Services\DocumentStorageService::isLegacyPublicScanPath($path)) {
                     abort_unless(\Illuminate\Support\Facades\Storage::disk('public')->exists($path), 404);
@@ -787,7 +756,7 @@ Route::middleware(['auth'])
                         \Illuminate\Support\Facades\Storage::disk('public')->path($path),
                         [
                             'Content-Type' => 'application/pdf',
-                            'Content-Disposition' => 'inline; filename="' . $filename . '"',
+                            'Content-Disposition' => $disposition,
                         ]
                     );
                 }
@@ -799,8 +768,8 @@ Route::middleware(['auth'])
 
                 return response($content, 200)
                     ->header('Content-Type', $mime)
-                    ->header('Content-Disposition', 'inline; filename="' . $filename . '"');
-            })->name('view-document');
+                    ->header('Content-Disposition', $disposition);
+            })->where('downloadAs', '[^/]+')->name('view-document');
 
             Route::get('/api/signed-scan-url', function (\Illuminate\Http\Request $request) {
                 $path = $request->query('path');
@@ -820,8 +789,11 @@ Route::middleware(['auth'])
                 return response()->json(['url' => $url]);
             })->name('api.signed-scan-url');
 
-            // Office intake (RFIO full users + limited non-RFIO offices)
+            // Office intake (Admin DCS users + Client/Office Intake roles)
+            Volt::route('/office/incoming', 'pages.dcs.office.incoming')->name('office.incoming');
             Volt::route('/office/documents', 'pages.dcs.office.documents')->name('office.documents');
+            Volt::route('/office/random-checks', 'pages.dcs.office.random-checks')->name('office.random-checks');
+            Volt::route('/office/random-checks/{id}', 'pages.dcs.office.random-check-show')->name('office.random-checks.show');
 
             // Legacy Request URLs → under Document Registration
             Route::redirect('/requests', '/dcs/register/requests', 301);
@@ -935,6 +907,17 @@ Route::middleware(['auth'])
                 Route::middleware(['dcs.module:register'])->group(function () {
                     Route::get('/register/check-docno', fn (Request $request) => response()->json(RegisterQueryHelper::checkDocNo($request)))
                         ->name('register.checkDocNo');
+                    Route::get('/register/suggest-form-no', fn (Request $request) => response()->json(
+                        \App\Helpers\DocumentNumberSeriesHelper::suggestFormNo($request)
+                    ))->name('register.suggestFormNo');
+                    Route::get('/register/suggest-docno', fn (Request $request) => response()->json(
+                        \App\Helpers\DocumentNumberSeriesHelper::suggestDocNo($request)
+                    ))->name('register.suggestDocNo');
+                    Route::get('/register/preview-docno-shift', fn (Request $request) => response()->json(
+                        \App\Helpers\DocumentNumberSeriesHelper::previewInsertShift($request)
+                    ))->name('register.previewDocNoShift');
+                    Route::get('/register/check-drfno', fn (Request $request) => response()->json(RegisterQueryHelper::checkDrfNo($request)))
+                        ->name('register.checkDrfNo');
                     Route::get('/register/check-revno', fn (Request $request) => response()->json(RegisterQueryHelper::checkRevNo($request)))
                         ->name('register.checkRevNo');
                     Route::get('/register/check-syllabi-context', fn (Request $request) => response()->json(RegisterQueryHelper::checkSyllabiContext($request)))
@@ -1011,6 +994,21 @@ Route::middleware(['auth'])
 
                 Route::middleware(['dcs.module:random_check'])->group(function () {
                     Volt::route('/random-check', 'pages.dcs.random-check.index')->name('random-check');
+                    Route::get('/random-check/{id}/report', function (\Illuminate\Http\Request $request, int $id) {
+                        \App\Helpers\RandomCheckHelper::assertCanAccess();
+                        $filter = $request->input('filter') === 'all' ? 'all' : 'actions';
+                        $payload = \App\Helpers\RandomCheckHelper::reportPayload($id, $filter);
+                        abort_unless($payload !== [], 404);
+                        $logoPath = public_path('images/logo.png');
+                        $logoSrc = is_file($logoPath)
+                            ? ('data:image/png;base64,' . base64_encode((string) file_get_contents($logoPath)))
+                            : '';
+
+                        return response()->view('pages.dcs.reports.export-random-check', [
+                            'check' => $payload,
+                            'logoSrc' => $logoSrc,
+                        ]);
+                    })->name('random-check.report');
                 });
             });
         });

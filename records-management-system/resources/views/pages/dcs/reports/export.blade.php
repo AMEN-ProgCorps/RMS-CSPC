@@ -171,6 +171,27 @@
         .data-table tr:nth-child(even) td { background: #fff; }
         .rpt-na { color: #000; }
         .rpt-doc-no { font-weight: 700; }
+        .mon-col-date, .mon-col-time, .mon-col-source, .mon-col-incharge, .mon-col-control {
+            white-space: nowrap;
+            width: 1%;
+        }
+        .mon-col-control { font-weight: 700; }
+        .mon-col-subject {
+            max-width: 400px;
+            width: 400px;
+            white-space: normal;
+            overflow-wrap: break-word;
+            word-break: break-word;
+            text-align: center;
+        }
+        .mon-col-remarks {
+            max-width: 160px;
+            width: 160px;
+            white-space: pre-wrap;
+            overflow-wrap: break-word;
+            word-break: break-word;
+            text-align: left;
+        }
         .empty-msg { text-align: center; padding: 24px; color: #000; font-style: italic; font-size: 10pt; font-family: Arial, sans-serif; }
 
         /* ── Footer ── */
@@ -209,16 +230,106 @@
         }
         body.has-letterhead .rpt-footer { display: none; }
 
+        body.is-plain-table .print-container { padding: 8px 10px 12px; max-width: none; width: 100%; }
+        body.is-plain-table .rpt-title { text-align: left; margin-bottom: 8px; }
+        body.is-plain-table .rpt-title h2 { font-size: 11pt; text-transform: none; }
+        body.is-plain-table .rpt-footer { display: none !important; }
+        body.is-plain-table .print-toolbar { display: none !important; }
+        body.is-plain-table .data-table,
+        body.is-plain-table .data-table th,
+        body.is-plain-table .data-table td {
+            font-size: 7.5pt;
+            padding: 3px 4px;
+            line-height: 1.2;
+        }
+        body.is-plain-table .mon-col-subject {
+            text-align: center;
+            max-width: 150px;
+            width: 150px;
+        }
+
+        /* ── On-screen print preview (same A4 layout as @media print) ── */
+        body.is-print-preview {
+            background: #94a3b8 !important;
+            background-image: none !important;
+            padding: 16px 12px 32px;
+            min-height: 100%;
+        }
+        body.is-print-preview .print-sheet {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto;
+            background: #fff;
+            box-shadow: 0 10px 28px rgba(15, 23, 42, 0.28);
+            position: relative;
+        }
+        body.is-print-preview.has-letterhead .print-sheet {
+            @if(!empty($letterheadUrl))
+            background: #fff url('{{ $letterheadUrl }}') no-repeat center top;
+            background-size: 100% 100%;
+            @else
+            background: #fff;
+            @endif
+        }
+        body.is-print-preview .print-container {
+            max-width: none;
+            width: 100%;
+            min-height: 297mm;
+            padding: 10mm 8mm 14mm;
+        }
+        body.is-print-preview.has-letterhead .print-container {
+            padding: 200px 28px 100px;
+        }
+        body.is-print-preview .data-table,
+        body.is-print-preview .data-table th,
+        body.is-print-preview .data-table td {
+            font-family: Arial, sans-serif;
+            font-size: 10pt;
+        }
+        body.is-print-preview .rpt-footer {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #fff;
+        }
+
         /* ── DOMPDF / PRINT ── */
+        @if(!empty($plainTable))
+        @page { size: 11in 8.5in landscape; margin: 0.35in; }
+        @else
         @page { margin: 12mm 10mm 18mm 10mm; }
+        @endif
 
         @media print {
             @page {
+                @if(!empty($plainTable))
+                size: 11in 8.5in landscape;
+                margin: 0.35in;
+                @else
                 size: A4 portrait;
                 margin: 10mm 8mm 14mm 8mm;
+                @endif
             }
             .print-toolbar { display: none !important; }
-            body { padding: 0; }
+            body,
+            body.is-print-preview {
+                padding: 0 !important;
+                background: #fff !important;
+            }
+            body.is-print-preview.has-letterhead {
+                @if(!empty($letterheadUrl))
+                background: #fff url('{{ $letterheadUrl }}') no-repeat center top !important;
+                background-size: 100% 100% !important;
+                @endif
+            }
+            .print-sheet {
+                width: auto !important;
+                min-height: 0 !important;
+                margin: 0 !important;
+                box-shadow: none !important;
+                background: transparent !important;
+            }
             .print-container { padding: 0 0 10px 0; max-width: 100%; }
             body.has-letterhead .print-container { padding: 200px 28px 100px; }
             .data-table,
@@ -231,18 +342,25 @@
 <body class="{{ trim(implode(' ', array_filter([
     !empty($letterheadUrl) ? 'has-letterhead' : null,
     (($activeCategory ?? '') === 'opcr') ? 'is-opcr' : null,
+    !empty($plainTable) ? 'is-plain-table' : null,
+    !empty($embed) && empty($plainTable) ? 'is-print-preview' : null,
 ]))) }}">
 
+    @if(empty($plainTable))
     <div class="print-toolbar{{ empty($embed) ? '' : ' rpt-embed-hidden' }}" id="toolbar">
         <button class="btn-pdf" type="button" id="btnPdf"><i class="fa-solid fa-file-pdf"></i> Save as PDF</button>
         <button class="btn-print" type="button" id="btnPrint"><i class="fa-solid fa-print"></i> Print</button>
         <button class="btn-close" type="button" id="btnClose">Close</button>
     </div>
+    @endif
 
+    @if(!empty($embed) && empty($plainTable))
+    <div class="print-sheet">
+    @endif
     <div class="print-container">
 
         {{-- HEADER --}}
-        @if(empty($letterheadUrl))
+        @if(empty($plainTable) && empty($letterheadUrl))
         @php
             $logoPath = public_path('images/logo.png');
             $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
@@ -269,9 +387,11 @@
         @endif
 
         {{-- TITLE --}}
+        @if(empty($plainTable))
         <div class="rpt-title"><h2>{{ $title ?? 'Document Masterlist' }}</h2></div>
+        @endif
 
-        @if(($activeCategory ?? '') !== 'opcr' && (!empty($dateFrom) || !empty($dateTo) || !empty($asOf)))
+        @if(empty($plainTable) && ($activeCategory ?? '') !== 'opcr' && (!empty($dateFrom) || !empty($dateTo) || !empty($asOf)))
             <div class="rpt-period">
                 @if(!empty($periodLabel) && ($period ?? '') !== 'custom')
                     <strong>{{ $periodLabel }}</strong> report
@@ -301,7 +421,7 @@
             $activeSub = $activeSub ?? null;
         @endphp
 
-        @if(($activeCategory ?? '') !== 'opcr' && $activeCat && isset($checklists[$activeCat]))
+        @if(empty($plainTable) && ($activeCategory ?? '') !== 'opcr' && $activeCat && isset($checklists[$activeCat]))
             <div class="rpt-filters">
                 @foreach($checklists[$activeCat] as $key => $label)
                     <span class="rpt-fi">
@@ -312,7 +432,7 @@
             </div>
         @endif
 
-        @if(($activeCategory ?? '') !== 'opcr' && !empty($selectedSubTypeNames))
+        @if(empty($plainTable) && ($activeCategory ?? '') !== 'opcr' && !empty($selectedSubTypeNames))
             <div class="rpt-filters" style="margin-top:8px;">
                 @foreach($selectedSubTypeNames as $subName)
                     <span class="rpt-fi">
@@ -331,6 +451,20 @@
             $keys = array_keys($visCols);
             $groups = $groupHeaders ?? ($group_headers ?? []);
             $hasGroups = collect($groups)->contains(fn ($g) => $g !== null && $g !== '');
+            $monColClass = static function (string $key): string {
+                $dateKeys = ['date_received', 'date_registered', 'effectivity_date', 'deadline', 'date_released', 'ml_reg_date'];
+                $timeKeys = ['time_received', 'time_registered', 'time_released', 'ml_reg_time'];
+                $controlKeys = ['control_number', 'doc_number', 'doc_no', 'drf_no', 'dcn_no'];
+                $subjectKeys = ['subject_matter', 'description'];
+                if (in_array($key, $dateKeys, true)) return 'mon-col-date';
+                if (in_array($key, $timeKeys, true)) return 'mon-col-time';
+                if ($key === 'source') return 'mon-col-source';
+                if ($key === 'in_charge') return 'mon-col-incharge';
+                if (in_array($key, $controlKeys, true)) return 'rpt-doc-no mon-col-control';
+                if (in_array($key, $subjectKeys, true)) return 'mon-col-subject';
+                if ($key === 'remarks') return 'mon-col-remarks';
+                return '';
+            };
         @endphp
         <table class="data-table">
             <thead>
@@ -343,7 +477,7 @@
                                 $group = $groups[$key] ?? null;
                             @endphp
                             @if($group === null || $group === '')
-                                <th rowspan="2">{!! $visCols[$key] !!}</th>
+                                <th rowspan="2" class="{{ $monColClass($key) }}">{!! $visCols[$key] !!}</th>
                                 @php $i++; @endphp
                             @else
                                 @php
@@ -360,12 +494,12 @@
                     <tr>
                         @foreach($keys as $key)
                             @if(($groups[$key] ?? null) !== null && ($groups[$key] ?? null) !== '')
-                                <th>{!! $visCols[$key] !!}</th>
+                                <th class="{{ $monColClass($key) }}">{!! $visCols[$key] !!}</th>
                             @endif
                         @endforeach
                     </tr>
                 @else
-                    <tr>@foreach($visCols as $h)<th>{!! $h !!}</th>@endforeach</tr>
+                    <tr>@foreach($visCols as $k => $h)<th class="{{ $monColClass($k) }}">{!! $h !!}</th>@endforeach</tr>
                 @endif
             </thead>
             <tbody>
@@ -380,11 +514,17 @@
                             @if(in_array($k, ['item_no', 'no'], true) && ($v === null || $v === ''))
                                 <td></td>
                             @elseif(in_array($k, ['doc_no', 'control_number', 'doc_number'], true) && $v !== null && $v !== '')
-                                <td class="rpt-doc-no"><strong>{{ $v }}</strong></td>
+                                <td class="{{ $monColClass($k) }}"><strong>{{ $v }}</strong></td>
+                            @elseif($k === 'days_diff')
+                                <td>{{ $v === null || $v === '' ? '—' : abs((int) $v) }}</td>
+                            @elseif($k === 'forwarded_drr')
+                                <td class="mon-drr-td">{{ !empty($v) ? '☑' : '☐' }}</td>
+                            @elseif($k === 'remarks' && $v !== null && $v !== '')
+                                <td class="{{ $monColClass($k) }}">{!! nl2br(e((string) $v)) !!}</td>
                             @elseif($v !== null && $v !== '')
-                                <td>{{ $v }}</td>
+                                <td class="{{ $monColClass($k) }}">{{ $v }}</td>
                             @else
-                                <td class="rpt-na">&mdash;</td>
+                                <td class="rpt-na {{ $monColClass($k) }}">&mdash;</td>
                             @endif
                         @endforeach
                     </tr>
@@ -397,7 +537,7 @@
     </div>
 
     {{-- FOOTER --}}
-    @if(empty($isPdf) && empty($letterheadUrl))
+    @if(empty($plainTable) && empty($isPdf) && empty($letterheadUrl))
     <div class="rpt-footer" id="rptFooter">
         <div class="rpt-footer-line"></div>
         <div class="rpt-footer-inner">
@@ -407,6 +547,9 @@
                 <td class="ft-r" id="pageCounter" style="width:33%;"></td>
             </tr></table>
         </div>
+    </div>
+    @endif
+    @if(!empty($embed) && empty($plainTable))
     </div>
     @endif
     <script>

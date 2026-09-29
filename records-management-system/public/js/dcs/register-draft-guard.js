@@ -129,9 +129,10 @@
         overlay.classList.add('is-visible');
     }
 
-    function setAutosaveStatus(text, state) {
+    function setAutosaveStatus(message, state) {
         const el = document.getElementById('regAutosaveStatus');
         if (!el) return;
+        const text = message == null ? '' : String(message);
         if (!text) {
             el.hidden = true;
             el.textContent = '';
@@ -140,7 +141,11 @@
         }
         el.hidden = false;
         el.textContent = text;
-        el.setAttribute('data-state', state || 'ok');
+        if (state) {
+            el.setAttribute('data-state', state);
+        } else {
+            el.removeAttribute('data-state');
+        }
     }
 
     function submitAsDraft(leaveUrl) {
@@ -223,6 +228,17 @@
     };
 
     window.confirmSaveDraft = function () {
+        if (window.__isSyllabiMode && window.syllabiContextTaken) {
+            const hint = document.getElementById('syllabiContextHint');
+            const message = (hint && hint.textContent.trim())
+                || 'This semester and school year are already registered. You cannot save another copy.';
+            if (typeof window.showValidationErrors === 'function') {
+                window.showValidationErrors([{ field: 'syllabiSchoolYear', message: message }]);
+            } else if (typeof window.showDraftNoticeModal === 'function') {
+                window.showDraftNoticeModal(message);
+            }
+            return;
+        }
         window.openDraftConfirmModal();
     };
 
@@ -478,9 +494,6 @@
 
         const fd = buildAutosaveFormData(form);
         autosaveInFlight = true;
-        if (!options.keepalive) {
-            setAutosaveStatus('Auto-saving draft…', 'pending');
-        }
 
         try {
             const response = await fetch(form.action, {
@@ -519,8 +532,7 @@
                 }
             }
 
-            const when = data.saved_at || new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-            setAutosaveStatus('Draft auto-saved at ' + when + ' — resume from Drafts after interruption', 'ok');
+            setAutosaveStatus('');
             return true;
         } catch (_) {
             if (!options.keepalive) {

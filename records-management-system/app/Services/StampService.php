@@ -1016,6 +1016,12 @@ class StampService
                 throw new \RuntimeException('Stamp output could not be read.');
             }
             DocumentStorageService::storeDcsFileAtPath($relativePath, $content);
+            $stampCopy = DocumentStorageService::buildDccRelativePath(
+                'masterlist',
+                basename($relativePath),
+                ['kind' => 'stamped']
+            );
+            DocumentStorageService::storeDcsFileAtPath($stampCopy, $content);
 
             return;
         }
@@ -1076,7 +1082,6 @@ class StampService
             'drf' => DB::table('dcs_document_request_form')->where('request_id', $requestId)->value('scanned_drf'),
             'dcn' => DB::table('dcs_document_change_notice')->where('request_id', $requestId)->value('scanned_dcn'),
             'distribution' => DB::table('dcs_document_distribution')->where('request_id', $requestId)->value('scanned_distribution'),
-            'retrieval' => DB::table('dcs_document_retrieval')->where('request_id', $requestId)->value('scanned_retrieval'),
             default => null,
         };
 

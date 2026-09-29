@@ -126,18 +126,18 @@ class DcsNotificationService
         $revSuffix = $revNo !== null && $revNo > 0 ? ", Rev {$revNo}" : '';
 
         if ($title !== '' && $docNo !== '') {
-            $message = "Incoming document \"{$title}\" ({$docNo}{$revSuffix}) will be distributed to your office.";
+            $message = "Your office has a new controlled document to receive: \"{$title}\" ({$docNo}{$revSuffix}).";
         } elseif ($title !== '') {
             $revLabel = $revNo !== null && $revNo > 0 ? " (Rev {$revNo})" : '';
-            $message = "Incoming document \"{$title}\"{$revLabel} will be distributed to your office.";
+            $message = "Your office has a new controlled document to receive: \"{$title}\"{$revLabel}.";
         } elseif ($docNo !== '') {
             $revLabel = $revNo !== null && $revNo > 0 ? " (Rev {$revNo})" : '';
-            $message = "Incoming document {$docNo}{$revLabel} will be distributed to your office.";
+            $message = "Your office has a new controlled document to receive: {$docNo}{$revLabel}.";
         } else {
-            $message = 'An incoming document will be distributed to your office.';
+            $message = 'Your office has a new controlled document to receive.';
         }
 
-        static::createNotification($officeCode, $message, '/dcs/office/documents');
+        static::createNotification($officeCode, $message, '/dcs/office/incoming');
     }
 
     public static function notifyOfficeDocumentReceived(
@@ -158,6 +158,45 @@ class DcsNotificationService
         }
 
         static::createNotification($officeCode, $message, $url);
+    }
+
+    /**
+     * Tell Document Controllers / RFIO that a distribution office received a controlled document.
+     */
+    public static function notifyAdminOfficeReceivedDocument(
+        string $receivingOfficeName,
+        string $receiverName,
+        string $docTitle,
+        ?string $docNo = null,
+        ?int $requestId = null,
+        ?int $revNo = null
+    ): void {
+        $office = trim($receivingOfficeName) !== '' ? trim($receivingOfficeName) : 'An office';
+        $name = static::displayName($receiverName);
+        $title = trim($docTitle);
+        $docNo = trim((string) $docNo);
+        $revSuffix = $revNo !== null && $revNo > 0 ? ", Rev {$revNo}" : '';
+
+        if ($title !== '' && $docNo !== '') {
+            $label = "\"{$title}\" ({$docNo}{$revSuffix})";
+        } elseif ($title !== '') {
+            $label = "\"{$title}\"{$revSuffix}";
+        } elseif ($docNo !== '') {
+            $label = "{$docNo}{$revSuffix}";
+        } else {
+            $label = 'a controlled document';
+        }
+
+        $message = "{$office} received {$label}"
+            . ($name !== '' && strcasecmp($name, 'User') !== 0 ? " (marked by {$name})" : '')
+            . '.';
+
+        $url = $requestId && $requestId > 0
+            ? '/dcs/register/' . $requestId . '/edit'
+            : '/dcs/database';
+
+        $adminOffice = \App\Helpers\RegisterQueryHelper::rfioNotificationOfficeCode();
+        static::createNotification($adminOffice, $message, $url);
     }
 
     public static function notifyOfficeDrfSubmitted(

@@ -99,13 +99,16 @@ class DcsAccessControlTest extends TestCase
             $this->rfioRoleId = $base + 1;
             $this->operatorRoleId = $base + 2;
 
-            $this->insertRole($this->limitedRoleId, 'DCS Limited Test', ['can_access_dcs' => true]);
+            $this->insertRole($this->limitedRoleId, 'DCS Limited Test', [
+                'can_access_dcs' => true,
+                'dcs_can_office_intake' => true,
+            ]);
             $this->insertRole($this->rfioRoleId, 'DCS RFIO Test', array_merge(
                 ['can_access_dcs' => true],
                 $this->moduleFlags(true)
             ));
             $this->insertRole($this->operatorRoleId, 'DCS Office Operator Test', array_merge(
-                ['can_access_dcs' => true],
+                ['can_access_dcs' => true, 'dcs_can_office_intake' => true],
                 $this->moduleFlags(true)
             ));
 
@@ -185,6 +188,9 @@ class DcsAccessControlTest extends TestCase
         if (! Schema::hasColumn($details, 'dcs_view_all_documents')) {
             unset($row['dcs_view_all_documents']);
         }
+        if (! Schema::hasColumn($details, 'dcs_can_office_intake')) {
+            unset($row['dcs_can_office_intake']);
+        }
 
         DB::table($details)->insert($row);
         DB::table($keys)->insert([
@@ -207,7 +213,7 @@ class DcsAccessControlTest extends TestCase
         $response = $this->actingAs(User::find($this->limitedUserId))
             ->get('/dcs/register');
 
-        $response->assertRedirect(route('portal'));
+        $response->assertRedirect(route('dcs.office.drf.index'));
     }
 
     public function test_limited_user_cannot_post_register(): void
@@ -223,7 +229,7 @@ class DcsAccessControlTest extends TestCase
         $response = $this->actingAs(User::find($this->limitedUserId))
             ->get('/dcs/database');
 
-        $response->assertRedirect(route('portal'));
+        $response->assertRedirect(route('dcs.office.drf.index'));
     }
 
     public function test_rfio_office_without_module_flags_cannot_open_register(): void
@@ -233,9 +239,9 @@ class DcsAccessControlTest extends TestCase
             $this->markTestSkipped('dcs_can_register column is not migrated.');
         }
 
-        // RFIO + Access DCS = admin DCS, but module flags still gate pages.
+        // RFIO + Access DCS + Office Intake only = Client path (office does not grant admin).
         DB::table($details)->where('key_id', $this->limitedRoleId)->update(array_merge(
-            ['can_access_dcs' => true],
+            ['can_access_dcs' => true, 'dcs_can_office_intake' => true],
             $this->moduleFlags(false)
         ));
 
@@ -250,34 +256,80 @@ class DcsAccessControlTest extends TestCase
         $this->actingAs($user);
 
         $this->assertTrue(\App\Helpers\RegisterQueryHelper::isRfioOffice());
-        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isFullDcsUser());
+        $this->assertFalse(\App\Helpers\RegisterQueryHelper::isFullDcsUser());
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser());
         $this->assertFalse(\App\Helpers\RegisterQueryHelper::canAccessDcsModule('register'));
 
         $response = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
             ->get('/dcs/register');
-        $response->assertRedirect(route('dcs'));
+        $response->assertRedirect(route('dcs.office.drf.index'));
     }
 
-    public function test_module_flags_on_non_rfio_office_do_not_grant_admin_dcs(): void
+    public function test_access_dcs_alone_shows_pending_landing_not_controller_dashboard(): void
+    {
+        $details = $this->conditionTable();
+        if (! Schema::hasColumn($details, 'dcs_can_office_intake')) {
+            $this->markTestSkipped('dcs_can_office_intake column is not migrated.');
+        }
+
+        DB::table($details)->where('key_id', $this->limitedRoleId)->update(array_merge(
+            ['can_access_dcs' => true, 'dcs_can_office_intake' => false],
+            $this->moduleFlags(false)
+        ));
+
+        $user = User::find($this->limitedUserId);
+        $user->unsetRelation('permissions');
+        $this->actingAs($user);
+
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser());
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isDcsPathPending());
+        $this->assertFalse(\App\Helpers\RegisterQueryHelper::canAccessOfficeIntake());
+        $this->assertFalse(\App\Helpers\RegisterQueryHelper::isFullDcsUser());
+
+        $response = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            ->get('/dcs');
+        $response->assertOk();
+        $response->assertSee('Choose a DCS clearance', false);
+        $response->assertSee('Access DCS alone only unlocks this landing page', false);
+        $response->assertSee('Your role can open DCS, but no working path is assigned yet', false);
+        $response->assertDontSee('header-greeting">Document Controller', false);
+        $response->assertDontSee('Internal Documents', false);
+    }
+
+    public function test_module_flags_on_non_rfio_office_grant_admin_dcs(): void
     {
         $details = $this->conditionTable();
         if (! Schema::hasColumn($details, 'dcs_can_database')) {
             $this->markTestSkipped('dcs_can_database column is not migrated.');
         }
 
-        DB::table($details)->where('key_id', $this->limitedRoleId)->update([
-            'dcs_can_database' => true,
-            'dcs_can_register' => true,
-        ]);
+        // Admin DCS clearances on a non-RFIO office — office must not block access.
+        DB::table($details)->where('key_id', $this->limitedRoleId)->update(array_merge(
+            ['can_access_dcs' => true, 'dcs_can_office_intake' => false],
+            $this->moduleFlags(true),
+            ['dcs_can_recycle_bin' => false]
+        ));
 
-        $response = $this->actingAs(User::find($this->limitedUserId))
+        $user = User::find($this->limitedUserId);
+        $user->unsetRelation('permissions');
+        $this->actingAs($user);
+
+        $this->assertFalse(\App\Helpers\RegisterQueryHelper::isRfioOffice());
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isFullDcsUser());
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::canAccessDcsModule('database'));
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::canAccessDcsModule('register'));
+        $this->assertFalse(\App\Helpers\RegisterQueryHelper::canAccessDcsModule('recycle_bin'));
+
+        $response = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
             ->get('/dcs/database');
+        $response->assertOk();
 
-        $response->assertRedirect(route('portal'));
-        $this->assertFalse(\App\Helpers\RegisterQueryHelper::isFullDcsUser());
+        $register = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            ->get('/dcs/register');
+        $register->assertOk();
     }
 
-    public function test_register_module_flag_does_not_grant_register_to_non_rfio_office(): void
+    public function test_register_module_flag_grants_register_on_non_rfio_office(): void
     {
         $details = $this->conditionTable();
         if (! Schema::hasColumn($details, 'dcs_can_register')) {
@@ -285,14 +337,45 @@ class DcsAccessControlTest extends TestCase
         }
 
         DB::table($details)->where('key_id', $this->limitedRoleId)->update([
+            'can_access_dcs' => true,
+            'dcs_can_office_intake' => false,
             'dcs_can_register' => true,
         ]);
 
-        $response = $this->actingAs(User::find($this->limitedUserId))
-            ->get('/dcs/register');
+        $user = User::find($this->limitedUserId);
+        $user->unsetRelation('permissions');
+        $this->actingAs($user);
 
-        $response->assertRedirect();
-        $this->assertFalse(\App\Helpers\RegisterQueryHelper::isFullDcsUser());
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isFullDcsUser());
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::canAccessDcsModule('register'));
+
+        $response = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            ->get('/dcs/register');
+        $response->assertOk();
+    }
+
+    public function test_head_admin_recycle_bin_stacks_with_admin_dcs(): void
+    {
+        $details = $this->conditionTable();
+        if (! Schema::hasColumn($details, 'dcs_can_recycle_bin')) {
+            $this->markTestSkipped('dcs_can_recycle_bin column is not migrated.');
+        }
+
+        DB::table($details)->where('key_id', $this->limitedRoleId)->update(array_merge(
+            ['can_access_dcs' => true, 'dcs_can_office_intake' => false],
+            $this->moduleFlags(true)
+        ));
+
+        $user = User::find($this->limitedUserId);
+        $user->unsetRelation('permissions');
+        $this->actingAs($user);
+
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isFullDcsUser());
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::canAccessDcsModule('recycle_bin'));
+
+        $response = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            ->get('/dcs/recycle-bin');
+        $response->assertOk();
     }
 
     public function test_rfio_user_can_access_register_page(): void
@@ -420,8 +503,8 @@ class DcsAccessControlTest extends TestCase
 
     public function test_rfio_user_is_redirected_from_office_dcn_index(): void
     {
-        if (! Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
-            $this->markTestSkipped('Office intake columns are not migrated.');
+        if (! Schema::hasTable('dcs_office_intake_dcn')) {
+            $this->markTestSkipped('Office intake tables are not migrated.');
         }
 
         $response = $this->actingAs(User::find($this->rfioUserId))
@@ -433,15 +516,14 @@ class DcsAccessControlTest extends TestCase
 
     public function test_rfio_user_can_view_other_office_dcn_from_notification_link(): void
     {
-        if (! Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
-            $this->markTestSkipped('Office intake columns are not migrated.');
+        if (! Schema::hasTable('dcs_office_intake_dcn')) {
+            $this->markTestSkipped('Office intake tables are not migrated.');
         }
 
-        $dcnId = DB::table('dcs_document_change_notice')->insertGetId([
+        $dcnId = DB::table('dcs_office_intake_dcn')->insertGetId([
             'dcn_no' => 'TEST-DCN-RFIO-VIEW-' . $this->limitedRoleId,
             'dcn_date' => now()->toDateString(),
             'created_by' => $this->limitedUserId,
-            'is_office_intake' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -463,24 +545,22 @@ class DcsAccessControlTest extends TestCase
 
     public function test_office_dcn_list_is_scoped_to_creator_only(): void
     {
-        if (! Schema::hasColumn('dcs_document_change_notice', 'is_office_intake')) {
-            $this->markTestSkipped('Office intake columns are not migrated.');
+        if (! Schema::hasTable('dcs_office_intake_dcn')) {
+            $this->markTestSkipped('Office intake tables are not migrated.');
         }
 
-        DB::table('dcs_document_change_notice')->insert([
+        DB::table('dcs_office_intake_dcn')->insert([
             'dcn_no' => 'TEST-DCN-LIMITED-' . $this->limitedRoleId,
             'dcn_date' => now()->toDateString(),
             'created_by' => $this->limitedUserId,
-            'is_office_intake' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
-        DB::table('dcs_document_change_notice')->insert([
+        DB::table('dcs_office_intake_dcn')->insert([
             'dcn_no' => 'TEST-DCN-RFIO-OWN-' . $this->limitedRoleId,
             'dcn_date' => now()->toDateString(),
             'created_by' => $this->rfioUserId,
-            'is_office_intake' => true,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -502,7 +582,7 @@ class DcsAccessControlTest extends TestCase
     {
         $this->actingAs(User::find($this->operatorUserId));
 
-        // Module flags on role, but non-RFIO office → intake only
+        // Office Intake on → Client path only, even when admin module flags are also present.
         $this->assertFalse(\App\Helpers\RegisterQueryHelper::isFullDcsUser());
         $this->assertTrue(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser());
         $this->assertFalse(\App\Helpers\RegisterQueryHelper::canViewAllDocuments());
@@ -510,20 +590,20 @@ class DcsAccessControlTest extends TestCase
 
         $response = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
             ->get('/dcs/register');
-        $response->assertRedirect(route('portal'));
+        $response->assertRedirect(route('dcs.office.drf.index'));
 
         $intake = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
             ->get('/dcs/office/drf');
         $intake->assertOk();
     }
 
-    public function test_rfio_office_with_access_dcs_is_full_dcs_user(): void
+    public function test_admin_dcs_clearance_is_role_based_not_office_based(): void
     {
         $details = $this->conditionTable();
 
-        // Access DCS only, modules off — still full DCS because of RFIO office.
+        // Access DCS + Office Intake, no admin pages — Client even under RFIO.
         DB::table($details)->where('key_id', $this->limitedRoleId)->update(array_merge(
-            ['can_access_dcs' => true],
+            ['can_access_dcs' => true, 'dcs_can_office_intake' => true],
             $this->moduleFlags(false)
         ));
 
@@ -538,18 +618,43 @@ class DcsAccessControlTest extends TestCase
         $this->actingAs($user);
 
         $this->assertTrue(\App\Helpers\RegisterQueryHelper::isRfioOffice());
-        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isFullDcsUser());
-        $this->assertFalse(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser());
-        $this->assertTrue(\App\Helpers\RegisterQueryHelper::canViewAllDocuments());
+        $this->assertFalse(\App\Helpers\RegisterQueryHelper::isFullDcsUser());
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser());
+        $this->assertFalse(\App\Helpers\RegisterQueryHelper::canViewAllDocuments());
         $this->assertFalse(\App\Helpers\RegisterQueryHelper::canAccessDcsModule('register'));
 
         $dashboard = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
             ->get('/dcs');
         $dashboard->assertOk();
 
+        $intake = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            ->get('/dcs/office/drf');
+        $intake->assertOk();
+
         $register = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
             ->get('/dcs/register');
-        $register->assertRedirect(route('dcs'));
+        $register->assertRedirect(route('dcs.office.drf.index'));
+
+        // Move to non-RFIO office + Admin DCS clearances (Intake off) → full Admin DCS.
+        DB::table($accountDetails)->where('account_id', $this->limitedUserId)->update([
+            'office_id' => DB::table($this->officeTable())->where('office_code', 'VPAA')->value('id'),
+        ]);
+        DB::table($details)->where('key_id', $this->limitedRoleId)->update([
+            'dcs_can_office_intake' => false,
+            'dcs_can_register' => true,
+        ]);
+        $user->unsetRelation('permissions');
+        $user->unsetRelation('details');
+        $this->actingAs($user);
+
+        $this->assertFalse(\App\Helpers\RegisterQueryHelper::isRfioOffice());
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::isFullDcsUser());
+        $this->assertFalse(\App\Helpers\RegisterQueryHelper::isLimitedDcsUser());
+        $this->assertTrue(\App\Helpers\RegisterQueryHelper::canAccessDcsModule('register'));
+
+        $registerAfter = $this->withHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            ->get('/dcs/register');
+        $registerAfter->assertOk();
     }
 
     public function test_limited_user_notification_list_hides_register_deep_links(): void
@@ -604,20 +709,18 @@ class DcsAccessControlTest extends TestCase
         // Colleague's success notice (same office) — limited user must not see it.
         $otherDrfId = 0;
         $otherNotifId = null;
-        if (Schema::hasColumn('dcs_document_request_form', 'is_office_intake')) {
-            $ownDrfId = DB::table('dcs_document_request_form')->insertGetId([
+        if (Schema::hasTable('dcs_office_intake_drf')) {
+            $ownDrfId = DB::table('dcs_office_intake_drf')->insertGetId([
                 'doc_title' => 'Own Limited DRF ' . $this->limitedRoleId,
                 'drf_date' => now()->toDateString(),
                 'created_by' => $this->limitedUserId,
-                'is_office_intake' => true,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
-            $otherDrfId = DB::table('dcs_document_request_form')->insertGetId([
+            $otherDrfId = DB::table('dcs_office_intake_drf')->insertGetId([
                 'doc_title' => 'College of Health Sciences Syllabi Other',
                 'drf_date' => now()->toDateString(),
                 'created_by' => $this->rfioUserId,
-                'is_office_intake' => true,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);

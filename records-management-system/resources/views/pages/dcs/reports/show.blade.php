@@ -22,8 +22,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public array $subTypeIds = [];
     public string $monitoringDocType = '';
     public array $monitoringSubTypeIds = [];
+    public string $formYear = '';
+    public string $sortBy = 'effectivity_date';
+    public string $sortDir = 'asc';
     public bool $exportOpen = false;
     public bool $filterOpen = false;
+    public bool $columnsOpen = false;
+    public array $exportColumns = [];
     public string $error = '';
     public array $result = [];
 
@@ -69,28 +74,86 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'allDocTypes' => $allDocTypes,
             'childTypes' => $childTypes,
             'isOpcr' => $this->category === 'opcr',
+            'isMonitoring' => $this->category === 'monitoring',
+            'isOthers' => $this->category === 'others',
+            'formYears' => $this->category === 'monitoring' && $this->sub !== ''
+                ? RegisterQueryHelper::monitoringReportYears($this->sub)
+                : [],
             'pageTitle' => match ($this->category) {
                 'monitoring' => 'Monitoring Reports',
                 'opcr' => 'OPCR Targets',
                 'others' => 'General Report',
                 default => 'Document Masterlist',
             },
+            'periodWindow' => $this->periodWindow(),
+            'awaitingSubType' => $this->category === 'monitoring'
+                && $this->sub !== ''
+                && $childTypes->isNotEmpty()
+                && $this->subTypeIds === [],
+        ];
+    }
+
+    /** Inclusive dates the report will include, based on Period + ending date. */
+    public function periodWindow(): array
+    {
+        $asOf = $this->asOf !== '' ? $this->asOf : now('Asia/Manila')->toDateString();
+        $end = \Carbon\Carbon::parse($asOf)->startOfDay();
+
+        if ($this->period === 'custom') {
+            $from = $this->dateFrom !== '' ? $this->dateFrom : null;
+            $to = $this->dateTo !== '' ? $this->dateTo : null;
+            $fromLabel = $from ? \Carbon\Carbon::parse($from)->format('M j, Y') : '…';
+            $toLabel = $to ? \Carbon\Carbon::parse($to)->format('M j, Y') : '…';
+
+            return [
+                'from' => $from,
+                'to' => $to,
+                'label' => $fromLabel.' – '.$toLabel,
+                'dateLabel' => 'Dates',
+            ];
+        }
+
+        if ($this->period === 'all') {
+            return [
+                'from' => null,
+                'to' => $end->toDateString(),
+                'label' => 'Everything dated on or before '.$end->format('M j, Y'),
+                'dateLabel' => 'Up to',
+            ];
+        }
+
+        $start = match ($this->period) {
+            'weekly' => $end->copy()->startOfWeek(\Carbon\Carbon::MONDAY),
+            'monthly' => $end->copy()->startOfMonth(),
+            'quarterly' => $end->copy()->firstOfQuarter(),
+            default => $end->copy()->startOfYear(),
+        };
+
+        return [
+            'from' => $start->toDateString(),
+            'to' => $end->toDateString(),
+            'label' => $start->format('M j, Y').' – '.$end->format('M j, Y'),
+            'dateLabel' => match ($this->period) {
+                'weekly' => 'Week ending',
+                'monthly' => 'Month ending',
+                'quarterly' => 'Quarter ending',
+                default => 'Year ending',
+            },
         ];
     }
 
     public function selectSub(string $sub): void
     {
+        $this->exportColumns = [];
         $this->sub = $sub;
         $parentId = RegisterQueryHelper::parentTypeIdMap()[$sub] ?? null;
-        if ($parentId) {
-            $this->subTypeIds = DB::table('dcs_doc_types')
+        $childIds = $parentId
+            ? DB::table('dcs_doc_types')
                 ->where('parent_id', $parentId)
                 ->pluck('id')
                 ->map(fn ($id) => (string) $id)
-                ->all();
-        } else {
-            $this->subTypeIds = [];
-        }
+                ->all()
+            : [];
         if ($this->category === 'monitoring') {
             $this->monitoringDocType = match ($sub) {
                 'internal_docs' => 'Internal',
@@ -101,12 +164,39 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 default => '',
             };
             $this->monitoringSubTypeIds = [];
+            $years = RegisterQueryHelper::monitoringReportYears($sub);
+            if ($this->formYear !== '' && ! in_array($this->formYear, $years, true)) {
+                $this->formYear = '';
+            }
+            if ($childIds !== []) {
+                $this->subTypeIds = [];
+                $this->result = [];
+                $this->error = '';
+
+                return;
+            }
         }
+        $this->subTypeIds = $childIds;
+        $this->loadReport();
+    }
+
+    public function selectSubType(string $id): void
+    {
+        $parentId = RegisterQueryHelper::parentTypeIdMap()[$this->sub] ?? null;
+        $allIds = $parentId
+            ? DB::table('dcs_doc_types')
+                ->where('parent_id', $parentId)
+                ->pluck('id')
+                ->map(fn ($id) => (string) $id)
+                ->all()
+            : [];
+        $this->subTypeIds = $id === 'all' ? $allIds : [$id];
         $this->loadReport();
     }
 
     public function openFilters(): void
     {
+        $this->columnsOpen = false;
         $this->filterOpen = true;
     }
 
@@ -123,13 +213,24 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public function updated($name): void
     {
-        if ($this->category === 'others' && in_array($name, ['period', 'asOf', 'dateFrom', 'dateTo', 'originator', 'sourceUnit', 'revisionStatus', 'revNo', 'subTypeIds'], true)) {
+        if ($this->category === 'others' && in_array($name, ['originator', 'sourceUnit', 'revisionStatus', 'revNo', 'subTypeIds'], true)) {
             $this->loadReport();
         }
     }
 
+    public function toggleSortDir(): void
+    {
+        $this->sortDir = $this->sortDir === 'asc' ? 'desc' : 'asc';
+        $this->loadReport();
+    }
+
     public function selectAllSubTypes(): void
     {
+        if ($this->category === 'monitoring' && $this->sub !== '') {
+            $this->selectSubType('all');
+
+            return;
+        }
         $this->selectSub($this->sub);
     }
 
@@ -149,6 +250,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->revisionStatus = 'all';
         $this->revNo = '';
         $this->monitoringSubTypeIds = [];
+        $this->formYear = '';
+        $this->sortBy = 'effectivity_date';
+        $this->sortDir = 'asc';
         if ($this->sub !== '') {
             $this->selectAllSubTypes();
         } else {
@@ -165,12 +269,59 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if (($this->category !== 'others') && $this->sub === '') {
             return;
         }
+        $parentId = RegisterQueryHelper::parentTypeIdMap()[$this->sub] ?? null;
+        if ($this->category === 'monitoring' && $parentId && $this->subTypeIds === []) {
+            $hasChildren = DB::table('dcs_doc_types')->where('parent_id', $parentId)->exists();
+            if ($hasChildren) {
+                return;
+            }
+        }
         $this->result = ReportHelper::payload($input);
         if (! empty($this->result['error'])) {
             $this->error = $this->result['error'];
             $this->result['rows'] = $this->result['rows'] ?? [];
             $this->result['columns'] = $this->result['columns'] ?? [];
         }
+        $this->syncExportColumns();
+    }
+
+    public function openColumns(): void
+    {
+        $this->columnsOpen = true;
+    }
+
+    public function openExcelExport(): void
+    {
+        $this->filterOpen = false;
+        $this->syncExportColumns();
+        $this->columnsOpen = true;
+    }
+
+    public function closeColumns(): void
+    {
+        $this->columnsOpen = false;
+    }
+
+    public function selectAllExportColumns(): void
+    {
+        $this->exportColumns = array_keys($this->result['columns'] ?? []);
+    }
+
+    public function syncExportColumns(): void
+    {
+        $keys = array_keys($this->result['columns'] ?? []);
+        if ($keys === []) {
+            $this->exportColumns = [];
+
+            return;
+        }
+        if ($this->exportColumns === []) {
+            $this->exportColumns = $keys;
+
+            return;
+        }
+        $kept = array_values(array_intersect($this->exportColumns, $keys));
+        $this->exportColumns = $kept !== [] ? $kept : $keys;
     }
 
     public function previewUrl(): string
@@ -219,9 +370,56 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->result['rows'] = $rows;
     }
 
+    public function saveMonitoringRemark(int $requestId, $value = null): void
+    {
+        if ($requestId < 1) {
+            return;
+        }
+        if (is_array($value) && array_key_exists('value', $value)) {
+            $value = $value['value'];
+        }
+        if (is_string($value)) {
+            $value = trim($value);
+        }
+        $saved = app(ReportHelper::class)->saveMonitoringRemark($requestId, $value === '' ? null : $value);
+        $rows = $this->result['rows'] ?? [];
+        foreach ($rows as $i => $r) {
+            if ((int) ($r['request_id'] ?? 0) !== $requestId) {
+                continue;
+            }
+            $rows[$i]['remarks'] = $saved;
+            break;
+        }
+        $this->result['rows'] = $rows;
+    }
+
+    public function saveMonitoringForwardedDrr(int $requestId, $value = null): void
+    {
+        if ($requestId < 1) {
+            return;
+        }
+        if (is_array($value) && array_key_exists('value', $value)) {
+            $value = $value['value'];
+        }
+        $checked = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+        $saved = app(ReportHelper::class)->saveMonitoringForwardedDrr($requestId, $checked);
+        $rows = $this->result['rows'] ?? [];
+        foreach ($rows as $i => $r) {
+            if ((int) ($r['request_id'] ?? 0) !== $requestId) {
+                continue;
+            }
+            $rows[$i]['forwarded_drr'] = $saved;
+            break;
+        }
+        $this->result['rows'] = $rows;
+    }
+
     public function exportUrl(string $format): string
     {
         $query = $this->queryInput(forExport: true);
+        if ($format !== 'xlsx') {
+            unset($query['columns']);
+        }
         // Print opens the same HTML letterhead layout as the on-screen preview
         // (what you see is what prints). PDF download stays Dompdf.
         if ($format === 'print') {
@@ -245,10 +443,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'source_unit' => $this->sourceUnit,
             'revision_status' => $this->revisionStatus,
             'rev_no' => $this->revNo,
+            'form_year' => $this->formYear,
+            'sort' => $this->sortBy,
+            'sort_dir' => $this->sortDir,
         ];
         if ($this->period === 'custom') {
             $input['date_from'] = $this->dateFrom;
             $input['date_to'] = $this->dateTo;
+        }
+        if ($forExport && $this->category === 'monitoring' && $this->exportColumns !== []) {
+            $input['columns'] = implode(',', $this->exportColumns);
         }
         $parentId = RegisterQueryHelper::parentTypeIdMap()[$this->sub] ?? null;
         $allIds = DB::table('dcs_doc_types')
@@ -263,29 +467,66 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             }
         }
 
-        if (!$forExport && $this->category === 'monitoring') {
-            if ($this->monitoringDocType !== '') {
-                $input['ui_doc_type'] = $this->monitoringDocType;
-            }
-            if ($this->monitoringSubTypeIds !== []) {
-                $input['ui_sub_type_ids'] = implode(',', $this->monitoringSubTypeIds);
-            }
-        }
-
         return array_filter($input, fn ($v) => $v !== '' && $v !== null);
     }
 }; ?>
 
 <main class="rpt-page" id="rptPage">
-    @teleport('body')
-    <div class="rpt-filter-portal" @if($filterOpen) data-open="1" @endif>
+    <template x-teleport="body">
+    <div class="rpt-filter-layer">
+    @if($isMonitoring)
+    <div class="rpt-filter-portal" x-bind:data-open="$wire.columnsOpen ? '1' : null" @if($columnsOpen) data-open="1" @endif>
+        <div
+            class="rpt-filter-overlay {{ $columnsOpen ? 'visible' : '' }}"
+            wire:click="closeColumns"
+            @if(!$columnsOpen) style="pointer-events:none;" @endif
+        ></div>
+        <aside
+            class="rpt-filter-panel {{ $columnsOpen ? 'open' : '' }}"
+            x-bind:class="{ open: $wire.columnsOpen }"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Export columns"
+            @if(!$columnsOpen) aria-hidden="true" @endif
+        >
+            <div class="rpt-filter-panel-head">
+                <h3><i class="fa-solid fa-file-excel"></i> Excel columns</h3>
+                <button type="button" class="rpt-filter-close" wire:click="closeColumns" aria-label="Close columns">&times;</button>
+            </div>
+            <div class="rpt-filter-form">
+                <p class="rpt-filter-hint">Choose the columns to include in the Excel file. The table on this page still shows all columns.</p>
+                <div class="rpt-subtype-block">
+                    <div class="rpt-subtype-head">
+                        <span class="rpt-subtype-title">Columns</span>
+                        <button type="button" class="rpt-link-btn" wire:click="selectAllExportColumns">Select all</button>
+                    </div>
+                    <div class="rpt-col-list">
+                        @foreach(($result['columns'] ?? []) as $colKey => $colLabel)
+                            <label class="rpt-col-item">
+                                <input type="checkbox" value="{{ $colKey }}" wire:model="exportColumns">
+                                <span>{{ trim(preg_replace('/\s+/', ' ', strip_tags(str_replace(['<br>', '<br/>', '<br />'], ' ', (string) $colLabel)))) }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                </div>
+            </div>
+            <div class="rpt-filter-panel-foot">
+                <button type="button" class="rpt-btn rpt-btn-outline" wire:click="closeColumns">Cancel</button>
+                <a class="rpt-btn rpt-btn-primary" href="{{ $this->exportUrl('xlsx') }}">Download Excel</a>
+            </div>
+        </aside>
+    </div>
+    @endif
+    <div class="rpt-filter-portal" x-bind:data-open="$wire.filterOpen ? '1' : null" @if($filterOpen) data-open="1" @endif>
         <div
             class="rpt-filter-overlay {{ $filterOpen ? 'visible' : '' }}"
-            wire:click="closeFilters"
+            x-bind:class="{ visible: $wire.filterOpen }"
+            x-on:click="$wire.closeFilters()"
             @if(!$filterOpen) style="pointer-events:none;" @endif
         ></div>
         <aside
             class="rpt-filter-panel {{ $filterOpen ? 'open' : '' }}"
+            x-bind:class="{ open: $wire.filterOpen }"
             id="rptFilterPanel"
             role="dialog"
             aria-modal="true"
@@ -298,32 +539,65 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
             <div class="rpt-filter-form">
                 <div class="rpt-filter-group">
-                    <label>Report period</label>
-                    <select wire:model="period">
+                    <label>Show documents from</label>
+                    <select wire:model.live="period">
                         @if(in_array($category, ['masterlist', 'monitoring', 'opcr'], true))
-                            <option value="all">All time</option>
+                            <option value="all">Up to a date</option>
                         @endif
-                        <option value="monthly">Monthly</option>
-                        <option value="quarterly">Quarterly</option>
-                        <option value="annually">Annually</option>
-                        <option value="custom">Custom range</option>
+                        <option value="weekly">This week (Mon–ending date)</option>
+                        <option value="monthly">This month (1st–ending date)</option>
+                        <option value="quarterly">This quarter (start–ending date)</option>
+                        <option value="annually">This year (Jan 1–ending date)</option>
+                        <option value="custom">Custom dates</option>
                     </select>
+                    <span class="rpt-filter-hint">{{ $periodWindow['label'] }}</span>
                 </div>
                 @if($period === 'custom')
                     <div class="rpt-filter-group">
-                        <label>Date from</label>
-                        <input type="date" wire:model="dateFrom">
+                        <label>From</label>
+                        <input type="date" wire:model.live="dateFrom">
                     </div>
                     <div class="rpt-filter-group">
-                        <label>Date to</label>
-                        <input type="date" wire:model="dateTo">
+                        <label>To</label>
+                        <input type="date" wire:model.live="dateTo">
                     </div>
                 @else
                     <div class="rpt-filter-group">
-                        <label>As of</label>
-                        <input type="date" wire:model="asOf">
+                        <label>{{ $periodWindow['dateLabel'] }}</label>
+                        <input type="date" wire:model.live="asOf">
                     </div>
                 @endif
+                @if($isMonitoring && $formYears !== [])
+                    <div class="rpt-filter-group">
+                        <label>Year</label>
+                        <select wire:model="formYear">
+                            <option value="">All years</option>
+                            @foreach($formYears as $year)
+                                <option value="{{ $year }}">{{ $year }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                @endif
+                <div class="rpt-filter-group">
+                    <label>Sort by</label>
+                    <select wire:model="sortBy">
+                        <option value="effectivity_date">Effectivity date</option>
+                        <option value="doc_no">Doc. No.</option>
+                        <option value="doc_title">Document title</option>
+                        <option value="originator">Originator</option>
+                        <option value="rev_no">Rev. No.</option>
+                        <option value="registered">Date registered</option>
+                    </select>
+                </div>
+                <div class="rpt-filter-group">
+                    <label>Revision</label>
+                    <select wire:model="revisionStatus">
+                        <option value="all">All</option>
+                        <option value="latest">Latest only</option>
+                        <option value="obsolete">Obsolete only</option>
+                    </select>
+                    <span class="rpt-filter-hint">Blank Item No. = older revision of the row above.</span>
+                </div>
                 <div class="rpt-filter-group">
                     <label>Originator</label>
                     <select wire:model="originator">
@@ -343,14 +617,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </select>
                 </div>
                 <div class="rpt-filter-group">
-                    <label>Revision</label>
-                    <select wire:model="revisionStatus">
-                        <option value="all">All revisions</option>
-                        <option value="latest">Latest only</option>
-                        <option value="obsolete">Obsolete only</option>
-                    </select>
-                </div>
-                <div class="rpt-filter-group">
                     <label>Revision No.</label>
                     <select wire:model="revNo">
                         <option value="">Any</option>
@@ -363,7 +629,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         @endforelse
                     </select>
                 </div>
-                @if($childTypes->isNotEmpty())
+                @if($childTypes->isNotEmpty() && ! $isMonitoring)
                     <div class="rpt-subtype-block">
                         <div class="rpt-subtype-head">
                             <span class="rpt-subtype-title">Sub-types</span>
@@ -380,41 +646,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </div>
                     </div>
                 @endif
-                @if($category === 'monitoring' && in_array($sub, ['internal_docs', 'external_docs', 'internal_forms', 'forms', 'logbooks'], true))
-                    <div class="rpt-filter-sep">Preview-only filters (not included in export)</div>
-                    <div class="rpt-filter-group">
-                        <label>Document type</label>
-                        <select wire:model="monitoringDocType">
-                            <option value="">Use tab default</option>
-                            <option value="Internal">Internal</option>
-                            <option value="External">External</option>
-                            <option value="Internal Forms">Internal Forms</option>
-                            <option value="Forms">Forms</option>
-                            <option value="Logbooks">Logbooks</option>
-                        </select>
-                    </div>
-                    @php
-                        $monitorParentId = RegisterQueryHelper::parentTypeIdMap()[$sub] ?? null;
-                        $monitorChildTypes = $monitorParentId
-                            ? $allDocTypes->filter(fn ($d) => (string) $d->parent_id === (string) $monitorParentId)->values()
-                            : collect();
-                    @endphp
-                    @if($monitorChildTypes->isNotEmpty())
-                        <div class="rpt-subtype-block">
-                            <div class="rpt-subtype-head">
-                                <span class="rpt-subtype-title">Sub-types (preview)</span>
-                            </div>
-                            <div class="rpt-subtype-grid">
-                                @foreach($monitorChildTypes as $child)
-                                    <label class="rpt-subtype-item">
-                                        <input type="checkbox" value="{{ $child->id }}" wire:model="monitoringSubTypeIds">
-                                        <span>{{ $child->doc_type_name }}</span>
-                                    </label>
-                                @endforeach
-                            </div>
-                        </div>
-                    @endif
-                @endif
             </div>
             <div class="rpt-filter-panel-foot">
                 <button type="button" class="rpt-btn rpt-btn-outline" wire:click="resetFilters">Reset</button>
@@ -422,7 +653,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
         </aside>
     </div>
-    @endteleport
+    </div>
+    </template>
 
     <header class="rpt-hdr">
         <div>
@@ -452,32 +684,64 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 @endif
             @endif
         </nav>
+        @if($isMonitoring && $sub !== '' && $childTypes->isNotEmpty())
+            <nav class="rpt-subs rpt-subs-secondary visible" aria-label="Document sub-types">
+                <button class="rpt-sub {{ $subTypeIds !== [] && count($subTypeIds) === $childTypes->count() ? 'active' : '' }}" type="button" wire:click="selectSubType('all')" wire:loading.attr="disabled" wire:target="selectSubType">All</button>
+                @foreach($childTypes as $child)
+                    <button class="rpt-sub {{ $subTypeIds === [(string) $child->id] ? 'active' : '' }}" type="button" wire:click="selectSubType('{{ $child->id }}')" wire:loading.attr="disabled" wire:target="selectSubType">{{ $child->doc_type_name }}</button>
+                @endforeach
+            </nav>
+        @endif
     @endif
 
     <div class="rpt-body-slot">
         <div
             class="rpt-preview-loading rpt-body-loading"
             wire:loading.flex
-            wire:target="selectSub,applyFilters,resetFilters,loadReport,selectAllSubTypes,clearSubTypes"
+            wire:target="selectSub,selectSubType,applyFilters,resetFilters,loadReport,selectAllSubTypes,clearSubTypes,formYear,toggleSortDir"
         >
-            <div class="rpt-state-spinner" aria-hidden="true"></div>
-            <h4>Loading report…</h4>
-            <p>Fetching records and preparing the preview.</p>
+            <div class="rpt-loading-card">
+                <div class="rpt-loading-spinner" aria-hidden="true"></div>
+                <h4>Loading report</h4>
+                <p>Fetching records and preparing the preview.</p>
+            </div>
         </div>
-
-    @if($sub !== '' || $category === 'others')
-        <section
-            class="rpt-results"
-            wire:loading.class="is-dimmed"
-            wire:target="selectSub,applyFilters,resetFilters,loadReport,selectAllSubTypes,clearSubTypes"
-        >
+    @if($awaitingSubType)
+        <div class="rpt-state rpt-state-pick">
+            <div class="rpt-state-icon"><i class="fa-solid fa-layer-group"></i></div>
+            <h4>Select a sub-type</h4>
+            <p>Choose a document sub-type above to open the monitoring table.</p>
+        </div>
+    @elseif($sub !== '' || $category === 'others')
+        <section class="rpt-results">
             <div class="rpt-results-head">
                 <div class="rpt-results-meta">
                     <h3>{{ $result['title'] ?? 'Report Preview' }}</h3>
-                    <span class="rpt-results-count">{{ $result['total_rows'] ?? 0 }} records</span>
+                    <span class="rpt-results-count">
+                        {{ $result['total_rows'] ?? 0 }} records
+                        @if($isMonitoring && $formYear !== '')
+                            · {{ $formYear }}
+                        @endif
+                        · {{ $periodWindow['label'] }}
+                        · {{ match(true) {
+                            $sub === 'drf' => 'DRF date',
+                            $sub === 'dcn' => 'DCN date',
+                            $sortBy === 'doc_no' => 'Doc. No.',
+                            $sortBy === 'doc_title' => 'Title',
+                            $sortBy === 'originator' => 'Originator',
+                            $sortBy === 'rev_no' => 'Rev. No.',
+                            $sortBy === 'registered' => 'Date registered',
+                            default => 'Effectivity date',
+                        } }} {{ $sortDir === 'desc' ? '↓' : '↑' }}
+                    </span>
                 </div>
                 <div class="rpt-results-actions">
-                    <button type="button" class="rpt-btn rpt-btn-outline" wire:click="openFilters">
+                    <button type="button" class="rpt-btn rpt-btn-outline" wire:click="toggleSortDir" wire:loading.attr="disabled" wire:target="toggleSortDir" title="{{ $sortDir === 'asc' ? 'Ascending' : 'Descending' }}">
+                        <i class="fa-solid {{ $sortDir === 'asc' ? 'fa-arrow-up-wide-short' : 'fa-arrow-down-wide-short' }}" wire:loading.remove wire:target="toggleSortDir"></i>
+                        <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="toggleSortDir"></i>
+                        {{ $sortDir === 'asc' ? 'Asc' : 'Desc' }}
+                    </button>
+                    <button type="button" class="rpt-btn rpt-btn-outline" wire:click="openFilters" x-on:click.prevent="$wire.openFilters()">
                         <i class="fa-solid fa-filter"></i> Filter
                     </button>
                     <div class="rpt-export-wrap" :class="{ open: open }" x-data="{ open: false }" @click.outside="open = false">
@@ -490,21 +754,33 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <i class="fa-solid fa-file-pdf"></i>
                                 <span>Download as PDF</span>
                             </a>
-                            <a class="rpt-export-item" data-format="csv" href="{{ $this->exportUrl('csv') }}">
-                                <i class="fa-solid fa-file-csv"></i>
-                                <span>Download as CSV</span>
-                            </a>
-                            <div class="rpt-export-sep"></div>
-                            <a class="rpt-export-item" data-format="print" href="{{ $this->exportUrl('print') }}" target="_blank" rel="noopener">
-                                <i class="fa-solid fa-print"></i>
-                                <span>Print Report</span>
-                            </a>
+                            @if($isMonitoring)
+                                <button type="button" class="rpt-export-item" data-format="xlsx" wire:click="openExcelExport">
+                                    <i class="fa-solid fa-file-excel"></i>
+                                    <span>Download as Excel</span>
+                                </button>
+                            @elseif($isOpcr || $isOthers)
+                                <a class="rpt-export-item" data-format="csv" href="{{ $this->exportUrl('csv') }}">
+                                    <i class="fa-solid fa-file-csv"></i>
+                                    <span>Download as CSV</span>
+                                </a>
+                            @else
+                                <a class="rpt-export-item" data-format="csv" href="{{ $this->exportUrl('csv') }}">
+                                    <i class="fa-solid fa-file-csv"></i>
+                                    <span>Download as CSV</span>
+                                </a>
+                                <div class="rpt-export-sep"></div>
+                                <a class="rpt-export-item" data-format="print" href="{{ $this->exportUrl('print') }}" target="_blank" rel="noopener">
+                                    <i class="fa-solid fa-print"></i>
+                                    <span>Print Report</span>
+                                </a>
+                            @endif
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div class="rpt-preview-shell {{ $isOpcr ? 'rpt-preview-shell--opcr' : 'rpt-preview-shell--frame' }}">
+            <div class="rpt-preview-shell {{ ($isOpcr || $isMonitoring || $isOthers) ? 'rpt-preview-shell--table' : 'rpt-preview-shell--frame' }}">
                 @if($error)
                     <div class="rpt-state">
                         <div class="rpt-state-icon state-error"><i class="fa-solid fa-circle-exclamation"></i></div>
@@ -517,29 +793,27 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         $rows = $result['rows'] ?? [];
                         $groups = $result['group_headers'] ?? [];
                         $keys = array_keys($cols);
-                        $rowCount = count($rows);
-                        $rowsPerPage = 12;
-                        $pageTotal = max(1, (int) ceil(max($rowCount, 1) / $rowsPerPage));
-                        $logoPath = public_path('images/logo.png');
-                        $logoSrc = file_exists($logoPath) ? asset('images/logo.png') : '';
-                    @endphp
-                    <div class="opcr-doc">
-                        <div class="opcr-doc-header">
-                            <div class="opcr-doc-brand">
-                                @if($logoSrc)
-                                    <img src="{{ $logoSrc }}" alt="" class="opcr-doc-logo">
-                                @endif
-                                <div>
-                                    <div class="opcr-doc-republic">Republic of the Philippines</div>
-                                    <div class="opcr-doc-name">Camarines Sur Polytechnic Colleges</div>
-                                    <div class="opcr-doc-loc">Nabua, Camarines Sur</div>
-                                </div>
-                            </div>
-                            <div class="opcr-doc-rule"></div>
-                            <h2 class="opcr-doc-title">{{ $result['title'] ?? 'OPCR Targets' }}</h2>
-                        </div>
+                        $opcrColClass = static function (string $key): string {
+                            $dateKeys = ['date_received', 'date_registered', 'date_released'];
+                            $timeKeys = ['time_received', 'time_registered', 'time_released'];
+                            $controlKeys = ['control_number', 'doc_number', 'doc_no'];
+                            if (in_array($key, $dateKeys, true)) {
+                                return 'mon-col-date';
+                            }
+                            if (in_array($key, $timeKeys, true)) {
+                                return 'mon-col-time';
+                            }
+                            if (in_array($key, $controlKeys, true)) {
+                                return 'rpt-doc-no mon-col-control';
+                            }
+                            if (in_array($key, ['rating_q', 'rating_e', 'rating_t', 'rating_a'], true)) {
+                                return 'opcr-rating-th';
+                            }
 
-                        <div class="rpt-table-scroll opcr-doc-body">
+                            return '';
+                        };
+                    @endphp
+                    <div class="rpt-table-scroll">
                             <table class="rpt-table">
                                 <thead>
                                     @php
@@ -554,7 +828,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                     $group = $groups[$key] ?? null;
                                                 @endphp
                                                 @if($group === null || $group === '')
-                                                    <th rowspan="2">{{ $cols[$key] }}</th>
+                                                    <th rowspan="2" class="{{ $opcrColClass($key) }}">{{ $cols[$key] }}</th>
                                                     @php $i++; @endphp
                                                 @else
                                                     @php
@@ -571,14 +845,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         <tr>
                                             @foreach($keys as $key)
                                                 @if(($groups[$key] ?? null) !== null && ($groups[$key] ?? null) !== '')
-                                                    <th @class(['opcr-rating-th' => in_array($key, ['rating_q', 'rating_e', 'rating_t', 'rating_a'], true)])>{{ $cols[$key] }}</th>
+                                                    <th class="{{ $opcrColClass($key) }}">{{ $cols[$key] }}</th>
                                                 @endif
                                             @endforeach
                                         </tr>
                                     @else
                                         <tr>
                                             @foreach($keys as $key)
-                                                <th @class(['opcr-rating-th' => in_array($key, ['rating_q', 'rating_e', 'rating_t', 'rating_a'], true)])>{{ $cols[$key] }}</th>
+                                                <th class="{{ $opcrColClass($key) }}">{{ $cols[$key] }}</th>
                                             @endforeach
                                         </tr>
                                     @endif
@@ -597,7 +871,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                     </td>
                                                 @elseif($key === 'days_diff')
                                                     <td class="opcr-days-td {{ ($row[$key] ?? 0) > 0 ? 'opcr-days-advanced' : (($row[$key] ?? 0) < 0 ? 'opcr-days-delayed' : 'opcr-days-zero') }}">
-                                                        {{ $row[$key] === null ? '—' : (($row[$key] > 0 ? '+' : '') . $row[$key]) }}
+                                                        {{ $row[$key] === null ? '—' : abs((int) $row[$key]) }}
                                                     </td>
                                                 @elseif($key === 'remarks')
                                                     <td class="opcr-remarks-td">
@@ -610,9 +884,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                                 @elseif(in_array($key, ['item_no', 'no'], true))
                                                     <td>{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '' }}</td>
                                                 @elseif(in_array($key, ['doc_no', 'control_number', 'doc_number'], true))
-                                                    <td class="rpt-doc-no"><strong>{{ $row[$key] ?: '—' }}</strong></td>
+                                                    <td class="{{ $opcrColClass($key) }}"><strong>{{ $row[$key] ?: '—' }}</strong></td>
                                                 @else
-                                                    <td>{{ $row[$key] ?: '—' }}</td>
+                                                    <td class="{{ $opcrColClass($key) }}">{{ $row[$key] ?: '—' }}</td>
                                                 @endif
                                             @endforeach
                                         </tr>
@@ -621,51 +895,183 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     @endforelse
                                 </tbody>
                             </table>
-                        </div>
+                    </div>
+                @elseif($isMonitoring || $isOthers)
+                    @php
+                        $cols = $result['columns'] ?? [];
+                        $rows = $result['rows'] ?? [];
+                        $groups = $result['group_headers'] ?? [];
+                        $keys = array_keys($cols);
+                        $monColClass = static function (string $key): string {
+                            $dateKeys = ['date_received', 'date_registered', 'effectivity_date', 'deadline', 'date_released', 'ml_reg_date'];
+                            $timeKeys = ['time_received', 'time_registered', 'time_released', 'ml_reg_time'];
+                            $controlKeys = ['control_number', 'doc_number', 'doc_no', 'drf_no', 'dcn_no'];
+                            $subjectKeys = ['subject_matter', 'description'];
+                            if (in_array($key, $dateKeys, true)) {
+                                return 'mon-col-date';
+                            }
+                            if (in_array($key, $timeKeys, true)) {
+                                return 'mon-col-time';
+                            }
+                            if ($key === 'source') {
+                                return 'mon-col-source';
+                            }
+                            if ($key === 'in_charge') {
+                                return 'mon-col-incharge';
+                            }
+                            if (in_array($key, $controlKeys, true)) {
+                                return 'rpt-doc-no mon-col-control';
+                            }
+                            if (in_array($key, $subjectKeys, true)) {
+                                return 'mon-col-subject';
+                            }
 
-                        <div class="opcr-doc-footer">
-                            <div class="opcr-doc-footer-rule"></div>
-                            <div class="opcr-doc-footer-row">
-                                <span>Effectivity Date:</span>
-                                <span>Rev.</span>
-                                <span>Page 1 of {{ $pageTotal }}</span>
-                            </div>
-                        </div>
+                            return '';
+                        };
+                    @endphp
+                    <div class="rpt-table-scroll">
+                        <table class="rpt-table">
+                            <thead>
+                                @php
+                                    $hasGroups = collect($groups)->contains(fn ($g) => $g !== null && $g !== '');
+                                @endphp
+                                @if($hasGroups)
+                                    <tr>
+                                        @php $i = 0; @endphp
+                                        @while($i < count($keys))
+                                            @php
+                                                $key = $keys[$i];
+                                                $group = $groups[$key] ?? null;
+                                            @endphp
+                                            @if($group === null || $group === '')
+                                                <th rowspan="2" class="{{ $monColClass($key) }}">{!! $cols[$key] !!}</th>
+                                                @php $i++; @endphp
+                                            @else
+                                                @php
+                                                    $span = 1;
+                                                    while ($i + $span < count($keys) && ($groups[$keys[$i + $span]] ?? null) === $group) {
+                                                        $span++;
+                                                    }
+                                                @endphp
+                                                <th colspan="{{ $span }}">{!! $group !!}</th>
+                                                @php $i += $span; @endphp
+                                            @endif
+                                        @endwhile
+                                    </tr>
+                                    <tr>
+                                        @foreach($keys as $key)
+                                            @if(($groups[$key] ?? null) !== null && ($groups[$key] ?? null) !== '')
+                                                <th class="{{ $monColClass($key) }}">{!! $cols[$key] !!}</th>
+                                            @endif
+                                        @endforeach
+                                    </tr>
+                                @else
+                                    <tr>
+                                        @foreach($keys as $key)
+                                            <th class="{{ $monColClass($key) }}">{!! $cols[$key] !!}</th>
+                                        @endforeach
+                                    </tr>
+                                @endif
+                            </thead>
+                            <tbody>
+                                @forelse($rows as $row)
+                                    <tr>
+                                        @foreach($keys as $key)
+                                            @if($key === 'pdf_path')
+                                                <td>
+                                                    @if(!empty($row[$key]))
+                                                        <a href="{{ $row[$key] }}" target="_blank" rel="noopener">View</a>
+                                                    @else
+                                                        —
+                                                    @endif
+                                                </td>
+                                            @elseif(in_array($key, ['item_no', 'no'], true))
+                                                <td>{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '' }}</td>
+                                            @elseif(in_array($key, ['doc_no', 'control_number', 'doc_number', 'drf_no', 'dcn_no'], true))
+                                                <td class="{{ $monColClass($key) }}"><strong>{{ $row[$key] ?: '—' }}</strong></td>
+                                            @elseif($key === 'forwarded_drr')
+                                                <td class="mon-drr-td">
+                                                    <input type="checkbox" class="mon-drr-check"
+                                                        @checked(!empty($row['forwarded_drr']))
+                                                        @if(!empty($row['request_id']))
+                                                            wire:key="mon-drr-{{ (int) $row['request_id'] }}"
+                                                            x-on:change="$wire.saveMonitoringForwardedDrr({{ (int) $row['request_id'] }}, $event.target.checked)"
+                                                        @endif>
+                                                </td>
+                                            @elseif($key === 'remarks')
+                                                <td class="mon-remarks-td">
+                                                    <textarea
+                                                        class="mon-remarks-input"
+                                                        rows="2"
+                                                        placeholder="Enter remarks"
+                                                        wire:key="mon-remark-{{ (int) ($row['request_id'] ?? 0) }}"
+                                                        @if(!empty($row['request_id']))
+                                                            x-data
+                                                            x-init="$nextTick(() => { $el.style.height = 'auto'; $el.style.height = $el.scrollHeight + 'px' })"
+                                                            x-on:input="$el.style.height = 'auto'; $el.style.height = $el.scrollHeight + 'px'"
+                                                            x-on:blur="$wire.saveMonitoringRemark({{ (int) $row['request_id'] }}, $event.target.value)"
+                                                        @endif
+                                                    >{{ $row['remarks'] ?? '' }}</textarea>
+                                                </td>
+                                            @else
+                                                <td class="{{ $monColClass($key) }}">{{ $row[$key] ?: '—' }}</td>
+                                            @endif
+                                        @endforeach
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="{{ max(count($keys), 1) }}"><div class="rpt-state"><h4>No records found</h4></div></td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
                     </div>
                 @else
                     @php
-                        $previewKey = 'preview-'.$category.'-'.$sub.'-'.$period.'-'.$asOf.'-'.$dateFrom.'-'.$dateTo.'-'.md5(json_encode([$originator, $sourceUnit, $revisionStatus, $revNo, $subTypeIds, $monitoringDocType, $monitoringSubTypeIds]));
+                        $previewKey = 'preview-'.$category.'-'.$sub.'-'.$period.'-'.$asOf.'-'.$dateFrom.'-'.$dateTo.'-'.$sortBy.'-'.$sortDir.'-'.md5(json_encode([$originator, $sourceUnit, $revisionStatus, $revNo, $subTypeIds, $monitoringDocType, $monitoringSubTypeIds]));
                     @endphp
                     <div
                         class="rpt-preview-frame-wrap"
                         wire:key="{{ $previewKey }}"
-                        x-data="{ loading: true }"
+                        x-data="{
+                            loading: true,
+                            fitFrame() {
+                                const frame = this.$refs.previewFrame;
+                                if (!frame) return;
+                                try {
+                                    const doc = frame.contentDocument;
+                                    if (!doc) return;
+                                    const h = Math.max(
+                                        doc.documentElement.scrollHeight,
+                                        doc.body ? doc.body.scrollHeight : 0
+                                    );
+                                    frame.style.height = Math.max(h, Math.round(297 * 96 / 25.4)) + 'px';
+                                } catch (e) {}
+                            }
+                        }"
                     >
                         <div class="rpt-preview-loading" x-show="loading" x-cloak>
-                            <div class="rpt-state-spinner" aria-hidden="true"></div>
-                            <h4>Loading report…</h4>
-                            <p>Fetching records and preparing the preview.</p>
+                            <div class="rpt-loading-card">
+                                <div class="rpt-loading-spinner" aria-hidden="true"></div>
+                                <h4>Loading print preview</h4>
+                                <p>Preparing the page as it will look when printed.</p>
+                            </div>
                         </div>
                         <iframe
                             class="rpt-preview-frame"
-                            title="Report preview"
+                            title="Print preview"
                             src="{{ $this->previewUrl() }}"
+                            x-ref="previewFrame"
                             :class="{ 'is-loading': loading }"
-                            @load="loading = false"
+                            @load="loading = false; fitFrame()"
                         ></iframe>
                     </div>
                 @endif
             </div>
         </section>
     @elseif($category !== 'others')
-        <div
-            class="rpt-state rpt-state-pick"
-            wire:loading.class="is-dimmed"
-            wire:target="selectSub"
-        >
+        <div class="rpt-state rpt-state-pick">
             <div class="rpt-state-icon"><i class="fa-solid fa-file-lines"></i></div>
             <h4>Select a document type</h4>
-            <p>Choose Internal, External, Forms, or another type above to preview and print the report.</p>
+            <p>{{ $isMonitoring ? 'Choose Internal, External, Forms, DRF, or DCN. If the type has sub-types, pick one next. Export Excel after choosing columns.' : ($isOpcr ? 'Choose a target type above to open the table.' : 'Choose Internal, External, Forms, or another type above to preview and print the report.') }}</p>
         </div>
     @endif
     </div>

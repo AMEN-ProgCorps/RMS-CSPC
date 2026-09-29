@@ -13,7 +13,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $payload = RegisterQueryHelper::editPayload((int) $id);
         if (!empty($payload['blocked'])) {
             session()->flash('error', $payload['error']);
-            $this->redirectRoute('dcs.register.update');
+            $this->redirectRoute(! empty($payload['docRequest']->is_draft ?? false) ? 'dcs.register.drafts' : 'dcs.register.update');
             return;
         }
         $this->requestId = (int) $id;
@@ -36,6 +36,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     $allowsRetrieval = $reviseNo > 0;
     $canEditDocument = (bool) ($can_edit ?? false);
     $readOnly = (bool) ($read_only ?? ! $canEditDocument);
+    $isDraftDoc = ! empty($docRequest->is_draft);
+    $listRoute = $isDraftDoc ? 'dcs.register.drafts' : 'dcs.register.update';
+    $listLabel = $isDraftDoc
+        ? 'Back to Drafts'
+        : ($readOnly ? 'Back to Update Documents' : 'Back to List');
 @endphp
 <script>
 window.APP_CONFIG = {
@@ -94,8 +99,8 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     </p>
                 @endif
             </div>
-            <a href="{{ route('dcs.register.update') }}" class="reg-btn reg-btn-cancel">
-                <i class="fa-solid fa-arrow-left"></i> Back to List
+            <a href="{{ route($listRoute) }}" class="reg-btn reg-btn-cancel">
+                <i class="fa-solid fa-arrow-left"></i> {{ $listLabel }}
             </a>
         </div>
 
@@ -184,14 +189,8 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                         </div>
                         <div class="reg-field">
                             <label>Year Level</label>
-                            <select id="syllabiYearLevel">
-                                <option value="" selected disabled>Select year level</option>
-                                <option value="1st Year">1st Year</option>
-                                <option value="2nd Year">2nd Year</option>
-                                <option value="3rd Year">3rd Year</option>
-                                <option value="4th Year">4th Year</option>
-                                <option value="5th Year">5th Year</option>
-                            </select>
+                            <div id="syllabiYearLevelPicker" class="reg-syllabi-years is-empty" role="group" aria-label="Year levels to include">Select program, semester, and course type</div>
+                            <div id="syllabiYearLevelHiddens"></div>
                         </div>
                         <div class="reg-field">
                             <label>School Year</label>
@@ -206,14 +205,12 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                         <input type="hidden" name="program_id" id="syllabiProgramHidden" value="{{ $syllabiContextSeed->program_id }}">
                         <input type="hidden" name="semester_id" id="syllabiSemesterHidden" value="{{ $syllabiContextSeed->semester_id }}">
                         <input type="hidden" name="course_type" id="syllabiCourseTypeHidden" value="">
-                        <input type="hidden" name="year_level" id="syllabiYearLevelHidden" value="">
                         <input type="hidden" name="school_year_id" id="syllabiSchoolYearHidden" value="{{ $syllabiContextSeed->school_year_id }}">
                     @else
                         <input type="hidden" name="college_id" id="syllabiCollegeHidden" value="">
                         <input type="hidden" name="program_id" id="syllabiProgramHidden" value="">
                         <input type="hidden" name="semester_id" id="syllabiSemesterHidden" value="">
                         <input type="hidden" name="course_type" id="syllabiCourseTypeHidden" value="">
-                        <input type="hidden" name="year_level" id="syllabiYearLevelHidden" value="">
                         <input type="hidden" name="school_year_id" id="syllabiSchoolYearHidden" value="">
                     @endif
 
@@ -234,6 +231,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                     <tr>
                                         <th class="col-pinned">Course Name</th>
                                         <th class="col-pinned col-code">Course Code</th>
+                                        <th class="col-pinned col-year">Year Level</th>
                                         <th class="col-step1 col-avail" id="syllabiAvailabilityHeader">Syllabi Availability</th>
                                         <th class="col-step1 col-copies">Copies</th>
                                         <th class="col-shared">Faculty</th>
@@ -365,7 +363,9 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <div class="reg-grid-3">
                         <div class="reg-field">
                             <label>DCN No.</label>
-                            <input type="text" id="dcnNumber" name="dcnNumber" placeholder="DCN-001" value="{{ $dcn->dcn_no ?? '' }}">
+                            <input type="text" id="dcnNumber" name="dcnNumber" placeholder="{{ now('Asia/Manila')->format('Y-m') }}-046" value="{{ $dcn->dcn_no ?? '' }}" autocomplete="off">
+                            <span id="dcnNoHint" class="reg-number-hint" style="display:none;"></span>
+                            <span id="dcnNoSuggestHint" class="reg-number-hint" style="display:none;"></span>
                         </div>
                         <div class="reg-field">
                             <label>DCN Date</label>
@@ -426,7 +426,9 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <div class="reg-grid-3">
                         <div class="reg-field">
                             <label>DRF No.</label>
-                            <input type="text" id="drfNo" name="drfNo" placeholder="DRF-001" value="{{ $drf->drf_no ?? '' }}">
+                            <input type="text" id="drfNo" name="drfNo" placeholder="{{ now('Asia/Manila')->format('Y') }}-001" value="{{ $drf->drf_no ?? '' }}" autocomplete="off">
+                            <span id="drfNoHint" class="reg-number-hint" style="display:none;"></span>
+                            <span id="drfNoSuggestHint" class="reg-number-hint" style="display:none;"></span>
                         </div>
                         <div class="reg-field">
                             <label>DRF Date</label>
@@ -541,11 +543,18 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                             <label>Document No.</label>
                             <input type="text" id="masterlistDocNo" name="masterlistDocNo" placeholder="CSPC-F-YYY-XX" value="{{ $masterlist->doc_no ?? '' }}" autocomplete="off">
                             <span id="docNoPrefixHint" style="display:none;margin-top:4px;font-size:12px;color:#475569;"></span>
+                            <span id="docNoSuggestHint" class="reg-number-hint" style="display:none;"></span>
                             <span id="docNoHint" style="display:block;margin-top:4px;font-size:12px;"></span>
                         </div>
                         <div class="reg-field">
                             <label>Deadline of Submission</label>
-                            <input type="date" id="deadlineOfSubmission" name="deadlineOfSubmission" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($masterlist->deadline ?? '') }}">
+                            <div class="reg-deadline-row">
+                                <input type="date" id="deadlineOfSubmission" name="deadlineOfSubmission" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($masterlist->deadline ?? '') }}">
+                                <label class="reg-na-check" for="deadlineNotApplicable">
+                                    <input type="checkbox" id="deadlineNotApplicable" name="deadlineNotApplicable" value="1" @checked(empty($masterlist->deadline))>
+                                    N/A
+                                </label>
+                            </div>
                         </div>
                         <div class="reg-field">
                             <label>Document Receipt</label>
@@ -574,7 +583,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     </div>
                     <div class="reg-ml-mid">
                         <div class="reg-field">
-                            <label>Effectivity Date</label>
+                            <label>Effectivity Date <span class="reg-req" aria-hidden="true">*</span></label>
                             <input type="date" id="masterlistEffectivityDate" name="masterlistEffectivityDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($masterlist->effectivity_date ?? '') }}">
                         </div>
                         <div class="reg-field">
@@ -697,51 +706,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                 <div class="reg-card-header">
                     <span>Document Retrieval</span>
                 </div>
-                <div class="reg-card-body reg-split">
-                    <div class="reg-split-left">
-                        <div class="reg-split-form-grid">
-                            <div class="reg-split-form-stack">
-                                <div class="reg-field">
-                                    <label>Retrieval Form Date</label>
-                                    <div class="reg-dual">
-                                        <input type="date" id="retrievalFormDate" name="retrievalFormDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($retrieval->doc_retrieval_date_file ?? '') }}">
-                                        <input type="time" id="retrievalFormTime" name="retrievalFormTime" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($retrieval->doc_retrieval_time_file ?? '') }}">
-                                    </div>
-                                </div>
-                                <div class="reg-field">
-                                    <label>Retrieval Date & Time</label>
-                                    <div class="reg-dual">
-                                        <input type="date" id="retrievalDate" name="retrievalDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($retrieval->doc_retrieval_date_actual ?? '') }}">
-                                        <input type="time" id="retrievalTime" name="retrievalTime" value="{{ \App\Helpers\RegisterQueryHelper::formatTime($retrieval->doc_retrieval_time_actual ?? '') }}">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="reg-field">
-                            <label>Remarks</label>
-                            <input type="text" id="retrievalRemarks" name="retrievalRemarks" placeholder="Optional remarks" value="{{ $retrieval->remarks ?? '' }}">
-                        </div>
-                        <div class="reg-field">
-                            <label>Upload Scanned D&amp;R</label>
-                            @if($retrieval && $retrieval->scanned_retrieval)
-                                <div class="reg-current-file">
-                                    <i class="fa-solid fa-file-pdf"></i>
-                                    <span>{{ basename($retrieval->scanned_retrieval) }}</span>
-                                    <a href="{{ RegisterQueryHelper::scanUrl($retrieval->scanned_retrieval) }}" target="_blank">View</a>
-                                </div>
-                            @endif
-                            <label class="reg-upload">
-                                <input type="file" id="scannedRet" name="scannedRet" accept=".pdf">
-                                <i class="fa-solid fa-cloud-arrow-up"></i>
-                                <span>{{ $retrieval && $retrieval->scanned_retrieval ? 'Replace file' : 'Choose scanned PDF' }}</span>
-                            </label>
-                            <p class="reg-scan-name-preview" data-scan-preview="retrieval">
-                                <strong>{{ $retrieval && $retrieval->scanned_retrieval ? 'Replacement will be saved as' : 'Will be saved as' }}</strong>
-                                <code data-scan-preview-name>—</code>
-                            </p>
-                        </div>
-                    </div>
-                    <div class="reg-split-right">
+                <div class="reg-card-body">
                         <div class="reg-field">
                             <label>Office retrieval status</label>
                             <p class="reg-field-hint">Mark as Retrieved to also add that office to Distribution. Then set that office’s retrieval date and time. The office stays listed here as Retrieved. Set status back to Pending (or remove it from Distribution) to undo. On the next revision, retrieved offices start again as Pending in Retrieval.</p>
@@ -833,7 +798,6 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                         <button type="button" class="reg-office-see-more" id="retrievalSeeMore" data-office-wrap="retrievalOfficeWrap" onclick="toggleOfficeSeeMore(this)">
                             See more
                         </button>
-                    </div>
                 </div>
             </section>
 
@@ -916,7 +880,6 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                         </th>
                                         <th>Receiving Office(s)</th>
                                         <th style="width:110px; text-align:center;">No. of Copies</th>
-                                        <th class="reg-dist-receipt-head" style="width:180px;">Physical receipt</th>
                                         <th style="width:40px;"></th>
                                     </tr>
                                 </thead>
@@ -938,17 +901,6 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                         <td style="text-align:center;">
                                             <input type="number" name="distCopies[]" value="{{ $distOff->copies }}" min="1" oninput="updateTotal('distTotal', 'distBody')">
                                         </td>
-                                        <td class="reg-dist-receipt-cell">
-                                            @if(!empty($distOff->office_received_at))
-                                                <div class="reg-dist-receipt-status is-received">Received</div>
-                                                <div class="reg-dist-receipt-who">
-                                                    {{ ($distOff->received_by_name ?? '') !== '' ? $distOff->received_by_name : 'Office intake' }}
-                                                    · {{ \Carbon\Carbon::parse($distOff->office_received_at)->format('M d, Y g:i A') }}
-                                                </div>
-                                            @else
-                                                <div class="reg-dist-receipt-status is-pending">Pending</div>
-                                            @endif
-                                        </td>
                                         <td>
                                             <button type="button" class="btn-remove" onclick="removeOffice(this, 'distTotal', 'distBody')">
                                                 <i class="fa-solid fa-xmark"></i>
@@ -957,7 +909,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                     </tr>
                                     @empty
                                     <tr class="reg-empty-row">
-                                        <td colspan="5">
+                                        <td colspan="4">
                                             <div class="reg-empty-state">
                                                 <i class="fa-solid fa-building-circle-xmark"></i>
                                                 <span>No offices added yet</span>
@@ -971,7 +923,6 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                         <td class="reg-dist-check-foot"></td>
                                         <td>Total No. of Copies</td>
                                         <td id="distTotal" style="text-align:center; font-weight:700;">{{ $distributionOffices->sum('copies') }}</td>
-                                        <td></td>
                                         <td></td>
                                     </tr>
                                 </tfoot>
@@ -987,8 +938,8 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
             <!-- ═══ FORM ACTIONS ═══ -->
             <div class="reg-actions" id="formActions" style="display: flex;">
                 <div class="reg-actions-left">
-                    <a href="{{ route('dcs.register.update') }}" class="reg-btn reg-btn-cancel">
-                        <i class="fa-solid fa-arrow-left"></i> {{ $readOnly ? 'Back to Update Documents' : 'Cancel' }}
+                    <a href="{{ route($listRoute) }}" class="reg-btn reg-btn-cancel">
+                        <i class="fa-solid fa-arrow-left"></i> {{ $isDraftDoc ? 'Back to Drafts' : ($readOnly ? 'Back to Update Documents' : 'Cancel') }}
                     </a>
                 </div>
                 <div class="reg-actions-right">
@@ -1005,7 +956,6 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                         <i class="fa-regular fa-floppy-disk"></i> Save Draft
                     </button>
-                    <span id="regAutosaveStatus" class="reg-autosave-status" aria-live="polite" hidden></span>
                     <button type="button" id="btnUpdateDocument" class="reg-btn reg-btn-save" onclick="confirmSave()">
                         <i class="fa-solid fa-floppy-disk"></i> Update Document
                     </button>
@@ -1056,6 +1006,10 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                 </button>
             </div>
             <div class="reg-modal-body reg-modal-body--preview">
+                <div class="reg-preview-loading" id="filePreviewModalLoading" hidden>
+                    <div class="dcs-loading-spinner" aria-hidden="true"></div>
+                    <p>Loading document…</p>
+                </div>
                 <iframe id="filePreviewModalFrame" title="Uploaded file preview"></iframe>
             </div>
         </div>
@@ -1565,11 +1519,14 @@ function seedOfficeRow(tbodyId, totalId, officeId, officeName, copies) {
     if (typeof buildDistOfficeRowHTML === 'function') {
         tr.innerHTML = buildDistOfficeRowHTML(officeId, officeName, copies, totalId);
     } else {
+        const receiptCell = document.querySelector('#distBody')?.closest('table')?.querySelector('.reg-dist-receipt-head')
+            ? '<td class="reg-dist-receipt-cell"><div class="reg-dist-receipt-status is-pending">Pending</div></td>'
+            : '';
         tr.innerHTML = `
         <td class="reg-dist-check-cell"><input type="checkbox" class="dist-office-check" onchange="onDistOfficeCheckChange()" title="Select to reorder"></td>
         <td><input type="hidden" name="${officeNameAttr}" value="${officeId}"><div class="reg-office-name"><span class="reg-dist-drag-handle" title="Drag to reorder"><i class="fa-solid fa-grip-vertical"></i></span><div class="reg-office-icon"><i class="fa-solid fa-building"></i></div><span class="reg-office-text">${escapeHtml(officeName)}</span></div></td>
         <td style="text-align:center;"><input type="number" name="${copiesNameAttr}" value="${copies}" min="1" oninput="updateTotal('${totalId}', '${tbodyId}')"></td>
-        <td class="reg-dist-receipt-cell"><div class="reg-dist-receipt-status is-pending">Pending</div></td>
+        ${receiptCell}
         <td><button type="button" class="btn-remove" onclick="removeOffice(this, '${totalId}', '${tbodyId}')"><i class="fa-solid fa-xmark"></i></button></td>
     `;
     }
@@ -1801,6 +1758,7 @@ document.addEventListener("DOMContentLoaded", async function () {
         initDraftRevNoLookup(revField);
         wireSyllabiMasterlistSync();
         wireApprovalDeadlineSync();
+        wireDeadlineNotApplicable();
         enableApproval();
         const applicableOnLoad = document.querySelector('input[name="approval_status"][value="applicable"]');
         if (typeof window.handleApprovalToggle === 'function') {
@@ -2728,14 +2686,17 @@ async function bridgeDcnPickToMasterlist(docNo, options = {}) {
         const url = '/dcs/register/check-docno?doc_no=' + encodeURIComponent(docNo) +
                     (docTypeId ? '&doc_type_id=' + docTypeId : '') +
                     (subTypeId ? '&sub_type_id=' + subTypeId : '') +
-                    (excludeRequestId ? '&exclude_request_id=' + excludeRequestId : '');
+                    (excludeRequestId ? '&exclude_request_id=' + excludeRequestId : '') +
+                    '&include_drafts=1';
         const res = await fetch(url);
         const data = await res.json();
         if (data.exists) {
             applyRevisedDocumentContext(data, { docNo, hintEl, revField, forceNextRev: true });
         }
+        return data;
     } catch (e) {
         console.error('DCN pick check-docno failed:', e);
+        return null;
     }
 }
 
@@ -2770,16 +2731,25 @@ function resolveSelectedDocTypeName() {
     return (parent?.doc_type_name || '').trim();
 }
 
+const SYLLABI_FORM_DOC_NO = 'CSPC-F-COL-13';
+
 function docNoPrefixForSelection() {
+    const subTypeId = document.getElementById('subType')?.value || CURRENT_SUB_TYPE_ID;
+    if (subTypeId && typeof isSyllabiLikeSubType === 'function' && isSyllabiLikeSubType(subTypeId)) {
+        return SYLLABI_FORM_DOC_NO;
+    }
     const name = resolveSelectedDocTypeName().toLowerCase();
     if (!name) return null;
+    if (name.includes('syllab') || name.includes('tos') || name.includes('rubric')) {
+        return SYLLABI_FORM_DOC_NO;
+    }
     return DOC_NO_PREFIX_BY_NAME[name] || null;
 }
 
 function updateDocNoPrefixHint(prefix) {
     const hint = document.getElementById('docNoPrefixHint');
     if (!hint) return;
-    if (prefix) {
+    if (prefix && prefix !== SYLLABI_FORM_DOC_NO) {
         hint.textContent = 'Prefix filled — add dept/section code and control # (e.g. ' + prefix + 'YYY-XX).';
         hint.style.display = 'block';
     } else {
@@ -2832,6 +2802,10 @@ function maybeAutofillDocNo() {
     input.value = prefix;
     input.dataset.autodocno = prefix;
     updateDocNoPrefixHint(prefix);
+    if (prefix === SYLLABI_FORM_DOC_NO) {
+        input.dispatchEvent(new Event('input'));
+        return;
+    }
     clearDocNoAvailabilityHint();
 }
 
@@ -2928,6 +2902,7 @@ function handleRevisionSearchInput(input, key, field) {
                 q,
                 field: field || '',
                 doc_type_id: docTypeId,
+                for_revision: '1',
             });
             if (subTypeId) params.set('sub_type_id', subTypeId);
             const excludeId = document.getElementById('requestId')?.value;
@@ -2937,7 +2912,7 @@ function handleRevisionSearchInput(input, key, field) {
             revSearchCache[key] = data;
 
             dd.innerHTML = data.length === 0
-                ? '<div class="reg-reldocs-noresult">No matching documents of this type</div>'
+                ? '<div class="reg-reldocs-noresult">No matching documents. Save the New registration first, then search the full Document No.</div>'
                 : data.map((d, idx) => `<div onmousedown="pickRevisionDocument('${key}', ${idx})">${escapeHtml(d.label)}</div>`).join('');
 
             positionFixedDropdown(dd, input);
@@ -2996,6 +2971,22 @@ function clearAllLinkedRevisionRows(tbody, exceptRow) {
     });
 }
 
+function revisionHistoryRowsForDcn(docs, latestRev) {
+    const list = Array.isArray(docs) ? docs.slice() : [];
+    const cap = latestRev !== null && latestRev !== undefined && latestRev !== ''
+        ? Number(latestRev)
+        : NaN;
+    let rows = Number.isFinite(cap)
+        ? list.filter((d) => Number(d?.revise_no) <= cap)
+        : list.slice();
+    if (!rows.length && list.length) {
+        const first = { ...list[0] };
+        if (Number.isFinite(cap)) first.revise_no = cap;
+        rows = [first];
+    }
+    return rows;
+}
+
 async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {}) {
     const tbody = document.getElementById('revisionTableBody');
     if (!tbody || !anchorRow || !docs.length) return;
@@ -3004,7 +2995,7 @@ async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {
 
     clearAllLinkedRevisionRows(tbody, anchorRow);
 
-    const rowsToFill = docs.slice();
+    const rowsToFill = revisionHistoryRowsForDcn(docs, options.latestRev);
 
     populateRevisionRowFromDoc(anchorRow, rowsToFill[0]);
     anchorRow.dataset.linked = 'true';
@@ -3054,11 +3045,12 @@ window.pickRevisionDocument = async function (key, idx) {
     const pickedNo = String(doc.doc_no || '').trim().toLowerCase();
 
     try {
-        await fillRevisionTableWithDocumentHistory(row, revisions, { docNo: pickedNo });
-
+        let checkData = null;
         if (isDcnSectionVisible() && doc.doc_no) {
-            await bridgeDcnPickToMasterlist(doc.doc_no);
+            checkData = await bridgeDcnPickToMasterlist(doc.doc_no);
         }
+        const latestRev = checkData?.latest_rev ?? doc.revise_no;
+        await fillRevisionTableWithDocumentHistory(row, revisions, { docNo: pickedNo, latestRev });
     } finally {
         setRevisionTableLoading(false);
     }
@@ -3818,6 +3810,22 @@ function initSelectProtection() {
 // ══════════════════════════════════════════════
 // FILE INPUTS (with drag & drop)
 // ══════════════════════════════════════════════
+function assignDroppedFiles(input, files) {
+    if (!input || !files || files.length === 0) return false;
+    try {
+        input.files = files;
+    } catch (err) {
+        try {
+            const dt = new DataTransfer();
+            dt.items.add(files[0]);
+            input.files = dt.files;
+        } catch (err2) {
+            return false;
+        }
+    }
+    return !!(input.files && input.files.length > 0);
+}
+
 function initFileInputs() {
     document.querySelectorAll('.reg-upload').forEach(container => {
         const input = container.querySelector('input[type="file"]');
@@ -3834,9 +3842,8 @@ function initFileInputs() {
         container.addEventListener('drop', function (e) {
             e.preventDefault();
             container.classList.remove('reg-upload-drag');
-            if (e.dataTransfer.files.length > 0) {
-                input.files = e.dataTransfer.files;
-                processUploadAreaFile(input, container, icon, label, originalText);
+            if (assignDroppedFiles(input, e.dataTransfer.files)) {
+                input.dispatchEvent(new Event('change', { bubbles: true }));
             }
         });
     });
@@ -4120,7 +4127,11 @@ function openFilePreviewModal(url, title) {
     const overlay = document.getElementById('filePreviewModal');
     const frame = document.getElementById('filePreviewModalFrame');
     const titleEl = document.getElementById('filePreviewModalTitle');
+    const loading = document.getElementById('filePreviewModalLoading');
     if (!overlay || !frame) return;
+    if (loading) loading.hidden = false;
+    frame.onload = () => { if (loading) loading.hidden = true; };
+    frame.onerror = () => { if (loading) loading.hidden = true; };
     frame.src = url;
     if (titleEl) titleEl.textContent = title || 'File preview';
     overlay.classList.add('is-open');
@@ -4131,10 +4142,16 @@ function openFilePreviewModal(url, title) {
 function closeFilePreviewModal() {
     const overlay = document.getElementById('filePreviewModal');
     const frame = document.getElementById('filePreviewModalFrame');
+    const loading = document.getElementById('filePreviewModalLoading');
     if (!overlay) return;
     overlay.classList.remove('is-open');
     overlay.setAttribute('aria-hidden', 'true');
-    if (frame) frame.src = 'about:blank';
+    if (loading) loading.hidden = true;
+    if (frame) {
+        frame.onload = null;
+        frame.onerror = null;
+        frame.src = 'about:blank';
+    }
     document.body.style.overflow = '';
 }
 
@@ -4271,17 +4288,16 @@ function resetSyllabiSection() {
     const programSel = document.getElementById('syllabiProgram');
     const semSel = document.getElementById('syllabiSemester');
     const courseTypeSel = document.getElementById('syllabiCourseType');
-    const yearLevelSel = document.getElementById('syllabiYearLevel');
     const sySel = document.getElementById('syllabiSchoolYear');
     if (collegeSel) collegeSel.selectedIndex = 0;
     if (programSel) { programSel.innerHTML = '<option value="" selected disabled>Select program</option>'; programSel.disabled = true; }
     if (semSel) { semSel.selectedIndex = 0; semSel.disabled = true; }
     if (courseTypeSel) { courseTypeSel.selectedIndex = 0; courseTypeSel.disabled = true; }
-    if (yearLevelSel) { yearLevelSel.selectedIndex = 0; yearLevelSel.disabled = true; }
     if (sySel) { sySel.selectedIndex = 0; sySel.disabled = true; }
+    if (typeof refreshSyllabiYearLevelDisplay === 'function') refreshSyllabiYearLevelDisplay([]);
 
     // Keep hidden mirrors in sync on edit (visible selects may be locked).
-    ['syllabiCollegeHidden', 'syllabiProgramHidden', 'syllabiSemesterHidden', 'syllabiCourseTypeHidden', 'syllabiYearLevelHidden', 'syllabiSchoolYearHidden'].forEach(id => {
+    ['syllabiCollegeHidden', 'syllabiProgramHidden', 'syllabiSemesterHidden', 'syllabiCourseTypeHidden', 'syllabiSchoolYearHidden'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
@@ -4422,6 +4438,15 @@ function validateMasterlistRequired(errors, { requireScan = false, forDraft = fa
             type: 'file',
         });
     }
+    if (!forDraft) {
+        const effectivity = (document.getElementById('masterlistEffectivityDate')?.value || '').trim();
+        if (!effectivity) {
+            errors.push({
+                field: 'masterlistEffectivityDate',
+                message: 'Effectivity Date is required.',
+            });
+        }
+    }
 }
 
 window.toggleSection = function (checklistId, show) {
@@ -4462,19 +4487,40 @@ window.handleApprovalToggle = function (applicable) {
     if (el) el.style.display = applicable ? "block" : "none";
 };
 
+function applyDeadlineNotApplicableState() {
+    const deadline = document.getElementById('deadlineOfSubmission');
+    const na = document.getElementById('deadlineNotApplicable');
+    if (!deadline || !na) return;
+    if (na.checked) {
+        deadline.value = '';
+        deadline.disabled = true;
+    } else {
+        deadline.disabled = false;
+    }
+}
+
+function wireDeadlineNotApplicable() {
+    const na = document.getElementById('deadlineNotApplicable');
+    if (!na || na.dataset.bound === '1') return;
+    na.dataset.bound = '1';
+    na.addEventListener('change', applyDeadlineNotApplicableState);
+    applyDeadlineNotApplicableState();
+}
+
 function wireApprovalDeadlineSync() {
     const approval = document.getElementById('approvalDate');
     const deadline = document.getElementById('deadlineOfSubmission');
+    const na = document.getElementById('deadlineNotApplicable');
     if (!approval || !deadline) return;
     let syncing = false;
     approval.addEventListener('change', () => {
-        if (syncing) return;
+        if (syncing || na?.checked) return;
         syncing = true;
         deadline.value = approval.value;
         syncing = false;
     });
     deadline.addEventListener('change', () => {
-        if (syncing) return;
+        if (syncing || na?.checked) return;
         syncing = true;
         approval.value = deadline.value;
         syncing = false;
@@ -4534,12 +4580,259 @@ async function loadSyllabiContextDropdowns() {
     }
 }
 
+const SYLLABI_YEAR_LEVELS = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'];
+
+function yearLevelSortIndex(year) {
+    const i = SYLLABI_YEAR_LEVELS.indexOf(year);
+    return i === -1 ? 99 : i;
+}
+
+function syllabiYearLevelOptionsHtml(selected) {
+    const sel = String(selected || '');
+    const fromCatalog = yearLevelsFromCourses(catalogCoursesForContext());
+    // Always offer the full year list so registration can adjust beyond Settings defaults.
+    const levels = [...new Set([...SYLLABI_YEAR_LEVELS, ...fromCatalog])]
+        .sort((a, b) => yearLevelSortIndex(a) - yearLevelSortIndex(b));
+    return '<option value="">Year</option>' + levels.map((y) =>
+        `<option value="${y}"${y === sel ? ' selected' : ''}>${y}</option>`
+    ).join('');
+}
+
+function catalogCoursesForContext() {
+    const programId = document.getElementById('syllabiProgram')?.value;
+    const semesterId = document.getElementById('syllabiSemester')?.value;
+    const courseType = document.getElementById('syllabiCourseType')?.value || '';
+    if (!programId || !semesterId) return [];
+    const courses = ((window.__registerCatalog || {}).coursesByProgramSemester || {})[programId + ':' + semesterId] || [];
+    return courses.filter((c) => !courseType || String(c.course_type || '') === courseType);
+}
+
+function yearLevelsFromCourses(courses) {
+    const seen = new Set();
+    (courses || []).forEach((c) => {
+        const y = String(c.year_level || '').trim();
+        if (y) seen.add(y);
+    });
+    return [...seen].sort((a, b) => yearLevelSortIndex(a) - yearLevelSortIndex(b));
+}
+
+function collectSyllabiYearLevelsFromRows() {
+    const years = new Set();
+    document.querySelectorAll('#syllabiTableBody .syllabi-merged-year').forEach((sel) => {
+        const y = (sel.value || '').trim();
+        if (y) years.add(y);
+    });
+    return [...years].sort((a, b) => yearLevelSortIndex(a) - yearLevelSortIndex(b));
+}
+
+function getSelectedSyllabiYearLevels() {
+    return [...document.querySelectorAll('#syllabiYearLevelPicker input[type="checkbox"]:checked')]
+        .map((cb) => String(cb.value || '').trim())
+        .filter(Boolean)
+        .sort((a, b) => yearLevelSortIndex(a) - yearLevelSortIndex(b));
+}
+
+function syncSyllabiYearLevelHiddens() {
+    const host = document.getElementById('syllabiYearLevelHiddens');
+    if (!host) return;
+    const list = getSelectedSyllabiYearLevels();
+    host.innerHTML = list.map((y) =>
+        `<input type="hidden" name="year_levels[]" value="${escapeHtml(y)}">`
+    ).join('');
+}
+
+/** @param {string[]} available @param {string[]|null} selected null = select all available */
+function refreshSyllabiYearLevelDisplay(available, selected = null) {
+    const picker = document.getElementById('syllabiYearLevelPicker');
+    if (!picker) return;
+
+    const years = Array.isArray(available) ? available.filter(Boolean) : [];
+    if (!years.length) {
+        picker.classList.add('is-empty');
+        picker.innerHTML = document.getElementById('syllabiProgram')?.value
+            && document.getElementById('syllabiSemester')?.value
+            && document.getElementById('syllabiCourseType')?.value
+            ? 'No year levels in Settings for this program yet'
+            : 'Select program, semester, and course type';
+        syncSyllabiYearLevelHiddens();
+        return;
+    }
+
+    const previous = getSelectedSyllabiYearLevels();
+    let chosen;
+    if (Array.isArray(selected)) {
+        chosen = selected.filter((y) => years.includes(y));
+        if (!chosen.length) chosen = years.slice();
+    } else if (previous.length) {
+        chosen = previous.filter((y) => years.includes(y));
+        if (!chosen.length) chosen = years.slice();
+    } else {
+        chosen = years.slice();
+    }
+    const chosenSet = new Set(chosen);
+
+    picker.classList.remove('is-empty');
+    picker.innerHTML = years.map((y) => `
+        <label class="reg-syllabi-year-chip">
+            <input type="checkbox" value="${escapeHtml(y)}" ${chosenSet.has(y) ? 'checked' : ''}>
+            <span>${escapeHtml(y)}</span>
+        </label>
+    `).join('');
+
+    picker.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+        cb.addEventListener('change', onSyllabiYearLevelToggle);
+    });
+    syncSyllabiYearLevelHiddens();
+}
+
+function onSyllabiYearLevelToggle() {
+    syncSyllabiYearLevelHiddens();
+    applySyllabiYearLevelFilterToTable();
+}
+
+function appendSyllabiCatalogCourseRow(c) {
+    const tbody = document.getElementById('syllabiTableBody');
+    if (!tbody || !c) return null;
+
+    tbody.querySelectorAll('tr.syllabi-empty-hint').forEach((tr) => tr.remove());
+
+    syllabiGroupCounter++;
+    const groupId = 'g' + syllabiGroupCounter;
+    const newRow = buildSyllabiGroupFirstRow(groupId, 1);
+    tbody.appendChild(newRow);
+
+    const courseInput = newRow.querySelector('.syllabi-merged-course');
+    if (courseInput) {
+        courseInput.value = c.course_name || '';
+        courseInput.dataset.autoFilled = 'true';
+        courseInput.title = 'Loaded from Settings';
+        autosizeSyllabiCourse(courseInput);
+        courseInput.addEventListener('input', () => { courseInput.dataset.autoFilled = 'false'; });
+    }
+    const codeInput = newRow.querySelector('.syllabi-merged-code');
+    if (codeInput) {
+        codeInput.value = c.course_code || '';
+    }
+    const yearSel = newRow.querySelector('.syllabi-merged-year');
+    if (yearSel) {
+        yearSel.value = c.year_level || '';
+    }
+
+    if (typeof cascadeDrfToNewRow === 'function') cascadeDrfToNewRow(newRow);
+    syncSyllabiMergedFields(groupId);
+    syncSyllabiAvailability(groupId);
+    return newRow;
+}
+
+function applySyllabiYearLevelFilterToTable() {
+    const selected = new Set(getSelectedSyllabiYearLevels());
+    const tbody = document.getElementById('syllabiTableBody');
+    if (!tbody) return;
+
+    [...tbody.querySelectorAll('tr[data-is-first="true"]')].forEach((row) => {
+        const year = (row.querySelector('.syllabi-merged-year')?.value || '').trim();
+        if (year && !selected.has(year)) {
+            const groupId = row.dataset.group;
+            if (groupId && typeof removeSyllabiGroup === 'function') {
+                removeSyllabiGroup(groupId);
+            }
+        }
+    });
+
+    const existingKeys = new Set(
+        [...tbody.querySelectorAll('tr[data-is-first="true"]')].map((row) => {
+            const name = (row.querySelector('.syllabi-merged-course')?.value || '').trim().toLowerCase();
+            const code = (row.querySelector('.syllabi-merged-code')?.value || '').trim().toLowerCase();
+            const year = (row.querySelector('.syllabi-merged-year')?.value || '').trim();
+            return `${name}|${code}|${year}`;
+        })
+    );
+
+    const toAdd = catalogCoursesForContext()
+        .filter((c) => {
+            const year = String(c.year_level || '').trim();
+            if (!year || !selected.has(year)) return false;
+            const key = `${String(c.course_name || '').trim().toLowerCase()}|${String(c.course_code || '').trim().toLowerCase()}|${year}`;
+            return !existingKeys.has(key);
+        })
+        .sort((a, b) => {
+            const yi = yearLevelSortIndex(String(a.year_level || '').trim()) - yearLevelSortIndex(String(b.year_level || '').trim());
+            if (yi !== 0) return yi;
+            return String(a.course_name || '').localeCompare(String(b.course_name || ''), undefined, { sensitivity: 'base' });
+        });
+
+    toAdd.forEach((c) => appendSyllabiCatalogCourseRow(c));
+
+    if (!tbody.querySelector('tr[data-is-first="true"]') && !tbody.querySelector('tr.syllabi-empty-hint')) {
+        if (selected.size === 0 && yearLevelsFromCourses(catalogCoursesForContext()).length) {
+            tbody.innerHTML = '<tr class="syllabi-empty-hint"><td colspan="16">Select at least one year level above to include courses in this registration.</td></tr>';
+        } else if (!catalogCoursesForContext().length) {
+            showSyllabiEmptyCatalogHint();
+        }
+    }
+
+    refreshSyllabiYearSectionHeaders();
+    if (typeof updateSyllabiTotals === 'function') updateSyllabiTotals();
+    if (typeof applySyllabiSectionLabel === 'function') applySyllabiSectionLabel();
+}
+
+function refreshSyllabiYearLevelsFromRows() {
+    syncSyllabiYearLevelHiddens();
+    refreshSyllabiYearSectionHeaders();
+}
+
+function syllabiTableColspan() {
+    const ths = document.querySelectorAll('#syllabiWizardTable thead th');
+    return ths.length || 16;
+}
+
+function buildSyllabiYearHeaderRow(year) {
+    const tr = document.createElement('tr');
+    tr.className = 'syllabi-year-header';
+    tr.dataset.yearHeader = year || 'unassigned';
+    const label = year || 'No year level';
+    tr.innerHTML = `<td colspan="${syllabiTableColspan()}">Year Level · ${escapeHtml(label)}</td>`;
+    return tr;
+}
+
+function refreshSyllabiYearSectionHeaders() {
+    const tbody = document.getElementById('syllabiTableBody');
+    if (!tbody) return;
+    tbody.querySelectorAll('tr.syllabi-year-header').forEach((tr) => tr.remove());
+
+    const firstRows = [...tbody.querySelectorAll('tr[data-is-first="true"]')];
+    if (!firstRows.length) return;
+
+    const groups = firstRows.map((first) => {
+        const year = (first.querySelector('.syllabi-merged-year')?.value || '').trim();
+        const name = (first.querySelector('.syllabi-merged-course')?.value || '').trim();
+        const groupId = first.dataset.group;
+        const rows = [...tbody.querySelectorAll(`tr[data-group="${groupId}"]`)]
+            .sort((a, b) => (parseInt(a.dataset.copyNo, 10) || 0) - (parseInt(b.dataset.copyNo, 10) || 0));
+        return { year, name, rows };
+    });
+
+    groups.sort((a, b) => {
+        const yi = yearLevelSortIndex(a.year) - yearLevelSortIndex(b.year);
+        if (yi !== 0) return yi;
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
+
+    let lastYear = null;
+    groups.forEach((g) => {
+        if (g.year !== lastYear) {
+            tbody.appendChild(buildSyllabiYearHeaderRow(g.year));
+            lastYear = g.year;
+        }
+        g.rows.forEach((row) => tbody.appendChild(row));
+    });
+}
+
 function syllabiContextComplete() {
     return document.getElementById('syllabiCollege')?.value
         && document.getElementById('syllabiProgram')?.value
         && document.getElementById('syllabiSemester')?.value
         && document.getElementById('syllabiCourseType')?.value
-        && document.getElementById('syllabiYearLevel')?.value
         && document.getElementById('syllabiSchoolYear')?.value;
 }
 
@@ -4558,9 +4851,48 @@ function setSyllabiContextHint(message, isError) {
     hint.classList.toggle('is-ok', !isError);
 }
 
+function setSyllabiContextTaken(taken, message) {
+    window.syllabiContextTaken = !!taken;
+    const saveBtn = document.getElementById('btnUpdateDocument') || document.getElementById('btnSaveDocument');
+    const draftBtn = document.getElementById('btnSaveDraft');
+    if (taken) {
+        setSyllabiContextHint(message || 'This semester and school year are already registered.', true);
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.setAttribute('disabled', 'disabled');
+            saveBtn.style.opacity = '0.4';
+            saveBtn.style.cursor = 'not-allowed';
+            saveBtn.style.pointerEvents = 'none';
+        }
+        if (draftBtn) {
+            draftBtn.disabled = true;
+            draftBtn.setAttribute('disabled', 'disabled');
+            draftBtn.style.opacity = '0.4';
+            draftBtn.style.cursor = 'not-allowed';
+            draftBtn.style.pointerEvents = 'none';
+        }
+        return;
+    }
+    setSyllabiContextHint('', false);
+    if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.removeAttribute('disabled');
+        saveBtn.style.opacity = '';
+        saveBtn.style.cursor = '';
+        saveBtn.style.pointerEvents = '';
+    }
+    if (draftBtn) {
+        draftBtn.disabled = false;
+        draftBtn.removeAttribute('disabled');
+        draftBtn.style.opacity = '';
+        draftBtn.style.cursor = '';
+        draftBtn.style.pointerEvents = '';
+    }
+}
+
 async function checkSyllabiContextTaken() {
     if (!syllabiContextComplete()) {
-        setSyllabiContextHint('', false);
+        setSyllabiContextTaken(false);
         return false;
     }
 
@@ -4570,7 +4902,6 @@ async function checkSyllabiContextTaken() {
         semester_id: document.getElementById('syllabiSemester').value,
         school_year_id: document.getElementById('syllabiSchoolYear').value,
         course_type: document.getElementById('syllabiCourseType').value,
-        year_level: document.getElementById('syllabiYearLevel').value,
     });
     const subType = document.getElementById('subType')?.value;
     if (subType) params.set('sub_type_id', subType);
@@ -4583,16 +4914,16 @@ async function checkSyllabiContextTaken() {
         }).then((r) => r.json());
 
         if (data.taken) {
-            setSyllabiContextHint(data.message || 'This semester and school year are already registered.', true);
+            setSyllabiContextTaken(true, data.message || 'This semester and school year are already registered.');
             clearSyllabiCourseRows();
             return true;
         }
 
-        setSyllabiContextHint('', false);
+        setSyllabiContextTaken(false);
         return false;
     } catch (err) {
         console.error('Failed to check syllabi context:', err);
-        setSyllabiContextHint('', false);
+        setSyllabiContextTaken(false);
         return false;
     }
 }
@@ -4602,24 +4933,27 @@ async function autoPopulateSyllabiCourses() {
     const taken = await checkSyllabiContextTaken();
     if (taken) return;
 
-    const programId = document.getElementById('syllabiProgram').value;
-    const semesterId = document.getElementById('syllabiSemester').value;
-    const courseType = document.getElementById('syllabiCourseType')?.value || '';
-    const yearLevel = document.getElementById('syllabiYearLevel')?.value || '';
     try {
-        let courses = ((window.__registerCatalog || {}).coursesByProgramSemester || {})[programId + ':' + semesterId] || [];
-        courses = courses.filter((c) => {
-            const typeOk = !courseType || String(c.course_type || '') === courseType;
-            const yearOk = !yearLevel || String(c.year_level || '') === yearLevel;
-            return typeOk && yearOk;
+        const allCourses = catalogCoursesForContext().slice().sort((a, b) => {
+            const yi = yearLevelSortIndex(String(a.year_level || '').trim()) - yearLevelSortIndex(String(b.year_level || '').trim());
+            if (yi !== 0) return yi;
+            return String(a.course_name || '').localeCompare(String(b.course_name || ''), undefined, { sensitivity: 'base' });
         });
+        const availableYears = yearLevelsFromCourses(allCourses);
+        refreshSyllabiYearLevelDisplay(availableYears, getSelectedSyllabiYearLevels());
+        const selected = new Set(getSelectedSyllabiYearLevels());
+        const courses = allCourses.filter((c) => {
+            const year = String(c.year_level || '').trim();
+            return !year || selected.has(year);
+        });
+
         const tbody = document.getElementById('syllabiTableBody');
         if (!tbody) return;
         const hasManualData = [...tbody.querySelectorAll('.syllabi-merged-course, textarea.syllabi-merged-course')]
             .some(inp => inp.value.trim() !== '' && inp.dataset.autoFilled !== 'true');
         if (hasManualData) return;
 
-        if (!courses || courses.length === 0) {
+        if (!allCourses || allCourses.length === 0) {
             showSyllabiEmptyCatalogHint();
             return;
         }
@@ -4628,30 +4962,21 @@ async function autoPopulateSyllabiCourses() {
         tbody.innerHTML = '';
         syllabiGroupCounter = 0;
 
-        courses.forEach((c, courseIndex) => {
-            syllabiGroupCounter++;
-            const groupId = 'g' + syllabiGroupCounter;
-            const newRow = buildSyllabiGroupFirstRow(groupId, 1);
-            tbody.appendChild(newRow);
-            const courseInput = newRow.querySelector('.syllabi-merged-course');
-            if (courseInput) {
-                courseInput.value = c.course_name;
-                courseInput.dataset.autoFilled = 'true';
-                courseInput.title = 'Loaded from Settings';
-                autosizeSyllabiCourse(courseInput);
-                courseInput.addEventListener('input', () => { courseInput.dataset.autoFilled = 'false'; });
-            }
-            const codeInput = newRow.querySelector('.syllabi-merged-code');
-            if (codeInput) {
-                codeInput.value = c.course_code || '';
-            }
-            // Faculty is selected by the user for the chosen college — not prefilled from courses.
-            cascadeDrfToNewRow(newRow);
-            syncSyllabiMergedFields(groupId);
-            syncSyllabiAvailability(groupId);
-        });
+        if (!courses.length) {
+            tbody.innerHTML = '<tr class="syllabi-empty-hint"><td colspan="16">Select at least one year level above to include courses in this registration.</td></tr>';
+            updateSyllabiTotals();
+            applySyllabiSectionLabel();
+            refreshSyllabiYearSectionHeaders();
+            return;
+        }
+
+        courses.forEach((c) => appendSyllabiCatalogCourseRow(c));
         updateSyllabiTotals();
         applySyllabiSectionLabel();
+        refreshSyllabiYearLevelsFromRows();
+        if (typeof lockSyllabiContextDropdowns === 'function') {
+            lockSyllabiContextDropdowns();
+        }
     } catch (err) {
         console.error('Failed to auto-populate syllabi courses:', err);
     }
@@ -4661,7 +4986,8 @@ function showSyllabiEmptyCatalogHint() {
     const tbody = document.getElementById('syllabiTableBody');
     if (!tbody) return;
     tbody.querySelectorAll('tr[data-uid]').forEach(tr => removeSyllabiFacultyPicker(tr.dataset.uid));
-    tbody.innerHTML = '<tr class="syllabi-empty-hint"><td colspan="15">No courses in Settings for this program, semester, course type, and year level. Add them under Settings → Course Names, or click Add Course.</td></tr>';
+    tbody.innerHTML = '<tr class="syllabi-empty-hint"><td colspan="16">No courses in Settings for this program, semester, and course type. Add them under Settings → Course Names, or click Add Course.</td></tr>';
+    refreshSyllabiYearLevelDisplay(yearLevelsFromCourses(catalogCoursesForContext()));
     syllabiGroupCounter = 0;
     if (typeof updateSyllabiTotals === 'function') updateSyllabiTotals();
 }
@@ -4689,7 +5015,6 @@ async function initSyllabiContextWiring() {
     const programSel = document.getElementById("syllabiProgram");
     const semSel = document.getElementById("syllabiSemester");
     const courseTypeSel = document.getElementById("syllabiCourseType");
-    const yearLevelSel = document.getElementById("syllabiYearLevel");
     const sySel = document.getElementById("syllabiSchoolYear");
 
     function resetDownstreamFrom(level) {
@@ -4699,10 +5024,10 @@ async function initSyllabiContextWiring() {
         }
         if (level <= 2 && semSel) { semSel.value = ""; semSel.disabled = true; }
         if (level <= 3 && courseTypeSel) { courseTypeSel.value = ""; courseTypeSel.disabled = true; }
-        if (level <= 4 && yearLevelSel) { yearLevelSel.value = ""; yearLevelSel.disabled = true; }
-        if (level <= 5 && sySel) { sySel.value = ""; sySel.disabled = true; }
+        if (level <= 4 && sySel) { sySel.value = ""; sySel.disabled = true; }
         updateSyllabiTitle();
         clearSyllabiCourseRows();
+        refreshSyllabiYearLevelDisplay([]);
         syncSyllabiContextHidden();
         setSyllabiContextHint('', false);
     }
@@ -4715,7 +5040,7 @@ async function initSyllabiContextWiring() {
             window.__facultiesCacheKey = null;
 
             if (!this.value) return;
-            await reloadFacultiesForCollege(this.value);
+            await reloadFacultiesForCollege();
 
             try {
                 const programs = ((window.__registerCatalog || {}).programsByCollege || {})[String(this.value)] || [];
@@ -4747,14 +5072,10 @@ async function initSyllabiContextWiring() {
         courseTypeSel.dataset.wired = "true";
         courseTypeSel.addEventListener("change", function () {
             resetDownstreamFrom(4);
-            if (yearLevelSel) yearLevelSel.disabled = !this.value;
-        });
-    }
-    if (yearLevelSel && !yearLevelSel.dataset.wired) {
-        yearLevelSel.dataset.wired = "true";
-        yearLevelSel.addEventListener("change", function () {
-            resetDownstreamFrom(5);
             if (sySel) sySel.disabled = !this.value;
+            refreshSyllabiYearLevelDisplay(yearLevelsFromCourses(catalogCoursesForContext()));
+            window.__facultiesCacheKey = null;
+            reloadFacultiesForCollege();
         });
     }
     if (sySel && !sySel.dataset.wired) {
@@ -4777,6 +5098,15 @@ function formatSchoolYearText(text) {
     return /^s\/y/i.test(text) ? text : 'S/Y ' + text;
 }
 
+function syllabiCourseTypeTitlePhrase(raw) {
+    const v = String(raw || '').trim();
+    if (v === 'PE Courses') return 'P.E Courses';
+    if (v === 'GE Courses') return 'GE Courses';
+    if (v === 'NSTP') return 'NSTP';
+    if (v === 'Major') return 'Major Courses';
+    return v;
+}
+
 function updateSyllabiTitle() {
     const titleInput = document.getElementById('syllabiDocTitle');
     if (!titleInput || syllabiTitleManuallyEdited) return;
@@ -4784,9 +5114,19 @@ function updateSyllabiTitle() {
     const program  = getSelectTextWithCode('syllabiProgram');
     const semester = getSelectText('syllabiSemester');
     const schoolYr = getSelectText('syllabiSchoolYear');
+    const rawType = document.getElementById('syllabiCourseType')?.value || '';
+    const courseType = syllabiCourseTypeTitlePhrase(rawType);
     const label    = window.__syllabiModeLabel || 'Syllabi';
-    if (!college || !program || !semester || !schoolYr) return;
-    titleInput.value = college + ' ' + label + ' for ' + program + ', ' + semester + ', ' + formatSchoolYearText(schoolYr);
+    if (!college || !program || !semester || !schoolYr || !courseType) return;
+    if (rawType === 'GE Courses') {
+        const colleges = (window.__registerCatalog || {}).colleges || [];
+        const casId = casCollegeId();
+        const cas = colleges.find((c) => String(c.college_id) === String(casId));
+        const casName = cas?.college_name || 'College of Arts and Sciences';
+        titleInput.value = casName + ' ' + label + ' in ' + courseType + ' for ' + college + ', ' + semester + ', ' + formatSchoolYearText(schoolYr);
+    } else {
+        titleInput.value = college + ' ' + label + ' in ' + courseType + ' for ' + program + ', ' + semester + ', ' + formatSchoolYearText(schoolYr);
+    }
     syncSyllabiToMasterlistFields();
 }
 
@@ -4861,17 +5201,29 @@ function getSyllabiCollegeId() {
     return select && select.value ? select.value : '';
 }
 
-async function reloadFacultiesForCollege(collegeId) {
+function getSyllabiCourseType() {
+    const hidden = document.getElementById('syllabiCourseTypeHidden');
+    if (hidden && hidden.value) return hidden.value.trim();
+    const select = document.getElementById('syllabiCourseType');
+    return (select && select.value ? select.value : '').trim();
+}
+
+function casCollegeId() {
+    const colleges = (window.__registerCatalog || {}).colleges || [];
+    const cas = colleges.find((c) => {
+        const code = String(c.college_code || '').toUpperCase();
+        const name = String(c.college_name || '');
+        return code === 'CAS'
+            || /college of arts and sciences/i.test(name)
+            || /arts\s*&\s*sciences/i.test(name);
+    });
+    return cas ? String(cas.college_id) : '';
+}
+
+async function reloadFacultiesForCollege() {
     window.__facultiesCacheKey = null;
-    allFaculties = [];
-    if (!collegeId) return;
-    try {
-        const data = ((window.__registerCatalog || {}).faculties || []).filter(f => String(f.college_id) === String(collegeId));
-        allFaculties = Array.isArray(data) ? data : [];
-        window.__facultiesCacheKey = String(collegeId);
-    } catch (err) {
-        console.error('Failed to load faculties for college:', err);
-    }
+    allFaculties = ((window.__registerCatalog || {}).faculties || []).slice();
+    window.__facultiesCacheKey = 'all';
 }
 
 function ensureFacultyState(uid) {
@@ -4888,24 +5240,52 @@ function ensureFacultyState(uid) {
 }
 
 async function ensureFacultiesLoaded() {
-    const collegeId = getSyllabiCollegeId();
-    if (!collegeId) {
-        allFaculties = [];
-        window.__facultiesCacheKey = null;
+    if (window.__facultiesCacheKey === 'all' && Array.isArray(allFaculties) && allFaculties.length > 0) {
         return;
     }
-    const cacheKey = String(collegeId);
-    if (window.__facultiesCacheKey === cacheKey && Array.isArray(allFaculties) && allFaculties.length > 0) {
-        return;
+    await reloadFacultiesForCollege();
+}
+
+function facultyBelongsToCollege(f, collegeId) {
+    if (!collegeId) return false;
+    const want = String(collegeId);
+    if (Array.isArray(f.college_ids) && f.college_ids.length) {
+        return f.college_ids.some((id) => String(id) === want);
     }
-    await reloadFacultiesForCollege(collegeId);
+    return String(f.college_id || '') === want;
 }
 
 function getFacultyCandidates() {
     if (!Array.isArray(allFaculties)) return [];
-    const collegeId = getSyllabiCollegeId();
-    if (!collegeId) return [];
-    return allFaculties.filter(f => String(f.college_id) === String(collegeId));
+    const type = getSyllabiCourseType();
+    if (type === 'GE Courses') {
+        const casId = casCollegeId();
+        const collegeId = getSyllabiCollegeId();
+        return allFaculties.filter((f) =>
+            (casId && facultyBelongsToCollege(f, casId))
+            || (collegeId && facultyBelongsToCollege(f, collegeId))
+        );
+    }
+    if (type === 'Major') {
+        const collegeId = getSyllabiCollegeId();
+        if (!collegeId) return [];
+        return allFaculties.filter((f) => facultyBelongsToCollege(f, collegeId));
+    }
+    return allFaculties;
+}
+
+function facultyEmptyMessage() {
+    const type = getSyllabiCourseType();
+    if (type === 'GE Courses') {
+        if (!casCollegeId()) return 'CAS faculty list is not set up yet';
+        return 'No matching faculty in CAS or this college';
+    }
+    if (type === 'Major') {
+        return getSyllabiCollegeId()
+            ? 'No matching faculty for this college'
+            : 'Select a college first';
+    }
+    return 'No matching faculty';
 }
 
 function getOrCreateSyllabiFacultyDropdown(uid) {
@@ -5083,22 +5463,18 @@ async function renderSyllabiFacultyDropdown(uid, input) {
     dd.innerHTML = '<div class="reg-reldocs-noresult">Loading faculty...</div>';
     dd.style.display = 'block';
 
-    const collegeId = getSyllabiCollegeId();
-    if (!collegeId) {
-        dd.innerHTML = '<div class="reg-reldocs-noresult">Select a college first</div>';
-        return;
-    }
-
     await ensureFacultiesLoaded();
 
+    const usedOnSiblings = siblingFacultyNames(uid);
     const candidates = getFacultyCandidates();
     const matches = candidates.filter(f =>
         f.faculty_name.toLowerCase().includes(q) &&
-        !state.selected.some(s => s.label.toLowerCase() === f.faculty_name.toLowerCase())
+        !state.selected.some(s => s.label.toLowerCase() === f.faculty_name.toLowerCase()) &&
+        !usedOnSiblings.has(f.faculty_name.toLowerCase())
     );
 
     dd.innerHTML = matches.length === 0
-        ? '<div class="reg-reldocs-noresult">No matching faculty for this college</div>'
+        ? `<div class="reg-reldocs-noresult">${facultyEmptyMessage()}</div>`
         : matches.map(f =>
             `<div data-faculty-name="${escapeHtml(f.faculty_name)}">${escapeHtml(f.faculty_name)}</div>`
         ).join('');
@@ -5128,6 +5504,12 @@ window.addSyllabiFaculty = function (uid, name, focusNext) {
     if (!match) return;
 
     const facultyName = match.faculty_name;
+    if (siblingFacultyNames(uid).has(facultyName.toLowerCase())) {
+        if (typeof showToast === 'function') {
+            showToast('This faculty is already assigned to another copy of this syllabi.', 'error');
+        }
+        return;
+    }
     if (state.mode === 'single') {
         state.selected = [{ label: facultyName }];
     } else {
@@ -5142,6 +5524,23 @@ window.addSyllabiFaculty = function (uid, name, focusNext) {
     syncSyllabiFacultyInputDisplay(uid, { focusForNext, force: true });
     if (row) fillReceivedFromGroup(row);
 };
+
+function siblingFacultyNames(uid) {
+    const used = new Set();
+    const row = document.querySelector(`#syllabiTableBody tr[data-uid="${uid}"]`);
+    if (!row) return used;
+    const firstRow = document.querySelector(`#syllabiTableBody tr[data-group="${row.dataset.group}"][data-is-first="true"]`);
+    const copies = parseInt(firstRow?.querySelector('.syllabi-merged-copies')?.value || '1', 10);
+    if (copies < 2) return used;
+    document.querySelectorAll(`#syllabiTableBody tr[data-group="${row.dataset.group}"]`).forEach(tr => {
+        if (String(tr.dataset.uid) === String(uid)) return;
+        const state = window.__syllabiFaculty[tr.dataset.uid];
+        (state?.selected || []).forEach(s => {
+            if (s.label) used.add(s.label.toLowerCase());
+        });
+    });
+    return used;
+}
 
 function renderSyllabiFacultyChips(uid) {
     syncSyllabiFacultyInputDisplay(uid);
@@ -5178,7 +5577,6 @@ function syncSyllabiContextHidden() {
         ['syllabiProgram', 'syllabiProgramHidden'],
         ['syllabiSemester', 'syllabiSemesterHidden'],
         ['syllabiCourseType', 'syllabiCourseTypeHidden'],
-        ['syllabiYearLevel', 'syllabiYearLevelHidden'],
         ['syllabiSchoolYear', 'syllabiSchoolYearHidden'],
     ];
     map.forEach(([selId, hidId]) => {
@@ -5209,7 +5607,6 @@ async function seedExistingSyllabiGroups() {
     const programSel = document.getElementById("syllabiProgram");
     const semSel = document.getElementById("syllabiSemester");
     const courseTypeSel = document.getElementById("syllabiCourseType");
-    const yearLevelSel = document.getElementById("syllabiYearLevel");
     const sySel = document.getElementById("syllabiSchoolYear");
 
     if (collegeSel && first.college_id) {
@@ -5228,12 +5625,11 @@ async function seedExistingSyllabiGroups() {
     }
     if (semSel && first.semester_id) semSel.value = first.semester_id;
     if (courseTypeSel && first.course_type) courseTypeSel.value = first.course_type;
-    if (yearLevelSel && first.year_level) yearLevelSel.value = first.year_level;
     if (sySel && first.school_year_id) sySel.value = first.school_year_id;
 
-    unlockSyllabiContextDropdowns();
+    lockSyllabiContextDropdowns();
     syncSyllabiContextHidden();
-    if (first.college_id) await reloadFacultiesForCollege(first.college_id);
+    if (first.college_id) await reloadFacultiesForCollege();
 
     groups.forEach(group => {
         syllabiGroupCounter++;
@@ -5251,6 +5647,10 @@ async function seedExistingSyllabiGroups() {
         if (courseInput) { courseInput.value = group.course_name || ''; autosizeSyllabiCourse(courseInput); }
         const codeInput = firstRow.querySelector('.syllabi-merged-code');
         if (codeInput) codeInput.value = group.course_code || '';
+        const yearSel = firstRow.querySelector('.syllabi-merged-year');
+        if (yearSel) {
+            yearSel.value = group.year_level || '';
+        }
         if (availCheckbox) { availCheckbox.checked = !!group.availability; if (availHidden) availHidden.value = group.availability ? 'available' : 'not available'; }
         if (copiesInput) copiesInput.value = rowCount;
         if (pagesInput) pagesInput.value = group.no_pages ?? group.rows?.[0]?.no_pages ?? '';
@@ -5309,10 +5709,17 @@ async function seedExistingSyllabiGroups() {
 
     setSyllabiStep(1);
     updateSyllabiTotals();
+    const availableYears = yearLevelsFromCourses(catalogCoursesForContext());
+    const selectedYears = collectSyllabiYearLevelsFromRows();
+    refreshSyllabiYearLevelDisplay(
+        availableYears.length ? availableYears : selectedYears,
+        selectedYears.length ? selectedYears : null
+    );
+    refreshSyllabiYearSectionHeaders();
 }
 
 function lockSyllabiContextDropdowns() {
-    ['syllabiCollege', 'syllabiProgram', 'syllabiSemester', 'syllabiCourseType', 'syllabiYearLevel', 'syllabiSchoolYear'].forEach(id => {
+    ['syllabiCollege', 'syllabiProgram', 'syllabiSemester', 'syllabiCourseType', 'syllabiSchoolYear'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
             el.disabled = true;
@@ -5326,7 +5733,6 @@ function unlockSyllabiContextDropdowns() {
     const programSel = document.getElementById('syllabiProgram');
     const semSel = document.getElementById('syllabiSemester');
     const courseTypeSel = document.getElementById('syllabiCourseType');
-    const yearLevelSel = document.getElementById('syllabiYearLevel');
     const sySel = document.getElementById('syllabiSchoolYear');
 
     if (collegeSel) {
@@ -5349,13 +5755,8 @@ function unlockSyllabiContextDropdowns() {
         if (!courseTypeSel.disabled) courseTypeSel.removeAttribute('disabled');
         courseTypeSel.classList.remove('reg-field-locked');
     }
-    if (yearLevelSel) {
-        yearLevelSel.disabled = !(courseTypeSel && courseTypeSel.value);
-        if (!yearLevelSel.disabled) yearLevelSel.removeAttribute('disabled');
-        yearLevelSel.classList.remove('reg-field-locked');
-    }
     if (sySel) {
-        sySel.disabled = !(yearLevelSel && yearLevelSel.value);
+        sySel.disabled = !(courseTypeSel && courseTypeSel.value);
         if (!sySel.disabled) sySel.removeAttribute('disabled');
         sySel.classList.remove('reg-field-locked');
     }
@@ -5531,6 +5932,7 @@ function propagateReceivedToEmptyRows(source) {
 
     tbody.querySelectorAll('tr[data-uid]').forEach(tr => {
         if (filled.row && tr === filled.row) return;
+        if (!syllabiGroupIsAvailable(tr.dataset.group)) return;
         if (filled.date) stampEmpty(tr.querySelector('input[name="syllabiDateReceived[]"]'), filled.date);
         if (filled.time) stampEmpty(tr.querySelector('input[name="syllabiTimeReceived[]"]'), filled.time);
     });
@@ -5555,18 +5957,23 @@ function propagateDrfToEmptyRows(source) {
 }
 
 function stampGroupReceivedFromPeer(groupId) {
+    stampAvailableRowsFromFirstFilled();
+}
+
+function stampAvailableRowsFromFirstFilled() {
     const peer = findFirstFilledReceived();
-    if (!peer || (!(peer.date || '').trim() && !(peer.time || '').trim())) return;
+    const date = (peer?.date || '').trim();
+    const time = (peer?.time || '').trim();
+    if (!date && !time) return;
 
-    const date = (peer.date || '').trim();
-    const time = (peer.time || '').trim();
-
-    document.querySelectorAll(`#syllabiTableBody tr[data-group="${groupId}"]`).forEach(tr => {
+    const tbody = document.getElementById('syllabiTableBody');
+    if (!tbody) return;
+    tbody.querySelectorAll('tr[data-uid]').forEach(tr => {
+        if (peer.row && tr === peer.row) return;
+        if (!syllabiGroupIsAvailable(tr.dataset.group)) return;
         if (date) stampEmpty(tr.querySelector('input[name="syllabiDateReceived[]"]'), date);
         if (time) stampEmpty(tr.querySelector('input[name="syllabiTimeReceived[]"]'), time);
     });
-
-    propagateReceivedToEmptyRows({ date, time, row: peer.row });
 }
 
 window.cascadeSyllabiField = function (input, fieldName) {
@@ -5615,17 +6022,13 @@ function clearSyllabiFacultyRow(tr) {
 function setSyllabiFacultyRowEnabled(tr, enabled) {
     const input = tr.querySelector('.syllabi-faculty-input');
     if (input) {
-        input.readOnly = !enabled;
+        input.readOnly = false;
         if (tr.dataset.uid) syncSyllabiFacultyInputDisplay(tr.dataset.uid, { force: true });
     }
-    tr.querySelectorAll(
-        'input[name="syllabiDateReceived[]"], input[name="syllabiTimeReceived[]"], .syllabi-merged-copies, .syllabi-merged-pages'
-    ).forEach(el => {
+    tr.querySelectorAll('input[name="syllabiDateReceived[]"], input[name="syllabiTimeReceived[]"]').forEach(el => {
         el.readOnly = !enabled;
         el.classList.toggle('is-locked', !enabled);
-        if (!enabled && (el.name === 'syllabiDateReceived[]' || el.name === 'syllabiTimeReceived[]')) {
-            el.value = '';
-        }
+        if (!enabled) el.value = '';
     });
 }
 
@@ -5720,12 +6123,12 @@ window.syncSyllabiAvailability = function (groupId) {
         setSyllabiFacultyRowEnabled(tr, enabled);
     });
     if (enabled) {
-        stampGroupReceivedFromPeer(groupId);
+        stampAvailableRowsFromFirstFilled();
     }
 };
 
-/** When any row's date/time changes, copy into other empty rows only (never overwrite). */
-window.cascadeSyllabiReceived = function (input, fieldName) {
+/** When a date/time changes, copy into other empty available rows only — never overwrite. */
+window.cascadeSyllabiReceived = function (input) {
     const sourceRow = input?.closest('tr');
     if (!sourceRow) return;
     const date = (sourceRow.querySelector('input[name="syllabiDateReceived[]"]')?.value || '').trim();
@@ -5735,11 +6138,8 @@ window.cascadeSyllabiReceived = function (input, fieldName) {
 };
 
 function fillReceivedFromGroup(tr) {
-    if (!tr || !syllabiGroupIsAvailable(tr.dataset.group) || !syllabiRowHasFaculty(tr)) return;
-    const peer = findFirstFilledReceived(tr);
-    if (!peer) return;
-    if ((peer.date || '').trim()) stampEmpty(tr.querySelector('input[name="syllabiDateReceived[]"]'), peer.date);
-    if ((peer.time || '').trim()) stampEmpty(tr.querySelector('input[name="syllabiTimeReceived[]"]'), peer.time);
+    if (!tr || !syllabiGroupIsAvailable(tr.dataset.group)) return;
+    stampAvailableRowsFromFirstFilled();
 }
 
 function autosizeSyllabiCourse(el) {
@@ -5766,6 +6166,12 @@ function buildSyllabiGroupFirstRow(groupId, rowspan) {
             <input type="text" name="syllabiCourseCode[]" placeholder="e.g. CS 101"
                 class="syllabi-merged-code"
                 oninput="syncSyllabiMergedFields('${groupId}')">
+        </td>
+        <td class="col-pinned col-year" rowspan="${rowspan}">
+            <select name="syllabiYearLevel[]" class="syllabi-merged-year"
+                onchange="syncSyllabiMergedFields('${groupId}'); refreshSyllabiYearLevelsFromRows();">
+                ${syllabiYearLevelOptionsHtml('')}
+            </select>
         </td>
         <td class="col-step1 col-avail" rowspan="${rowspan}">
             <input type="hidden" name="syllabiAvailability[]" value="not available" class="syllabi-merged-availability-hidden">
@@ -5807,6 +6213,7 @@ function buildSyllabiContinuationRow(groupId, copyNo) {
     const mirrors = `
         <input type="hidden" name="syllabiCourseName[]" class="syllabi-mirror-course">
         <input type="hidden" name="syllabiCourseCode[]" class="syllabi-mirror-code">
+        <input type="hidden" name="syllabiYearLevel[]" class="syllabi-mirror-year">
         <input type="hidden" name="syllabiAvailability[]" value="0" class="syllabi-mirror-availability">
         <input type="hidden" name="syllabiCopies[]" class="syllabi-mirror-copies">
         <input type="hidden" name="syllabiNoPages[]" class="syllabi-mirror-pages">
@@ -5825,6 +6232,7 @@ window.syncSyllabiMergedFields = function (groupId) {
 
     const courseVal = firstRow.querySelector('.syllabi-merged-course').value;
     const codeVal = firstRow.querySelector('.syllabi-merged-code')?.value || '';
+    const yearVal = firstRow.querySelector('.syllabi-merged-year')?.value || '';
     const availCheckbox = firstRow.querySelector('.syllabi-merged-availability');
     const availHidden = firstRow.querySelector('.syllabi-merged-availability-hidden');
     availHidden.value = availCheckbox.checked ? 'available' : 'not available';
@@ -5835,11 +6243,13 @@ window.syncSyllabiMergedFields = function (groupId) {
         .forEach(row => {
             const mc = row.querySelector('.syllabi-mirror-course');
             const mcode = row.querySelector('.syllabi-mirror-code');
+            const my = row.querySelector('.syllabi-mirror-year');
             const ma = row.querySelector('.syllabi-mirror-availability');
             const mp = row.querySelector('.syllabi-mirror-copies');
             const mpg = row.querySelector('.syllabi-mirror-pages');
             if (mc) mc.value = courseVal;
             if (mcode) mcode.value = codeVal;
+            if (my) my.value = yearVal;
             if (ma) ma.value = availHidden.value;
             if (mp) mp.value = copiesVal;
             if (mpg) mpg.value = pagesVal;
@@ -5859,6 +6269,7 @@ window.addSyllabiRow = function () {
     syncSyllabiAvailability(newRow.dataset.group);
     updateSyllabiTotals();
     applySyllabiSectionLabel();
+    refreshSyllabiYearLevelsFromRows();
 };
 
 window.removeSyllabiGroup = function (groupId) {
@@ -5867,6 +6278,7 @@ window.removeSyllabiGroup = function (groupId) {
         r.remove();
     });
     updateSyllabiTotals();
+    refreshSyllabiYearLevelsFromRows();
 };
 
 window.handleCopiesChange = function (input) {
@@ -6243,6 +6655,21 @@ function validateForm() {
     clearValidation();
     const errors = [];
 
+    if (window.drfNoDuplicate) {
+        errors.push({ field: "drfNo", message: "This DRF number is already used. Please enter a unique DRF number." });
+        return errors;
+    }
+
+    if (window.__isSyllabiMode && window.syllabiContextTaken) {
+        const hint = document.getElementById('syllabiContextHint');
+        errors.push({
+            field: "syllabiSchoolYear",
+            message: (hint && hint.textContent.trim())
+                || "This semester and school year are already registered. You cannot save another copy.",
+        });
+        return errors;
+    }
+
     if (docNoDuplicate) {
         errors.push({ field: "masterlistDocNo", message: "This document number is already registered. Please use a unique number." });
         return errors;
@@ -6277,19 +6704,6 @@ function validateTimeSpentFields(errors) {
         if (ml && ml.value === "Invalid") {
             errors.push({ field: "masterlistRegisteredDate", message: "Masterlist: Document Registered must be after Document Receipt." });
             ["masterlistReceiptDate", "masterlistReceiptTime", "masterlistRegisteredDate", "masterlistRegisteredTime"]
-                .forEach(id => document.getElementById(id)?.classList.add("reg-input-error"));
-        }
-    }
-    if (sectionVisible("section-4")) {
-        const duration = computeDuration(
-            document.getElementById("retrievalFormDate")?.value,
-            document.getElementById("retrievalFormTime")?.value,
-            document.getElementById("retrievalDate")?.value,
-            document.getElementById("retrievalTime")?.value
-        );
-        if (duration && duration.invalid) {
-            errors.push({ field: "retrievalDate", message: "Retrieval: Retrieval Date must be after Form Date." });
-            ["retrievalFormDate", "retrievalFormTime", "retrievalDate", "retrievalTime"]
                 .forEach(id => document.getElementById(id)?.classList.add("reg-input-error"));
         }
     }
@@ -6379,7 +6793,6 @@ function collectMissingFields() {
         checkText("Syllabi", "syllabiProgram", "Program");
         checkText("Syllabi", "syllabiSemester", "Semester");
         checkText("Syllabi", "syllabiCourseType", "Course Type");
-        checkText("Syllabi", "syllabiYearLevel", "Year Level");
         checkText("Syllabi", "syllabiSchoolYear", "School Year");
         checkText("Syllabi", "syllabiDocTitle", "Document Title");
 
@@ -6407,6 +6820,9 @@ function collectMissingFields() {
             const groupLabel = courseVal || ("Syllabi — Course " + (groupId || ''));
 
             if (!courseVal) missing.push("Syllabi: Course Name (" + (groupId || 'unnamed') + ")");
+            if (courseVal && !(row.querySelector('.syllabi-merged-year')?.value || '').trim()) {
+                missing.push(groupLabel + ": Year Level");
+            }
 
             if (syllabiOn) {
                 const pages = row.querySelector('.syllabi-merged-pages');
@@ -6476,9 +6892,8 @@ function collectMissingFields() {
         if (!window.__isSyllabiMode) {
             checkText("Masterlist", "masterlistDocNo", "Document No.");
             checkText("Masterlist", "masterlistDocTitle", "Document Title");
-            checkText("Masterlist", "deadlineOfSubmission", "Deadline of Submission");
-            checkText("Masterlist", "masterlistEffectivityDate", "Effectivity Date");
         }
+        checkText("Masterlist", "masterlistEffectivityDate", "Effectivity Date");
         checkText("Masterlist", "masterlistNoOfPages", "No. of Pages");
         checkText("Masterlist", "keywords", "Keywords");
         if (!window.__sourceWidgets.masterlistOriginator || window.__sourceWidgets.masterlistOriginator.selected.length === 0) missing.push("Masterlist: Originator");
@@ -6489,8 +6904,6 @@ function collectMissingFields() {
     }
 
     if (sectionVisible("section-4")) {
-        checkText("Retrieval", "retrievalFormDate", "Form Date");
-        checkText("Retrieval", "retrievalDate", "Retrieval Date");
         if (document.querySelectorAll("#retrievalBody input[type='hidden']").length === 0) missing.push("Retrieval: At least one office");
     }
 
@@ -6584,17 +6997,23 @@ function getSelectText(id) {
     if (!el || el.selectedIndex < 0) return "";
     return el.options[el.selectedIndex].text;
 }
-function formatInputDate(id) {
-    const val = getInputVal(id);
+function formatSmartDateValue(val) {
     if (!val) return "";
     const date = new Date(val + "T00:00:00");
     if (isNaN(date.getTime())) return val;
+    if (date.getDate() === 1) {
+        return date.toLocaleDateString("en-US", { year: "numeric", month: "short" });
+    }
     return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
+function formatInputDate(id) {
+    return formatSmartDateValue(getInputVal(id));
+}
 function fmtDateValue(val) {
-    if (!val) return "";
-    const d = new Date(val + "T00:00:00");
-    return isNaN(d.getTime()) ? val : d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    return formatSmartDateValue(val);
+}
+function isDeadlineNotApplicable() {
+    return !!document.getElementById("deadlineNotApplicable")?.checked;
 }
 function getOfficeList(tbodyId) {
     const tbody = document.getElementById(tbodyId);
@@ -6660,6 +7079,21 @@ function addReviewOfficeList(container, title, offices) {
 }
 
 window.confirmSave = function () {
+    if (window.__isSyllabiMode && window.syllabiContextTaken) {
+        scrollToField('syllabiSchoolYear');
+        document.getElementById('syllabiSchoolYear')?.focus();
+        showValidationErrors([{
+            field: "syllabiSchoolYear",
+            message: (document.getElementById('syllabiContextHint')?.textContent || '').trim()
+                || "This semester and school year are already registered. You cannot save another copy.",
+        }]);
+        return;
+    }
+    if (window.drfNoDuplicate) {
+        scrollToField('drfNo');
+        document.getElementById('drfNo')?.focus();
+        return;
+    }
     if (docNoDuplicate) {
         const fieldId = 'masterlistDocNo';
         scrollToField(fieldId);
@@ -6704,7 +7138,7 @@ function buildSyllabiInfoReview(reviewContent) {
         { label: "Program", value: getSelectText("syllabiProgram") },
         { label: "Semester", value: getSelectText("syllabiSemester") },
         { label: "Course Type", value: getSelectText("syllabiCourseType") },
-        { label: "Year Level", value: getSelectText("syllabiYearLevel") },
+        { label: "Year Level", value: (typeof getSelectedSyllabiYearLevels === 'function' ? getSelectedSyllabiYearLevels() : []).join(', ') || (document.getElementById("syllabiYearLevelPicker")?.textContent || "").trim() },
         { label: "School Year", value: getSelectText("syllabiSchoolYear") },
         { label: "Document Title", value: getInputVal("syllabiDocTitle") },
     ]);
@@ -6734,6 +7168,7 @@ function buildSyllabiRowsReview(reviewContent) {
 
         addReviewSection(reviewContent, "Syllabi — " + course.value.trim(), [
             { label: "Course Code", value: r.querySelector('.syllabi-merged-code')?.value || "" },
+            { label: "Year Level", value: r.querySelector('.syllabi-merged-year')?.value || "" },
             { label: "No. of Copies", value: copies?.value || "1" },
             { label: "No. of Pages", value: pages?.value || "" },
             { label: "Faculty", value: facultyNames || null },
@@ -6788,7 +7223,7 @@ function buildMasterlistReview(reviewContent) {
     addReviewSection(reviewContent, "Masterlist Registration", [
         { label: "Doc No.", value: getInputVal("masterlistDocNo") },
         { label: "Title", value: getInputVal("masterlistDocTitle") },
-        { label: "Deadline", value: formatInputDate("deadlineOfSubmission") },
+        { label: "Deadline", value: isDeadlineNotApplicable() ? "N/A" : (formatInputDate("deadlineOfSubmission") || "N/A") },
         { label: "Receipt", value: formatInputDate("masterlistReceiptDate") + " " + getInputVal("masterlistReceiptTime") },
         { label: "Registered", value: formatInputDate("masterlistRegisteredDate") + " " + getInputVal("masterlistRegisteredTime") },
         { label: "Time Spent", value: document.getElementById("masterlistTimeSpentDisplay")?.value || null },
@@ -6816,13 +7251,6 @@ function buildApprovalReview(reviewContent) {
 function buildRetrievalReview(reviewContent) {
     const s4 = document.getElementById("section-4");
     if (!s4 || s4.style.display === "none") return;
-    const f = document.getElementById("scannedRet")?.files;
-    addReviewSection(reviewContent, "Document Retrieval", [
-        { label: "Form Date", value: formatInputDate("retrievalFormDate") + " " + getInputVal("retrievalFormTime") },
-        { label: "Retrieval Date", value: formatInputDate("retrievalDate") + " " + getInputVal("retrievalTime") },
-        { label: "Remarks", value: getInputVal("retrievalRemarks") },
-        { label: "File", value: f && f.length > 0 ? f[0].name : null, isFile: true },
-    ]);
     const off = getOfficeList("retrievalBody");
     if (off.length) addReviewOfficeList(reviewContent, "Receiving Offices (Retrieval)", off);
 }
@@ -6858,6 +7286,15 @@ document.addEventListener("keydown", function (e) {
     if (modal?.classList.contains("is-open")) closeConfirmModal();
 });
 window.submitForm = function () {
+    if (window.__isSyllabiMode && window.syllabiContextTaken) {
+        showValidationErrors([{
+            field: "syllabiSchoolYear",
+            message: (document.getElementById('syllabiContextHint')?.textContent || '').trim()
+                || "This semester and school year are already registered. You cannot save another copy.",
+        }]);
+        return;
+    }
+    if (typeof unlockSyllabiContextForSubmit === 'function') unlockSyllabiContextForSubmit();
     const ack = document.getElementById('confirmSaveAnyway');
     if (ack && !ack.checked) {
         alert('Please confirm that you reviewed the missing information before saving.');
@@ -6931,7 +7368,16 @@ function showSavingDocumentOverlay() {
     }
 }
 
+function unlockSyllabiContextForSubmit() {
+    ['syllabiCollege', 'syllabiProgram', 'syllabiSemester', 'syllabiCourseType', 'syllabiSchoolYear']
+        .forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = false;
+        });
+}
+
 function prepareDraftSubmitDefaults() {
+    unlockSyllabiContextForSubmit();
     const approvalChecked = document.querySelector('input[name="approval_status"]:checked');
     if (!approvalChecked) {
         const na = document.querySelector('input[name="approval_status"][value="not_applicable"]');
@@ -6941,6 +7387,7 @@ function prepareDraftSubmitDefaults() {
 }
 
 window.__regDraftCanSave = function () {
+    if (window.__isSyllabiMode && window.syllabiContextTaken) return false;
     const version = document.getElementById('versionType')?.value;
     const docType = document.getElementById('docType')?.value;
     if (!version || !docType) return false;
@@ -7203,5 +7650,7 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>
 @include('pages.dcs.register.partials.dist-office-groups-script')
 @include('pages.dcs.register.partials.scan-name-preview')
-<script src="{{ asset('js/dcs/register-draft-guard.js') }}"></script>
+<script src="{{ asset('js/dcs/register-draft-guard.js') }}?v={{ filemtime(public_path('js/dcs/register-draft-guard.js')) }}"></script>
+<script src="{{ asset('js/dcs/register-drf-no-unique.js') }}"></script>
+<script src="{{ asset('js/dcs/register-number-suggest.js') }}?v={{ filemtime(public_path('js/dcs/register-number-suggest.js')) }}"></script>
 @endif

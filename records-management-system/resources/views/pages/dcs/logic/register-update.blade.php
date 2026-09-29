@@ -2,7 +2,6 @@
 
 namespace App\Helpers;
 
-use App\Services\DcsNotificationService;
 use App\Services\DocumentStorageService;
 use App\Services\StampBackupService;
 use Illuminate\Http\RedirectResponse;
@@ -584,6 +583,8 @@ class RegisterUpdateHelper
                         DB::table('dcs_retrieval_offices')->insert($retrievalOfficeRow);
                     }
                 }
+
+                \App\Helpers\DistributionRetrievalHelper::syncRetrievalStatusesToTracking((int) $requestId);
             }
 
             if (in_array(5, $checkedChecklists, true)) {
@@ -635,6 +636,7 @@ class RegisterUpdateHelper
                     (array) $request->input('distOffice', [])
                 ))));
                 $addedDistOfficeIds = array_values(array_diff($newDistOfficeIds, $previousDistOfficeIds));
+                \App\Helpers\DistributionRetrievalHelper::syncRetrievalStatusesToTracking((int) $requestId);
             }
 
             if ($approvalStatus === 'applicable' && $request->filled('approvalBody')) {
@@ -689,21 +691,13 @@ class RegisterUpdateHelper
             }
 
             if (! $saveAsDraft && $addedDistOfficeIds !== []) {
-                $notifyDocNo = trim((string) ($ml->doc_no ?? $docNo ?? ''));
-                $notifyTitle = trim((string) $savedTitle);
-                $revNo = isset($ml->revise_no) ? (int) $ml->revise_no : null;
                 $actorOffice = RegisterQueryHelper::currentOfficeCode();
-                foreach (DcsNotificationService::officeCodesFromIds($addedDistOfficeIds) as $officeCode) {
-                    if ($actorOffice && strtoupper($officeCode) === strtoupper($actorOffice)) {
-                        continue;
-                    }
-                    DcsNotificationService::notifyDocumentDistributed(
-                        $officeCode,
-                        $notifyDocNo,
-                        $notifyTitle !== '' ? $notifyTitle : null,
-                        $revNo
-                    );
-                }
+                $skipCodes = $actorOffice ? [strtoupper(trim((string) $actorOffice))] : [];
+                \App\Helpers\DistributionRetrievalHelper::notifyPickupForRequest(
+                    (int) $requestId,
+                    $skipCodes,
+                    $addedDistOfficeIds
+                );
             }
 
             RegisterPersistHelper::logAdminChange(

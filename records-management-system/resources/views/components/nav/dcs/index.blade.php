@@ -69,8 +69,8 @@
                 <li class="nav-item {{ request()->routeIs('dcs.office.documents') ? 'active' : '' }}">
                     <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}">
                         <i class="fa-solid fa-folder-open"></i>
-                        <span>Documents</span>
-                        <span class="tooltip">Office Documents</span>
+                    <span>Document Inventory</span>
+                    <span class="tooltip">Office Document Inventory</span>
                     </a>
                 </li>
             @else
@@ -78,9 +78,9 @@
                     <details {{ request()->routeIs('dcs.office.documents') ? 'open' : '' }}>
                         <summary class="dropdown-trigger">
                             <i class="fa-solid fa-folder-open"></i>
-                            <span>Documents</span>
+                            <span>Document Inventory</span>
                             <i class="fas fa-caret-down arrow"></i>
-                            <span class="tooltip">Office Documents</span>
+                            <span class="tooltip">Office Document Inventory</span>
                         </summary>
                         <ul class="sub-dropdown">
                             <li>
@@ -177,7 +177,7 @@
                             </summary>
                             <ul class="sub-dropdown">
                                 <li><a href="{{ route('dcs.reports.masterlist', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.masterlist') ? 'active-sub' : '' }}">Masterlists</a></li>
-                                <li><a href="{{ route('dcs.reports.monitoring', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.monitoring') ? 'active-sub' : '' }}">Monitoring Reports</a></li>
+                                <li><a href="{{ route('dcs.reports.monitoring', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.monitoring') || request()->routeIs('dcs.reports.distributionRetrieval') ? 'active-sub' : '' }}">Monitoring Reports</a></li>
                                 <li><a href="{{ route('dcs.reports.syllabiTos', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.syllabiTos') ? 'active-sub' : '' }}">Syllabi &amp; TOS/Rubrics</a></li>
                                 <li><a href="{{ route('dcs.reports.opcr', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.opcr') ? 'active-sub' : '' }}">OPCR Targets</a></li>
                                 <li><a href="{{ route('dcs.reports.others', absolute: false) }}" class="{{ request()->routeIs('dcs.reports.others') ? 'active-sub' : '' }}">Others</a></li>

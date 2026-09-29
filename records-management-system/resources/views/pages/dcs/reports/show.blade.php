@@ -49,6 +49,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if ($this->category === 'others') {
             $this->loadReport();
         }
+        if ($this->category === 'monitoring') {
+            $sub = trim((string) request()->query('sub', ''));
+            if ($sub === 'distribution_retrieval') {
+                $this->redirect(route('dcs.reports.distributionRetrieval', absolute: false), navigate: false);
+
+                return;
+            }
+            if ($sub !== '') {
+                $this->selectSub($sub);
+            }
+        }
     }
 
     public function with(): array
@@ -681,6 +692,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 @if($category === 'monitoring')
                     <button class="rpt-sub {{ $sub === 'drf' ? 'active' : '' }}" type="button" wire:click="selectSub('drf')" wire:loading.attr="disabled" wire:target="selectSub">DRF</button>
                     <button class="rpt-sub {{ $sub === 'dcn' ? 'active' : '' }}" type="button" wire:click="selectSub('dcn')" wire:loading.attr="disabled" wire:target="selectSub">DCN</button>
+                    <a class="rpt-sub" href="{{ route('dcs.reports.distributionRetrieval', absolute: false) }}">Distribution &amp; Retrieval</a>
                 @endif
             @endif
         </nav>

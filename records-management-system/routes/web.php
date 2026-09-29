@@ -957,6 +957,7 @@ Route::middleware(['auth'])
                     Volt::route('/reports/opcr', 'pages.dcs.reports.show')->name('reports.opcr');
                     Volt::route('/reports/others', 'pages.dcs.reports.show')->name('reports.others');
                     Volt::route('/reports/syllabi-tos', 'pages.dcs.reports.syllabi-tos')->name('reports.syllabiTos');
+                    Volt::route('/reports/monitoring/distribution-retrieval', 'pages.dcs.reports.distribution-retrieval')->name('reports.distributionRetrieval');
                     Route::get('/reports/export', fn (Request $request) => app(ReportHelper::class)->export($request))->name('reports.export');
                     Route::match(['get', 'post'], '/reports/distribution-template', fn (Request $request) => ReportTemplateHelper::render($request))
                         ->name('reports.distributionTemplate');

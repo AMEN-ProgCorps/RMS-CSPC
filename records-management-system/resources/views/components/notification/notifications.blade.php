@@ -195,6 +195,7 @@ new class extends Component {
                 $this->dispatch('close-notifications');
 
                 $path = ltrim((string) (parse_url((string) $notification->redirect_url, PHP_URL_PATH) ?? ''), '/');
+                $query = (string) (parse_url((string) $notification->redirect_url, PHP_URL_QUERY) ?? '');
                 if (preg_match('#^dcs/office/(drf|dcn)/(\d+)$#', $path, $matches)) {
                     $this->redirect(
                         route(
@@ -202,6 +203,15 @@ new class extends Component {
                             (int) $matches[2],
                             absolute: false
                         ),
+                        navigate: false
+                    );
+
+                    return;
+                }
+
+                if ($path === 'dcs/office/documents' || str_starts_with($path, 'dcs/office/documents')) {
+                    $this->redirect(
+                        '/dcs/office/documents' . ($query !== '' ? '?' . $query : ''),
                         navigate: false
                     );
 
@@ -476,6 +486,16 @@ new class extends Component {
                         <p class="notif-message">{{ $notification->content }}</p>
                         <span class="notif-time">{{ \Carbon\Carbon::parse($notification->created_at)->diffForHumans() }}</span>
                     </div>
+
+                    @if(\App\Helpers\DistributionRetrievalHelper::isPickupNotification($notification->redirect_url ?? null, $notification->content ?? null))
+                        <button
+                            type="button"
+                            class="notif-accept-btn"
+                            wire:click="handleNotificationClick({{ $notification->id }})"
+                        >
+                            Accept
+                        </button>
+                    @endif
 
                     <!-- Item Actions Menu -->
                     <div class="notif-menu-wrapper" x-data="{ menuOpen: false }" @click.outside="menuOpen = false">

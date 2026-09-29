@@ -349,7 +349,7 @@
             }
         }
         elseif (request()->routeIs('dcs.office.documents')) {
-            $sectionTitle = 'Documents';
+            $sectionTitle = 'Document Inventory';
             $activeDocType = request()->query('type', 'all');
             if ($activeDocType === '') {
                 $activeDocType = 'all';
@@ -422,7 +422,7 @@
                 [
                     'label' => 'Monitoring Reports',
                     'url' => route('dcs.reports.monitoring'),
-                    'active' => request()->routeIs('dcs.reports.monitoring'),
+                    'active' => request()->routeIs('dcs.reports.monitoring') || request()->routeIs('dcs.reports.distributionRetrieval'),
                 ],
                 [
                     'label' => 'Syllabi & TOS/Rubrics',

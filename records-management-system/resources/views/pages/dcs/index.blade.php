@@ -161,7 +161,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}" class="ofi-dash-stat is-docs">
                 <div class="ofi-dash-stat-icon"><i class="fa-solid fa-folder-open"></i></div>
                 <div class="ofi-dash-stat-body">
-                    <span class="ofi-dash-stat-label">Office Documents</span>
+                    <span class="ofi-dash-stat-label">Document Inventory</span>
                     <strong class="ofi-dash-stat-value">{{ (int) $officeDocTotal }}</strong>
                     <span class="ofi-dash-stat-hint">Distributed to your office</span>
                 </div>

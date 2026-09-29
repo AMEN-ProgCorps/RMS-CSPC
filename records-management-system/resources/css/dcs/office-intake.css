@@ -3235,3 +3235,61 @@ body.ofi-modal-open {
 }
 [data-theme="dark"] .ofi-stat-value.is-drf { color: #93c5fd; }
 [data-theme="dark"] .ofi-stat-value.is-dcn { color: #6ee7b7; }
+
+.ofi-status-pill.is-warn {
+    background: #ffedd5;
+    color: #9a3412;
+}
+.dr-client-notice p {
+    margin: 4px 0 0;
+    font-weight: 500;
+    line-height: 1.45;
+}
+.dr-client-notice.is-pickup,
+.dr-client-notice.is-exchange {
+    background: #eff6ff;
+    color: #1e3a8a;
+    border: 1px solid #bfdbfe;
+}
+.dr-client-notice.is-retrieval {
+    background: #fff7ed;
+    color: #9a3412;
+    border: 1px solid #fdba74;
+}
+.dr-client-notice.is-verify {
+    background: #f8fafc;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+}
+.ofi-table tr.is-retrieval-warn td {
+    background: #fffbeb;
+}
+.ofi-inv-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+.ofi-old-version-row td {
+    background: #f8fafc !important;
+    padding: 0 10px 14px !important;
+    border-bottom: 1px solid #e2e8f0;
+}
+.ofi-old-version-panel {
+    padding: 12px 14px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 10px;
+    background: #fff;
+}
+.ofi-old-version-panel > strong {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: #475569;
+}
+.ofi-old-version-table {
+    margin-top: 4px;
+}
+.ofi-old-version-table th {
+    background: #f1f5f9;
+}

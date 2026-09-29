@@ -3167,6 +3167,11 @@ class OfficeIntakeHelper
             $requestId = (int) ($ml->request_id ?? 0);
             $receipt = $receipts[$requestId] ?? null;
             $receivedAt = $receipt['received_at'] ?? null;
+            $distStatus = $receipt['distribution_status'] ?? null;
+            $retStatus = $receipt['copy_retrieval_status'] ?? null;
+            $awaitingVerify = ! empty($receipt['verification_required']);
+            $distributed = $distStatus === \App\Helpers\DistributionRetrievalHelper::DIST_DISTRIBUTED
+                || $receivedAt !== null;
             $rows[] = [
                 'item_no' => $itemNo,
                 'request_id' => $requestId,
@@ -3177,9 +3182,15 @@ class OfficeIntakeHelper
                 'effectivity_date' => $ml->effectivity_date
                     ? RegisterQueryHelper::formatSmartDate($ml->effectivity_date)
                     : null,
-                'can_receive' => $requestId > 0 && $receipt !== null && $receivedAt === null,
+                'can_receive' => $requestId > 0 && $receipt !== null && ! $distributed && ! $awaitingVerify,
+                'awaiting_verify' => $awaitingVerify && ! $distributed,
                 'received_at' => $receivedAt,
                 'received_by_name' => (string) ($receipt['received_by_name'] ?? ''),
+                'copy_label' => (string) ($receipt['copy_label'] ?? ''),
+                'distribution_status' => $distStatus,
+                'copy_retrieval_status' => $retStatus,
+                'old_version_label' => (string) ($receipt['old_version_label'] ?? ''),
+                'copies' => (int) ($receipt['copies'] ?? 1),
             ];
         }
 
@@ -3188,28 +3199,39 @@ class OfficeIntakeHelper
 
     /**
      * @param  list<int>  $requestIds
-     * @return array<int, array{received_at: string|null, received_by_name: string}>
+     * @return array<int, array<string, mixed>>
      */
     protected static function officeDistributionReceipts(int $officeId, array $requestIds): array
     {
         $requestIds = array_values(array_filter($requestIds, static fn (int $id) => $id > 0));
-        if ($requestIds === [] || ! Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
+        if ($requestIds === [] || ! Schema::hasTable('dcs_distribution_offices')) {
             return [];
+        }
+
+        $select = ['dist.request_id', 'doff.copies'];
+        if (Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
+            $select[] = 'doff.office_received_at';
+            $select[] = 'doff.office_received_by';
+        }
+        foreach (['copy_no', 'distribution_status', 'copy_retrieval_status', 'old_version_label', 'verification_required', 'client_acknowledged_by'] as $col) {
+            if (Schema::hasColumn('dcs_distribution_offices', $col)) {
+                $select[] = 'doff.' . $col;
+            }
         }
 
         $rows = DB::table('dcs_document_distribution as dist')
             ->join('dcs_distribution_offices as doff', 'doff.distribution_id', '=', 'dist.id')
             ->whereIn('dist.request_id', $requestIds)
             ->where('doff.office_id', $officeId)
-            ->get([
-                'dist.request_id',
-                'doff.office_received_at',
-                'doff.office_received_by',
-            ]);
+            ->get($select);
 
         $names = [];
         $receiverIds = $rows
-            ->pluck('office_received_by')
+            ->pluck('office_received_by');
+        if (Schema::hasColumn('dcs_distribution_offices', 'client_acknowledged_by')) {
+            $receiverIds = $receiverIds->merge($rows->pluck('client_acknowledged_by'));
+        }
+        $receiverIds = $receiverIds
             ->filter(fn ($id) => $id !== null && (int) $id > 0)
             ->map(fn ($id) => (int) $id)
             ->unique()
@@ -3231,10 +3253,22 @@ class OfficeIntakeHelper
             $requestId = (int) $row->request_id;
             $rid = (int) ($row->office_received_by ?? 0);
             $out[$requestId] = [
-                'received_at' => $row->office_received_at
+                'received_at' => ! empty($row->office_received_at)
                     ? \Carbon\Carbon::parse($row->office_received_at)->format('M d, Y g:i A')
                     : null,
                 'received_by_name' => $rid > 0 ? trim((string) ($names[$rid] ?? '')) : '',
+                'copies' => max(1, (int) ($row->copies ?? 1)),
+                'copy_label' => \App\Helpers\DistributionRetrievalHelper::copyLabel(
+                    (int) ($row->copy_no ?? 0),
+                    max(1, (int) ($row->copies ?? 1))
+                ),
+                'distribution_status' => $row->distribution_status
+                    ?? (! empty($row->office_received_at)
+                        ? \App\Helpers\DistributionRetrievalHelper::DIST_DISTRIBUTED
+                        : \App\Helpers\DistributionRetrievalHelper::DIST_PENDING),
+                'copy_retrieval_status' => $row->copy_retrieval_status ?? \App\Helpers\DistributionRetrievalHelper::RET_NA,
+                'old_version_label' => trim((string) ($row->old_version_label ?? '')),
+                'verification_required' => (bool) ($row->verification_required ?? false),
             ];
         }
 
@@ -3246,6 +3280,10 @@ class OfficeIntakeHelper
      */
     public static function markOfficeDocumentReceived(int $requestId): array
     {
+        if (\App\Helpers\DistributionRetrievalHelper::tablesReady()) {
+            return \App\Helpers\DistributionRetrievalHelper::acknowledgeReceipt($requestId);
+        }
+
         self::assertCanAccessIntake();
 
         $officeId = RegisterQueryHelper::currentOfficeId();

@@ -2836,3 +2836,38 @@
     background: rgba(37, 99, 235, 0.12) !important;
 }
 
+[data-theme="dark"] .dr-card,
+[data-theme="dark"] .dr-search,
+[data-theme="dark"] .dr-modal {
+    background: #131c2e !important;
+    border-color: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+[data-theme="dark"] .dr-table th {
+    background: #1e293b !important;
+    color: #cbd5e1 !important;
+    border-color: #334155 !important;
+}
+[data-theme="dark"] .dr-table td,
+[data-theme="dark"] .dr-card-head,
+[data-theme="dark"] .dr-modal-head,
+[data-theme="dark"] .dr-modal-foot,
+[data-theme="dark"] .dr-fieldset,
+[data-theme="dark"] .dr-check {
+    border-color: #1e293b !important;
+    color: #e2e8f0 !important;
+}
+[data-theme="dark"] .dr-table tr.is-verify,
+[data-theme="dark"] .ofi-table tr.is-retrieval-warn td {
+    background: rgba(194, 65, 12, 0.18) !important;
+}
+[data-theme="dark"] .dr-alert {
+    background: rgba(194, 65, 12, 0.2) !important;
+    border-color: #c2410c !important;
+    color: #fdba74 !important;
+}
+[data-theme="dark"] .dr-meta dd,
+[data-theme="dark"] .dr-card-head h2 {
+    color: #f8fafc !important;
+}
+

@@ -121,23 +121,112 @@ class DcsNotificationService
         ?string $docTitle = null,
         ?int $revNo = null
     ): void {
-        $docNo = trim($docNo);
         $title = trim((string) $docTitle);
-        $revSuffix = $revNo !== null && $revNo > 0 ? ", Rev {$revNo}" : '';
+        if ($title === '') {
+            $title = trim($docNo);
+        }
+        $isRevision = $revNo !== null && $revNo > 0;
+        $oldVersion = $isRevision ? 'Rev ' . max(0, $revNo - 1) : '';
 
-        if ($title !== '' && $docNo !== '') {
-            $message = "Incoming document \"{$title}\" ({$docNo}{$revSuffix}) will be distributed to your office.";
-        } elseif ($title !== '') {
-            $revLabel = $revNo !== null && $revNo > 0 ? " (Rev {$revNo})" : '';
-            $message = "Incoming document \"{$title}\"{$revLabel} will be distributed to your office.";
-        } elseif ($docNo !== '') {
-            $revLabel = $revNo !== null && $revNo > 0 ? " (Rev {$revNo})" : '';
-            $message = "Incoming document {$docNo}{$revLabel} will be distributed to your office.";
-        } else {
-            $message = 'An incoming document will be distributed to your office.';
+        static::notifyDocumentPickupReady($officeCode, $title, 'Copy #—', $isRevision, $oldVersion);
+    }
+
+    /**
+     * Pickup-ready notice for a target office (new issue vs revision exchange).
+     */
+    public static function notifyDocumentPickupReady(
+        string $officeCode,
+        string $docTitle,
+        string $copyLabel,
+        bool $isRevision = false,
+        string $oldVersionLabel = ''
+    ): void {
+        $title = trim($docTitle);
+        if ($title === '') {
+            $title = 'controlled document';
+        }
+        $copy = trim($copyLabel);
+        if ($copy === '') {
+            $copy = 'Copy #—';
         }
 
+        if ($isRevision) {
+            $old = trim($oldVersionLabel);
+            if ($old === '') {
+                $old = 'current version';
+            }
+            $message = "Your office is about to receive a new revision of {$title} is ready for pickup. "
+                . "Please bring your office's current physical paper copy ({$old}) to the Records Office to return it in exchange for {$copy}.";
+        } else {
+            $message = "Your office has a new controlled document to receive and it is ready for pickup ({$title}). "
+                . "Please send a representative to the Records Office to sign the physical D&R list and claim {$copy}.";
+        }
+
+        static::createNotification($officeCode, $message, '/dcs/office/documents?pickup=1');
+    }
+
+    /**
+     * Path B fail-safe: client acknowledged receipt — Records Personnel must verify wet signature.
+     */
+    public static function notifyAdminClientAcknowledged(
+        string $staffName,
+        string $officeName,
+        string $docTitle,
+        string $copyLabel,
+        ?int $requestId = null,
+        ?int $officeRowId = null
+    ): void {
+        $staff = static::displayName($staffName);
+        $office = trim($officeName) !== '' ? trim($officeName) : 'their office';
+        $title = trim($docTitle) !== '' ? trim($docTitle) : 'a controlled document';
+        $copy = trim($copyLabel) !== '' ? trim($copyLabel) : 'Copy #—';
+        $message = "Verification Required: {$staff} ({$office}) acknowledged receipt of {$title}, {$copy}. "
+            . 'Please inspect the printed D&R List Form for their wet signature before confirming distribution.';
+
+        $url = '/dcs/reports/monitoring/distribution-retrieval';
+        $params = [];
+        if ($requestId && $requestId > 0) {
+            $params['focus'] = $requestId;
+        }
+        if ($officeRowId && $officeRowId > 0) {
+            $params['verify'] = $officeRowId;
+        }
+        if ($params !== []) {
+            $url .= '?' . http_build_query($params);
+        }
+
+        $rfio = \App\Helpers\RegisterQueryHelper::rfioNotificationOfficeCode();
+        static::createNotification($rfio, $message, $url);
+    }
+
+    /**
+     * Admin confirmed wet signature after client acknowledge — notify the client office.
+     */
+    public static function notifyClientAcknowledgementVerified(
+        string $officeCode,
+        string $adminName,
+        string $docTitleWithRev
+    ): void {
+        $admin = static::displayName($adminName);
+        $title = trim($docTitleWithRev) !== '' ? trim($docTitleWithRev) : 'the document';
+        $message = "{$admin} from the Records Office has verified your acknowledgment of the {$title} document.";
+
         static::createNotification($officeCode, $message, '/dcs/office/documents');
+    }
+
+    /**
+     * Admin Send: document still at Records Office / no signature — not yet distributed.
+     */
+    public static function notifyClientAcknowledgementRejected(
+        string $officeCode,
+        string $adminName,
+        string $docTitleWithRev
+    ): void {
+        $admin = static::displayName($adminName);
+        $title = trim($docTitleWithRev) !== '' ? trim($docTitleWithRev) : 'the document';
+        $message = "{$admin} from the Records Office verified your request to accept/acknowledge that the {$title} document has not yet been distributed.";
+
+        static::createNotification($officeCode, $message, '/dcs/office/documents?pickup=1');
     }
 
     public static function notifyOfficeDocumentReceived(

@@ -161,11 +161,13 @@ class RegisterPersistHelper
             'dcs.office.dcn.create' => 'Opened Create Office DCN',
             'dcs.office.dcn.show' => 'Viewed Office DCN',
             'dcs.office.dcn.print' => 'Printed Office DCN',
+            'dcs.office.documents' => 'Opened Document Inventory',
             'dcs.reports.masterlist' => 'Opened Masterlist Report',
             'dcs.reports.monitoring' => 'Opened Monitoring Report',
             'dcs.reports.opcr' => 'Opened OPCR Report',
             'dcs.reports.others' => 'Opened Other Reports',
             'dcs.reports.syllabiTos' => 'Opened Syllabi/TOS Report',
+            'dcs.reports.distributionRetrieval' => 'Opened Distribution & Retrieval Monitoring',
             default => null,
         };
     }
@@ -861,15 +863,31 @@ class RegisterPersistHelper
             }
         }
 
-        $keptReceipts = [];
-        if (Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
-            $keptReceipts = DB::table('dcs_distribution_offices')
-                ->where('distribution_id', $distributionId)
-                ->whereNotNull('office_received_at')
-                ->get(['office_id', 'office_received_at', 'office_received_by'])
-                ->keyBy(fn ($row) => (int) $row->office_id)
-                ->all();
+        $keptTracking = [];
+        $trackingCols = ['office_id'];
+        foreach ([
+            'office_received_at',
+            'office_received_by',
+            'copy_no',
+            'distribution_status',
+            'copy_retrieval_status',
+            'old_version_label',
+            'physical_signature_verified',
+            'physical_signature_verified_at',
+            'physical_signature_verified_by',
+            'client_acknowledged_at',
+            'client_acknowledged_by',
+            'verification_required',
+        ] as $col) {
+            if (Schema::hasColumn('dcs_distribution_offices', $col)) {
+                $trackingCols[] = $col;
+            }
         }
+        $keptTracking = DB::table('dcs_distribution_offices')
+            ->where('distribution_id', $distributionId)
+            ->get($trackingCols)
+            ->keyBy(fn ($row) => (int) $row->office_id)
+            ->all();
 
         DB::table('dcs_distribution_offices')->where('distribution_id', $distributionId)->delete();
 
@@ -886,13 +904,21 @@ class RegisterPersistHelper
             if (Schema::hasColumn('dcs_distribution_offices', 'distribution_date')) {
                 $row['distribution_date'] = $request->input('distOfficeDate')[$i] ?? null;
             }
-            $prior = $keptReceipts[$id] ?? null;
+            $prior = $keptTracking[$id] ?? null;
             if ($prior && Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
                 $row['office_received_at'] = $prior->office_received_at;
                 $row['office_received_by'] = $prior->office_received_by ?? null;
             }
+            $row = \App\Helpers\DistributionRetrievalHelper::mergeTrackingIntoRow(
+                $row,
+                $prior,
+                $distributionId,
+                $id
+            );
             DB::table('dcs_distribution_offices')->insert($row);
         }
+
+        \App\Helpers\DistributionRetrievalHelper::assignCopyNumbers($distributionId);
     }
 
     /**
@@ -1572,6 +1598,8 @@ class RegisterPersistHelper
                         DB::table('dcs_retrieval_offices')->insert($retrievalOfficeRow);
                     }
                 }
+
+                \App\Helpers\DistributionRetrievalHelper::syncRetrievalStatusesToTracking((int) $requestId);
             }
 
             if (in_array(5, $checkedChecklists, true)) {
@@ -1608,6 +1636,8 @@ class RegisterPersistHelper
                 if ($request->has('distOffice')) {
                     self::saveDistributionOffices($distributionId, $request);
                 }
+
+                \App\Helpers\DistributionRetrievalHelper::syncRetrievalStatusesToTracking((int) $requestId);
             }
 
             if ($request->approval_status === 'applicable' && $request->filled('approvalBody')) {
@@ -1714,7 +1744,6 @@ class RegisterPersistHelper
 
             if (! $saveAsDraft && $docNo !== '') {
                 $registrarName = RegisterQueryHelper::currentUserDisplayName();
-                $revNo = isset($savedMl->revise_no) ? (int) $savedMl->revise_no : null;
                 $actorOffice = RegisterQueryHelper::currentOfficeCode();
                 $skipCodes = collect($submitterOfficeCodes)
                     ->map(fn ($c) => strtoupper(trim((string) $c)))
@@ -1736,17 +1765,10 @@ class RegisterPersistHelper
                 ))));
                 $masterlistOnlyIds = array_values(array_diff($masterlistIds, $distIds));
 
-                foreach (DcsNotificationService::officeCodesFromIds($distIds) as $officeCode) {
-                    if (in_array(strtoupper($officeCode), $skipCodes, true)) {
-                        continue;
-                    }
-                    DcsNotificationService::notifyDocumentDistributed(
-                        $officeCode,
-                        $docNo,
-                        $docTitle !== '' ? $docTitle : null,
-                        $revNo
-                    );
-                }
+                \App\Helpers\DistributionRetrievalHelper::notifyPickupForRequest(
+                    (int) $requestId,
+                    $skipCodes
+                );
 
                 foreach (DcsNotificationService::officeCodesFromIds($masterlistOnlyIds) as $officeCode) {
                     if (in_array(strtoupper($officeCode), $skipCodes, true)) {

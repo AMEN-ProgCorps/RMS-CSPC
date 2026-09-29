@@ -1076,14 +1076,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                         <i class="fa-solid fa-camera" style="color: #0284c7;"></i> Live Camera Scanner
                     </label>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <input type="file" id="scanner-file-upload-input" accept="image/*" style="display: none;" onchange="handleScannerImageUpload(this)">
-                        <button type="button" onclick="document.getElementById('scanner-file-upload-input').click()" 
-                                title="Upload or paste (Ctrl+V) a QR code image"
-                                style="font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #ffffff; color: #0284c7; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
-                            <i class="fa-solid fa-file-image"></i> Upload / Paste Image
-                        </button>
                         <button type="button" id="toggle-camera-btn" onclick="toggleCameraScanner()" 
-                                style="font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; color: #334155; cursor: pointer;">
+                                style="font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 8px; border: 1px solid #cbd5e1; background: #f8fafc; color: #334155; cursor: pointer;">
                             <i class="fa-solid fa-power-off" style="margin-right: 4px;"></i> <span id="camera-btn-text">Start Camera</span>
                         </button>
                     </div>
@@ -1102,7 +1096,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     <div id="console-qr-reader" style="width: 100%; height: 100%;"></div>
 
                     {{-- Laser Scan Overlay Animation --}}
-                    <div id="scanner-laser-line" style="display: none; position: absolute; left: 6%; right: 6%; height: 3px; background: #38bdf8; box-shadow: 0 0 12px #38bdf8, 0 0 24px #38bdf8; z-index: 10; animation: laserScan 2s infinite ease-in-out;"></div>
+                    <div id="scanner-laser-line" style="display: none; position: absolute; left: 10%; right: 10%; height: 3px; background: #38bdf8; box-shadow: 0 0 12px #38bdf8, 0 0 24px #38bdf8; z-index: 10; animation: laserScan 2s infinite ease-in-out;"></div>
 
                     {{-- Camera Off Placeholder --}}
                     <div id="camera-off-placeholder" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #94a3b8; padding: 20px; text-align: center; background: #0f172a; z-index: 20;">
@@ -1110,15 +1104,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                             <i class="fa-solid fa-camera" style="font-size: 24px; color: #64748b;"></i>
                         </div>
                         <p style="font-size: 13px; font-weight: 600; color: #e2e8f0; margin: 0;">Camera is inactive</p>
-                        <p style="font-size: 11px; color: #64748b; margin: 4px 0 14px 0;">Click 'Start Camera' to scan physical QR codes with your webcam or upload an image.</p>
-                        <div style="display: flex; gap: 8px;">
-                            <button type="button" onclick="toggleCameraScanner()" style="padding: 7px 16px; border-radius: 8px; background: #0284c7; color: #ffffff; border: none; font-size: 12px; font-weight: 600; cursor: pointer;">
-                                Turn On Camera
-                            </button>
-                            <button type="button" onclick="document.getElementById('scanner-file-upload-input').click()" style="padding: 7px 14px; border-radius: 8px; background: #1e293b; color: #e2e8f0; border: 1px solid #334155; font-size: 12px; font-weight: 600; cursor: pointer;">
-                                Choose File / Paste
-                            </button>
-                        </div>
+                        <p style="font-size: 11px; color: #64748b; margin: 4px 0 14px 0;">Click 'Start Camera' to scan physical QR codes with your webcam.</p>
+                        <button type="button" onclick="toggleCameraScanner()" style="padding: 7px 16px; border-radius: 8px; background: #0284c7; color: #ffffff; border: none; font-size: 12px; font-weight: 600; cursor: pointer;">
+                            Turn On Camera
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1130,9 +1119,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     <span>Fast Workflow Tips:</span>
                 </div>
                 <ul style="margin: 0; padding-left: 18px; line-height: 1.5;">
-                    <li><strong>Webcam distance:</strong> Hold the QR code approximately <strong>25–35 cm (arm's length)</strong> away from laptop cameras so the fixed-focus lens stays sharp.</li>
-                    <li><strong>Paste screenshot:</strong> Press <kbd style="background: #e2e8f0; padding: 1px 4px; border-radius: 4px; font-family: monospace;">Ctrl+V</kbd> anywhere on this page to immediately scan a copied QR code image.</li>
                     <li>Handheld USB/Bluetooth barcode guns auto-focus and trigger instantly.</li>
+                    <li>Toggle <strong>Auto-Action on Scan</strong> to auto-receive incoming documents or auto-forward already received documents in rapid succession.</li>
                 </ul>
             </div>
         </div>
@@ -1395,15 +1383,14 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         #console-qr-reader video {
             width: 100% !important;
             height: 100% !important;
-            object-fit: contain !important;
-            background: #0f172a;
+            object-fit: cover !important;
             border-radius: 12px;
             max-height: 360px;
         }
         #console-qr-reader__scan_region {
             border: 3.5px dashed #0284c7 !important;
             border-radius: 20px !important;
-            box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.45), 0 0 25px rgba(2, 132, 199, 0.4) !important;
+            box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.65), 0 0 25px rgba(2, 132, 199, 0.5) !important;
             transition: all 0.2s ease;
         }
         #console-qr-reader__scan_region img {
@@ -1694,16 +1681,7 @@ if (typeof Html5Qrcode === 'undefined') {
             const container = document.getElementById('console-qr-reader');
             if (!container) return;
 
-            // Instantiate Html5Qrcode with hardware BarcodeDetector and QR_CODE format priority
-            html5QrCode = new Html5Qrcode('console-qr-reader', {
-                formatsToSupport: (typeof Html5QrcodeSupportedFormats !== 'undefined') 
-                    ? [ Html5QrcodeSupportedFormats.QR_CODE ] 
-                    : undefined,
-                experimentalFeatures: {
-                    useBarCodeDetectorIfSupported: true
-                },
-                verbose: false
-            });
+            html5QrCode = new Html5Qrcode('console-qr-reader');
 
             let devices = [];
             try {
@@ -1745,14 +1723,12 @@ if (typeof Html5Qrcode === 'undefined') {
 
     async function startScanning(cameraConfig) {
         const calculateQrboxSize = function(viewfinderWidth, viewfinderHeight) {
-            // Generous scanning area (88% of minimum dimension, at least 250px)
-            // Ensures the QR code is read even if held at a natural distance or slightly tilted
             const minDimension = Math.min(viewfinderWidth, viewfinderHeight);
-            let boxSize = Math.floor(minDimension * 0.88);
-            if (boxSize < 240 && minDimension >= 240) {
-                boxSize = 240;
-            } else if (boxSize < 180) {
-                boxSize = Math.max(180, minDimension - 20);
+            let boxSize = Math.floor(minDimension * 0.72);
+            if (boxSize < 220 && minDimension >= 220) {
+                boxSize = 220;
+            } else if (boxSize < 160) {
+                boxSize = Math.max(160, minDimension - 20);
             }
             return {
                 width: boxSize,
@@ -1760,21 +1736,10 @@ if (typeof Html5Qrcode === 'undefined') {
             };
         };
 
-        // Use ideal-only constraints (no min/max) — avoids OverconstrainedError on laptops
-        // where the OS/driver can't guarantee a hard minimum resolution.
-        const hdConfig = {
-            fps: 24,
-            qrbox: calculateQrboxSize,
-            videoConstraints: {
-                width:  { ideal: 1280 },
-                height: { ideal: 720  }
-            }
-        };
-
-        // Bare fallback — no resolution constraints at all
-        const bareConfig = {
+        const config = {
             fps: 20,
-            qrbox: calculateQrboxSize
+            qrbox: calculateQrboxSize,
+            aspectRatio: 1.0,
         };
 
         const onScanSuccess = (decodedText) => {
@@ -1794,24 +1759,17 @@ if (typeof Html5Qrcode === 'undefined') {
             @this.loadTransaction(decodedText);
         };
 
-        // Strategy 1: requested camera + HD ideal constraints
         try {
-            await html5QrCode.start(cameraConfig, hdConfig, onScanSuccess, () => {});
-            return;
-        } catch (e1) {
-            console.warn('HD start failed, trying facingMode user:', e1);
+            await html5QrCode.start(cameraConfig, config, onScanSuccess, () => {});
+        } catch (startErr) {
+            console.warn('Initial camera start failed, attempting facingMode fallback:', startErr);
+            if (cameraConfig.deviceId) {
+                // Fallback to environment facingMode
+                await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {});
+            } else {
+                throw startErr;
+            }
         }
-
-        // Strategy 2: front-facing camera + HD ideal constraints
-        try {
-            await html5QrCode.start({ facingMode: 'user' }, hdConfig, onScanSuccess, () => {});
-            return;
-        } catch (e2) {
-            console.warn('facingMode user HD failed, trying bare config:', e2);
-        }
-
-        // Strategy 3: front-facing camera with no resolution constraints
-        await html5QrCode.start({ facingMode: 'user' }, bareConfig, onScanSuccess, () => {});
     }
 
     window.switchCamera = async function(cameraId) {
@@ -1824,55 +1782,6 @@ if (typeof Html5Qrcode === 'undefined') {
             console.error('Failed to switch camera:', e);
         }
     };
-
-    // File Upload & Clipboard (Ctrl+V) Image Scanning
-    window.handleScannerImageUpload = async function(input) {
-        if (!input.files || input.files.length === 0) return;
-        const file = input.files[0];
-        await decodeQrFromFile(file);
-        input.value = '';
-    };
-
-    window.addEventListener('paste', async (e) => {
-        const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
-        if (!items) return;
-        for (const item of items) {
-            if (item.type && item.type.indexOf('image') !== -1) {
-                const file = item.getAsFile();
-                if (file) {
-                    e.preventDefault();
-                    await decodeQrFromFile(file);
-                    break;
-                }
-            }
-        }
-    });
-
-    async function decodeQrFromFile(file) {
-        try {
-            let decoder = html5QrCode;
-            let tempCreated = false;
-            if (!decoder) {
-                decoder = new Html5Qrcode('console-qr-reader', {
-                    formatsToSupport: (typeof Html5QrcodeSupportedFormats !== 'undefined') ? [ Html5QrcodeSupportedFormats.QR_CODE ] : undefined,
-                    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-                    verbose: false
-                });
-                tempCreated = true;
-            }
-            const decodedText = await decoder.scanFile(file, true);
-            if (decodedText) {
-                const input = document.getElementById('scanner-main-input');
-                if (input) input.value = decodedText;
-                @this.loadTransaction(decodedText);
-            }
-            if (tempCreated && !isScanning) {
-                decoder.clear();
-            }
-        } catch (err) {
-            alert('No clear QR code detected in the selected/pasted image. Please ensure the QR code is in focus and well lit.');
-        }
-    }
 
     window.addEventListener('beforeunload', () => {
         releaseAllMediaTracks();

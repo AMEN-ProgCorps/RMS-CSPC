@@ -846,7 +846,7 @@ new class extends Component {
                         #modal-qr-preview video {
                             width: 100% !important;
                             height: 100% !important;
-                            object-fit: contain !important;
+                            object-fit: cover !important;
                             border-radius: 12px;
                             max-height: 340px;
                         }
@@ -1231,28 +1231,25 @@ new class extends Component {
                     await stopScanner();
 
                     try {
-                        const qrFormats = (typeof Html5QrcodeSupportedFormats !== 'undefined')
-                            ? [Html5QrcodeSupportedFormats.QR_CODE]
-                            : [0];
-
-                        html5QrCode = new Html5Qrcode("modal-qr-preview", {
-                            formatsToSupport: qrFormats,
-                            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-                            verbose: false
-                        });
+                        html5QrCode = new Html5Qrcode("modal-qr-preview");
 
                         const calculateQrboxSize = function(viewfinderWidth, viewfinderHeight) {
+                            // Enforce a perfect 1:1 SQUARE scan box
                             const minDimension = Math.min(viewfinderWidth, viewfinderHeight);
-                            // 88% of minimum dimension — generous quiet zone
-                            let boxSize = Math.floor(minDimension * 0.88);
-
+                            // Fill 78% of minimum dimension to maximize scan area on mobile & desktop
+                            let boxSize = Math.floor(minDimension * 0.78);
+                            
+                            // Enforce a generous minimum size (240px for mobile phones)
                             if (boxSize < 240 && minDimension >= 240) {
                                 boxSize = 240;
                             } else if (boxSize < 180) {
                                 boxSize = Math.max(180, minDimension - 20);
                             }
 
-                            return { width: boxSize, height: boxSize };
+                            return {
+                                width: boxSize,
+                                height: boxSize
+                            };
                         };
 
                         const onScanSuccess = (decodedText) => {
@@ -1271,35 +1268,27 @@ new class extends Component {
                             @this.loadTransaction(decodedText);
                         };
 
-                        const hdConfig = {
-                            fps: 20,
-                            qrbox: calculateQrboxSize,
-                            videoConstraints: {
-                                width:  { ideal: 1280 },
-                                height: { ideal: 720  }
-                            }
-                            // No aspectRatio — letting the browser pick natural ratio avoids geometry distortion
-                        };
-
-                        // Bare fallback — no resolution constraints at all
-                        const bareConfig = {
-                            fps: 20,
-                            qrbox: calculateQrboxSize
-                        };
-
-                        // Strategy 1: environment + HD ideal
                         try {
-                            await html5QrCode.start({ facingMode: "environment" }, hdConfig, onScanSuccess, () => {});
-                        } catch (e1) {
-                            console.warn('Modal camera env+HD failed, trying user+HD:', e1);
-                            // Strategy 2: front-facing + HD ideal
-                            try {
-                                await html5QrCode.start({ facingMode: "user" }, hdConfig, onScanSuccess, () => {});
-                            } catch (e2) {
-                                console.warn('Modal camera user+HD failed, trying bare:', e2);
-                                // Strategy 3: front-facing, no resolution constraints
-                                await html5QrCode.start({ facingMode: "user" }, bareConfig, onScanSuccess, () => {});
-                            }
+                            await html5QrCode.start(
+                                { facingMode: "environment" },
+                                { 
+                                    fps: 20, 
+                                    qrbox: calculateQrboxSize
+                                },
+                                onScanSuccess,
+                                () => {}
+                            );
+                        } catch (envErr) {
+                            // Fallback to default video camera
+                            await html5QrCode.start(
+                                { facingMode: "user" },
+                                { 
+                                    fps: 20, 
+                                    qrbox: calculateQrboxSize
+                                },
+                                onScanSuccess,
+                                () => {}
+                            );
                         }
 
                         if (placeholder) placeholder.style.display = 'none';

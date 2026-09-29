@@ -539,6 +539,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     return $catCompare;
                 }
 
+                // Keep sequential document numbers together (CSPC-PM-01, CSPC-PM-02, …).
+                $docA = (string) ($a['parent']['doc_no'] ?? $a['doc_no'] ?? '');
+                $docB = (string) ($b['parent']['doc_no'] ?? $b['doc_no'] ?? '');
+                $byDoc = strnatcasecmp($docA, $docB);
+                if ($byDoc !== 0) {
+                    return $byDoc;
+                }
+
                 return ($b['parent']['request_id'] ?? 0) <=> ($a['parent']['request_id'] ?? 0);
             })->values();
 

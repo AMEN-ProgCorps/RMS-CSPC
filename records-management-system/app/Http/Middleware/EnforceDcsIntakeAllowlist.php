@@ -16,6 +16,7 @@ class EnforceDcsIntakeAllowlist
     private const ALLOWED_ROUTE_NAMES = [
         'dcs',
         'dcs.dashboard',
+        'dcs.office.incoming',
         'dcs.office.documents',
         'dcs.office.drf.index',
         'dcs.office.drf.create',

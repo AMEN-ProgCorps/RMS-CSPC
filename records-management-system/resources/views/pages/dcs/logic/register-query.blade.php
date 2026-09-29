@@ -359,8 +359,8 @@ class RegisterQueryHelper
     }
 
     /**
-     * Inventory / campus-wide DCS scope: super admin, or Access DCS on an
-     * RFIO/RFOIU office account. Other offices stay office DRF/DCN intake only.
+     * Inventory / campus-wide DCS scope: Super Admin or Admin DCS clearance
+     * (role-based; office assignment does not matter).
      */
     public static function canViewAllDocuments(): bool
     {
@@ -474,11 +474,12 @@ class RegisterQueryHelper
     }
 
     /**
-     * Full / admin DCS operator (not office intake-only):
-     * - super admin, or
-     * - Access DCS + RFIO/RFOIU office + DCS Admin clearance
+     * Full / Admin DCS operator (role clearances only — office does not gate):
+     * - Super Admin, or
+     * - Access DCS + Document Controller (Admin DCS) clearances
      *
-     * Office Intake is a separate switch. Recycle Bin is Head Admin only.
+     * Office Intake is mutually exclusive and never grants full access.
+     * Recycle Bin is Head Admin only (separate flag).
      */
     public static function isFullDcsUser(): bool
     {
@@ -494,9 +495,6 @@ class RegisterQueryHelper
         }
         $details = Schema::hasTable('sys_condition_details') ? 'sys_condition_details' : 'condition_details';
         if (Schema::hasColumn($details, 'dcs_can_office_intake') && ! empty($perms->dcs_can_office_intake)) {
-            return false;
-        }
-        if (! self::isRfioOffice()) {
             return false;
         }
 
@@ -521,7 +519,24 @@ class RegisterQueryHelper
     }
 
     /**
-     * DCS Admin (RFOIU + Access DCS + DCS Admin, or Super Admin) gets every admin page.
+     * Access DCS is on, but neither Office Intake nor Document Controller (Admin DCS)
+     * clearances were granted — user can open DCS shell only.
+     */
+    public static function isDcsPathPending(): bool
+    {
+        $perms = auth()->user()?->permissions;
+        if (! $perms || ! empty($perms->is_sadm)) {
+            return false;
+        }
+        if (empty($perms->can_access_dcs)) {
+            return false;
+        }
+
+        return ! self::isFullDcsUser() && ! self::canAccessOfficeIntake();
+    }
+
+    /**
+     * Admin DCS (Access DCS + Admin DCS clearances, or Super Admin) gets every admin page.
      * Recycle Bin stays Head Admin only (dcs_can_recycle_bin) and is not Super Admin identity.
      */
     public static function canAccessDcsModule(string $module): bool
@@ -769,6 +784,37 @@ class RegisterQueryHelper
         $subsystemsTbl = Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
         $notifDivTbl = Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
 
+        $officeCodes = [];
+        $pushOffice = static function (?string $code) use (&$officeCodes): void {
+            $code = trim((string) $code);
+            if ($code === '') {
+                return;
+            }
+            $resolved = \App\Services\DcsNotificationService::resolveOfficeCode($code) ?? $code;
+            foreach ([$resolved, $code] as $candidate) {
+                $candidate = trim((string) $candidate);
+                if ($candidate === '') {
+                    continue;
+                }
+                foreach ($officeCodes as $existing) {
+                    if (strcasecmp($existing, $candidate) === 0) {
+                        continue 2;
+                    }
+                }
+                $officeCodes[] = $candidate;
+            }
+        };
+
+        $pushOffice($officeCode);
+        // Admin DCS / Super Admin may be assigned outside RFOIU — still surface RFIO queue notices
+        // (e.g. office marked a distributed document received).
+        if (self::isFullDcsUser()) {
+            $pushOffice(self::rfioNotificationOfficeCode());
+            foreach (self::rfioOfficeCodes() as $alias) {
+                $pushOffice($alias);
+            }
+        }
+
         $query = DB::table($notifTbl)
             ->join($notifContentTbl, $notifTbl . '.contents', '=', $notifContentTbl . '.id')
             ->join($subsystemsTbl, $notifContentTbl . '.system', '=', $subsystemsTbl . '.subsystem_id')
@@ -776,7 +822,7 @@ class RegisterQueryHelper
                 $join->on($notifTbl . '.id', '=', $notifDivTbl . '.id')
                     ->where($notifDivTbl . '.account_rec', '=', $userId);
             })
-            ->where($notifTbl . '.office', $officeCode)
+            ->whereIn($notifTbl . '.office', $officeCodes !== [] ? $officeCodes : [trim($officeCode)])
             ->whereIn($subsystemsTbl . '.subsystem_name', $allowedSubsystems)
             ->where(function ($q) use ($notifDivTbl) {
                 $q->whereNull($notifDivTbl . '.is_in_user_list')
@@ -7050,15 +7096,22 @@ class RegisterQueryHelper
                 ->all(),
             'programsByCollege' => $programsByCollege,
             'coursesByProgramSemester' => $coursesByProgramSemester,
-            'faculties' => tap(DB::table('dcs_faculties')->orderBy('faculty_name'), fn ($q) => SettingsRecycleHelper::applyNotDeleted($q, 'dcs_faculties'))
-                ->get(['id', 'faculty_name', 'college_id'])
-                ->map(fn ($f) => [
+            'faculties' => (function () {
+                $q = DB::table('dcs_faculties')->orderBy('faculty_name');
+                SettingsRecycleHelper::applyNotDeleted($q, 'dcs_faculties');
+                $rows = $q->get(['id', 'faculty_name']);
+                $collegeMap = \App\Helpers\FacultyCollegeHelper::collegeIdsByFaculty(
+                    $rows->pluck('id')->map(fn ($id) => (int) $id)->all()
+                );
+
+                return $rows->map(fn ($f) => [
                     'id' => $f->id,
                     'faculty_name' => $f->faculty_name,
-                    'college_id' => $f->college_id,
-                ])
-                ->values()
-                ->all(),
+                    'college_ids' => $collegeMap[(int) $f->id] ?? [],
+                    // Legacy single-college key for older cached front-end code.
+                    'college_id' => ($collegeMap[(int) $f->id][0] ?? null),
+                ])->values()->all();
+            })(),
         ];
     }
 

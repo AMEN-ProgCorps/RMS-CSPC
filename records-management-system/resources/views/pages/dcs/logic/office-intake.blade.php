@@ -3042,26 +3042,36 @@ class OfficeIntakeHelper
     }
 
     /** @return int */
-    public static function officeDocumentTotal(?int $officeId = null): int
+    public static function officeDocumentTotal(?int $officeId = null, string $receiptFilter = 'all'): int
     {
-        return (int) self::officeMasterlistQuery($officeId, null)->count();
+        $query = self::officeMasterlistQuery($officeId, null);
+        self::applyOfficeReceiptFilter($query, (int) ($officeId ?? RegisterQueryHelper::currentOfficeId() ?? 0), $receiptFilter);
+
+        return (int) $query->count();
     }
 
     /**
      * Groups for office document inventory.
      * When $onlyWithDocuments is false, every parent type is returned (count may be 0).
      *
+     * @param  'all'|'received'|'pending'  $receiptFilter
      * @return list<array{key: string, label: string, count: int}>
      */
-    public static function officeDocumentGroups(?int $officeId = null, bool $onlyWithDocuments = true): array
-    {
+    public static function officeDocumentGroups(
+        ?int $officeId = null,
+        bool $onlyWithDocuments = true,
+        string $receiptFilter = 'all'
+    ): array {
+        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
         $groups = [];
         foreach (self::documentGroupDefs() as $key => $label) {
             $scope = self::documentGroupScope($key);
-            $count = (int) self::applyMasterlistGroupFilter(
+            $query = self::applyMasterlistGroupFilter(
                 self::officeMasterlistQuery($officeId, $scope),
                 $key
-            )->count();
+            );
+            self::applyOfficeReceiptFilter($query, (int) ($officeId ?? 0), $receiptFilter);
+            $count = (int) $query->count();
             if ($onlyWithDocuments && $count < 1) {
                 continue;
             }
@@ -3073,6 +3083,38 @@ class OfficeIntakeHelper
         }
 
         return $groups;
+    }
+
+    /**
+     * Filter distributed docs by physical receipt status for the office.
+     *
+     * @param  'all'|'received'|'pending'  $receiptFilter
+     */
+    protected static function applyOfficeReceiptFilter($query, int $officeId, string $receiptFilter): void
+    {
+        if ($receiptFilter === 'all' || $officeId < 1) {
+            return;
+        }
+        if (! Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
+            if ($receiptFilter === 'received') {
+                $query->whereRaw('1 = 0');
+            }
+
+            return;
+        }
+
+        $query->whereExists(function ($q) use ($officeId, $receiptFilter) {
+            $q->select(DB::raw(1))
+                ->from('dcs_document_distribution as dist_rcpt')
+                ->join('dcs_distribution_offices as doff_rcpt', 'doff_rcpt.distribution_id', '=', 'dist_rcpt.id')
+                ->whereColumn('dist_rcpt.request_id', 'ml.request_id')
+                ->where('doff_rcpt.office_id', $officeId);
+            if ($receiptFilter === 'received') {
+                $q->whereNotNull('doff_rcpt.office_received_at');
+            } elseif ($receiptFilter === 'pending') {
+                $q->whereNull('doff_rcpt.office_received_at');
+            }
+        });
     }
 
     /** One row per document number — highest revision only. */
@@ -3092,10 +3134,11 @@ class OfficeIntakeHelper
             $docNo = trim((string) ($ml->doc_no ?? ''));
 
             return sprintf('%d-%s-%010d', $docNo === '' ? 1 : 0, $docNo, (int) ($ml->id ?? 0));
-        })->values();
+        }, SORT_NATURAL | SORT_FLAG_CASE)->values();
     }
 
     /**
+     * @param  'all'|'received'|'pending'  $receiptFilter
      * @return list<array{
      *     item_no: int,
      *     request_id: int,
@@ -3109,8 +3152,11 @@ class OfficeIntakeHelper
      *     received_by_name: string
      * }>
      */
-    public static function listOfficeDocuments(string $groupKey, ?int $officeId = null): array
-    {
+    public static function listOfficeDocuments(
+        string $groupKey,
+        ?int $officeId = null,
+        string $receiptFilter = 'all'
+    ): array {
         $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
         if (! $officeId) {
             return [];
@@ -3127,6 +3173,8 @@ class OfficeIntakeHelper
                 $groupKey
             );
         }
+
+        self::applyOfficeReceiptFilter($query, (int) $officeId, $receiptFilter);
 
         $select = [
                 'ml.id',
@@ -3268,10 +3316,11 @@ class OfficeIntakeHelper
         }
 
         $ml = Schema::hasTable('dcs_masterlist_registration')
-            ? DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first(['doc_title', 'doc_no'])
+            ? DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first(['doc_title', 'doc_no', 'revise_no'])
             : null;
         $title = trim((string) ($ml->doc_title ?? ''));
         $docNo = trim((string) ($ml->doc_no ?? ''));
+        $revNo = isset($ml->revise_no) ? (int) $ml->revise_no : null;
 
         if (! empty($row->office_received_at)) {
             $who = self::displayNameForUser((int) ($row->office_received_by ?? 0));
@@ -3291,16 +3340,26 @@ class OfficeIntakeHelper
             'office_received_by' => $userId > 0 ? $userId : null,
         ]);
 
+        $receiverName = RegisterQueryHelper::currentUserDisplayName();
         $officeCode = RegisterQueryHelper::currentOfficeCode();
         if ($officeCode) {
             DcsNotificationService::notifyOfficeDocumentReceived(
                 $officeCode,
-                RegisterQueryHelper::currentUserDisplayName(),
+                $receiverName,
                 $title !== '' ? $title : $docNo,
                 $docNo !== '' ? $docNo : null,
                 $userId > 0 ? $userId : null
             );
         }
+
+        DcsNotificationService::notifyAdminOfficeReceivedDocument(
+            RegisterQueryHelper::currentOfficeName(),
+            $receiverName,
+            $title !== '' ? $title : $docNo,
+            $docNo !== '' ? $docNo : null,
+            $requestId,
+            $revNo
+        );
 
         return ['ok' => true, 'already' => false, 'message' => 'Document marked as received.'];
     }

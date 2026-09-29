@@ -706,14 +706,18 @@ class RegisterUpdateHelper
                 }
             }
 
+            $publishedFromDraft = $isDraftRecord && ! $saveAsDraft;
+
             RegisterPersistHelper::logAdminChange(
-                ($saveAsDraft ? 'Saved draft #' : 'Updated document #') . $id
+                ($saveAsDraft
+                    ? 'Saved draft #'
+                    : ($publishedFromDraft ? 'Registered document #' : 'Updated document #')) . $id
                 . (!empty($ml->doc_no ?? $docNo) ? ' — ' . ($ml->doc_no ?? $docNo) : '')
                 . (!empty($savedTitle) ? ': ' . $savedTitle : (!empty($ml->doc_title) ? ': ' . $ml->doc_title : ''))
             );
 
             \App\Services\DcsAuditService::log(
-                $saveAsDraft ? 'register.draft' : 'register.update',
+                $saveAsDraft ? 'register.draft' : ($publishedFromDraft ? 'register.create' : 'register.update'),
                 'register',
                 (int) $id,
                 null,
@@ -722,7 +726,9 @@ class RegisterUpdateHelper
 
             $successMessage = $saveAsDraft
                 ? 'Draft saved. Continue anytime from Document Registration → Drafts.'
-                : 'Document updated successfully!';
+                : ($publishedFromDraft
+                    ? 'Document registered successfully!'
+                    : 'Document updated successfully!');
 
             if ($saveAsDraft && RegisterPersistHelper::isAutosaveRequest($request)) {
                 return RegisterPersistHelper::draftAutosaveSuccessResponse((int) $id, $successMessage);

@@ -7,9 +7,12 @@ echo "────────────────────────�
 
 # ── Ensure Nginx run dir & Laravel storage directories exist with permissions ─
 mkdir -p /run/nginx /var/log/nginx /var/log/supervisor
-mkdir -p storage/framework/views storage/framework/sessions storage/framework/cache/data storage/logs bootstrap/cache public/chatify/uploads public/chatify/storage /tmp/laravel-views
-chmod -R 777 storage bootstrap/cache public/chatify/uploads public/chatify/storage /tmp/laravel-views
-export VIEW_COMPILED_PATH="${VIEW_COMPILED_PATH:-/tmp/laravel-views}"
+mkdir -p storage/framework/views storage/framework/sessions storage/framework/cache/data storage/logs bootstrap/cache public/chatify/uploads public/chatify/storage
+chmod -R 777 storage bootstrap/cache public/chatify/uploads public/chatify/storage
+# Named volume at storage/framework/views (see docker-compose) — avoid /tmp and bind-mount utime failures.
+export VIEW_COMPILED_PATH="${VIEW_COMPILED_PATH:-/var/www/html/storage/framework/views}"
+mkdir -p "$VIEW_COMPILED_PATH"
+chmod 777 "$VIEW_COMPILED_PATH" || true
 
 # ── Ensure Git is available for rolling updates & repository tracking ─────────
 if ! command -v git >/dev/null 2>&1; then

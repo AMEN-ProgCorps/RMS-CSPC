@@ -721,6 +721,17 @@
     color: #94a3b8 !important;
 }
 
+[data-theme="dark"] .reg-syllabi-year-chip {
+    background: color-mix(in srgb, var(--reg-accent, #3b82f6) 16%, #131c2e);
+    border-color: #1e293b;
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .reg-syllabi-year-chip:has(input:not(:checked)) {
+    background: #0f172a;
+    opacity: 0.65;
+}
+
 [data-theme="dark"] .reg-radio {
     color: #cbd5e1 !important;
 }

@@ -2067,17 +2067,51 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 
 .reg-syllabi-years {
     min-height: 42px;
-    padding: 10px 12px;
+    padding: 8px 10px;
     border: 1px solid var(--reg-border, #cbd5e1);
     border-radius: 8px;
     background: var(--reg-bg, #fff);
     color: var(--reg-text, #0f172a);
     font-size: 0.9rem;
     line-height: 1.35;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
 }
 
 .reg-syllabi-years.is-empty {
     color: var(--reg-text-muted, #64748b);
+    display: block;
+}
+
+.reg-syllabi-year-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border: 1px solid var(--reg-border, #cbd5e1);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--reg-accent, #1d4ed8) 6%, var(--reg-bg, #fff));
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--reg-text, #0f172a);
+    cursor: pointer;
+    user-select: none;
+}
+
+.reg-syllabi-year-chip:hover {
+    border-color: var(--reg-accent, #1d4ed8);
+}
+
+.reg-syllabi-year-chip input {
+    accent-color: var(--reg-accent, #1d4ed8);
+    margin: 0;
+}
+
+.reg-syllabi-year-chip:has(input:not(:checked)) {
+    opacity: 0.55;
+    background: var(--reg-bg, #fff);
 }
 
 #syllabiWizardTable tbody tr.syllabi-year-header td {

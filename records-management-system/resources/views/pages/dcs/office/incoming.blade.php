@@ -7,7 +7,7 @@ use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 
-new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends Component {
+new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class extends Component {
     #[Url]
     public string $type = 'all';
 
@@ -18,7 +18,7 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
             session()->flash(
                 'info',
-                'Office masterlists are available to each office. RFIO can browse the full inventory in Database and Reports.'
+                'Incoming distributions are handled by each receiving office.'
             );
 
             $this->redirect(route('dcs', absolute: false));
@@ -40,11 +40,20 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
         }
     }
 
+    public function markReceived(int $requestId): void
+    {
+        OfficeIntakeHelper::assertCanAccessIntake();
+        $result = OfficeIntakeHelper::markOfficeDocumentReceived($requestId);
+        $pending = OfficeIntakeHelper::officeDocumentTotal(null, 'pending');
+
+        $this->dispatch('office-incoming-count', count: $pending);
+        $this->dispatch('dcs-toast', message: $result['message'], type: $result['ok'] ? 'success' : 'error');
+    }
+
     public function with(): array
     {
-        $groups = OfficeIntakeHelper::officeDocumentGroups(null, false, 'received');
-        $total = OfficeIntakeHelper::officeDocumentTotal(null, 'received');
-        $pendingTotal = OfficeIntakeHelper::officeDocumentTotal(null, 'pending');
+        $groups = OfficeIntakeHelper::officeDocumentGroups(null, false, 'pending');
+        $total = OfficeIntakeHelper::officeDocumentTotal(null, 'pending');
         $active = $this->type;
         $keys = array_column($groups, 'key');
 
@@ -56,7 +65,7 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
             ? 'All'
             : OfficeIntakeHelper::documentGroupLabel($active);
 
-        $rows = OfficeIntakeHelper::listOfficeDocuments($active, null, 'received');
+        $rows = OfficeIntakeHelper::listOfficeDocuments($active, null, 'pending');
         $activeCount = $active === 'all'
             ? $total
             : (int) (collect($groups)->firstWhere('key', $active)['count'] ?? count($rows));
@@ -64,7 +73,6 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
         return [
             'groups' => $groups,
             'total' => $total,
-            'pendingTotal' => $pendingTotal,
             'activeType' => $active,
             'activeLabel' => $activeLabel,
             'activeCount' => $activeCount,
@@ -80,18 +88,14 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
     <div class="ofi-inner ofi-inner-wide">
         <div class="ofi-header">
             <div>
-                <h1>Masterlist</h1>
+                <h1>Incoming Documents</h1>
                 <p>
-                    Latest controlled documents your office has already received —
-                    <strong>{{ $officeName }}</strong>.
+                    Controlled documents distributed to
+                    <strong>{{ $officeName }}</strong>
+                    that are waiting to be marked received. After receipt, they move to
+                    <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}">Masterlist</a>.
                 </p>
             </div>
-            @if(($pendingTotal ?? 0) > 0)
-                <a href="{{ route('dcs.office.incoming', absolute: false) }}" class="ofi-btn primary">
-                    <i class="fa-solid fa-inbox"></i>
-                    {{ $pendingTotal }} to receive
-                </a>
-            @endif
         </div>
 
         @if(session('success'))
@@ -101,7 +105,7 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
             <div class="ofi-alert err">{{ session('error') }}</div>
         @endif
         @if(session('info'))
-            <div class="ofi-alert ok">{{ session('info') }}</div>
+            <div class="ofi-alert">{{ session('info') }}</div>
         @endif
 
         @unless(auth()->user()?->enableTopTabs() ?? true)
@@ -132,10 +136,10 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
         @endunless
 
         <div class="ofi-card" style="position:relative;" wire:loading.class="is-loading">
-            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType">
+            <div class="dcs-loading-overlay" wire:loading.flex wire:target="selectType,markReceived">
                 <div class="dcs-loading-spinner" aria-hidden="true"></div>
-                <h4>Loading masterlist…</h4>
-                <p>Fetching received documents.</p>
+                <h4>Loading incoming…</h4>
+                <p>Fetching documents awaiting receipt.</p>
             </div>
             <div class="ofi-doc-panel-head">
                 <h2>{{ $activeLabel }}</h2>
@@ -144,19 +148,11 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
 
             @if($activeCount < 1)
                 <div class="ofi-doc-empty" role="status">
-                    <i class="fa-regular fa-folder-open" aria-hidden="true"></i>
-                    @if($total < 1)
-                        <strong>No received documents yet</strong>
-                        <p>
-                            Mark incoming distributions as received first.
-                            @if(($pendingTotal ?? 0) > 0)
-                                <a href="{{ route('dcs.office.incoming', absolute: false) }}">View incoming ({{ $pendingTotal }})</a>
-                            @endif
-                        </p>
-                    @else
-                        <strong>No {{ strtolower($activeLabel) }} documents</strong>
-                        <p>Your office has other received types, but none under <strong>{{ $activeLabel }}</strong>.</p>
-                    @endif
+                    <i class="fa-solid fa-inbox" aria-hidden="true"></i>
+                    <strong>Nothing waiting to receive</strong>
+                    <p>
+                        When Document Control distributes a document to your office, it will appear here.
+                    </p>
                 </div>
             @else
                 <div class="ofi-table-wrap">
@@ -168,16 +164,37 @@ new #[Layout('layouts.dcs')] #[Title('Masterlist — CSPC DCS')] class extends C
                                 <th>Document Title</th>
                                 <th style="width:140px;">Effectivity Date</th>
                                 <th style="width:100px;">Pages</th>
+                                <th style="width:180px;">Action</th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach($rows as $row)
-                                <tr>
+                                <tr wire:key="incoming-{{ (int) ($row['request_id'] ?? 0) }}">
                                     <td>{{ $row['doc_no'] !== '' ? $row['doc_no'] : '—' }}</td>
                                     <td>{{ $row['rev_no'] }}</td>
                                     <td>{{ $row['doc_title'] !== '' ? $row['doc_title'] : '—' }}</td>
                                     <td>{{ $row['effectivity_date'] ?? '—' }}</td>
                                     <td>{{ ($row['pages'] ?? '') !== '' ? $row['pages'] : '—' }}</td>
+                                    <td class="ofi-receive-cell">
+                                        @if(!empty($row['can_receive']) && (int) ($row['request_id'] ?? 0) > 0)
+                                            <button
+                                                type="button"
+                                                class="ofi-btn ofi-btn-sm primary"
+                                                wire:click="markReceived({{ (int) $row['request_id'] }})"
+                                                wire:loading.attr="disabled"
+                                                wire:target="markReceived({{ (int) $row['request_id'] }})"
+                                            >
+                                                <span wire:loading.remove wire:target="markReceived({{ (int) $row['request_id'] }})">
+                                                    Mark as received
+                                                </span>
+                                                <span wire:loading wire:target="markReceived({{ (int) $row['request_id'] }})">
+                                                    Receiving…
+                                                </span>
+                                            </button>
+                                        @else
+                                            —
+                                        @endif
+                                    </td>
                                 </tr>
                             @endforeach
                         </tbody>

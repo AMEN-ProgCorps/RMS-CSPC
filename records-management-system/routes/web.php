@@ -780,7 +780,8 @@ Route::middleware(['auth'])
                 return response()->json(['url' => $url]);
             })->name('api.signed-scan-url');
 
-            // Office intake (RFIO full users + limited non-RFIO offices)
+            // Office intake (Admin DCS users + Client/Office Intake roles)
+            Volt::route('/office/incoming', 'pages.dcs.office.incoming')->name('office.incoming');
             Volt::route('/office/documents', 'pages.dcs.office.documents')->name('office.documents');
             Volt::route('/office/random-checks', 'pages.dcs.office.random-checks')->name('office.random-checks');
             Volt::route('/office/random-checks/{id}', 'pages.dcs.office.random-check-show')->name('office.random-checks.show');

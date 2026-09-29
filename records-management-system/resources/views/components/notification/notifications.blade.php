@@ -208,7 +208,22 @@ new class extends Component {
                     return;
                 }
 
-                $this->redirect(route('dcs.office.drf.index', absolute: false), navigate: true);
+                // Incoming / Masterlist / other office intake pages keep their target URL.
+                if (
+                    $path === 'dcs/office/incoming'
+                    || str_starts_with($path, 'dcs/office/incoming/')
+                    || $path === 'dcs/office/documents'
+                    || str_starts_with($path, 'dcs/office/documents')
+                    || $path === 'dcs/office/drf'
+                    || $path === 'dcs/office/dcn'
+                    || str_starts_with($path, 'dcs/office/')
+                ) {
+                    $this->redirect($notification->redirect_url, navigate: true);
+
+                    return;
+                }
+
+                $this->redirect(route('dcs.office.incoming', absolute: false), navigate: true);
 
                 return;
             }

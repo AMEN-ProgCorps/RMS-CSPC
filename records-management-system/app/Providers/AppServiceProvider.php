@@ -14,6 +14,21 @@ class AppServiceProvider extends ServiceProvider
         if (file_exists($dcsBootstrap)) {
             require_once $dcsBootstrap;
         }
+
+        // Replace Blade compiler so Docker/WSL utime failures on compiled views
+        // do not take down the page (compiled content is already correct).
+        $this->app->singleton('blade.compiler', function ($app) {
+            return tap(new \App\View\Compilers\SafeBladeCompiler(
+                $app['files'],
+                $app['config']['view.compiled'],
+                $app['config']->get('view.relative_hash', false) ? $app->basePath() : '',
+                $app['config']->get('view.cache', true),
+                $app['config']->get('view.compiled_extension', 'php'),
+                $app['config']->get('view.check_cache_timestamps', true),
+            ), function ($blade) {
+                $blade->component('dynamic-component', \Illuminate\View\DynamicComponent::class);
+            });
+        });
     }
 
     public function boot(): void

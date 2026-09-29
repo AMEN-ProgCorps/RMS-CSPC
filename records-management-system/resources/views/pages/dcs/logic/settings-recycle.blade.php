@@ -143,10 +143,9 @@ class SettingsRecycleHelper
             if ($kind === 'docType' && Schema::hasColumn($meta['table'], 'parent_id')) {
                 $conflict->where('parent_id', $row->parent_id);
             }
-            if ($kind === 'faculty' && Schema::hasColumn($meta['table'], 'college_id')) {
-                $conflict->where('college_id', $row->college_id);
-            }
-            if ($kind === 'program' && Schema::hasColumn($meta['table'], 'program_code')) {
+            if ($kind === 'faculty') {
+                // Faculty names are globally unique (one person, many colleges via pivot).
+            } elseif ($kind === 'program' && Schema::hasColumn($meta['table'], 'program_code')) {
                 $conflict = DB::table($meta['table'])
                     ->where('program_code', $row->program_code)
                     ->where('college_id', $row->college_id)

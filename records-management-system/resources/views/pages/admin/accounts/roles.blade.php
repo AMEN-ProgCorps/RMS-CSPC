@@ -583,7 +583,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     }
 
     /**
-     * When DCS access is toggled off, clear module clearances.
+     * When DCS access is toggled on, default to Office Intake (Client).
+     * When toggled off, clear all DCS path clearances.
      */
     public function updatedCanAccessDcs($value): void
     {
@@ -592,6 +593,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             $this->dcsCanAdmin = false;
             $this->dcsCanRecycleBin = false;
             $this->canAccessDcsAdmin = false;
+
+            return;
+        }
+
+        // Fresh Access DCS → Office Intake on by default (unless Admin DCS path already chosen).
+        if (! $this->dcsCanAdmin && ! $this->dcsCanRecycleBin) {
+            $this->dcsCanOfficeIntake = true;
         }
     }
 
@@ -1053,7 +1061,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                     <div class="permission-toggle-row">
                                         <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">Access DCS Subsystem</span>
-                                            <span class="permission-toggle-desc">Lets the role open DCS. Then choose Office Intake or Document Controller (DCS Admin) below — not both.</span>
+                                            <span class="permission-toggle-desc">Unlocks DCS and defaults to Office Intake below. Switch to Document Controller (Admin DCS) if needed — not both.</span>
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model.live="canAccessDcs">
@@ -1358,12 +1366,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                             <!-- Document Control System Clearances (gated by Access DCS only — not Administrative Access) -->
                             <div class="permissions-section-card">
                                 <span class="permissions-section-title"><i class="fa-solid fa-stamp"></i> Document Control System (DCS) Clearances</span>
-                                <p class="permission-toggle-desc" style="margin: 0 0 0.75rem;">Unlock after Access DCS is on. Office Intake and Document Controller cannot be on together. Super Admin already has Document Controller pages. Recycle Bin is Head Admin only and also cannot combine with Office Intake.</p>
+                                <p class="permission-toggle-desc" style="margin: 0 0 0.75rem;">Access DCS turns Office Intake on by default. Switch to Admin DCS when needed — they cannot be on together. Super Admin already has Admin DCS pages. Recycle Bin is Head Admin only and also cannot combine with Office Intake.</p>
                                 <div class="permissions-grid-layout">
                                     <div class="permission-toggle-row" style="{{ (!$canAccessDcs || $dcsCanAdmin || $dcsCanRecycleBin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">Office Intake</span>
-                                            <span class="permission-toggle-desc">My DRF, My DCN, and office documents for submitting offices. Disabled while Document Controller or Recycle Bin is on.</span>
+                                            <span class="permission-toggle-title">Office Intake (Client)</span>
+                                            <span class="permission-toggle-desc">Client path: My DRF, My DCN, and office documents for submitting offices. Disabled while Admin DCS or Recycle Bin is on.</span>
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model.live="dcsCanOfficeIntake" {{ (!$canAccessDcs || $dcsCanAdmin || $dcsCanRecycleBin) ? 'disabled' : '' }}>
@@ -1372,8 +1380,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                     </div>
                                     <div class="permission-toggle-row" style="{{ (!$canAccessDcs || $dcsCanOfficeIntake) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">Document Controller (DCS Admin)</span>
-                                            <span class="permission-toggle-desc">All DCS admin pages: Register, Settings, Review intake, Reports, Document Review, Stamping, Database, Manage Files, and Random Check. Needs an RFOIU office.</span>
+                                            <span class="permission-toggle-title">Document Controller (Admin DCS)</span>
+                                            <span class="permission-toggle-desc">Admin DCS path: Register, Settings, Review intake, Reports, Document Review, Stamping, Database, Manage Files, and Random Check. Granted by role clearance only — any office.</span>
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model.live="dcsCanAdmin" {{ (!$canAccessDcs || $dcsCanOfficeIntake) ? 'disabled' : '' }}>
@@ -1382,8 +1390,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                     </div>
                                     <div class="permission-toggle-row" style="{{ (!$canAccessDcs || $dcsCanOfficeIntake) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
-                                            <span class="permission-toggle-title">Recycle Bin</span>
-                                            <span class="permission-toggle-desc">Head Admin of DCS only. Review, restore, or permanently delete soft-deleted documents. Not included with Super Admin or Document Controller.</span>
+                                            <span class="permission-toggle-title">Recycle Bin (Head Admin)</span>
+                                            <span class="permission-toggle-desc">Head Admin of DCS only. Stacks with Admin DCS: review, restore, or permanently delete soft-deleted documents. Not included with Super Admin or Admin DCS alone.</span>
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model.live="dcsCanRecycleBin" {{ (!$canAccessDcs || $dcsCanOfficeIntake) ? 'disabled' : '' }}>

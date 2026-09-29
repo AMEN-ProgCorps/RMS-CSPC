@@ -17,6 +17,8 @@ new #[Layout('layouts.dcs')] class extends Component {
     public bool $docTypeAllowsRevision = true;
     public string $originatorName = '';
     public string $facultyName = '';
+    /** @var list<string> Multi-college membership for faculty modal */
+    public array $facultyCollegeIds = [];
     public string $collegeId = '';
     public string $collegeName = '';
     public string $officeId = '';
@@ -61,12 +63,13 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->modalKind = '';
         $this->reset([
             'docTypeName', 'docTypeAllowsRevision', 'originatorName',
-            'facultyName', 'collegeId', 'collegeName', 'officeId', 'programName', 'programCode',
+            'facultyName', 'facultyCollegeIds', 'collegeId', 'collegeName', 'officeId', 'programName', 'programCode',
             'semesterName', 'schoolYear', 'programId', 'semesterId', 'courseName', 'courseCode', 'courseYearLevel', 'courseType',
             'bulkCollegeId', 'bulkProgramId', 'bulkFillSemester', 'bulkFillYear', 'bulkFillType',
             'deleteTitle', 'deleteMessage',
         ]);
         $this->docTypeAllowsRevision = true;
+        $this->facultyCollegeIds = [];
         $this->courseRows = [['code' => '', 'name' => '']];
         $this->bulkRows = [];
         $this->csvFile = null;
@@ -111,11 +114,15 @@ new #[Layout('layouts.dcs')] class extends Component {
     public function openFaculty(?int $id = null): void
     {
         $this->resetFormFor('faculty', $id);
+        $this->facultyCollegeIds = [];
         if ($id) {
             $row = DB::table('dcs_faculties')->where('id', $id)->first();
             abort_unless($row, 404);
             $this->facultyName = $row->faculty_name;
-            $this->collegeId = $row->college_id !== null ? (string) $row->college_id : '';
+            $this->facultyCollegeIds = array_map(
+                'strval',
+                \App\Helpers\FacultyCollegeHelper::collegeIdsFor((int) $id)
+            );
         }
     }
 
@@ -235,6 +242,16 @@ new #[Layout('layouts.dcs')] class extends Component {
         $this->loadBulkProgramCourses();
     }
 
+    public function updated(string $name, mixed $value = null): void
+    {
+        if (! str_starts_with($name, 'bulkRows.')) {
+            return;
+        }
+
+        $this->resetErrorBag($name);
+        $this->resetErrorBag('bulkRows');
+    }
+
     public function applyBulkFill(bool $blanksOnly = true): void
     {
         if ($this->modalKind !== 'programCoursesBulk' || $this->bulkRows === []) {
@@ -250,14 +267,18 @@ new #[Layout('layouts.dcs')] class extends Component {
         foreach ($this->bulkRows as $i => $row) {
             if ($semester !== '' && (! $blanksOnly || trim((string) ($row['semester_id'] ?? '')) === '')) {
                 $this->bulkRows[$i]['semester_id'] = $semester;
+                $this->resetErrorBag("bulkRows.{$i}.semester_id");
             }
             if ($year !== '' && (! $blanksOnly || trim((string) ($row['year_level'] ?? '')) === '')) {
                 $this->bulkRows[$i]['year_level'] = $year;
+                $this->resetErrorBag("bulkRows.{$i}.year_level");
             }
             if ($type !== '' && (! $blanksOnly || trim((string) ($row['course_type'] ?? '')) === '')) {
                 $this->bulkRows[$i]['course_type'] = $type;
+                $this->resetErrorBag("bulkRows.{$i}.course_type");
             }
         }
+        $this->resetErrorBag('bulkRows');
     }
 
     public function addCourseRow(): void
@@ -500,36 +521,46 @@ new #[Layout('layouts.dcs')] class extends Component {
     {
         $this->validate([
             'facultyName' => 'required|string|max:255',
-            'collegeId' => 'required|integer|exists:dcs_colleges,id',
+            'facultyCollegeIds' => 'required|array|min:1',
+            'facultyCollegeIds.*' => 'integer|exists:dcs_colleges,id',
         ], [
-            'collegeId.required' => 'Please select a college for this faculty.',
+            'facultyCollegeIds.required' => 'Select at least one college for this faculty.',
+            'facultyCollegeIds.min' => 'Select at least one college for this faculty.',
         ]);
 
-        $collegeId = (int) $this->collegeId;
+        $collegeIds = array_values(array_unique(array_map('intval', $this->facultyCollegeIds)));
+        $name = trim($this->facultyName);
 
         $existsQ = DB::table('dcs_faculties')
-            ->where('faculty_name', $this->facultyName)
-            ->where('college_id', $collegeId)
+            ->whereRaw('LOWER(TRIM(faculty_name)) = ?', [mb_strtolower($name)])
             ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId));
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($existsQ, 'dcs_faculties');
         if ($existsQ->exists()) {
-            $this->fail('A faculty with this name already exists in the selected college.');
+            $this->fail('A faculty with this name already exists. Edit that record to add colleges.');
             return;
         }
 
-        $payload = ['faculty_name' => $this->facultyName, 'college_id' => $collegeId];
         if ($this->editingId) {
-            DB::table('dcs_faculties')->where('id', $this->editingId)->update($payload);
+            DB::table('dcs_faculties')->where('id', $this->editingId)->update([
+                'faculty_name' => $name,
+                'updated_at' => now(),
+            ]);
+            \App\Helpers\FacultyCollegeHelper::sync((int) $this->editingId, $collegeIds);
             if (Schema::hasTable('dcs_syllabi_drf') && Schema::hasColumn('dcs_syllabi_drf', 'faculty_id')) {
                 DB::table('dcs_syllabi_drf')
                     ->where('faculty_id', $this->editingId)
-                    ->update(['faculty_name' => $this->facultyName]);
+                    ->update(['faculty_name' => $name]);
             }
             $this->done('Faculty updated.');
             return;
         }
 
-        DB::table('dcs_faculties')->insert($payload);
+        $facultyId = (int) DB::table('dcs_faculties')->insertGetId([
+            'faculty_name' => $name,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        \App\Helpers\FacultyCollegeHelper::sync($facultyId, $collegeIds);
         $this->done('Faculty added.');
     }
 
@@ -620,7 +651,6 @@ new #[Layout('layouts.dcs')] class extends Component {
                 continue;
             }
 
-            $collegeId = null;
             if ($collegeName === '' || $this->isCsvHeaderValue($collegeName, ['college', 'college_name'])) {
                 $skipped++;
                 continue;
@@ -632,19 +662,26 @@ new #[Layout('layouts.dcs')] class extends Component {
             }
 
             $existsQ = DB::table('dcs_faculties')
-                ->where('faculty_name', $name)
-                ->where('college_id', $collegeId);
+                ->whereRaw('LOWER(TRIM(faculty_name)) = ?', [mb_strtolower($name)]);
             \App\Helpers\SettingsRecycleHelper::applyNotDeleted($existsQ, 'dcs_faculties');
-            if ($existsQ->exists()) {
-                $skipped++;
-                continue;
-            }
+            $existingId = (int) ($existsQ->value('id') ?: 0);
 
             try {
-                DB::table('dcs_faculties')->insert([
+                if ($existingId > 0) {
+                    if (\App\Helpers\FacultyCollegeHelper::attach($existingId, (int) $collegeId)) {
+                        $added++;
+                    } else {
+                        $skipped++;
+                    }
+                    continue;
+                }
+
+                $facultyId = (int) DB::table('dcs_faculties')->insertGetId([
                     'faculty_name' => $name,
-                    'college_id' => $collegeId,
+                    'created_at' => now(),
+                    'updated_at' => now(),
                 ]);
+                \App\Helpers\FacultyCollegeHelper::sync($facultyId, [(int) $collegeId]);
                 $added++;
             } catch (\Throwable) {
                 $skipped++;
@@ -1098,17 +1135,44 @@ new #[Layout('layouts.dcs')] class extends Component {
         $years = \App\Helpers\SyllabiMonitoringHelper::YEAR_LEVELS;
         $types = \App\Helpers\SyllabiMonitoringHelper::COURSE_TYPES;
 
-        $this->validate([
-            'bulkCollegeId' => 'required|integer|exists:dcs_colleges,id',
-            'bulkProgramId' => 'required|integer|exists:dcs_programs,id',
-            'bulkRows' => 'required|array|min:1',
-            'bulkRows.*.id' => 'required|integer',
-            'bulkRows.*.semester_id' => 'required|integer|exists:dcs_semesters,id',
-            'bulkRows.*.name' => 'required|string|max:255',
-            'bulkRows.*.code' => $hasCourseCode ? 'required|string|max:50' : 'nullable|string|max:50',
-            'bulkRows.*.year_level' => $hasYearLevel ? 'required|string|in:' . implode(',', $years) : 'nullable|string',
-            'bulkRows.*.course_type' => $hasCourseType ? 'required|string|in:' . implode(',', $types) : 'nullable|string',
-        ]);
+        // Keep a dense 0..n index list so Livewire nested models stay stable.
+        $this->bulkRows = collect($this->bulkRows)
+            ->filter(fn ($row) => is_array($row) && (int) ($row['id'] ?? 0) > 0)
+            ->values()
+            ->map(function (array $row) {
+                $row['id'] = (int) ($row['id'] ?? 0);
+                $row['semester_id'] = (string) ($row['semester_id'] ?? '');
+                $row['year_level'] = trim((string) ($row['year_level'] ?? ''));
+                $row['course_type'] = trim((string) ($row['course_type'] ?? ''));
+                $row['code'] = trim((string) ($row['code'] ?? ''));
+                $row['name'] = trim((string) ($row['name'] ?? ''));
+
+                return $row;
+            })
+            ->all();
+
+        if ($this->bulkRows === []) {
+            $this->fail('No courses loaded for this program. Pick the program again and retry.');
+
+            return;
+        }
+
+        try {
+            $this->validate([
+                'bulkCollegeId' => 'required|integer|exists:dcs_colleges,id',
+                'bulkProgramId' => 'required|integer|exists:dcs_programs,id',
+                'bulkRows' => 'required|array|min:1',
+                'bulkRows.*.id' => 'required|integer',
+                'bulkRows.*.semester_id' => 'required|integer|exists:dcs_semesters,id',
+                'bulkRows.*.name' => 'required|string|max:255',
+                'bulkRows.*.code' => $hasCourseCode ? 'required|string|max:50' : 'nullable|string|max:50',
+                'bulkRows.*.year_level' => $hasYearLevel ? 'required|string|in:' . implode(',', $years) : 'nullable|string',
+                'bulkRows.*.course_type' => $hasCourseType ? 'required|string|in:' . implode(',', $types) : 'nullable|string',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->fail('Could not save — fill Year Level, Course Type, Code, and Name on every row.');
+            throw $e;
+        }
 
         $programId = (int) $this->bulkProgramId;
         $belongs = DB::table('dcs_programs')
@@ -1121,14 +1185,18 @@ new #[Layout('layouts.dcs')] class extends Component {
         }
 
         $ids = collect($this->bulkRows)->pluck('id')->map(fn ($id) => (int) $id)->all();
-        $owned = DB::table('dcs_program_courses')
+        $ownedQuery = DB::table('dcs_program_courses')
             ->where('program_id', $programId)
-            ->whereIn('id', $ids)
+            ->whereIn('id', $ids);
+        \App\Helpers\SettingsRecycleHelper::applyNotDeleted($ownedQuery, 'dcs_program_courses');
+        $owned = $ownedQuery
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->all();
         if (count($owned) !== count(array_unique($ids))) {
             $this->fail('One or more courses are not part of this program. Reload and try again.');
+            $this->loadBulkProgramCourses();
+
             return;
         }
 
@@ -1182,6 +1250,8 @@ new #[Layout('layouts.dcs')] class extends Component {
         }
 
         if ($this->getErrorBag()->isNotEmpty()) {
+            $this->fail('Could not save — fix the highlighted duplicate or missing fields.');
+
             return;
         }
 
@@ -1529,10 +1599,31 @@ new #[Layout('layouts.dcs')] class extends Component {
         }
 
         $facultiesQ = DB::table('dcs_faculties as f')
-            ->leftJoin('dcs_colleges as c', 'c.id', '=', 'f.college_id')
-            ->orderBy('c.college_name')
             ->orderBy('f.faculty_name');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($facultiesQ, 'dcs_faculties', 'f');
+        $facultyRows = $facultiesQ->get(['f.id', 'f.faculty_name']);
+        $collegeIdsByFaculty = \App\Helpers\FacultyCollegeHelper::collegeIdsByFaculty(
+            $facultyRows->pluck('id')->map(fn ($id) => (int) $id)->all()
+        );
+        $collegeNameById = $colleges->keyBy('id');
+        $faculties = $facultyRows->map(function ($fac) use ($collegeIdsByFaculty, $collegeNameById) {
+            $ids = $collegeIdsByFaculty[(int) $fac->id] ?? [];
+            $names = [];
+            foreach ($ids as $cid) {
+                $college = $collegeNameById->get($cid);
+                if ($college) {
+                    $names[] = $college->college_name;
+                }
+            }
+
+            return (object) [
+                'id' => $fac->id,
+                'faculty_name' => $fac->faculty_name,
+                'college_ids' => $ids,
+                'college_names' => $names,
+                'college_label' => $names !== [] ? implode(', ', $names) : '—',
+            ];
+        });
 
         $semestersQ = DB::table('dcs_semesters')->orderBy('id');
         \App\Helpers\SettingsRecycleHelper::applyNotDeleted($semestersQ, 'dcs_semesters');
@@ -1546,7 +1637,7 @@ new #[Layout('layouts.dcs')] class extends Component {
             'originators' => $originatorsQ
                 ? $originatorsQ->get(['id', 'originator_name'])
                 : collect(),
-            'faculties' => $facultiesQ->get(['f.id', 'f.faculty_name', 'f.college_id', 'c.college_name', 'c.college_code']),
+            'faculties' => $faculties,
             'colleges' => $colleges,
             'collegeOffices' => $collegeOffices,
             'programCounts' => $programCounts,
@@ -1744,7 +1835,7 @@ new #[Layout('layouts.dcs')] class extends Component {
     <section class="tab-panel" wire:key="settings-tab-faculties" x-show="tab === 'faculties'" x-cloak>
         <div x-data="{ collegeFilter: 'all' }">
         <div class="panel-toolbar">
-            <span class="panel-subtitle">Manage faculty members per college</span>
+            <span class="panel-subtitle">One faculty record can belong to several colleges (part-timers)</span>
             <div class="panel-actions">
                 <button type="button" class="btn-secondary" wire:click="openImportFaculties()"><i class="fa-solid fa-file-csv"></i> Import CSV</button>
                 <button type="button" class="btn-primary" wire:click="openFaculty()"><i class="fa-solid fa-plus"></i> Add Faculty</button>
@@ -1769,16 +1860,18 @@ new #[Layout('layouts.dcs')] class extends Component {
         @endif
         <div class="table-wrap">
             <table class="settings-table">
-                <thead><tr><th>College</th><th>Faculty Name</th><th style="width:140px;">Actions</th></tr></thead>
+                <thead><tr><th>Colleges</th><th>Faculty Name</th><th style="width:140px;">Actions</th></tr></thead>
                 <tbody>
                     @forelse($faculties as $fac)
-                        @php $facCollegeKey = $fac->college_id ? (string) $fac->college_id : 'none'; @endphp
+                        @php
+                            $facCollegeKeys = array_map('strval', $fac->college_ids ?? []);
+                        @endphp
                         <tr
                             wire:key="fc-{{ $fac->id }}"
                             data-id="{{ $fac->id }}"
-                            x-show="collegeFilter === 'all' || collegeFilter === '{{ $facCollegeKey }}'"
+                            x-show="collegeFilter === 'all' || {{ json_encode(array_values($facCollegeKeys)) }}.includes(collegeFilter)"
                         >
-                            <td data-label="College">{{ $fac->college_name ?? '—' }}</td>
+                            <td data-label="Colleges">{{ $fac->college_label }}</td>
                             <td data-label="Faculty">{{ $fac->faculty_name }}</td>
                             <td>
                                 <div class="row-actions">
@@ -2076,7 +2169,7 @@ new #[Layout('layouts.dcs')] class extends Component {
                         @if($modalKind === 'importOriginators')
                             One originator name per line. Optional header: <code>originator_name</code>
                         @else
-                            Columns: <code>faculty_name,college_name</code>. College is required and must match an existing college name. Optional header row is fine.
+                            Columns: <code>faculty_name,college_name</code>. College must match an existing college. Repeat the same faculty name on multiple rows to link them to several colleges. Optional header row is fine.
                         @endif
                     </p>
                     <div class="st-field">
@@ -2108,19 +2201,29 @@ new #[Layout('layouts.dcs')] class extends Component {
                     </div>
                 @elseif($modalKind === 'faculty')
                     <div class="st-field">
-                        <label class="st-label">College</label>
-                        <select class="st-input @error('collegeId') error @enderror" wire:model="collegeId" required>
-                            <option value="" disabled @selected($collegeId === '')>Select college…</option>
-                            @foreach($colleges as $college)
-                                <option value="{{ $college->id }}">{{ $college->college_name }}</option>
-                            @endforeach
-                        </select>
-                        @error('collegeId') <div class="field-error">{{ $message }}</div> @enderror
-                    </div>
-                    <div class="st-field">
                         <label class="st-label">Faculty Name</label>
                         <input type="text" class="st-input @error('facultyName') error @enderror" wire:model="facultyName">
                         @error('facultyName') <div class="field-error">{{ $message }}</div> @enderror
+                    </div>
+                    <div class="st-field">
+                        <label class="st-label">Colleges</label>
+                        <div class="st-faculty-picks @error('facultyCollegeIds') error @enderror" role="group" aria-label="Colleges">
+                            @forelse($colleges as $college)
+                                <label class="st-faculty-pick">
+                                    <input
+                                        type="checkbox"
+                                        value="{{ $college->id }}"
+                                        wire:model="facultyCollegeIds"
+                                    >
+                                    <span>{{ $college->college_name }}{{ $college->college_code ? ' (' . $college->college_code . ')' : '' }}</span>
+                                </label>
+                            @empty
+                                <p class="st-faculty-hint" style="margin:0;">Add colleges first.</p>
+                            @endforelse
+                        </div>
+                        @error('facultyCollegeIds') <div class="field-error">{{ $message }}</div> @enderror
+                        @error('facultyCollegeIds.*') <div class="field-error">{{ $message }}</div> @enderror
+                        <p class="st-faculty-hint">Select every college where this instructor teaches (e.g. CAS for GE and CCS for a major course).</p>
                     </div>
                 @elseif($modalKind === 'college')
                     <div class="st-field">
@@ -2332,6 +2435,12 @@ new #[Layout('layouts.dcs')] class extends Component {
                             <button type="button" class="st-btn st-btn-ghost" wire:click="applyBulkFill(false)">Apply to all</button>
                         </div>
                         <div class="st-bulk-table-wrap">
+                            @if($errors->has('bulkRows') || $errors->has('bulkCollegeId') || $errors->has('bulkProgramId') || collect($errors->getMessages())->keys()->contains(fn ($k) => str_starts_with((string) $k, 'bulkRows.')))
+                                <div class="ofi-alert err" style="margin:0 0 12px;">
+                                    Could not save. Fix the highlighted fields below
+                                    (year level, course type, code, and name are required on every row).
+                                </div>
+                            @endif
                             <table class="st-bulk-table">
                                 <thead>
                                     <tr>
@@ -2343,79 +2452,48 @@ new #[Layout('layouts.dcs')] class extends Component {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @php
-                                        $knownYears = \App\Helpers\SyllabiMonitoringHelper::YEAR_LEVELS;
-                                        $bulkYearGroups = [];
-                                        foreach ($knownYears as $yearKey) {
-                                            $bulkYearGroups[$yearKey] = [];
-                                        }
-                                        $bulkYearGroups[''] = [];
-                                        foreach ($bulkRows as $i => $row) {
-                                            $yearKey = trim((string) ($row['year_level'] ?? ''));
-                                            if (! array_key_exists($yearKey, $bulkYearGroups)) {
-                                                $yearKey = '';
-                                            }
-                                            $bulkYearGroups[$yearKey][] = $i;
-                                        }
-                                    @endphp
-                                    @foreach($bulkYearGroups as $yearKey => $yearIndexes)
-                                        @php
-                                            $yearCount = count($yearIndexes);
-                                            $yearLabel = $yearKey !== '' ? $yearKey : 'No year level';
-                                        @endphp
-                                        @if($yearCount === 0)
-                                            @continue
-                                        @endif
-                                        <tr class="st-year-header" wire:key="bulk-year-{{ $yearKey !== '' ? $yearKey : 'none' }}">
-                                            <td colspan="5">
-                                                <span>Year Level · {{ $yearLabel }}</span>
-                                                <span class="st-year-count">{{ $yearCount }} {{ $yearCount === 1 ? 'course' : 'courses' }}</span>
+                                    @foreach($bulkRows as $i => $row)
+                                        <tr wire:key="bulk-course-{{ $row['id'] }}-{{ $i }}">
+                                            <td data-label="Semester">
+                                                <input type="hidden" wire:model="bulkRows.{{ $i }}.id">
+                                                <select class="st-input @error('bulkRows.'.$i.'.semester_id') error @enderror" wire:model.live="bulkRows.{{ $i }}.semester_id">
+                                                    <option value="">Semester</option>
+                                                    @foreach($semesters as $sem)
+                                                        <option value="{{ $sem->id }}">{{ $sem->semester_name }}</option>
+                                                    @endforeach
+                                                </select>
+                                                @error('bulkRows.'.$i.'.semester_id') <div class="field-error">{{ $message }}</div> @enderror
+                                            </td>
+                                            <td data-label="Year Level">
+                                                <select class="st-input @error('bulkRows.'.$i.'.year_level') error @enderror" wire:model.live="bulkRows.{{ $i }}.year_level">
+                                                    <option value="">Year</option>
+                                                    <option value="1st Year">1st Year</option>
+                                                    <option value="2nd Year">2nd Year</option>
+                                                    <option value="3rd Year">3rd Year</option>
+                                                    <option value="4th Year">4th Year</option>
+                                                    <option value="5th Year">5th Year</option>
+                                                </select>
+                                                @error('bulkRows.'.$i.'.year_level') <div class="field-error">{{ $message }}</div> @enderror
+                                            </td>
+                                            <td data-label="Course Type">
+                                                <select class="st-input @error('bulkRows.'.$i.'.course_type') error @enderror" wire:model.live="bulkRows.{{ $i }}.course_type">
+                                                    <option value="">Type</option>
+                                                    <option value="GE Courses">GE Courses</option>
+                                                    <option value="PE Courses">PE Courses</option>
+                                                    <option value="NSTP">NSTP</option>
+                                                    <option value="Major">Major</option>
+                                                </select>
+                                                @error('bulkRows.'.$i.'.course_type') <div class="field-error">{{ $message }}</div> @enderror
+                                            </td>
+                                            <td data-label="Code">
+                                                <input type="text" class="st-input @error('bulkRows.'.$i.'.code') error @enderror" wire:model.blur="bulkRows.{{ $i }}.code">
+                                                @error('bulkRows.'.$i.'.code') <div class="field-error">{{ $message }}</div> @enderror
+                                            </td>
+                                            <td data-label="Course Name">
+                                                <input type="text" class="st-input @error('bulkRows.'.$i.'.name') error @enderror" wire:model.blur="bulkRows.{{ $i }}.name">
+                                                @error('bulkRows.'.$i.'.name') <div class="field-error">{{ $message }}</div> @enderror
                                             </td>
                                         </tr>
-                                        @foreach($yearIndexes as $i)
-                                            @php $row = $bulkRows[$i]; @endphp
-                                            <tr wire:key="bulk-course-{{ $row['id'] }}">
-                                                <td data-label="Semester">
-                                                    <input type="hidden" wire:model="bulkRows.{{ $i }}.id">
-                                                    <select class="st-input @error('bulkRows.'.$i.'.semester_id') error @enderror" wire:model="bulkRows.{{ $i }}.semester_id">
-                                                        <option value="">Semester</option>
-                                                        @foreach($semesters as $sem)
-                                                            <option value="{{ $sem->id }}">{{ $sem->semester_name }}</option>
-                                                        @endforeach
-                                                    </select>
-                                                    @error('bulkRows.'.$i.'.semester_id') <div class="field-error">{{ $message }}</div> @enderror
-                                                </td>
-                                                <td data-label="Year Level">
-                                                    <select class="st-input @error('bulkRows.'.$i.'.year_level') error @enderror" wire:model="bulkRows.{{ $i }}.year_level">
-                                                        <option value="">Year</option>
-                                                        <option value="1st Year">1st Year</option>
-                                                        <option value="2nd Year">2nd Year</option>
-                                                        <option value="3rd Year">3rd Year</option>
-                                                        <option value="4th Year">4th Year</option>
-                                                        <option value="5th Year">5th Year</option>
-                                                    </select>
-                                                    @error('bulkRows.'.$i.'.year_level') <div class="field-error">{{ $message }}</div> @enderror
-                                                </td>
-                                                <td data-label="Course Type">
-                                                    <select class="st-input @error('bulkRows.'.$i.'.course_type') error @enderror" wire:model="bulkRows.{{ $i }}.course_type">
-                                                        <option value="">Type</option>
-                                                        <option value="GE Courses">GE Courses</option>
-                                                        <option value="PE Courses">PE Courses</option>
-                                                        <option value="NSTP">NSTP</option>
-                                                        <option value="Major">Major</option>
-                                                    </select>
-                                                    @error('bulkRows.'.$i.'.course_type') <div class="field-error">{{ $message }}</div> @enderror
-                                                </td>
-                                                <td data-label="Code">
-                                                    <input type="text" class="st-input @error('bulkRows.'.$i.'.code') error @enderror" wire:model="bulkRows.{{ $i }}.code">
-                                                    @error('bulkRows.'.$i.'.code') <div class="field-error">{{ $message }}</div> @enderror
-                                                </td>
-                                                <td data-label="Course Name">
-                                                    <input type="text" class="st-input @error('bulkRows.'.$i.'.name') error @enderror" wire:model="bulkRows.{{ $i }}.name">
-                                                    @error('bulkRows.'.$i.'.name') <div class="field-error">{{ $message }}</div> @enderror
-                                                </td>
-                                            </tr>
-                                        @endforeach
                                     @endforeach
                                 </tbody>
                             </table>

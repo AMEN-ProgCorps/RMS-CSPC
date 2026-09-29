@@ -2563,7 +2563,7 @@ body.ofi-modal-open {
 
 .ofi-dash-stats {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 14px;
     margin-bottom: 16px;
 }
@@ -2598,6 +2598,7 @@ body.ofi-modal-open {
 }
 .ofi-dash-stat.is-drf .ofi-dash-stat-icon { color: #1d4ed8; background: #eff6ff; }
 .ofi-dash-stat.is-dcn .ofi-dash-stat-icon { color: #0f766e; background: #ecfdf5; }
+.ofi-dash-stat.is-incoming .ofi-dash-stat-icon { color: #b45309; background: #fffbeb; }
 .ofi-dash-stat.is-docs .ofi-dash-stat-icon { color: var(--dcs-accent, #043899); background: #eef2ff; }
 .ofi-dash-stat-body {
     padding: 16px 18px;
@@ -2802,7 +2803,7 @@ body.ofi-modal-open {
 
 @media (max-width: 1100px) {
     .ofi-dash-type-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .ofi-dash-stats { grid-template-columns: 1fr; }
+    .ofi-dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
     .ofi-dash-hero-meta { align-items: flex-start; width: 100%; }
@@ -2812,6 +2813,7 @@ body.ofi-modal-open {
     .ofi-dash-type-grid {
         grid-template-columns: 1fr;
     }
+    .ofi-dash-stats { grid-template-columns: 1fr; }
 }
 
 /* ── Dark mode (office intake pages load this after chrome/dark.css) ── */
@@ -3188,6 +3190,10 @@ body.ofi-modal-open {
 [data-theme="dark"] .ofi-dash-stat.is-docs .ofi-dash-stat-icon {
     color: #93c5fd;
     background: rgba(37, 99, 235, 0.16);
+}
+[data-theme="dark"] .ofi-dash-stat.is-incoming .ofi-dash-stat-icon {
+    color: #fbbf24;
+    background: rgba(245, 158, 11, 0.16);
 }
 [data-theme="dark"] .ofi-dash-stat-label,
 [data-theme="dark"] .ofi-dash-stat-hint,

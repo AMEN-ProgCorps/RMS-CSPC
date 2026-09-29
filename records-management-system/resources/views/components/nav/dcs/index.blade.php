@@ -2,6 +2,7 @@
     $enableTopTabs = auth()->user()?->enableTopTabs() ?? true;
     $isLimitedDcs = \App\Helpers\RegisterQueryHelper::isLimitedDcsUser();
     $isFullDcs = \App\Helpers\RegisterQueryHelper::isFullDcsUser();
+    $isDcsPathPending = \App\Helpers\RegisterQueryHelper::isDcsPathPending();
     $canOfficeIntake = \App\Helpers\RegisterQueryHelper::canAccessOfficeIntake();
     $canRegister = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('register');
     $canReports = \App\Helpers\RegisterQueryHelper::canAccessDcsModule('reports');
@@ -41,16 +42,31 @@
         <li data-page="dashboard" class="nav-item {{ request()->routeIs('dcs') || request()->routeIs('dcs.dashboard') ? 'active' : '' }}">
             <a href="{{ route('dcs', absolute: false) }}">
                 <i class="fa-regular fa-square"></i>
-                <span>Dashboard</span>
-                <span class="tooltip">Dashboard</span>
+                <span>{{ $isDcsPathPending ? 'Home' : 'Dashboard' }}</span>
+                <span class="tooltip">{{ $isDcsPathPending ? 'Waiting for DCS clearance' : 'Dashboard' }}</span>
             </a>
         </li>
 
         @if($isLimitedDcs && $canOfficeIntake)
             @php
-                $officeDocGroups = \App\Helpers\OfficeIntakeHelper::officeDocumentGroups(null, false);
+                $officeDocGroups = \App\Helpers\OfficeIntakeHelper::officeDocumentGroups(null, false, 'received');
+                $incomingCount = \App\Helpers\OfficeIntakeHelper::officeDocumentTotal(null, 'pending');
                 $activeDocType = request()->query('type', 'all');
             @endphp
+            <li class="nav-item {{ request()->routeIs('dcs.office.incoming') ? 'active' : '' }}">
+                <a href="{{ route('dcs.office.incoming', absolute: false) }}">
+                    <i class="fa-solid fa-inbox"></i>
+                    <span>Incoming</span>
+                    <span
+                        id="ofiIncomingBadge"
+                        class="ofi-nav-empty-hint"
+                        style="opacity:1;background:#2563eb;color:#fff;border-radius:999px;padding:0 6px;font-size:11px;{{ $incomingCount > 0 ? '' : 'display:none;' }}"
+                        data-ofi-incoming-badge
+                        @if($incomingCount < 1) hidden @endif
+                    >{{ $incomingCount }}</span>
+                    <span class="tooltip">Documents to receive</span>
+                </a>
+            </li>
             <li class="nav-item {{ request()->routeIs('dcs.office.drf.*') ? 'active' : '' }}">
                 <a href="{{ route('dcs.office.drf.index', absolute: false) }}">
                     <i class="fa-regular fa-file-lines"></i>
@@ -68,19 +84,19 @@
             @if($enableTopTabs)
                 <li class="nav-item {{ request()->routeIs('dcs.office.documents') ? 'active' : '' }}">
                     <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}">
-                        <i class="fa-solid fa-folder-open"></i>
-                        <span>Documents</span>
-                        <span class="tooltip">Office Documents</span>
+                        <i class="fa-solid fa-book"></i>
+                        <span>Masterlist</span>
+                        <span class="tooltip">Received office masterlist</span>
                     </a>
                 </li>
             @else
                 <li class="nav-item dropdown {{ request()->routeIs('dcs.office.documents') ? 'active' : '' }}">
                     <details {{ request()->routeIs('dcs.office.documents') ? 'open' : '' }}>
                         <summary class="dropdown-trigger">
-                            <i class="fa-solid fa-folder-open"></i>
-                            <span>Documents</span>
+                            <i class="fa-solid fa-book"></i>
+                            <span>Masterlist</span>
                             <i class="fas fa-caret-down arrow"></i>
-                            <span class="tooltip">Office Documents</span>
+                            <span class="tooltip">Received office masterlist</span>
                         </summary>
                         <ul class="sub-dropdown">
                             <li>
@@ -106,16 +122,6 @@
                     </details>
                 </li>
             @endif
-        @endif
-
-        @if($isLimitedDcs && $canOfficeIntake)
-            <li class="nav-item {{ request()->routeIs('dcs.office.random-checks*') ? 'active' : '' }}">
-                <a href="{{ route('dcs.office.random-checks', absolute: false) }}">
-                    <i class="fa-solid fa-clipboard-check"></i>
-                    <span>Random Check</span>
-                    <span class="tooltip">Scheduled visits and results</span>
-                </a>
-            </li>
         @endif
 
         @if($isFullDcs)

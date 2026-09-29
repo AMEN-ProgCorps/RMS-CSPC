@@ -109,6 +109,23 @@ document.addEventListener('livewire:init', () => {
         const data = Array.isArray(payload) ? payload[0] : payload;
         window.dcsShowToast(data?.message, data?.type || 'success');
     });
+    Livewire.on('office-incoming-count', (payload) => {
+        const data = Array.isArray(payload) ? payload[0] : payload;
+        const count = Math.max(0, parseInt(data?.count ?? data ?? 0, 10) || 0);
+        const badge = document.getElementById('ofiIncomingBadge')
+            || document.querySelector('[data-ofi-incoming-badge]');
+        if (!badge) {
+            return;
+        }
+        badge.textContent = String(count);
+        if (count > 0) {
+            badge.hidden = false;
+            badge.style.display = '';
+        } else {
+            badge.hidden = true;
+            badge.style.display = 'none';
+        }
+    });
     Livewire.hook('commit', ({ succeed }) => {
         succeed(() => queueMicrotask(scanToasts));
     });

@@ -584,7 +584,7 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                                         <button wire:click="openForwardModal('{{ $t->transaction_id }}')" class="btn-forward-action">
                                             👁 View
                                         </button>
-                                        <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="btn-forward-action" style="background: #0284c7;">
+                                        <button type="button" onclick="if(window.openScannerModal) window.openScannerModal();" class="btn-forward-action" style="background: #0284c7;">
                                             📷 Scan
                                         </button>
                                     </div>
@@ -615,7 +615,7 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                             <button wire:click="openForwardModal('{{ $t->transaction_id }}')" class="btn-forward-action" style="flex: 1; justify-content: center;">
                                 👁 View
                             </button>
-                            <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="btn-forward-action" style="flex: 1; justify-content: center; background: #0284c7;">
+                            <button type="button" onclick="if(window.openScannerModal) window.openScannerModal();" class="btn-forward-action" style="flex: 1; justify-content: center; background: #0284c7;">
                                 📷 Scan
                             </button>
                         </div>

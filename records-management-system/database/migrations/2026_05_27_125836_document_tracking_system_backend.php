@@ -27,7 +27,7 @@ return new class extends Migration
 
         Schema::create('dts_transaction_flow', function (Blueprint $table) {
             $table->string('flow_code')->notNull()->unique();
-            $table->string('flow_name')->notNull()->unique();
+            $table->string('flow_name')->notNull();
             $table->integer('id')->unique()->notNull();
             $table->unsignedInteger('added_by')->notNull();
             $table->timestamp('date_added')->index()->notNull();

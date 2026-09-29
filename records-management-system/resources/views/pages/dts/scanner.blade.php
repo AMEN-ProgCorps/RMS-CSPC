@@ -277,12 +277,17 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         // Clean common barcode gun framing artifacts (trailing bracket, quotes, semicolons)
         $cleanedCode = trim($rawCode, " \t\n\r\0\x0B[]{}()\"'<>");
 
+        if (str_contains($cleanedCode, '%')) {
+            $cleanedCode = urldecode($cleanedCode);
+        }
+
         // Attempt Base64 decode: accept if decoded result is printable ASCII (32–126)
         // or matches the XXXX-XXXX-... QR code dash-segment pattern.
-        // (ctype_print rejects multi-byte chars that can appear in base64-decoded QR codes)
+        // Handles standard Base64 as well as URL-safe Base64 (- and _).
         $code = $cleanedCode;
-        if (preg_match('/^[A-Za-z0-9+\/]+=*$/', $cleanedCode) && strlen($cleanedCode) >= 8) {
-            $tryDecode = base64_decode($cleanedCode, true);
+        $candidateB64 = strtr($cleanedCode, '-_', '+/');
+        if (preg_match('/^[A-Za-z0-9+\/]+=*$/', $candidateB64) && strlen($candidateB64) >= 8) {
+            $tryDecode = base64_decode($candidateB64, true);
             if ($tryDecode !== false) {
                 $decodedClean = trim($tryDecode);
                 // Accept if all chars are printable ASCII OR matches QR dash-segment pattern
@@ -295,6 +300,8 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             }
         }
 
+        // Always synchronize scannedCode with the decoded code so the frontend input updates immediately
+        $this->scannedCode = $code;
         $this->lastScannedCode = $code;
 
         // File log
@@ -1731,13 +1738,19 @@ if (typeof Html5Qrcode === 'undefined') {
 
             if (devices && devices.length > 0) {
                 availableCameras = devices;
-                activeCameraId = devices[0].id;
+
+                // On phones devices[0] is very often the SELFIE camera — prefer the rear one.
+                const isTouchDevice = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+                const rearCam = devices.find(d => /rear|back|environment|main/i.test(d.label || '')) || null;
+                activeCameraId = rearCam ? rearCam.id : (isTouchDevice ? null : devices[0].id);
 
                 if (selectEl) {
                     selectEl.innerHTML = devices.map(d => `<option value="${d.id}">${d.label || 'Camera ' + d.id}</option>`).join('');
+                    if (activeCameraId) selectEl.value = activeCameraId;
                     if (cameraSelectContainer) cameraSelectContainer.style.display = devices.length > 1 ? 'block' : 'none';
                 }
 
+                // If we couldn't identify the rear camera by label, ask the OS for it by facing mode
                 await startScanning(activeCameraId ? { deviceId: activeCameraId } : { facingMode: "environment" });
             } else {
                 await startScanning({ facingMode: "environment" });
@@ -1789,14 +1802,17 @@ if (typeof Html5Qrcode === 'undefined') {
         };
 
         const decodeIfBase64 = (raw) => {
-            // Detect Base64: only A-Z a-z 0-9 + / = characters, minimum 8 chars
-            if (!/^[A-Za-z0-9+/]+=*$/.test(raw) || raw.length < 8) return raw;
+            if (!raw) return raw;
+            const str = raw.trim();
+            // Detect Base64: only A-Z a-z 0-9 + / - _ = characters, minimum 8 chars
+            if (!/^[A-Za-z0-9+/_\-=]+$/.test(str) || str.length < 8) return str;
             try {
-                const decoded = atob(raw);
-                // Accept if result is entirely printable ASCII (0x20–0x7E)
+                // Support both standard and URL-safe Base64
+                const normalized = str.replace(/-/g, '+').replace(/_/g, '/');
+                const decoded = atob(normalized);
                 if (/^[\x20-\x7E]+$/.test(decoded)) return decoded.trim();
             } catch (e) { /* not valid Base64 */ }
-            return raw;
+            return str;
         };
 
         const onScanSuccess = (decodedText) => {
@@ -1819,24 +1835,33 @@ if (typeof Html5Qrcode === 'undefined') {
             @this.loadTransaction(code);
         };
 
-        // Strategy 1: requested camera + HD ideal constraints
-        try {
-            await html5QrCode.start(cameraConfig, hdConfig, onScanSuccess, () => {});
-            return;
-        } catch (e1) {
-            console.warn('HD start failed, trying facingMode user:', e1);
-        }
+        // Try the requested camera first, then keep looking for the REAR camera
+        // (HD, then unconstrained) before ever falling back to the selfie camera —
+        // otherwise phones "work" but scan your face instead of the document.
+        const attempts = [
+            { camera: cameraConfig,                 stream: hdConfig   },
+            { camera: cameraConfig,                 stream: bareConfig },
+            { camera: { facingMode: 'environment' }, stream: hdConfig   },
+            { camera: { facingMode: 'environment' }, stream: bareConfig },
+            { camera: { facingMode: 'user' },        stream: hdConfig   },
+            { camera: { facingMode: 'user' },        stream: bareConfig },
+        ];
+        const tried = new Set();
+        let lastError = null;
 
-        // Strategy 2: front-facing camera + HD ideal constraints
-        try {
-            await html5QrCode.start({ facingMode: 'user' }, hdConfig, onScanSuccess, () => {});
-            return;
-        } catch (e2) {
-            console.warn('facingMode user HD failed, trying bare config:', e2);
+        for (const attempt of attempts) {
+            const key = JSON.stringify(attempt);
+            if (tried.has(key)) continue;
+            tried.add(key);
+            try {
+                await html5QrCode.start(attempt.camera, attempt.stream, onScanSuccess, () => {});
+                return;
+            } catch (err) {
+                lastError = err;
+                console.warn('Camera start failed (' + key + '):', err);
+            }
         }
-
-        // Strategy 3: front-facing camera with no resolution constraints
-        await html5QrCode.start({ facingMode: 'user' }, bareConfig, onScanSuccess, () => {});
+        throw lastError || new Error('Unable to start any camera');
     }
 
     window.switchCamera = async function(cameraId) {
@@ -1887,9 +1912,10 @@ if (typeof Html5Qrcode === 'undefined') {
             }
             const decodedText = await decoder.scanFile(file, true);
             if (decodedText) {
+                const code = decodeIfBase64(decodedText);
                 const input = document.getElementById('scanner-main-input');
-                if (input) input.value = decodedText;
-                @this.loadTransaction(decodedText);
+                if (input) input.value = code;
+                @this.loadTransaction(code);
             }
             if (tempCreated && !isScanning) {
                 decoder.clear();

@@ -1026,6 +1026,15 @@ new class extends Component {
                             </div>
                         </div>
 
+                        {{-- Camera selector (hidden until >1 camera detected) --}}
+                        <div id="modal-camera-select-container" style="display: none; margin-top: 6px;">
+                            <select
+                                id="modal-camera-select"
+                                onchange="window.switchModalCamera(this.value)"
+                                style="width: 100%; padding: 7px 10px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 12.5px; color: #334155; background: #f8fafc; outline: none; cursor: pointer;"
+                            ></select>
+                        </div>
+
                         <!-- Manual Code Input Field -->
                         <div class="scanner-input-row">
                             <input 
@@ -1326,6 +1335,28 @@ new class extends Component {
                         }
 
                         if (placeholder) placeholder.style.display = 'none';
+
+                        // Enumerate cameras and populate switch-camera dropdown
+                        try {
+                            const cameras = await Html5Qrcode.getCameras();
+                            const selectEl  = document.getElementById('modal-camera-select');
+                            const selectCtr = document.getElementById('modal-camera-select-container');
+                            if (cameras && cameras.length > 1 && selectEl && selectCtr) {
+                                selectEl.innerHTML = cameras.map(c =>
+                                    `<option value="${c.id}">${c.label || 'Camera ' + c.id}</option>`
+                                ).join('');
+                                selectCtr.style.display = 'block';
+                                // Store cameras for switch function
+                                window._modalCameras = cameras;
+                                window._modalOnScanSuccess = onScanSuccess;
+                                window._modalHdConfig = hdConfig;
+                                window._modalBareConfig = bareConfig;
+                            } else if (selectCtr) {
+                                selectCtr.style.display = 'none';
+                            }
+                        } catch (camListErr) {
+                            console.warn('Could not list cameras:', camListErr);
+                        }
                     } catch (err) {
                         if (placeholder) {
                             placeholder.innerHTML = '<svg style="width: 24px; height: 24px; margin-bottom: 8px; stroke: #f59e0b;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg><div>Camera Access Disabled / Unavailable</div>';
@@ -1351,6 +1382,53 @@ new class extends Component {
             // Global JS Helper
             window.openScannerModal = function(code = '') {
                 Livewire.dispatch('open-scanner-modal', { code: code });
+            };
+
+            // Switch camera in the modal scanner
+            window.switchModalCamera = async function(cameraId) {
+                if (!html5QrCode) return;
+                const placeholder = document.getElementById('camera-loading-placeholder');
+                try {
+                    if (html5QrCode.isScanning) await html5QrCode.stop();
+                    html5QrCode.clear();
+                } catch(e) {}
+
+                const onScanSuccess = window._modalOnScanSuccess;
+                const hdConfig      = window._modalHdConfig;
+                const bareConfig    = window._modalBareConfig;
+                if (!onScanSuccess) return;
+
+                if (placeholder) {
+                    placeholder.innerHTML = '<span>Switching camera...</span>';
+                    placeholder.style.display = 'flex';
+                }
+
+                try {
+                    const qrFormats = (typeof Html5QrcodeSupportedFormats !== 'undefined')
+                        ? [Html5QrcodeSupportedFormats.QR_CODE] : [0];
+                    html5QrCode = new Html5Qrcode("modal-qr-preview", {
+                        formatsToSupport: qrFormats,
+                        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+                        verbose: false
+                    });
+
+                    try {
+                        await html5QrCode.start({ deviceId: { exact: cameraId } }, hdConfig, onScanSuccess, () => {});
+                    } catch (e1) {
+                        try {
+                            await html5QrCode.start({ deviceId: cameraId }, hdConfig, onScanSuccess, () => {});
+                        } catch (e2) {
+                            await html5QrCode.start({ deviceId: cameraId }, bareConfig, onScanSuccess, () => {});
+                        }
+                    }
+
+                    if (placeholder) placeholder.style.display = 'none';
+                } catch (err) {
+                    console.error('switchModalCamera failed:', err);
+                    if (placeholder) {
+                        placeholder.innerHTML = '<div>Camera switch failed</div>';
+                    }
+                }
             };
         </script>
 </div>

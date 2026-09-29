@@ -709,6 +709,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
             $this->flows = DB::table('dts_transaction_flow')
                 ->where('is_active', true)
                 ->whereIn('flow_use', ['internal', 'none'])
+                ->where('flow_name', 'not like', 'Flow for %')
                 ->where(function($query) use ($userOfficeId) {
                     $query->where('flow_for', 'system')
                           ->orWhere(function($q) {

@@ -428,6 +428,25 @@ if (typeof Html5Qrcode === 'undefined') {
     function getInput() { return document.getElementById('tracking-input'); }
     function getForm() { return document.getElementById('track-form'); }
 
+    let currentFacingMode = 'environment';
+
+    function releasePublicMediaTracks() {
+        try {
+            const preview = document.getElementById('public-qr-preview');
+            const videos = preview ? preview.querySelectorAll('video') : document.querySelectorAll('#public-scanner-modal video');
+            videos.forEach(v => {
+                if (v.srcObject && typeof v.srcObject.getTracks === 'function') {
+                    v.srcObject.getTracks().forEach(track => {
+                        try { track.stop(); } catch(e) {}
+                    });
+                    v.srcObject = null;
+                }
+            });
+        } catch (e) {
+            console.warn('Error releasing public tracks:', e);
+        }
+    }
+
     async function stopPublicScanner() {
         if (publicHtml5QrCode) {
             try {
@@ -438,6 +457,7 @@ if (typeof Html5Qrcode === 'undefined') {
             } catch(e) {}
             publicHtml5QrCode = null;
         }
+        releasePublicMediaTracks();
     }
 
     async function openScannerModal() {
@@ -475,7 +495,7 @@ if (typeof Html5Qrcode === 'undefined') {
         }
     }
 
-    async function startCamera(cameraId = null) {
+    async function startCamera(cameraTarget = null) {
         const placeholder = document.getElementById('public-camera-placeholder');
         const statusEl = document.getElementById('scanner-camera-status');
         const switchBtn = document.getElementById('scanner-switch-camera-btn');
@@ -506,8 +526,10 @@ if (typeof Html5Qrcode === 'undefined') {
                 } catch(e) {}
             }
 
+            const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+
             if (switchBtn) {
-                switchBtn.style.display = availableCameras.length > 1 ? 'inline-block' : 'none';
+                switchBtn.style.display = (availableCameras.length > 1 || isTouch) ? 'inline-block' : 'none';
             }
 
             const qrConfig = {
@@ -520,21 +542,67 @@ if (typeof Html5Qrcode === 'undefined') {
                 }
             };
 
-            const cameraConfig = cameraId 
-                ? { deviceId: { exact: cameraId } } 
-                : { facingMode: "environment" };
+            let attempts = [];
+            if (cameraTarget === 'environment' || cameraTarget === 'user') {
+                currentFacingMode = cameraTarget;
+                attempts = [
+                    { facingMode: cameraTarget },
+                    { facingMode: { exact: cameraTarget } }
+                ];
+            } else if (cameraTarget) {
+                attempts = [
+                    { deviceId: cameraTarget },
+                    { deviceId: { exact: cameraTarget } },
+                    cameraTarget
+                ];
+            } else {
+                currentFacingMode = 'environment';
+                attempts = [
+                    { facingMode: "environment" },
+                    { facingMode: "user" }
+                ];
+            }
 
-            await publicHtml5QrCode.start(
-                cameraConfig,
-                qrConfig,
-                (decodedText) => {
-                    handleSuccessfulScan(decodedText);
-                },
-                () => {}
-            );
+            let started = false;
+            let lastErr = null;
+
+            for (const att of attempts) {
+                try {
+                    await publicHtml5QrCode.start(
+                        att,
+                        qrConfig,
+                        (decodedText) => {
+                            handleSuccessfulScan(decodedText);
+                        },
+                        () => {}
+                    );
+                    started = true;
+                    break;
+                } catch (err) {
+                    lastErr = err;
+                }
+            }
+
+            if (!started) {
+                throw lastErr || new Error('Could not start camera');
+            }
+
+            // After camera permission is granted, refresh device list
+            if (availableCameras.length <= 1) {
+                try {
+                    const postDevices = await Html5Qrcode.getCameras();
+                    if (postDevices && postDevices.length > 0) {
+                        availableCameras = postDevices;
+                        if (switchBtn && (availableCameras.length > 1 || isTouch)) {
+                            switchBtn.style.display = 'inline-block';
+                        }
+                    }
+                } catch(e) {}
+            }
 
             if (placeholder) placeholder.style.display = 'none';
         } catch (err) {
+            console.error('Public camera start failed:', err);
             if (placeholder) {
                 placeholder.style.display = 'flex';
                 placeholder.innerHTML = 'Camera access unavailable or permission denied.<br><small style="margin-top:6px;opacity:0.8;">You can switch to the "Upload Image" tab to scan a QR image.</small>';
@@ -544,10 +612,14 @@ if (typeof Html5Qrcode === 'undefined') {
     }
 
     async function switchCamera() {
-        if (availableCameras.length <= 1) return;
-        currentCameraIndex = (currentCameraIndex + 1) % availableCameras.length;
-        const targetCamera = availableCameras[currentCameraIndex];
-        await startCamera(targetCamera.id);
+        if (availableCameras && availableCameras.length > 1) {
+            currentCameraIndex = (currentCameraIndex + 1) % availableCameras.length;
+            const targetCamera = availableCameras[currentCameraIndex];
+            await startCamera(targetCamera.id);
+        } else {
+            currentFacingMode = (currentFacingMode === 'environment' ? 'user' : 'environment');
+            await startCamera(currentFacingMode);
+        }
     }
 
     function handleSuccessfulScan(decodedText) {

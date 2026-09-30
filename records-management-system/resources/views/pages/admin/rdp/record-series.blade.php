@@ -13,6 +13,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
     public string $search = '';
     public string $statusFilter = '1';
+    /** @var int Entries shown per page on the record series table (10 / 20 / 50) */
+    public int $perPage = 50;
+    /** @var string Sort mode: default (grouped) | item_no | alphabetical | time_added */
+    public string $sortBy = 'default';
 
     // Active Tab state: 'unregistered' or rdp_record_series_type.id (as string)
     public string $activeTab = 'unregistered';
@@ -44,6 +48,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public ?string $newItemNumber = '';
     public string $series_title = '';
     public array $subsections = [];
+    /** @var bool Whether the "Add Subsection" modal (opened from the edit row) is visible */
+    public bool $showSubsectionModal = false;
+    /** @var int Id of the series the new subsection(s) will be nested under */
+    public int $subsectionParentId = 0;
+    /** @var string Display title of that parent series */
+    public string $subsectionParentTitle = '';
+    /** @var string One subsection title per line — each line becomes the next nested level */
+    public string $subsectionTitles = '';
+    /** @var string Optional item number, applied to the first created subsection */
+    public string $subsectionItemNumber = '';
     public string $bracketInput = '';
     public ?string $newOfficeCode = '';
     public bool $showBracketDropdown = false;
@@ -63,6 +77,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public ?string $editOfficeCode = '';
     public bool $showEditBracketDropdown = false;
     public ?int $editSeriesType = null;
+    /** @var int|null Parent chosen via the "Subsection of…" picker (null = top level) */
+    public ?int $editParentId = null;
+    /** @var string Search / selected text of the parent picker */
+    public string $editParentInput = '';
+    public bool $showEditParentDropdown = false;
     public string $editActivePeriod = '';
     public string $editStoragePeriod = '';
     public string $editTotalPeriod = '';
@@ -89,6 +108,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
     public function updatingStatusFilter(): void
     {
+        $this->resetPage();
+    }
+
+    public function updatingPerPage(): void
+    {
+        // Start from the first page whenever the page size changes.
+        $this->resetPage();
+    }
+
+    public function updatingSortBy(): void
+    {
+        // Start from the first page whenever the sort order changes.
         $this->resetPage();
     }
 
@@ -148,6 +179,38 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     {
         $this->editBracketInput = mb_strtoupper($bracketName);
         $this->showEditBracketDropdown = false;
+    }
+
+    public function updatedEditParentInput(): void
+    {
+        // Typing invalidates any previous pick — a parent must come from the
+        // suggestion list; a blank field means "top level".
+        $this->showEditParentDropdown = true;
+        $this->editParentId = null;
+    }
+
+    public function selectEditParentSuggestion(int $seriesId): void
+    {
+        // The edited row itself can never be its own parent.
+        if ($this->editingId !== null && $seriesId === (int) $this->editingId) {
+            return;
+        }
+
+        $title = DB::table('rdp_record_series')->where('id', $seriesId)->value('series_title');
+        if ($title === null) {
+            return;
+        }
+
+        $this->editParentId = $seriesId;
+        $this->editParentInput = (string) $title;
+        $this->showEditParentDropdown = false;
+    }
+
+    public function clearEditParent(): void
+    {
+        $this->editParentId = null;
+        $this->editParentInput = '';
+        $this->showEditParentDropdown = false;
     }
 
     public function updatedSeriesTitle(): void
@@ -510,39 +573,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         try {
             DB::beginTransaction();
 
-            $currentParentId = null;
-
-            foreach ($allTitles as $idx => $t) {
-                $isLeaf = ($idx === count($allTitles) - 1);
-
-                $existing = DB::table('rdp_record_series')
-                    ->where('series_title', 'ilike', $t)
-                    ->where('parent_id', $currentParentId)
-                    ->first();
-
-                $seriesData = [
-                    'item_number'                  => ($idx === 0) ? $itemNumberVal : ($existing->item_number ?? null),
-                    'series_title'                 => $t,
-                    'parent_id'                    => $currentParentId,
-                    'bracket_id'                   => $bracketId,
-                    'recorded_at_office'           => $officeCode,
-                    'series_type'                  => $seriesTypeId,
-                    'retention_period'             => $isLeaf ? $retentionId : ($existing->retention_period ?? null),
-                    'is_retention_period_permanent' => $isLeaf ? $this->newIsPermanent : ($existing->is_retention_period_permanent ?? false),
-                    'is_verified'                  => true,
-                    'is_active'                    => true,
-                    'remarks'                      => $isLeaf ? (trim($this->newRemarks) ?: null) : ($existing->remarks ?? null),
-                    'updated_at'                   => now(),
-                ];
-
-                if ($existing) {
-                    DB::table('rdp_record_series')->where('id', $existing->id)->update($seriesData);
-                    $currentParentId = $existing->id;
-                } else {
-                    $seriesData['created_at'] = now();
-                    $currentParentId = DB::table('rdp_record_series')->insertGetId($seriesData);
-                }
-            }
+            $this->createSeriesChain(
+                $allTitles,
+                null,
+                $bracketId,
+                $officeCode,
+                $seriesTypeId,
+                $itemNumberVal,
+                $retentionId,
+                $this->newIsPermanent,
+                trim($this->newRemarks) ?: null
+            );
 
             DB::commit();
 
@@ -570,7 +611,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $series = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
-            ->select('rdp_record_series.*', 'rdp_retention_period.active_period', 'rdp_retention_period.storage_period', 'rdp_retention_period.total_period', 'rdp_record_series_brackets.bracket_name')
+            ->leftJoin('rdp_record_series as parent_series', 'rdp_record_series.parent_id', '=', 'parent_series.id')
+            ->select('rdp_record_series.*', 'rdp_retention_period.active_period', 'rdp_retention_period.storage_period', 'rdp_retention_period.total_period', 'rdp_record_series_brackets.bracket_name', 'parent_series.series_title as parent_title')
             ->where('rdp_record_series.id', $seriesId)
             ->first();
 
@@ -589,6 +631,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->editTotalPeriod = $series->total_period ?? '';
         $this->editRemarks = $series->remarks ?? '';
         $this->editIsActive = (bool) $series->is_active;
+        $this->editParentId = $series->parent_id !== null ? (int) $series->parent_id : null;
+        $this->editParentInput = (string) ($series->parent_title ?? '');
+        $this->showEditParentDropdown = false;
     }
 
     public function cancelEdit(): void
@@ -610,6 +655,40 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
         $existingSeries = DB::table('rdp_record_series')->where('id', $this->editingId)->first();
         if (!$existingSeries) return;
+
+        // ---- Parent conversion: subsection <-> top level ----
+        $oldParentId = $existingSeries->parent_id !== null ? (int) $existingSeries->parent_id : null;
+        $typedParent = trim($this->editParentInput);
+        $newParentId = $this->editParentId;
+        $parentRow = null;
+
+        if ($typedParent === '') {
+            $newParentId = null; // blank field = top-level series
+        } else {
+            if ($newParentId === null) {
+                $this->errorMessage = 'Pick the parent from the suggestion list, or clear the field to keep it a top-level series.';
+                return;
+            }
+
+            if ($newParentId === (int) $this->editingId) {
+                $this->errorMessage = 'A record series cannot be nested under itself.';
+                return;
+            }
+
+            if (in_array($newParentId, $this->collectSubtreeIds((int) $this->editingId), true)) {
+                $this->errorMessage = 'Cannot move a record series under one of its own subsections.';
+                return;
+            }
+
+            $parentRow = DB::table('rdp_record_series')->where('id', $newParentId)->first();
+
+            if (!$parentRow || strcasecmp(trim((string) $parentRow->series_title), $typedParent) !== 0) {
+                $this->errorMessage = 'Pick the parent from the suggestion list, or clear the field to keep it a top-level series.';
+                return;
+            }
+        }
+
+        $parentChanged = $newParentId !== $oldParentId;
 
         $retentionId = $existingSeries->retention_period;
         $computedTotal = $this->computeTotalPeriod($this->editActivePeriod, $this->editStoragePeriod, $this->editIsPermanent);
@@ -633,14 +712,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             }
         }
 
-        $bracketId = $this->resolveBracketId($this->editBracketInput);
-        $officeCode = $this->resolveOfficeCode($this->editOfficeCode);
         $itemNum = trim($this->editItemNumber ?? '');
         $itemNumberVal = ($itemNum !== '' && is_numeric($itemNum)) ? (int) $itemNum : null;
+
+        if ($parentChanged && $newParentId !== null) {
+            // Converting to a subsection re-files the branch under the new
+            // parent's bracket / office so it nests correctly in the grouped
+            // view — the same rule the Add form follows for its children.
+            $bracketId = $parentRow->bracket_id;
+            $officeCode = $parentRow->recorded_at_office;
+        } else {
+            $bracketId = $this->resolveBracketId($this->editBracketInput);
+            $officeCode = $this->resolveOfficeCode($this->editOfficeCode);
+        }
 
         DB::table('rdp_record_series')->where('id', $this->editingId)->update([
             'item_number'                  => $itemNumberVal,
             'series_title'                 => $title,
+            'parent_id'                    => $newParentId,
             'bracket_id'                   => $bracketId,
             'recorded_at_office'           => $officeCode,
             'retention_period'             => $retentionId,
@@ -650,9 +739,31 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             'updated_at'                   => now(),
         ]);
 
+        // The rest of the branch follows into the new parent's group.
+        if ($parentChanged && $newParentId !== null) {
+            foreach ($this->collectSubtreeIds((int) $this->editingId) as $branchId) {
+                if ($branchId === (int) $this->editingId) {
+                    continue;
+                }
+
+                DB::table('rdp_record_series')->where('id', $branchId)->update([
+                    'bracket_id'         => $parentRow->bracket_id,
+                    'recorded_at_office' => $parentRow->recorded_at_office,
+                    'updated_at'         => now(),
+                ]);
+            }
+        }
+
+        $parentNote = '';
+        if ($parentChanged) {
+            $parentNote = $newParentId === null
+                ? ' (converted to top-level)'
+                : ' (converted to subsection of "' . $parentRow->series_title . '")';
+        }
+
         // Log admin action
         DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
-            'changes'      => "Updated Record Series: \"{$title}\"",
+            'changes'      => "Updated Record Series: \"{$title}\"{$parentNote}",
             'admin_id'     => auth()->id(),
             'what_system'  => 2,
             'when_changes' => now(),
@@ -660,6 +771,202 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
         $this->successMessage = "Record Series \"{$title}\" has been updated successfully.";
         $this->editingId = null;
+    }
+
+    /**
+     * Create (or reuse) a chain of series rows: $titles[0] becomes a child of
+     * $parentId, $titles[1] a child of $titles[0], and so on — the same nesting
+     * the Add Record Series form builds. Every row inherits the bracket / office /
+     * type passed in; the item number applies only to the first row, and the
+     * retention / remarks only to the deepest (leaf) row. Returns the deepest id.
+     */
+    private function createSeriesChain(
+        array $titles,
+        ?int $parentId,
+        ?int $bracketId,
+        ?string $officeCode,
+        ?int $seriesTypeId,
+        ?int $rootItemNumber,
+        ?int $leafRetentionId,
+        bool $leafIsPermanent,
+        ?string $leafRemarks,
+    ): int {
+        $currentParentId = $parentId;
+        $lastId = $parentId ?? 0;
+        $lastIndex = count($titles) - 1;
+
+        foreach ($titles as $idx => $t) {
+            $isLeaf = ($idx === $lastIndex);
+
+            $existing = DB::table('rdp_record_series')
+                ->where('series_title', 'ilike', $t)
+                ->where('parent_id', $currentParentId)
+                ->first();
+
+            $seriesData = [
+                'item_number'                  => ($idx === 0) ? $rootItemNumber : ($existing->item_number ?? null),
+                'series_title'                 => $t,
+                'parent_id'                    => $currentParentId,
+                'bracket_id'                   => $bracketId,
+                'recorded_at_office'           => $officeCode,
+                'series_type'                  => $seriesTypeId,
+                'retention_period'             => $isLeaf ? $leafRetentionId : ($existing->retention_period ?? null),
+                'is_retention_period_permanent' => $isLeaf ? $leafIsPermanent : ($existing->is_retention_period_permanent ?? false),
+                'is_verified'                  => true,
+                'is_active'                    => true,
+                'remarks'                      => $isLeaf ? $leafRemarks : ($existing->remarks ?? null),
+                'updated_at'                   => now(),
+            ];
+
+            if ($existing) {
+                DB::table('rdp_record_series')->where('id', $existing->id)->update($seriesData);
+                $currentParentId = (int) $existing->id;
+            } else {
+                $seriesData['created_at'] = now();
+                $currentParentId = DB::table('rdp_record_series')->insertGetId($seriesData);
+            }
+
+            $lastId = $currentParentId;
+        }
+
+        return $lastId;
+    }
+
+    /**
+     * Ids of a series plus everything nested beneath it. Used to keep the parent
+     * picker from ever offering a row its own ancestor (cycle protection) and to
+     * re-file a whole branch when it is converted to a subsection.
+     */
+    private function collectSubtreeIds(int $rootId): array
+    {
+        $ids = [$rootId];
+        $frontier = [$rootId];
+        $depth = 0;
+
+        while (!empty($frontier) && $depth++ < 50) {
+            $children = DB::table('rdp_record_series')
+                ->whereIn('parent_id', $frontier)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+
+            $frontier = [];
+            foreach ($children as $childId) {
+                if (!in_array($childId, $ids, true)) {
+                    $ids[] = $childId;
+                    $frontier[] = $childId;
+                }
+            }
+        }
+
+        return $ids;
+    }
+
+    // ---- ADD SUBSECTION FROM THE EDIT ROW (modal) ----
+
+    public function openSubsectionModal(int $seriesId): void
+    {
+        $series = DB::table('rdp_record_series')
+            ->where('id', $seriesId)
+            ->first(['id', 'series_title']);
+
+        if (!$series) {
+            $this->clearMessages();
+            $this->errorMessage = 'Record Series not found.';
+            return;
+        }
+
+        $this->clearMessages();
+        $this->subsectionParentId = (int) $series->id;
+        $this->subsectionParentTitle = (string) $series->series_title;
+        $this->subsectionTitles = '';
+        $this->subsectionItemNumber = '';
+        $this->showSubsectionModal = true;
+    }
+
+    public function closeSubsectionModal(): void
+    {
+        $this->showSubsectionModal = false;
+        $this->subsectionParentId = 0;
+        $this->subsectionParentTitle = '';
+        $this->subsectionTitles = '';
+        $this->subsectionItemNumber = '';
+    }
+
+    public function saveSubsections(): void
+    {
+        $this->clearMessages();
+
+        if (!$this->showSubsectionModal || !$this->subsectionParentId) {
+            return;
+        }
+
+        if (!$this->activeTypeUsable()) {
+            $this->errorMessage = 'This Record Series Type is deactivated and cannot accept new entries. Activate it first.';
+            return;
+        }
+
+        $parent = DB::table('rdp_record_series')->where('id', $this->subsectionParentId)->first();
+        if (!$parent) {
+            $this->closeSubsectionModal();
+            $this->errorMessage = 'Record Series not found.';
+            return;
+        }
+
+        $titles = [];
+        foreach ((preg_split('/\r\n|\r|\n/', (string) $this->subsectionTitles) ?: []) as $line) {
+            $trimmed = mb_strtoupper(trim($line));
+            if ($trimmed !== '') {
+                $titles[] = $trimmed;
+            }
+        }
+
+        if (empty($titles)) {
+            $this->errorMessage = 'Enter at least one subsection title (one per line).';
+            return;
+        }
+
+        $itemNum = trim($this->subsectionItemNumber);
+        if ($itemNum !== '' && !is_numeric($itemNum)) {
+            $this->errorMessage = 'Item No. must be a number.';
+            return;
+        }
+        $itemNumberVal = $itemNum !== '' ? (int) $itemNum : null;
+
+        try {
+            DB::beginTransaction();
+
+            $this->createSeriesChain(
+                $titles,
+                (int) $parent->id,
+                $parent->bracket_id !== null ? (int) $parent->bracket_id : null,
+                $parent->recorded_at_office !== null ? (string) $parent->recorded_at_office : null,
+                $parent->series_type !== null ? (int) $parent->series_type : null,
+                $itemNumberVal,
+                null, // new subsections receive their retention when edited individually
+                false,
+                null
+            );
+
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->errorMessage = 'Failed to add subsection(s): ' . $e->getMessage();
+            return;
+        }
+
+        DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
+            'changes'      => 'Added subsection(s) under "' . $parent->series_title . '": ' . implode(' → ', $titles),
+            'admin_id'     => auth()->id(),
+            'what_system'  => 2,
+            'when_changes' => now(),
+        ]);
+
+        $this->successMessage = count($titles) === 1
+            ? 'Subsection "' . $titles[0] . '" added under "' . $parent->series_title . '".'
+            : count($titles) . ' subsections added under "' . $parent->series_title . '" (nested line by line).';
+
+        $this->closeSubsectionModal();
     }
 
     public function importRecordSeries(): void
@@ -1407,6 +1714,30 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->limit(8)
             ->get();
 
+        // Parent candidates for the "Subsection of…" picker: rows of the same
+        // record-series type, minus the edited row and everything nested under
+        // it — a series can never become its own ancestor.
+        $editParentSuggestions = collect();
+        if ($this->editingId !== null && $this->showEditParentDropdown) {
+            $excludedIds = $this->collectSubtreeIds((int) $this->editingId);
+
+            $editParentSuggestions = DB::table('rdp_record_series')
+                ->select('id', 'series_title', 'item_number')
+                ->when(
+                    $this->editSeriesType !== null,
+                    fn ($q) => $q->where('series_type', $this->editSeriesType),
+                    fn ($q) => $q->whereNull('series_type')
+                )
+                ->whereNotIn('id', $excludedIds)
+                ->when(
+                    trim($this->editParentInput) !== '',
+                    fn ($q) => $q->where('series_title', 'ilike', '%' . trim($this->editParentInput) . '%')
+                )
+                ->orderBy('series_title', 'asc')
+                ->limit(8)
+                ->get();
+        }
+
         $termAdmin = strtolower(trim($this->series_title));
 
         $parentSuggestionsQuery = DB::table('rdp_record_series')
@@ -1539,19 +1870,48 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             $baseQuery->where('rdp_record_series.is_active', $this->statusFilter === '1');
         }
 
-        $allFetched = $baseQuery->orderByRaw('
-            rdp_record_series_brackets.bracket_name ASC NULLS LAST,
-            office.office_name ASC NULLS LAST,
-            rdp_record_series.item_number ASC NULLS LAST,
-            rdp_record_series.series_title ASC
-        ')->get();
+        // Sort modes: "default" keeps the grouped bracket/office sections; the
+        // others are global sorts across the whole (filtered) list.
+        $sortBy = in_array($this->sortBy, ['default', 'item_no', 'alphabetical', 'time_added'], true)
+            ? $this->sortBy
+            : 'default';
+
+        switch ($sortBy) {
+            case 'item_no':
+                $baseQuery->orderByRaw('rdp_record_series.item_number ASC NULLS LAST, rdp_record_series.series_title ASC');
+                break;
+            case 'alphabetical':
+                $baseQuery->orderByRaw('rdp_record_series.series_title ASC');
+                break;
+            case 'time_added':
+                $baseQuery->orderByRaw('rdp_record_series.created_at DESC NULLS LAST, rdp_record_series.id DESC');
+                break;
+            default:
+                $baseQuery->orderByRaw('
+                    rdp_record_series_brackets.bracket_name ASC NULLS LAST,
+                    office.office_name ASC NULLS LAST,
+                    rdp_record_series.item_number ASC NULLS LAST,
+                    rdp_record_series.series_title ASC
+                ');
+        }
+
+        $allFetched = $baseQuery->get();
 
         $allFetchedMap = [];
         foreach ($allFetched as $item) {
             $allFetchedMap[$item->id] = $item;
         }
 
-        $treeOrdered = $this->buildGroupedTreeHierarchy($allFetched->all());
+        if ($sortBy === 'default') {
+            $treeOrdered = $this->buildGroupedTreeHierarchy($allFetched->all());
+        } else {
+            // Global sort: keep the flat query order (no bracket/office grouping),
+            // and render rows unindented since a parent can now sort anywhere.
+            $treeOrdered = $allFetched->all();
+            foreach ($treeOrdered as $flatItem) {
+                $flatItem->depth = 0;
+            }
+        }
 
         foreach ($treeOrdered as $item) {
             $eff = $this->resolveEffectiveRetention($allFetchedMap, $item);
@@ -1562,8 +1922,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             $item->is_inherited = $eff->inherited;
         }
 
+        // Entries per page: user selectable (10 / 20 / 50) with a safe fallback.
+        $perPage = in_array((int) $this->perPage, [10, 20, 50], true) ? (int) $this->perPage : 50;
+
         $page = \Illuminate\Pagination\Paginator::resolveCurrentPage() ?: 1;
-        $perPage = 25;
+        $lastPage = max(1, (int) ceil(count($treeOrdered) / $perPage));
+        if ($page > $lastPage) {
+            $page = $lastPage; // stay in range after filtering or shrinking the page size
+        }
         $paginatedItems = array_slice($treeOrdered, ($page - 1) * $perPage, $perPage);
         $paginatedRecords = new \Illuminate\Pagination\LengthAwarePaginator(
             $paginatedItems,
@@ -1575,8 +1941,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
         return [
             'records'                 => $paginatedRecords,
+            'sortBy'                  => $sortBy,
             'bracketSuggestions'     => $bracketSuggestions,
             'editBracketSuggestions' => $editBracketSuggestions,
+            'editParentSuggestions'  => $editParentSuggestions,
             'parentSuggestions'       => $parentSuggestions,
             'seriesTypes'             => $seriesTypes,
             'activeTypeUsable'        => $activeTypeUsable,
@@ -1590,6 +1958,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     @vite(['resources/css/admin/record-series.css'])
     <style>
         [x-cloak] { display: none !important; }
+
+        /* ---- Inline edit row: keep every control inside its fixed-width cell ---- */
+        .ars-edit-row .ars-input {
+            width: 100%;
+        }
+        /* ACTIVE / STORAGE inputs live in narrow retention columns — compact them. */
+        .ars-edit-row .ars-edit-period {
+            padding: 7px 5px;
+            font-size: 11.5px;
+            text-align: center;
+        }
 
         /* Record Series Type right-click context menu */
         .type-context-menu {
@@ -1939,11 +2318,61 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         </div>
     @endif
 
+    <!-- Add Subsection Modal (opened from the inline edit row) -->
+    @if($showSubsectionModal)
+        <div class="ars-modal-overlay" style="z-index: 1000;">
+            <div class="ars-modal-card" style="width: 520px;">
+                <div class="ars-modal-header">
+                    <h3>➕ Add Subsection</h3>
+                    <button type="button" wire:click="closeSubsectionModal" class="ars-modal-close">&times;</button>
+                </div>
+                <div class="ars-modal-body">
+                    <p style="font-size: 12.5px; color: var(--ars-slate-600); margin: 0 0 14px 0; line-height: 1.55;">
+                        Adding under
+                        <strong style="color: var(--ars-blue-800);">{{ $subsectionParentTitle }}</strong>.
+                        Each line becomes the next nested level — line 1 is a direct child, line 2 nests under line 1, and so on.
+                        The new subsection inherits this series' bracket, office, and type.
+                    </p>
+
+                    <div class="ars-form-row" style="align-items: flex-start;">
+                        <span class="ars-label" style="margin-top: 9px;">Subsection(s):</span>
+                        <div style="flex: 1;">
+                            <textarea class="ars-input" wire:model="subsectionTitles" rows="3"
+                                      placeholder="e.g. VISITOR LOGS"
+                                      style="width: 100%; resize: vertical; font-weight: 600;"></textarea>
+                            <div style="font-size: 11px; color: var(--ars-slate-500); margin-top: 4px;">
+                                One title per line. Leave a single line for a single subsection.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="ars-form-row">
+                        <span class="ars-label">Item No. (optional):</span>
+                        <input type="number" class="ars-input" wire:model="subsectionItemNumber"
+                               placeholder="e.g. 12" style="max-width: 160px;">
+                        <span style="font-size: 11.5px; color: var(--ars-slate-500);">Applied to the first subsection only.</span>
+                    </div>
+
+                    @if($errorMessage)
+                        <div style="margin-top: 12px; font-size: 12.5px; font-weight: 700; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 8px 12px;">
+                            ❌ {{ $errorMessage }}
+                        </div>
+                    @endif
+                </div>
+                <div class="ars-modal-footer">
+                    <button type="button" wire:click="closeSubsectionModal" class="ars-btn ars-btn-secondary">Cancel</button>
+                    <button type="button" wire:click="saveSubsections" class="ars-btn ars-btn-primary">Save Subsection(s)</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
     <!-- Data Table Card with Alpine.js Collapsible State -->
     <div class="ars-table-card" x-data="{ 
         collapsedBrackets: {}, 
         collapsedOffices: {}, 
         search: @entangle('search').live,
+        sortBy: @entangle('sortBy'),
         toggleBracket(id) { 
             this.collapsedBrackets[id] = !this.collapsedBrackets[id]; 
         }, 
@@ -1951,10 +2380,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             this.collapsedOffices[id] = !this.collapsedOffices[id]; 
         },
         isBracketCollapsed(bId) { 
-            return !this.search && !!this.collapsedBrackets[bId]; 
+            return !this.search && this.sortBy === 'default' && !!this.collapsedBrackets[bId]; 
         },
         isRowCollapsed(bId, oId) { 
-            return !this.search && (!!this.collapsedBrackets[bId] || !!this.collapsedOffices[oId]); 
+            return !this.search && this.sortBy === 'default' && (!!this.collapsedBrackets[bId] || !!this.collapsedOffices[oId]); 
         }
     }">
         <div class="ars-filter-bar">
@@ -1966,6 +2395,28 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     <option value="1">Active</option>
                     <option value="0">Inactive</option>
                 </select>
+
+                <!-- Entries per page (same idea as List Transaction) -->
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 12.5px; font-weight: 700; color: var(--ars-slate-600); white-space: nowrap;">Show</span>
+                    <select class="ars-input" wire:model.live="perPage" title="Entries per page" style="max-width: 86px; padding: 9.5px 8px; font-weight: 700; text-align: center; cursor: pointer;">
+                        <option value="10">10</option>
+                        <option value="20">20</option>
+                        <option value="50">50</option>
+                    </select>
+                    <span style="font-size: 12.5px; font-weight: 700; color: var(--ars-slate-600); white-space: nowrap;">Entries</span>
+                </div>
+
+                <!-- Sort by -->
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 12.5px; font-weight: 700; color: var(--ars-slate-600); white-space: nowrap;">Sort by</span>
+                    <select class="ars-input" wire:model.live="sortBy" title="Sort record series" style="max-width: 250px; font-weight: 700; cursor: pointer;">
+                        <option value="default">Grouped (Bracket / Office)</option>
+                        <option value="item_no">Item No.</option>
+                        <option value="alphabetical">Alphabetical (A-Z)</option>
+                        <option value="time_added">Time Added (Newest)</option>
+                    </select>
+                </div>
 
                 @if($search || $statusFilter !== '1')
                     <button type="button" wire:click="clearFilters" class="ars-btn ars-btn-secondary">
@@ -2001,14 +2452,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     <tr style="background: #f1f5f9;">
                         <th rowspan="2" style="width: 80px; text-align: center; border: 1px solid #cbd5e1;">ITEM NO.</th>
                         <th rowspan="2" style="text-align: center; width: 34%; border: 1px solid #cbd5e1;">RECORD SERIES TITLE & DESCRIPTION</th>
-                        <th colspan="3" style="text-align: center; border: 1px solid #cbd5e1; width: 225px;">RETENTION PERIOD</th>
+                        <th colspan="3" style="text-align: center; border: 1px solid #cbd5e1; width: 270px;">RETENTION PERIOD</th>
                         <th rowspan="2" style="text-align: center; width: 26%; border: 1px solid #cbd5e1;">REMARKS</th>
                         <th rowspan="2" style="text-align: center; width: 200px; border: 1px solid #cbd5e1;">ACTIONS</th>
                     </tr>
                     <tr style="background: #f1f5f9;">
-                        <th style="text-align: center; width: 75px; border: 1px solid #cbd5e1;">ACTIVE</th>
-                        <th style="text-align: center; width: 75px; border: 1px solid #cbd5e1;">STORAGE</th>
-                        <th style="text-align: center; width: 75px; border: 1px solid #cbd5e1;">TOTAL</th>
+                        <th style="text-align: center; width: 90px; border: 1px solid #cbd5e1;">ACTIVE</th>
+                        <th style="text-align: center; width: 90px; border: 1px solid #cbd5e1;">STORAGE</th>
+                        <th style="text-align: center; width: 90px; border: 1px solid #cbd5e1;">TOTAL</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -2021,7 +2472,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                             $oKey = 'o_' . ($record->bracket_id ?? 'none') . '_' . ($record->recorded_at_office ?? 'none');
                         @endphp
 
-                        @if($bracketChanged && !empty($record->bracket_name))
+                        @if($sortBy === 'default' && $bracketChanged && !empty($record->bracket_name))
                             <!-- Bracket Section Header Banner (Collapsible) -->
                             <tr x-on:click="toggleBracket('{{ $bKey }}')" style="background: #cbd5e1; font-weight: 800; font-size: 13.5px; text-align: center; color: #0f172a; letter-spacing: 0.8px; cursor: pointer; user-select: none;">
                                 <td colspan="7" style="padding: 10px 16px; border: 1.5px solid #94a3b8; text-transform: uppercase;">
@@ -2031,7 +2482,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                             </tr>
                         @endif
 
-                        @if($officeChanged && !empty($record->recorded_at_office))
+                        @if($sortBy === 'default' && $officeChanged && !empty($record->recorded_at_office))
                             <!-- Office / Section Header Banner (Collapsible) -->
                             <tr x-show="!isBracketCollapsed('{{ $bKey }}')" x-on:click="toggleOffice('{{ $oKey }}')" style="background: #e2e8f0; font-weight: 700; font-size: 12.5px; color: #1e293b; letter-spacing: 0.5px; cursor: pointer; user-select: none;">
                                 <td colspan="7" style="padding: 7px 20px; border: 1px solid #cbd5e1; text-align: left; padding-left: 45px; text-transform: uppercase;">
@@ -2043,12 +2494,39 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
                         @if($editingId === $record->id)
                             <!-- Inline Edit Row -->
-                            <tr x-show="!isRowCollapsed('{{ $bKey }}', '{{ $oKey }}')" style="background: #fffbeb;">
+                            <tr class="ars-edit-row" x-show="!isRowCollapsed('{{ $bKey }}', '{{ $oKey }}')" style="background: #fffbeb;">
                                 <td style="text-align: center; border: 1px solid #cbd5e1;">
                                     <input type="number" class="ars-input" wire:model="editItemNumber" placeholder="No." style="width: 70px; text-align: center; font-weight: 700;">
                                 </td>
                                 <td style="text-align: center; position: relative; border: 1px solid #cbd5e1;">
                                     <input type="text" class="ars-input" wire:model="editSeriesTitle" style="font-weight: 700; margin-bottom: 4px; text-align: center;">
+
+                                    <!-- Parent Picker (convert to subsection / top level) -->
+                                    <div style="position: relative; margin-bottom: 4px;" wire:click.outside="$set('showEditParentDropdown', false)">
+                                        <input type="text"
+                                               class="ars-input"
+                                               wire:model.live="editParentInput"
+                                               wire:focus="$set('showEditParentDropdown', true)"
+                                               placeholder="Subsection of… (blank = top level)"
+                                               style="font-size: 11.5px; text-align: center;">
+
+                                        @if($showEditParentDropdown)
+                                            <ul class="ars-suggestions-list">
+                                                <li class="ars-suggestion-item" wire:click="clearEditParent()" style="color: #64748b; font-style: italic;">
+                                                    — Top level (not a subsection) —
+                                                </li>
+                                                @foreach($editParentSuggestions as $ps)
+                                                    <li class="ars-suggestion-item" wire:click="selectEditParentSuggestion({{ $ps->id }})" style="display: flex; align-items: center; gap: 8px;">
+                                                        <span style="font-size: 10px; font-weight: 800; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; padding: 1px 6px; border-radius: 999px; text-align: center; min-width: 24px;">{{ $ps->item_number !== null ? '#' . $ps->item_number : '—' }}</span>
+                                                        <span style="font-weight: 600;">{{ $ps->series_title }}</span>
+                                                    </li>
+                                                @endforeach
+                                                @if(count($editParentSuggestions) === 0)
+                                                    <li class="ars-suggestion-item" style="color: #94a3b8; font-style: italic;">No other series available</li>
+                                                @endif
+                                            </ul>
+                                        @endif
+                                    </div>
 
                                     <!-- Edit Bracket Autocomplete -->
                                     <div style="position: relative; margin-bottom: 4px;" wire:click.outside="$set('showEditBracketDropdown', false)">
@@ -2084,10 +2562,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                     <label style="display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 11px; font-weight: 700; color: var(--ars-blue-800); margin-bottom: 4px;">
                                         <input type="checkbox" wire:model.live="editIsPermanent" style="width: 14px; height: 14px; accent-color: var(--ars-blue-600);"> Permanent
                                     </label>
-                                    <input type="text" class="ars-input" wire:model.live.debounce.200ms="editActivePeriod" placeholder="Active" {{ $editIsPermanent ? 'disabled style=opacity:0.4;' : '' }} style="text-align: center;">
+                                    <input type="text" class="ars-input ars-edit-period" wire:model.live.debounce.200ms="editActivePeriod" placeholder="Active" {{ $editIsPermanent ? 'disabled' : '' }} style="text-align: center; {{ $editIsPermanent ? 'opacity: 0.4;' : '' }}">
                                 </td>
                                 <td style="border: 1px solid #cbd5e1;">
-                                    <input type="text" class="ars-input" wire:model.live.debounce.200ms="editStoragePeriod" placeholder="Storage" {{ $editIsPermanent ? 'disabled style=opacity:0.4;' : '' }} style="text-align: center;">
+                                    <input type="text" class="ars-input ars-edit-period" wire:model.live.debounce.200ms="editStoragePeriod" placeholder="Storage" {{ $editIsPermanent ? 'disabled' : '' }} style="text-align: center; {{ $editIsPermanent ? 'opacity: 0.4;' : '' }}">
                                 </td>
                                 <td style="font-weight: 700; color: var(--ars-blue-800); text-align: center; border: 1px solid #cbd5e1;">
                                     {{ $this->computeTotalPeriod($editActivePeriod, $editStoragePeriod, $editIsPermanent) ?: '—' }}
@@ -2102,7 +2580,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                         </label>
                                     </div>
                                     <button type="button" wire:click="updateSeries" class="ars-btn ars-btn-primary" style="padding: 5px 10px; font-size: 12px; margin-right: 2px;">Save</button>
-                                    <button type="button" wire:click="cancelEdit" class="ars-btn ars-btn-secondary" style="padding: 5px 10px; font-size: 12px;">Cancel</button>
+                                    <button type="button" wire:click="cancelEdit" class="ars-btn ars-btn-secondary" style="padding: 5px 10px; font-size: 12px; margin-right: 2px;">Cancel</button>
+                                    <button type="button" wire:click="openSubsectionModal({{ $record->id }})" class="ars-btn ars-btn-secondary" style="padding: 5px 8px; font-size: 11.5px; margin-right: 2px; border-style: dashed; border-color: var(--ars-blue-500); color: var(--ars-blue-600);" title="Add a subsection under this series">+ Sub</button>
                                 </td>
                             </tr>
                         @else

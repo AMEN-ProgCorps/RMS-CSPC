@@ -2,6 +2,7 @@
 
 namespace App\Helpers;
 
+use App\Services\DcsNotificationService;
 use App\Services\DocumentStorageService;
 use App\Services\StampBackupService;
 use Illuminate\Http\RedirectResponse;
@@ -583,8 +584,7 @@ class RegisterUpdateHelper
                         DB::table('dcs_retrieval_offices')->insert($retrievalOfficeRow);
                     }
                 }
-
-                \App\Helpers\DistributionRetrievalHelper::syncRetrievalStatusesToTracking((int) $requestId);
+                \App\Helpers\DistributionRetrievalHelper::syncAllDistributionsForRequest((int) $requestId);
             }
 
             if (in_array(5, $checkedChecklists, true)) {
@@ -631,12 +631,15 @@ class RegisterUpdateHelper
                     ->map(fn ($oid) => (int) $oid)
                     ->all();
                 RegisterPersistHelper::saveDistributionOffices($distributionId, $request);
+                \App\Helpers\DistributionRetrievalHelper::syncCopyRetrievalFromRetrieval(
+                    (int) $distributionId,
+                    (int) $requestId
+                );
                 $newDistOfficeIds = array_values(array_unique(array_filter(array_map(
                     'intval',
                     (array) $request->input('distOffice', [])
                 ))));
                 $addedDistOfficeIds = array_values(array_diff($newDistOfficeIds, $previousDistOfficeIds));
-                \App\Helpers\DistributionRetrievalHelper::syncRetrievalStatusesToTracking((int) $requestId);
             }
 
             if ($approvalStatus === 'applicable' && $request->filled('approvalBody')) {
@@ -690,24 +693,43 @@ class RegisterUpdateHelper
                 Log::warning('DRF title sync after update skipped: '.$e->getMessage());
             }
 
-            if (! $saveAsDraft && $addedDistOfficeIds !== []) {
+            $publishedFromDraft = $isDraftRecord && ! $saveAsDraft;
+            $savedRevNo = isset($savedMl->revise_no)
+                ? (int) $savedMl->revise_no
+                : (isset($ml->revise_no) ? (int) $ml->revise_no : 0);
+
+            // Final publish / revised registration: notify every distribution office from DB.
+            // Plain edits only notify offices newly added to the distribution list.
+            if (! $saveAsDraft && ($publishedFromDraft || $savedRevNo > 0)) {
+                DcsNotificationService::notifyClientOfficesAfterRegistration((int) $requestId);
+            } elseif (! $saveAsDraft && $addedDistOfficeIds !== []) {
+                $notifyDocNo = trim((string) ($ml->doc_no ?? $docNo ?? ''));
+                $notifyTitle = trim((string) $savedTitle);
+                $revNo = $savedRevNo > 0 ? $savedRevNo : null;
                 $actorOffice = RegisterQueryHelper::currentOfficeCode();
-                $skipCodes = $actorOffice ? [strtoupper(trim((string) $actorOffice))] : [];
-                \App\Helpers\DistributionRetrievalHelper::notifyPickupForRequest(
-                    (int) $requestId,
-                    $skipCodes,
-                    $addedDistOfficeIds
-                );
+                foreach (DcsNotificationService::officeCodesFromIds($addedDistOfficeIds) as $officeCode) {
+                    if ($actorOffice && strtoupper($officeCode) === strtoupper($actorOffice)) {
+                        continue;
+                    }
+                    DcsNotificationService::notifyDocumentDistributed(
+                        $officeCode,
+                        $notifyDocNo,
+                        $notifyTitle !== '' ? $notifyTitle : null,
+                        $revNo
+                    );
+                }
             }
 
             RegisterPersistHelper::logAdminChange(
-                ($saveAsDraft ? 'Saved draft #' : 'Updated document #') . $id
+                ($saveAsDraft
+                    ? 'Saved draft #'
+                    : ($publishedFromDraft ? 'Registered document #' : 'Updated document #')) . $id
                 . (!empty($ml->doc_no ?? $docNo) ? ' — ' . ($ml->doc_no ?? $docNo) : '')
                 . (!empty($savedTitle) ? ': ' . $savedTitle : (!empty($ml->doc_title) ? ': ' . $ml->doc_title : ''))
             );
 
             \App\Services\DcsAuditService::log(
-                $saveAsDraft ? 'register.draft' : 'register.update',
+                $saveAsDraft ? 'register.draft' : ($publishedFromDraft ? 'register.create' : 'register.update'),
                 'register',
                 (int) $id,
                 null,
@@ -716,7 +738,9 @@ class RegisterUpdateHelper
 
             $successMessage = $saveAsDraft
                 ? 'Draft saved. Continue anytime from Document Registration → Drafts.'
-                : 'Document updated successfully!';
+                : ($publishedFromDraft
+                    ? 'Document registered successfully!'
+                    : 'Document updated successfully!');
 
             if ($saveAsDraft && RegisterPersistHelper::isAutosaveRequest($request)) {
                 return RegisterPersistHelper::draftAutosaveSuccessResponse((int) $id, $successMessage);

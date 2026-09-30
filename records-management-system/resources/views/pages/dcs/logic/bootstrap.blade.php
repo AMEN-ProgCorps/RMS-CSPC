@@ -4,6 +4,7 @@ require_once __DIR__ . '/register-query.blade.php';
 require_once __DIR__ . '/register-persist.blade.php';
 require_once __DIR__ . '/register-update.blade.php';
 require_once __DIR__ . '/office-intake.blade.php';
+require_once __DIR__ . '/distribution-retrieval.blade.php';
 require_once __DIR__ . '/report-template.blade.php';
 require_once __DIR__ . '/report.blade.php';
 require_once __DIR__ . '/syllabi-monitoring.blade.php';

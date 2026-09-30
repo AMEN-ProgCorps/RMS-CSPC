@@ -96,21 +96,6 @@ class DcsNotificationService
         return is_string($ci) && $ci !== '' ? $ci : null;
     }
 
-    public static function notifyDocumentRegistered(
-        string $officeCode,
-        string $registrarName,
-        string $docNo,
-        int $requestId,
-        ?int $revNo = null
-    ): void {
-        $name = static::displayName($registrarName);
-        $revLabel = $revNo !== null && $revNo > 0 ? " (Rev {$revNo})" : '';
-        $message = "Document {$docNo}{$revLabel} has been registered by {$name}.";
-        $url = '/dcs/register/' . $requestId . '/edit';
-
-        static::createNotification($officeCode, $message, $url);
-    }
-
     /**
      * Notify an office that appears on Document Distribution — not the submitter.
      * Limited DCS users only see /dcs/office/* notification links.
@@ -121,112 +106,152 @@ class DcsNotificationService
         ?string $docTitle = null,
         ?int $revNo = null
     ): void {
+        $docNo = trim($docNo);
         $title = trim((string) $docTitle);
-        if ($title === '') {
-            $title = trim($docNo);
-        }
         $isRevision = $revNo !== null && $revNo > 0;
-        $oldVersion = $isRevision ? 'Rev ' . max(0, $revNo - 1) : '';
+        $revSuffix = $isRevision ? ", Rev {$revNo}" : '';
+        $lead = $isRevision
+            ? 'Your office has a revised controlled document to receive'
+            : 'Your office has a new controlled document to receive';
 
-        static::notifyDocumentPickupReady($officeCode, $title, 'Copy #—', $isRevision, $oldVersion);
+        if ($title !== '' && $docNo !== '') {
+            $message = "{$lead}: \"{$title}\" ({$docNo}{$revSuffix}).";
+        } elseif ($title !== '') {
+            $revLabel = $isRevision ? " (Rev {$revNo})" : '';
+            $message = "{$lead}: \"{$title}\"{$revLabel}.";
+        } elseif ($docNo !== '') {
+            $revLabel = $isRevision ? " (Rev {$revNo})" : '';
+            $message = "{$lead}: {$docNo}{$revLabel}.";
+        } else {
+            $message = $isRevision
+                ? 'Your office has a revised controlled document to receive.'
+                : 'Your office has a new controlled document to receive.';
+        }
+
+        static::createNotification($officeCode, $message, '/dcs/office/incoming');
     }
 
-    /**
-     * Pickup-ready notice for a target office (new issue vs revision exchange).
-     */
-    public static function notifyDocumentPickupReady(
+    public static function notifyDocumentRegistered(
         string $officeCode,
-        string $docTitle,
-        string $copyLabel,
-        bool $isRevision = false,
-        string $oldVersionLabel = ''
+        string $registrarName,
+        string $docNo,
+        int $requestId,
+        ?int $revNo = null
     ): void {
-        $title = trim($docTitle);
-        if ($title === '') {
-            $title = 'controlled document';
-        }
-        $copy = trim($copyLabel);
-        if ($copy === '') {
-            $copy = 'Copy #—';
-        }
+        $name = static::displayName($registrarName);
+        $docNo = trim($docNo);
+        $isRevision = $revNo !== null && $revNo > 0;
+        $revLabel = $isRevision ? " (Rev {$revNo})" : '';
 
         if ($isRevision) {
-            $old = trim($oldVersionLabel);
-            if ($old === '') {
-                $old = 'current version';
-            }
-            $message = "Your office is about to receive a new revision of {$title} is ready for pickup. "
-                . "Please bring your office's current physical paper copy ({$old}) to the Records Office to return it in exchange for {$copy}.";
+            $message = $docNo !== ''
+                ? "A revised controlled document {$docNo}{$revLabel} has been registered by {$name}."
+                : "A revised controlled document has been registered by {$name}.";
         } else {
-            $message = "Your office has a new controlled document to receive and it is ready for pickup ({$title}). "
-                . "Please send a representative to the Records Office to sign the physical D&R list and claim {$copy}.";
+            $message = $docNo !== ''
+                ? "Document {$docNo}{$revLabel} has been registered by {$name}."
+                : "A controlled document has been registered by {$name}.";
         }
 
-        static::createNotification($officeCode, $message, '/dcs/office/documents?pickup=1');
+        // Client / limited DCS users can only open /dcs/office/* links.
+        $url = '/dcs/office/documents';
+
+        static::createNotification($officeCode, $message, $url);
     }
 
     /**
-     * Path B fail-safe: client acknowledged receipt — Records Personnel must verify wet signature.
+     * After a final (non-draft) registration/publish, notify every office on the
+     * saved Document Distribution list (and masterlist-only offices) from the DB.
+     *
+     * @param  list<string>  $skipOfficeCodes  e.g. registrar + DCN/DRF submitter
      */
-    public static function notifyAdminClientAcknowledged(
-        string $staffName,
-        string $officeName,
-        string $docTitle,
-        string $copyLabel,
-        ?int $requestId = null,
-        ?int $officeRowId = null
+    public static function notifyClientOfficesAfterRegistration(
+        int $requestId,
+        array $skipOfficeCodes = []
     ): void {
-        $staff = static::displayName($staffName);
-        $office = trim($officeName) !== '' ? trim($officeName) : 'their office';
-        $title = trim($docTitle) !== '' ? trim($docTitle) : 'a controlled document';
-        $copy = trim($copyLabel) !== '' ? trim($copyLabel) : 'Copy #—';
-        $message = "Verification Required: {$staff} ({$office}) acknowledged receipt of {$title}, {$copy}. "
-            . 'Please inspect the printed D&R List Form for their wet signature before confirming distribution.';
-
-        $url = '/dcs/reports/monitoring/distribution-retrieval';
-        $params = [];
-        if ($requestId && $requestId > 0) {
-            $params['focus'] = $requestId;
-        }
-        if ($officeRowId && $officeRowId > 0) {
-            $params['verify'] = $officeRowId;
-        }
-        if ($params !== []) {
-            $url .= '?' . http_build_query($params);
+        if ($requestId < 1) {
+            return;
         }
 
-        $rfio = \App\Helpers\RegisterQueryHelper::rfioNotificationOfficeCode();
-        static::createNotification($rfio, $message, $url);
-    }
+        $ml = DB::table('dcs_masterlist_registration')
+            ->where('request_id', $requestId)
+            ->first(['doc_no', 'doc_title', 'revise_no']);
+        if (! $ml) {
+            return;
+        }
 
-    /**
-     * Admin confirmed wet signature after client acknowledge — notify the client office.
-     */
-    public static function notifyClientAcknowledgementVerified(
-        string $officeCode,
-        string $adminName,
-        string $docTitleWithRev
-    ): void {
-        $admin = static::displayName($adminName);
-        $title = trim($docTitleWithRev) !== '' ? trim($docTitleWithRev) : 'the document';
-        $message = "{$admin} from the Records Office has verified your acknowledgment of the {$title} document.";
+        $docNo = trim((string) ($ml->doc_no ?? ''));
+        if ($docNo === '') {
+            return;
+        }
 
-        static::createNotification($officeCode, $message, '/dcs/office/documents');
-    }
+        $docTitle = trim((string) ($ml->doc_title ?? ''));
+        $revNo = isset($ml->revise_no) ? (int) $ml->revise_no : null;
+        $registrarName = \App\Helpers\RegisterQueryHelper::currentUserDisplayName();
 
-    /**
-     * Admin Send: document still at Records Office / no signature — not yet distributed.
-     */
-    public static function notifyClientAcknowledgementRejected(
-        string $officeCode,
-        string $adminName,
-        string $docTitleWithRev
-    ): void {
-        $admin = static::displayName($adminName);
-        $title = trim($docTitleWithRev) !== '' ? trim($docTitleWithRev) : 'the document';
-        $message = "{$admin} from the Records Office verified your request to accept/acknowledge that the {$title} document has not yet been distributed.";
+        $skip = [];
+        foreach ($skipOfficeCodes as $code) {
+            $code = strtoupper(trim((string) $code));
+            if ($code !== '') {
+                $skip[$code] = true;
+            }
+        }
+        $actor = \App\Helpers\RegisterQueryHelper::currentOfficeCode();
+        if ($actor) {
+            $skip[strtoupper(trim($actor))] = true;
+        }
 
-        static::createNotification($officeCode, $message, '/dcs/office/documents?pickup=1');
+        $distOfficeIds = DB::table('dcs_document_distribution as dist')
+            ->join('dcs_distribution_offices as doff', 'doff.distribution_id', '=', 'dist.id')
+            ->where('dist.request_id', $requestId)
+            ->pluck('doff.office_id')
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+
+        foreach (static::officeCodesFromIds($distOfficeIds) as $officeCode) {
+            if (isset($skip[strtoupper(trim($officeCode))])) {
+                continue;
+            }
+            static::notifyDocumentDistributed(
+                $officeCode,
+                $docNo,
+                $docTitle !== '' ? $docTitle : null,
+                $revNo
+            );
+        }
+
+        $masterlistIds = [];
+        $masterlistId = DB::table('dcs_masterlist_registration')
+            ->where('request_id', $requestId)
+            ->value('id');
+        if ($masterlistId
+            && \Illuminate\Support\Facades\Schema::hasTable('dcs_masterlist_source_offices')) {
+            $masterlistIds = DB::table('dcs_masterlist_source_offices')
+                ->where('masterlist_id', (int) $masterlistId)
+                ->pluck('office_id')
+                ->map(fn ($id) => (int) $id)
+                ->filter(fn ($id) => $id > 0)
+                ->unique()
+                ->values()
+                ->all();
+        }
+
+        $masterlistOnlyIds = array_values(array_diff($masterlistIds, $distOfficeIds));
+        foreach (static::officeCodesFromIds($masterlistOnlyIds) as $officeCode) {
+            if (isset($skip[strtoupper(trim($officeCode))])) {
+                continue;
+            }
+            static::notifyDocumentRegistered(
+                $officeCode,
+                $registrarName,
+                $docNo,
+                $requestId,
+                $revNo
+            );
+        }
     }
 
     public static function notifyOfficeDocumentReceived(
@@ -247,6 +272,109 @@ class DcsNotificationService
         }
 
         static::createNotification($officeCode, $message, $url);
+    }
+
+    /**
+     * Tell Document Controllers / RFIO that a distribution office received a controlled document.
+     */
+    public static function notifyAdminOfficeReceivedDocument(
+        string $receivingOfficeName,
+        string $receiverName,
+        string $docTitle,
+        ?string $docNo = null,
+        ?int $requestId = null,
+        ?int $revNo = null
+    ): void {
+        $office = trim($receivingOfficeName) !== '' ? trim($receivingOfficeName) : 'An office';
+        $name = static::displayName($receiverName);
+        $title = trim($docTitle);
+        $docNo = trim((string) $docNo);
+        $revSuffix = $revNo !== null && $revNo > 0 ? ", Rev {$revNo}" : '';
+
+        if ($title !== '' && $docNo !== '') {
+            $label = "\"{$title}\" ({$docNo}{$revSuffix})";
+        } elseif ($title !== '') {
+            $label = "\"{$title}\"{$revSuffix}";
+        } elseif ($docNo !== '') {
+            $label = "{$docNo}{$revSuffix}";
+        } else {
+            $label = 'a controlled document';
+        }
+
+        $message = "{$office} received {$label}"
+            . ($name !== '' && strcasecmp($name, 'User') !== 0 ? " (marked by {$name})" : '')
+            . '.';
+
+        $url = $requestId && $requestId > 0
+            ? '/dcs/register/' . $requestId . '/edit'
+            : '/dcs/database';
+
+        $adminOffice = \App\Helpers\RegisterQueryHelper::rfioNotificationOfficeCode();
+        static::createNotification($adminOffice, $message, $url);
+    }
+
+    /**
+     * Path B fail-safe: client Accept / Acknowledge Receipt — ask RFIO to verify wet signature.
+     */
+    public static function notifyAdminClientAcknowledgedReceipt(
+        string $receivingOfficeName,
+        string $receiverName,
+        string $docTitle,
+        ?string $docNo = null,
+        ?int $requestId = null,
+        ?int $revNo = null,
+        int $copyNo = 1,
+        ?int $distributionOfficeId = null
+    ): void {
+        $office = trim($receivingOfficeName) !== '' ? trim($receivingOfficeName) : 'An office';
+        $name = static::displayName($receiverName);
+        $receiptLabel = \App\Helpers\DistributionRetrievalHelper::formatReceiptDocLabel(
+            $docTitle,
+            $docNo,
+            $revNo
+        );
+
+        $message = "Distribution Verification: {$name} ({$office}) acknowledged receipt of {$receiptLabel}. "
+            .'Please verify the wet signature on the D&R List Form.';
+
+        $url = \App\Helpers\DistributionRetrievalHelper::monitoringDeepLinkUrl(
+            $distributionOfficeId && $distributionOfficeId > 0 ? $distributionOfficeId : null
+        );
+
+        // Fan-out to every RFIO / RFOIU code that exists so admins see the bell notice
+        // regardless of which alias their account office_code uses.
+        static::notifyRfioOffices($message, $url);
+    }
+
+    /**
+     * Create the same DCS notice for each Records & FOI office code present in sys_office.
+     */
+    public static function notifyRfioOffices(string $message, ?string $redirectUrl = null): void
+    {
+        $codes = [];
+        $push = static function (string $code) use (&$codes): void {
+            $code = trim($code);
+            if ($code === '') {
+                return;
+            }
+            foreach ($codes as $existing) {
+                if (strcasecmp($existing, $code) === 0) {
+                    return;
+                }
+            }
+            $codes[] = $code;
+        };
+
+        $push(\App\Helpers\RegisterQueryHelper::rfioNotificationOfficeCode());
+        foreach (\App\Helpers\RegisterQueryHelper::rfioOfficeCodes() as $alias) {
+            if (static::resolveOfficeCode($alias) !== null) {
+                $push($alias);
+            }
+        }
+
+        foreach ($codes as $code) {
+            static::createNotification($code, $message, $redirectUrl);
+        }
     }
 
     public static function notifyOfficeDrfSubmitted(

@@ -223,6 +223,16 @@ new class extends Component {
                 return;
             }
 
+            $dnrPath = ltrim((string) (parse_url((string) $notification->redirect_url, PHP_URL_PATH) ?? ''), '/');
+            $dnrQuery = (string) (parse_url((string) $notification->redirect_url, PHP_URL_QUERY) ?? '');
+            if ($dnrPath === 'dcs/reports/monitoring' && str_contains($dnrQuery, 'dnr=1')) {
+                $this->showDropdown = false;
+                $this->dispatch('close-notifications');
+                $this->redirect($notification->redirect_url, navigate: false);
+
+                return;
+            }
+
             $this->redirect($notification->redirect_url, navigate: true);
         }
     }

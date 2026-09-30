@@ -1,11 +1,13 @@
 <?php
 
+use App\Helpers\DistributionRetrievalHelper;
 use App\Helpers\RegisterQueryHelper;
 use App\Helpers\ReportHelper;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
@@ -32,6 +34,61 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $error = '';
     public array $result = [];
 
+    /** @var list<array> */
+    public array $dnrCards = [];
+
+    /** @var list<array> */
+    public array $dnrAlerts = [];
+
+    public bool $dnrModalOpen = false;
+    public int $dnrModalOfficeId = 0;
+    public string $dnrModalDocNo = '';
+    public string $dnrModalDocTitle = '';
+    public string $dnrModalOfficeName = '';
+    public string $dnrDistributionStatus = 'pending_pickup';
+    public string $dnrCopyRetrievalStatus = 'n_a';
+    public bool $dnrWetSignatureVerified = false;
+
+    public bool $dnrModalVerifyMode = false;
+
+    /** @var ''|'all'|internal_docs|… */
+    public string $dnrDocTypeFilter = '';
+
+    public string $dnrSearchQuery = '';
+
+    public string $dnrSearchActive = '';
+
+    /** When set, only this tracking card is shown for an active search. */
+    public string $dnrSearchCardKey = '';
+
+    /** One-shot pin used when picking a suggestion (consumed by applyDnrSearch). */
+    public string $dnrForceSearchCardKey = '';
+
+    /** @var list<array{doc_no:string,doc_title:string,card_key:string}> */
+    public array $dnrSearchSuggestions = [];
+
+    public bool $dnrShowSuggestions = false;
+
+    /** @var array<string, bool> card_key => expanded */
+    public array $dnrExpandedCards = [];
+
+    /** @var array<string, int> card_key => request_id for selected revision */
+    public array $dnrCardRevisionRequest = [];
+
+    public string $dnrFocusCardKey = '';
+
+    /** When set, only this tracking card is shown (alert / verify focus). */
+    public string $dnrAlertOnlyCardKey = '';
+
+    #[Url(as: 'dnr')]
+    public string $dnrDeepLink = '';
+
+    #[Url(as: 'verify')]
+    public int $dnrDeepLinkVerify = 0;
+
+    #[Url(as: 'dtype')]
+    public string $dnrDeepLinkType = '';
+
     public function mount(): void
     {
         $this->asOf = now('Asia/Manila')->toDateString();
@@ -49,15 +106,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if ($this->category === 'others') {
             $this->loadReport();
         }
-        if ($this->category === 'monitoring') {
-            $sub = trim((string) request()->query('sub', ''));
-            if ($sub === 'distribution_retrieval') {
-                $this->redirect(route('dcs.reports.distributionRetrieval', absolute: false), navigate: false);
 
-                return;
-            }
-            if ($sub !== '') {
-                $this->selectSub($sub);
+        if ($this->category === 'monitoring' && $this->dnrDeepLink === '1') {
+            $this->sub = 'dnr';
+            $filter = $this->dnrDeepLinkType !== '' ? $this->dnrDeepLinkType : 'all';
+            $this->selectDnrDocTypeFilter($filter);
+            if ($this->dnrDeepLinkVerify > 0) {
+                $this->focusDnrAlert($this->dnrDeepLinkVerify);
             }
         }
     }
@@ -87,7 +142,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'isOpcr' => $this->category === 'opcr',
             'isMonitoring' => $this->category === 'monitoring',
             'isOthers' => $this->category === 'others',
-            'formYears' => $this->category === 'monitoring' && $this->sub !== ''
+            'isDnr' => $this->category === 'monitoring' && $this->sub === 'dnr',
+            'formYears' => $this->category === 'monitoring' && $this->sub !== '' && $this->sub !== 'dnr'
                 ? RegisterQueryHelper::monitoringReportYears($this->sub)
                 : [],
             'pageTitle' => match ($this->category) {
@@ -99,8 +155,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'periodWindow' => $this->periodWindow(),
             'awaitingSubType' => $this->category === 'monitoring'
                 && $this->sub !== ''
+                && $this->sub !== 'dnr'
                 && $childTypes->isNotEmpty()
                 && $this->subTypeIds === [],
+            'dnrDocTypeOptions' => DistributionRetrievalHelper::docTypeFilterOptions(),
+            'dnrDisplayCards' => $this->resolvedDnrDisplayCards(),
+            'dnrAwaitingFilter' => $this->category === 'monitoring' && $this->sub === 'dnr' && $this->dnrDocTypeFilter === '',
+            'dnrAlertOnlyCardKey' => $this->dnrAlertOnlyCardKey,
+            'dnrSearchSuggestions' => $this->dnrSearchSuggestions,
+            'dnrShowSuggestions' => $this->dnrShowSuggestions,
         ];
     }
 
@@ -157,6 +220,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     {
         $this->exportColumns = [];
         $this->sub = $sub;
+        $this->closeDnrUpdateModal();
         $parentId = RegisterQueryHelper::parentTypeIdMap()[$sub] ?? null;
         $childIds = $parentId
             ? DB::table('dcs_doc_types')
@@ -175,14 +239,31 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 default => '',
             };
             $this->monitoringSubTypeIds = [];
-            $years = RegisterQueryHelper::monitoringReportYears($sub);
+            $years = $sub === 'dnr' ? [] : RegisterQueryHelper::monitoringReportYears($sub);
             if ($this->formYear !== '' && ! in_array($this->formYear, $years, true)) {
                 $this->formYear = '';
+            }
+            if ($sub === 'dnr') {
+                $this->subTypeIds = [];
+                $this->dnrSearchQuery = '';
+                $this->dnrSearchActive = '';
+                $this->dnrSearchSuggestions = [];
+                $this->dnrShowSuggestions = false;
+                $this->dnrExpandedCards = [];
+                $this->dnrCardRevisionRequest = [];
+                $this->dnrAlertOnlyCardKey = '';
+                $this->dnrFocusCardKey = '';
+                $this->error = '';
+                $this->selectDnrDocTypeFilter('all');
+
+                return;
             }
             if ($childIds !== []) {
                 $this->subTypeIds = [];
                 $this->result = [];
                 $this->error = '';
+                $this->dnrCards = [];
+                $this->dnrAlerts = [];
 
                 return;
             }
@@ -276,6 +357,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function loadReport(): void
     {
         $this->error = '';
+        if ($this->category === 'monitoring' && $this->sub === 'dnr') {
+            $this->loadDnrMonitoring();
+
+            return;
+        }
+
         $input = $this->queryInput();
         if (($this->category !== 'others') && $this->sub === '') {
             return;
@@ -288,12 +375,484 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             }
         }
         $this->result = ReportHelper::payload($input);
+        $this->dnrCards = [];
+        $this->dnrAlerts = [];
         if (! empty($this->result['error'])) {
             $this->error = $this->result['error'];
             $this->result['rows'] = $this->result['rows'] ?? [];
             $this->result['columns'] = $this->result['columns'] ?? [];
         }
         $this->syncExportColumns();
+    }
+
+    public function loadDnrMonitoring(): void
+    {
+        if ($this->dnrDocTypeFilter === '') {
+            $this->dnrCards = [];
+            $this->dnrAlerts = DistributionRetrievalHelper::verificationAlerts();
+            $this->result = [
+                'title' => 'Distribution & Retrieval Monitoring',
+                'total_rows' => 0,
+                'columns' => [],
+                'rows' => [],
+                'dnr_interactive' => true,
+            ];
+
+            return;
+        }
+
+        $window = $this->periodWindow();
+        $this->dnrCards = DistributionRetrievalHelper::monitoringCards(
+            $window['from'] ?? null,
+            $window['to'] ?? null,
+            $this->dnrDocTypeFilter,
+            $this->dnrSearchActive
+        );
+        foreach ($this->dnrCards as $card) {
+            $key = (string) ($card['card_key'] ?? '');
+            if ($key !== '' && ! isset($this->dnrCardRevisionRequest[$key])) {
+                $this->dnrCardRevisionRequest[$key] = (int) ($card['request_id'] ?? 0);
+            }
+        }
+        $this->dnrAlerts = DistributionRetrievalHelper::verificationAlerts();
+        $display = $this->resolvedDnrDisplayCards();
+        $officeCount = collect($display)->sum(fn ($c) => count($c['offices'] ?? []));
+        $this->result = [
+            'title' => 'Distribution & Retrieval Monitoring',
+            'total_rows' => $officeCount,
+            'columns' => [],
+            'rows' => [],
+            'dnr_interactive' => true,
+        ];
+        $this->error = '';
+        $this->syncExportColumns();
+    }
+
+    public function selectDnrDocTypeFilter(string $filter): void
+    {
+        $options = DistributionRetrievalHelper::docTypeFilterOptions();
+        if (! isset($options[$filter])) {
+            return;
+        }
+        $this->dnrDocTypeFilter = $filter;
+        $this->dnrDeepLink = '1';
+        $this->dnrDeepLinkType = $filter;
+        $this->dnrExpandedCards = [];
+        $this->dnrCardRevisionRequest = [];
+        $this->dnrAlertOnlyCardKey = '';
+        $this->dnrFocusCardKey = '';
+        $this->dnrSearchCardKey = '';
+        $this->dnrForceSearchCardKey = '';
+        $this->dnrSearchSuggestions = [];
+        $this->dnrShowSuggestions = false;
+        $this->loadDnrMonitoring();
+    }
+
+    public function applyDnrSearch(): void
+    {
+        if ($this->dnrDocTypeFilter === '') {
+            $this->dnrDocTypeFilter = 'all';
+            $this->dnrDeepLink = '1';
+            $this->dnrDeepLinkType = 'all';
+        }
+
+        $this->dnrAlertOnlyCardKey = '';
+        $this->dnrSearchActive = trim($this->dnrSearchQuery);
+        $forcedKey = trim($this->dnrForceSearchCardKey);
+        $this->dnrForceSearchCardKey = '';
+        $this->dnrSearchCardKey = '';
+        $this->dnrFocusCardKey = '';
+        $this->loadDnrMonitoring();
+        $this->refreshDnrSuggestions();
+
+        if ($this->dnrSearchActive === '') {
+            $this->dnrExpandedCards = [];
+            $this->dnrShowSuggestions = false;
+
+            return;
+        }
+
+        $exactKey = $forcedKey;
+        if ($exactKey === '') {
+            $needle = mb_strtolower($this->dnrSearchActive);
+            foreach ($this->dnrCards as $card) {
+                $docNo = mb_strtolower(trim((string) ($card['doc_no'] ?? '')));
+                $docTitle = mb_strtolower(trim((string) ($card['doc_title'] ?? '')));
+                if ($docNo === $needle || $docTitle === $needle) {
+                    $exactKey = (string) ($card['card_key'] ?? '');
+                    break;
+                }
+            }
+        }
+
+        if ($exactKey === '' && count($this->dnrCards) === 1) {
+            $exactKey = (string) ($this->dnrCards[0]['card_key'] ?? '');
+        }
+
+        if ($exactKey !== '') {
+            $this->dnrSearchCardKey = $exactKey;
+            $this->dnrFocusCardKey = $exactKey;
+            $this->dnrExpandedCards[$exactKey] = true;
+            $this->dnrShowSuggestions = false;
+
+            $scrollId = 0;
+            foreach ($this->dnrCards as $card) {
+                if ((string) ($card['card_key'] ?? '') === $exactKey) {
+                    $scrollId = (int) ($card['distribution_id'] ?? 0);
+                    break;
+                }
+            }
+            if ($scrollId > 0) {
+                $this->dispatch('dnr-scroll-to-card', scrollId: $scrollId);
+            }
+
+            return;
+        }
+
+        foreach ($this->dnrCards as $card) {
+            $key = (string) ($card['card_key'] ?? '');
+            if ($key !== '') {
+                $this->dnrExpandedCards[$key] = true;
+            }
+        }
+    }
+
+    /** Live search as the user types (debounced via wire:model). */
+    public function updatedDnrSearchQuery(): void
+    {
+        $this->applyDnrSearch();
+    }
+
+    public function selectDnrSuggestion(string $cardKey): void
+    {
+        $match = null;
+        foreach ($this->dnrSearchSuggestions as $item) {
+            if ((string) ($item['card_key'] ?? '') === $cardKey) {
+                $match = $item;
+                break;
+            }
+        }
+        if ($match === null) {
+            return;
+        }
+
+        $term = trim((string) ($match['doc_no'] ?? ''));
+        if ($term === '') {
+            $term = trim((string) ($match['doc_title'] ?? ''));
+        }
+
+        $this->dnrForceSearchCardKey = $cardKey;
+        $this->dnrSearchQuery = $term;
+        $this->dnrShowSuggestions = false;
+    }
+
+    public function hideDnrSuggestions(): void
+    {
+        $this->dnrShowSuggestions = false;
+    }
+
+    /**
+     * Suggest documents by doc. no. / title while typing.
+     */
+    protected function refreshDnrSuggestions(): void
+    {
+        $q = mb_strtolower(trim($this->dnrSearchQuery));
+        if ($q === '') {
+            $this->dnrSearchSuggestions = [];
+            $this->dnrShowSuggestions = false;
+
+            return;
+        }
+
+        if ($this->dnrDocTypeFilter === '') {
+            $this->dnrDocTypeFilter = 'all';
+        }
+
+        $out = [];
+        $seen = [];
+        foreach ($this->dnrCards as $card) {
+            $docNo = trim((string) ($card['doc_no'] ?? ''));
+            $docTitle = trim((string) ($card['doc_title'] ?? ''));
+            $hay = mb_strtolower($docNo.' '.$docTitle);
+            if (! str_contains($hay, $q)) {
+                continue;
+            }
+            $key = (string) ($card['card_key'] ?? '');
+            if ($key === '' || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $out[] = [
+                'doc_no' => $docNo,
+                'doc_title' => $docTitle,
+                'card_key' => $key,
+            ];
+            if (count($out) >= 8) {
+                break;
+            }
+        }
+
+        // If filtered cards are empty (query too narrow), still offer title/no matches from a light index pass.
+        if ($out === [] && mb_strlen($q) >= 2) {
+            $window = $this->periodWindow();
+            $pool = DistributionRetrievalHelper::monitoringCards(
+                $window['from'] ?? null,
+                $window['to'] ?? null,
+                $this->dnrDocTypeFilter,
+                ''
+            );
+            foreach ($pool as $card) {
+                $docNo = trim((string) ($card['doc_no'] ?? ''));
+                $docTitle = trim((string) ($card['doc_title'] ?? ''));
+                if (! str_contains(mb_strtolower($docNo.' '.$docTitle), $q)) {
+                    continue;
+                }
+                $key = (string) ($card['card_key'] ?? '');
+                if ($key === '' || isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $out[] = [
+                    'doc_no' => $docNo,
+                    'doc_title' => $docTitle,
+                    'card_key' => $key,
+                ];
+                if (count($out) >= 8) {
+                    break;
+                }
+            }
+        }
+
+        $this->dnrSearchSuggestions = $out;
+        $this->dnrShowSuggestions = true;
+    }
+
+    public function clearDnrSearch(): void
+    {
+        $this->dnrSearchQuery = '';
+        $this->dnrSearchActive = '';
+        $this->dnrSearchCardKey = '';
+        $this->dnrForceSearchCardKey = '';
+        $this->dnrSearchSuggestions = [];
+        $this->dnrShowSuggestions = false;
+        $this->dnrExpandedCards = [];
+        $this->dnrAlertOnlyCardKey = '';
+        $this->dnrFocusCardKey = '';
+        if ($this->dnrDocTypeFilter !== '') {
+            $this->loadDnrMonitoring();
+        }
+    }
+
+    public function clearDnrAlertFocus(): void
+    {
+        $this->dnrAlertOnlyCardKey = '';
+        $this->dnrFocusCardKey = '';
+        $this->dnrDeepLinkVerify = 0;
+    }
+
+    public function setDnrCardRevision(string $cardKey, int $requestId): void
+    {
+        if ($cardKey === '' || $requestId < 1) {
+            return;
+        }
+        $this->dnrCardRevisionRequest[$cardKey] = $requestId;
+    }
+
+    public function toggleDnrCardExpanded(string $cardKey): void
+    {
+        if ($cardKey === '') {
+            return;
+        }
+        $this->dnrExpandedCards[$cardKey] = ! ($this->dnrExpandedCards[$cardKey] ?? false);
+    }
+
+    public function focusDnrAlert(int $distributionOfficeId): void
+    {
+        if ($this->dnrDocTypeFilter === '') {
+            $this->selectDnrDocTypeFilter('all');
+        } else {
+            $this->dnrSearchQuery = '';
+            $this->dnrSearchActive = '';
+            $this->loadDnrMonitoring();
+        }
+
+        $targetKey = '';
+        $scrollDistributionId = 0;
+        foreach ($this->dnrCards as $card) {
+            foreach ($card['revisions'] ?? [] as $rev) {
+                foreach ($rev['offices'] ?? [] as $office) {
+                    if ((int) ($office['distribution_office_id'] ?? 0) !== $distributionOfficeId) {
+                        continue;
+                    }
+                    $targetKey = (string) ($card['card_key'] ?? '');
+                    $this->dnrCardRevisionRequest[$targetKey] = (int) ($rev['request_id'] ?? 0);
+                    $scrollDistributionId = (int) ($rev['distribution_id'] ?? 0);
+                    break 3;
+                }
+            }
+        }
+
+        if ($targetKey !== '') {
+            $this->dnrAlertOnlyCardKey = $targetKey;
+            $this->dnrExpandedCards[$targetKey] = true;
+            $this->dnrFocusCardKey = $targetKey;
+        }
+
+        if ($scrollDistributionId > 0) {
+            $this->dispatch('dnr-scroll-to-card', scrollId: $scrollDistributionId);
+        } elseif ($distributionOfficeId > 0) {
+            $this->dispatch('dcs-toast', message: 'Could not locate the tracking card for this alert.', type: 'error');
+        }
+    }
+
+    /**
+     * @return list<array>
+     */
+    protected function resolvedDnrDisplayCards(): array
+    {
+        $out = [];
+        foreach ($this->dnrCards as $card) {
+            $cardKey = (string) ($card['card_key'] ?? '');
+            if ($this->dnrAlertOnlyCardKey !== '' && $cardKey !== $this->dnrAlertOnlyCardKey) {
+                continue;
+            }
+            if ($this->dnrSearchCardKey !== '' && $cardKey !== $this->dnrSearchCardKey) {
+                continue;
+            }
+            $revisions = $card['revisions'] ?? [];
+            $selectedRequestId = (int) ($this->dnrCardRevisionRequest[$cardKey] ?? $card['request_id'] ?? 0);
+            $active = null;
+            if ($selectedRequestId > 0) {
+                foreach ($revisions as $rev) {
+                    if ((int) ($rev['request_id'] ?? 0) === $selectedRequestId) {
+                        $active = $rev;
+                        break;
+                    }
+                }
+            }
+            if ($active === null) {
+                $active = $revisions[0] ?? null;
+            }
+            if ($active === null) {
+                continue;
+            }
+            // Search / alert focus: always show the full office table (no "show more" collapse).
+            $expanded = (bool) ($this->dnrExpandedCards[$cardKey] ?? false)
+                || $this->dnrSearchActive !== ''
+                || $this->dnrSearchCardKey !== ''
+                || $this->dnrAlertOnlyCardKey !== '';
+            $offices = $active['offices'] ?? [];
+            $totalCopies = 0;
+            $distributedCopies = 0;
+            foreach ($offices as $office) {
+                $copies = max(0, (int) ($office['copies'] ?? 0));
+                $totalCopies += $copies;
+                if (($office['distribution_status'] ?? '') === DistributionRetrievalHelper::DIST_DISTRIBUTED) {
+                    $distributedCopies += $copies;
+                }
+            }
+            $preview = DistributionRetrievalHelper::DNR_ROW_PREVIEW;
+            $out[] = [
+                'card_key' => $cardKey,
+                'doc_no' => $card['doc_no'] ?? '',
+                'doc_title' => $card['doc_title'] ?? '',
+                'revisions' => $revisions,
+                'request_id' => (int) ($active['request_id'] ?? 0),
+                'distribution_id' => (int) ($active['distribution_id'] ?? 0),
+                'revise_no' => (int) ($active['revise_no'] ?? 0),
+                'effectivity_date' => $active['effectivity_date'] ?? null,
+                'offices' => $offices,
+                'offices_visible' => $expanded ? $offices : array_slice($offices, 0, $preview),
+                'offices_hidden_count' => $expanded ? 0 : max(0, count($offices) - $preview),
+                'is_expanded' => $expanded,
+                'is_focused' => $this->dnrFocusCardKey !== '' && $this->dnrFocusCardKey === $cardKey,
+                'total_copies' => $totalCopies,
+                'distributed_copies' => $distributedCopies,
+            ];
+        }
+
+        return $out;
+    }
+
+    public function openDnrUpdateModal(int $distributionOfficeId, int $requestId = 0): void
+    {
+        $this->dnrModalOpen = false;
+        $this->dnrModalOfficeId = 0;
+        $this->dnrModalDocNo = '';
+        $this->dnrModalDocTitle = '';
+        $this->dnrModalOfficeName = '';
+        $this->dnrDistributionStatus = DistributionRetrievalHelper::DIST_PENDING;
+        $this->dnrCopyRetrievalStatus = DistributionRetrievalHelper::RET_NA;
+        $this->dnrWetSignatureVerified = false;
+        $this->dnrModalVerifyMode = false;
+
+        foreach ($this->dnrCards as $card) {
+            $cardKey = (string) ($card['card_key'] ?? '');
+            foreach ($card['revisions'] ?? [] as $rev) {
+                $revRequestId = (int) ($rev['request_id'] ?? 0);
+                if ($requestId > 0 && $revRequestId !== $requestId) {
+                    continue;
+                }
+                foreach ($rev['offices'] ?? [] as $office) {
+                    if ((int) ($office['distribution_office_id'] ?? 0) !== $distributionOfficeId) {
+                        continue;
+                    }
+                    if ($cardKey !== '') {
+                        $this->dnrCardRevisionRequest[$cardKey] = $revRequestId;
+                        $this->dnrFocusCardKey = $cardKey;
+                    }
+                    $this->dnrModalOfficeId = $distributionOfficeId;
+                    $this->dnrModalDocNo = (string) ($card['doc_no'] ?? '');
+                    $this->dnrModalDocTitle = (string) ($card['doc_title'] ?? '');
+                    $this->dnrModalOfficeName = (string) ($office['office_name'] ?? '');
+                    $this->dnrDistributionStatus = (string) ($office['distribution_status'] ?? DistributionRetrievalHelper::DIST_PENDING);
+                    $this->dnrCopyRetrievalStatus = (string) ($office['copy_retrieval_status'] ?? DistributionRetrievalHelper::RET_NA);
+                    $this->dnrWetSignatureVerified = (bool) ($office['wet_signature_verified'] ?? false);
+                    $this->dnrModalVerifyMode = (bool) ($office['needs_verify'] ?? false);
+                    $this->dnrModalOpen = true;
+
+                    return;
+                }
+            }
+        }
+        $this->dispatch('dcs-toast', message: 'Office row not found on this monitoring page.', type: 'error');
+    }
+
+    public function closeDnrUpdateModal(): void
+    {
+        $this->dnrModalOpen = false;
+        $this->dnrModalOfficeId = 0;
+        $this->dnrModalVerifyMode = false;
+        $this->dnrDeepLinkVerify = 0;
+    }
+
+    public function updatedDnrCopyRetrievalStatus(string $value): void
+    {
+        if ($value === DistributionRetrievalHelper::RET_PENDING
+            && $this->dnrDistributionStatus === DistributionRetrievalHelper::DIST_DISTRIBUTED) {
+            $this->dnrDistributionStatus = DistributionRetrievalHelper::DIST_PENDING;
+        }
+    }
+
+    public function saveDnrStatus(): void
+    {
+        if ($this->dnrModalOfficeId < 1) {
+            return;
+        }
+
+        $result = DistributionRetrievalHelper::updateOfficeStatus(
+            $this->dnrModalOfficeId,
+            $this->dnrDistributionStatus,
+            $this->dnrCopyRetrievalStatus,
+            $this->dnrWetSignatureVerified
+        );
+
+        $this->dispatch('dcs-toast', message: $result['message'], type: $result['ok'] ? 'success' : 'error');
+
+        if (! empty($result['ok'])) {
+            $this->closeDnrUpdateModal();
+            $this->loadDnrMonitoring();
+        }
     }
 
     public function openColumns(): void
@@ -692,7 +1251,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 @if($category === 'monitoring')
                     <button class="rpt-sub {{ $sub === 'drf' ? 'active' : '' }}" type="button" wire:click="selectSub('drf')" wire:loading.attr="disabled" wire:target="selectSub">DRF</button>
                     <button class="rpt-sub {{ $sub === 'dcn' ? 'active' : '' }}" type="button" wire:click="selectSub('dcn')" wire:loading.attr="disabled" wire:target="selectSub">DCN</button>
-                    <a class="rpt-sub" href="{{ route('dcs.reports.distributionRetrieval', absolute: false) }}">Distribution &amp; Retrieval</a>
+                    <button class="rpt-sub {{ $sub === 'dnr' ? 'active' : '' }}" type="button" wire:click="selectSub('dnr')" wire:loading.attr="disabled" wire:target="selectSub">Distribution &amp; Retrieval</button>
                 @endif
             @endif
         </nav>
@@ -710,7 +1269,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <div
             class="rpt-preview-loading rpt-body-loading"
             wire:loading.flex
-            wire:target="selectSub,selectSubType,applyFilters,resetFilters,loadReport,selectAllSubTypes,clearSubTypes,formYear,toggleSortDir"
+            wire:target="selectSub,selectSubType,applyFilters,resetFilters,loadReport,selectAllSubTypes,clearSubTypes,formYear,toggleSortDir,openDnrUpdateModal,saveDnrStatus,closeDnrUpdateModal,selectDnrDocTypeFilter,clearDnrSearch,clearDnrAlertFocus,focusDnrAlert,toggleDnrCardExpanded,selectDnrSuggestion"
         >
             <div class="rpt-loading-card">
                 <div class="rpt-loading-spinner" aria-hidden="true"></div>
@@ -726,6 +1285,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
     @elseif($sub !== '' || $category === 'others')
         <section class="rpt-results">
+            @if(empty($isDnr))
             <div class="rpt-results-head">
                 <div class="rpt-results-meta">
                     <h3>{{ $result['title'] ?? 'Report Preview' }}</h3>
@@ -791,14 +1351,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                 </div>
             </div>
+            @endif
 
-            <div class="rpt-preview-shell {{ ($isOpcr || $isMonitoring || $isOthers) ? 'rpt-preview-shell--table' : 'rpt-preview-shell--frame' }}">
+            <div class="rpt-preview-shell {{ ($isOpcr || $isMonitoring || $isOthers) ? 'rpt-preview-shell--table' : 'rpt-preview-shell--frame' }} {{ !empty($isDnr) ? 'rpt-preview-shell--dnr' : '' }}">
                 @if($error)
                     <div class="rpt-state">
                         <div class="rpt-state-icon state-error"><i class="fa-solid fa-circle-exclamation"></i></div>
                         <h4>Error</h4>
                         <p>{{ $error }}</p>
                     </div>
+                @elseif(!empty($isDnr))
+                    @include('pages.dcs.reports.partials.dnr-monitoring')
                 @elseif($isOpcr)
                     @php
                         $cols = $result['columns'] ?? [];

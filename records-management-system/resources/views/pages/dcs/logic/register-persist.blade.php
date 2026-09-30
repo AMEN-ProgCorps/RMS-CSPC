@@ -161,13 +161,11 @@ class RegisterPersistHelper
             'dcs.office.dcn.create' => 'Opened Create Office DCN',
             'dcs.office.dcn.show' => 'Viewed Office DCN',
             'dcs.office.dcn.print' => 'Printed Office DCN',
-            'dcs.office.documents' => 'Opened Document Inventory',
             'dcs.reports.masterlist' => 'Opened Masterlist Report',
             'dcs.reports.monitoring' => 'Opened Monitoring Report',
             'dcs.reports.opcr' => 'Opened OPCR Report',
             'dcs.reports.others' => 'Opened Other Reports',
             'dcs.reports.syllabiTos' => 'Opened Syllabi/TOS Report',
-            'dcs.reports.distributionRetrieval' => 'Opened Distribution & Retrieval Monitoring',
             default => null,
         };
     }
@@ -490,6 +488,11 @@ class RegisterPersistHelper
      */
     public static function resolveReviseNo(Request $request, mixed $fallback = null): int
     {
+        $mode = $request->input('registration_mode', 'new');
+        if ($mode !== 'revised' && $request->boolean('insert_shift_confirmed')) {
+            return 0;
+        }
+
         $raw = $request->input('masterlistRevisionNo');
         if ($raw === null || $raw === '') {
             if ($fallback === null || $fallback === '') {
@@ -500,6 +503,65 @@ class RegisterPersistHelper
         }
 
         return max(0, (int) $raw);
+    }
+
+    /**
+     * Split a syllabi faculty field into names without breaking credentials
+     * such as "Bien Paolo Monsalve, MNE".
+     *
+     * @return list<string>
+     */
+    public static function parseSyllabiFacultyNames(?string $raw): array
+    {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return [];
+        }
+
+        $known = [];
+        if (Schema::hasTable('dcs_faculties')) {
+            $q = DB::table('dcs_faculties');
+            if (class_exists(SettingsRecycleHelper::class)) {
+                SettingsRecycleHelper::applyNotDeleted($q, 'dcs_faculties');
+            }
+            $known = $q->pluck('faculty_name')->filter()->map(fn ($n) => trim((string) $n))->values()->all();
+            usort($known, fn ($a, $b) => mb_strlen($b) <=> mb_strlen($a));
+        }
+
+        foreach ($known as $name) {
+            if (strcasecmp($name, $raw) === 0) {
+                return [$name];
+            }
+        }
+
+        $parts = preg_split('/\s*,\s*/', $raw) ?: [];
+        $matched = [];
+        $buffer = '';
+        foreach ($parts as $part) {
+            $candidate = $buffer === '' ? $part : ($buffer.', '.$part);
+            $hit = null;
+            foreach ($known as $name) {
+                if (strcasecmp($name, trim($candidate)) === 0) {
+                    $hit = $name;
+                    break;
+                }
+            }
+            if ($hit !== null) {
+                $matched[] = $hit;
+                $buffer = '';
+            } else {
+                $buffer = $candidate;
+            }
+        }
+
+        if ($matched === []) {
+            return [$raw];
+        }
+        if (trim($buffer) !== '') {
+            $matched[] = trim($buffer);
+        }
+
+        return array_values(array_filter($matched, fn ($n) => $n !== ''));
     }
 
     /**
@@ -653,13 +715,10 @@ class RegisterPersistHelper
         }
 
         if (! $saveAsDraft && $effectivity === '') {
-            $subType = self::dcsDocType($request->input('sub_type_id'));
-            if (! self::isSyllabiLikeSubTypeRow($subType)) {
-                return self::draftErrorResponse(
-                    $request,
-                    'Effectivity Date is required.'
-                );
-            }
+            return self::draftErrorResponse(
+                $request,
+                'Effectivity Date is required.'
+            );
         }
 
         return null;
@@ -863,31 +922,14 @@ class RegisterPersistHelper
             }
         }
 
-        $keptTracking = [];
-        $trackingCols = ['office_id'];
-        foreach ([
-            'office_received_at',
-            'office_received_by',
-            'copy_no',
-            'distribution_status',
-            'copy_retrieval_status',
-            'old_version_label',
-            'physical_signature_verified',
-            'physical_signature_verified_at',
-            'physical_signature_verified_by',
-            'client_acknowledged_at',
-            'client_acknowledged_by',
-            'verification_required',
-        ] as $col) {
-            if (Schema::hasColumn('dcs_distribution_offices', $col)) {
-                $trackingCols[] = $col;
-            }
-        }
-        $keptTracking = DB::table('dcs_distribution_offices')
+        $keptByOffice = DB::table('dcs_distribution_offices')
             ->where('distribution_id', $distributionId)
-            ->get($trackingCols)
-            ->keyBy(fn ($row) => (int) $row->office_id)
-            ->all();
+            ->get()
+            ->keyBy(fn ($row) => (int) $row->office_id);
+
+        $requestId = (int) (DB::table('dcs_document_distribution')
+            ->where('id', $distributionId)
+            ->value('request_id') ?? 0);
 
         DB::table('dcs_distribution_offices')->where('distribution_id', $distributionId)->delete();
 
@@ -904,21 +946,44 @@ class RegisterPersistHelper
             if (Schema::hasColumn('dcs_distribution_offices', 'distribution_date')) {
                 $row['distribution_date'] = $request->input('distOfficeDate')[$i] ?? null;
             }
-            $prior = $keptTracking[$id] ?? null;
-            if ($prior && Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
+            $prior = $keptByOffice->get($id);
+            if ($prior && Schema::hasColumn('dcs_distribution_offices', 'office_received_at') && ! empty($prior->office_received_at)) {
                 $row['office_received_at'] = $prior->office_received_at;
                 $row['office_received_by'] = $prior->office_received_by ?? null;
             }
-            $row = \App\Helpers\DistributionRetrievalHelper::mergeTrackingIntoRow(
-                $row,
-                $prior,
-                $distributionId,
-                $id
-            );
+
+            // DnR tracking card defaults (preserve prior office status when re-saving).
+            if (Schema::hasColumn('dcs_distribution_offices', 'distribution_status')) {
+                if ($prior && isset($prior->distribution_status) && $prior->distribution_status !== null && $prior->distribution_status !== '') {
+                    $row['distribution_status'] = $prior->distribution_status;
+                } elseif ($prior && ! empty($prior->office_received_at ?? null)) {
+                    $row['distribution_status'] = \App\Helpers\DistributionRetrievalHelper::DIST_DISTRIBUTED;
+                } else {
+                    $row['distribution_status'] = \App\Helpers\DistributionRetrievalHelper::DIST_PENDING;
+                }
+            }
+            if (Schema::hasColumn('dcs_distribution_offices', 'copy_retrieval_status')) {
+                $row['copy_retrieval_status'] = ($prior && isset($prior->copy_retrieval_status) && $prior->copy_retrieval_status !== null && $prior->copy_retrieval_status !== '')
+                    ? $prior->copy_retrieval_status
+                    : \App\Helpers\DistributionRetrievalHelper::defaultCopyRetrievalStatus($requestId, $id);
+            }
+            if (Schema::hasColumn('dcs_distribution_offices', 'wet_signature_verified')) {
+                $row['wet_signature_verified'] = (bool) ($prior->wet_signature_verified ?? false);
+                if (Schema::hasColumn('dcs_distribution_offices', 'wet_signature_verified_at')) {
+                    $row['wet_signature_verified_at'] = $prior->wet_signature_verified_at ?? null;
+                    $row['wet_signature_verified_by'] = $prior->wet_signature_verified_by ?? null;
+                }
+            }
+            if (Schema::hasColumn('dcs_distribution_offices', 'client_acknowledged_at') && $prior) {
+                $row['client_acknowledged_at'] = $prior->client_acknowledged_at ?? null;
+                $row['client_acknowledged_by'] = $prior->client_acknowledged_by ?? null;
+            }
+            if (Schema::hasColumn('dcs_distribution_offices', 'pending_admin_verification')) {
+                $row['pending_admin_verification'] = (bool) ($prior->pending_admin_verification ?? false);
+            }
+
             DB::table('dcs_distribution_offices')->insert($row);
         }
-
-        \App\Helpers\DistributionRetrievalHelper::assignCopyNumbers($distributionId);
     }
 
     /**
@@ -1067,6 +1132,13 @@ class RegisterPersistHelper
             if ($newVersionId) {
                 $request->merge(['version_id' => $newVersionId]);
             }
+        }
+
+        if ($mode === 'new' && $request->boolean('insert_shift_confirmed')) {
+            $request->merge([
+                'masterlistRevisionNo' => 0,
+                'revised_from_doc_no' => null,
+            ]);
         }
 
         if ($mode === 'revised' && ! $saveAsDraft) {
@@ -1598,8 +1670,7 @@ class RegisterPersistHelper
                         DB::table('dcs_retrieval_offices')->insert($retrievalOfficeRow);
                     }
                 }
-
-                \App\Helpers\DistributionRetrievalHelper::syncRetrievalStatusesToTracking((int) $requestId);
+                \App\Helpers\DistributionRetrievalHelper::syncAllDistributionsForRequest((int) $requestId);
             }
 
             if (in_array(5, $checkedChecklists, true)) {
@@ -1635,9 +1706,11 @@ class RegisterPersistHelper
 
                 if ($request->has('distOffice')) {
                     self::saveDistributionOffices($distributionId, $request);
+                    \App\Helpers\DistributionRetrievalHelper::syncCopyRetrievalFromRetrieval(
+                        (int) $distributionId,
+                        (int) $requestId
+                    );
                 }
-
-                \App\Helpers\DistributionRetrievalHelper::syncRetrievalStatusesToTracking((int) $requestId);
             }
 
             if ($request->approval_status === 'applicable' && $request->filled('approvalBody')) {
@@ -1743,45 +1816,11 @@ class RegisterPersistHelper
             }
 
             if (! $saveAsDraft && $docNo !== '') {
-                $registrarName = RegisterQueryHelper::currentUserDisplayName();
-                $actorOffice = RegisterQueryHelper::currentOfficeCode();
-                $skipCodes = collect($submitterOfficeCodes)
-                    ->map(fn ($c) => strtoupper(trim((string) $c)))
-                    ->filter()
-                    ->unique()
-                    ->all();
-                if ($actorOffice) {
-                    $skipCodes[] = strtoupper(trim((string) $actorOffice));
-                    $skipCodes = array_values(array_unique($skipCodes));
-                }
-
-                $distIds = array_values(array_unique(array_filter(array_map(
-                    'intval',
-                    (array) $request->input('distOffice', [])
-                ))));
-                $masterlistIds = array_values(array_unique(array_filter(array_map(
-                    'intval',
-                    (array) $request->input('masterlistOfficeIds', [])
-                ))));
-                $masterlistOnlyIds = array_values(array_diff($masterlistIds, $distIds));
-
-                \App\Helpers\DistributionRetrievalHelper::notifyPickupForRequest(
+                $submitterOfficeCodes = $submitterOfficeCodes ?? [];
+                DcsNotificationService::notifyClientOfficesAfterRegistration(
                     (int) $requestId,
-                    $skipCodes
+                    $submitterOfficeCodes
                 );
-
-                foreach (DcsNotificationService::officeCodesFromIds($masterlistOnlyIds) as $officeCode) {
-                    if (in_array(strtoupper($officeCode), $skipCodes, true)) {
-                        continue;
-                    }
-                    DcsNotificationService::notifyDocumentRegistered(
-                        $officeCode,
-                        $registrarName,
-                        $docNo,
-                        $requestId,
-                        $revNo
-                    );
-                }
             }
 
             $successMessage = $saveAsDraft
@@ -2073,6 +2112,7 @@ class RegisterPersistHelper
                     "{$courseLabel}: Year level is required.");
             }
 
+            $usedFaculty = [];
             for ($c = 0; $c < $copies; $c++) {
                 $rowIdx = $i + $c;
                 if ($rowIdx >= $total) {
@@ -2082,10 +2122,18 @@ class RegisterPersistHelper
                 $rowLabel = "Syllabi \"{$courseLabel}\" (Copy {$copyNum})";
 
                 if ($copies > 1) {
-                    $facultyCount = count(array_filter(array_map('trim', explode(',', $request->syllabiFaculty[$rowIdx] ?? ''))));
-                    if ($facultyCount > 1) {
+                    $rowFaculties = self::parseSyllabiFacultyNames($request->syllabiFaculty[$rowIdx] ?? '');
+                    if (count($rowFaculties) > 1) {
                         return back()->withInput()->with('error',
                             "{$rowLabel}: Only one faculty per row is allowed when copies are split across rows.");
+                    }
+                    $rowName = mb_strtolower($rowFaculties[0] ?? '');
+                    if ($rowName !== '') {
+                        if (isset($usedFaculty[$rowName])) {
+                            return back()->withInput()->with('error',
+                                "{$rowLabel}: The same faculty cannot be used on more than one copy of this syllabi.");
+                        }
+                        $usedFaculty[$rowName] = true;
                     }
                 }
 
@@ -2511,7 +2559,7 @@ class RegisterPersistHelper
                     $uploadedFiles[] = $scannedDrf;
                 }
 
-                $facultyNames = array_filter(array_map('trim', explode(',', $facultyArr[$rowIdx] ?? '')));
+                $facultyNames = self::parseSyllabiFacultyNames($facultyArr[$rowIdx] ?? '');
                 if (empty($facultyNames)) {
                     $facultyNames = [''];
                 }

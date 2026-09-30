@@ -3042,26 +3042,36 @@ class OfficeIntakeHelper
     }
 
     /** @return int */
-    public static function officeDocumentTotal(?int $officeId = null): int
+    public static function officeDocumentTotal(?int $officeId = null, string $receiptFilter = 'all'): int
     {
-        return (int) self::officeMasterlistQuery($officeId, null)->count();
+        $query = self::officeMasterlistQuery($officeId, null);
+        self::applyOfficeReceiptFilter($query, (int) ($officeId ?? RegisterQueryHelper::currentOfficeId() ?? 0), $receiptFilter);
+
+        return (int) $query->count();
     }
 
     /**
      * Groups for office document inventory.
      * When $onlyWithDocuments is false, every parent type is returned (count may be 0).
      *
+     * @param  'all'|'received'|'pending'  $receiptFilter
      * @return list<array{key: string, label: string, count: int}>
      */
-    public static function officeDocumentGroups(?int $officeId = null, bool $onlyWithDocuments = true): array
-    {
+    public static function officeDocumentGroups(
+        ?int $officeId = null,
+        bool $onlyWithDocuments = true,
+        string $receiptFilter = 'all'
+    ): array {
+        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
         $groups = [];
         foreach (self::documentGroupDefs() as $key => $label) {
             $scope = self::documentGroupScope($key);
-            $count = (int) self::applyMasterlistGroupFilter(
+            $query = self::applyMasterlistGroupFilter(
                 self::officeMasterlistQuery($officeId, $scope),
                 $key
-            )->count();
+            );
+            self::applyOfficeReceiptFilter($query, (int) ($officeId ?? 0), $receiptFilter);
+            $count = (int) $query->count();
             if ($onlyWithDocuments && $count < 1) {
                 continue;
             }
@@ -3073,6 +3083,69 @@ class OfficeIntakeHelper
         }
 
         return $groups;
+    }
+
+    /**
+     * Filter distributed docs by physical receipt / DnR distribution status for the office.
+     *
+     * @param  'all'|'received'|'pending'|'incoming'  $receiptFilter
+     */
+    protected static function applyOfficeReceiptFilter($query, int $officeId, string $receiptFilter): void
+    {
+        if ($receiptFilter === 'all' || $officeId < 1) {
+            return;
+        }
+
+        $hasDistStatus = Schema::hasColumn('dcs_distribution_offices', 'distribution_status');
+        $hasReceivedAt = Schema::hasColumn('dcs_distribution_offices', 'office_received_at');
+
+        if (! $hasDistStatus && ! $hasReceivedAt) {
+            if ($receiptFilter === 'received') {
+                $query->whereRaw('1 = 0');
+            }
+
+            return;
+        }
+
+        // Incoming page: keep all docs assigned to the office (including Distributed → Appraisal).
+        if ($receiptFilter === 'incoming') {
+            $query->whereExists(function ($q) use ($officeId) {
+                $q->select(DB::raw(1))
+                    ->from('dcs_document_distribution as dist_rcpt')
+                    ->join('dcs_distribution_offices as doff_rcpt', 'doff_rcpt.distribution_id', '=', 'dist_rcpt.id')
+                    ->whereColumn('dist_rcpt.request_id', 'ml.request_id')
+                    ->where('doff_rcpt.office_id', $officeId);
+            });
+
+            return;
+        }
+
+        $query->whereExists(function ($q) use ($officeId, $receiptFilter, $hasDistStatus, $hasReceivedAt) {
+            $q->select(DB::raw(1))
+                ->from('dcs_document_distribution as dist_rcpt')
+                ->join('dcs_distribution_offices as doff_rcpt', 'doff_rcpt.distribution_id', '=', 'dist_rcpt.id')
+                ->whereColumn('dist_rcpt.request_id', 'ml.request_id')
+                ->where('doff_rcpt.office_id', $officeId);
+            if ($receiptFilter === 'received') {
+                if ($hasDistStatus) {
+                    $q->where('doff_rcpt.distribution_status', \App\Helpers\DistributionRetrievalHelper::DIST_DISTRIBUTED);
+                } else {
+                    $q->whereNotNull('doff_rcpt.office_received_at');
+                }
+            } elseif ($receiptFilter === 'pending') {
+                if ($hasDistStatus) {
+                    $q->where(function ($inner) use ($hasReceivedAt) {
+                        $inner->whereNull('doff_rcpt.distribution_status')
+                            ->orWhere('doff_rcpt.distribution_status', '!=', \App\Helpers\DistributionRetrievalHelper::DIST_DISTRIBUTED);
+                        if ($hasReceivedAt) {
+                            $inner->whereNull('doff_rcpt.office_received_at');
+                        }
+                    });
+                } else {
+                    $q->whereNull('doff_rcpt.office_received_at');
+                }
+            }
+        });
     }
 
     /** One row per document number — highest revision only. */
@@ -3092,10 +3165,11 @@ class OfficeIntakeHelper
             $docNo = trim((string) ($ml->doc_no ?? ''));
 
             return sprintf('%d-%s-%010d', $docNo === '' ? 1 : 0, $docNo, (int) ($ml->id ?? 0));
-        })->values();
+        }, SORT_NATURAL | SORT_FLAG_CASE)->values();
     }
 
     /**
+     * @param  'all'|'received'|'pending'  $receiptFilter
      * @return list<array{
      *     item_no: int,
      *     request_id: int,
@@ -3109,8 +3183,11 @@ class OfficeIntakeHelper
      *     received_by_name: string
      * }>
      */
-    public static function listOfficeDocuments(string $groupKey, ?int $officeId = null): array
-    {
+    public static function listOfficeDocuments(
+        string $groupKey,
+        ?int $officeId = null,
+        string $receiptFilter = 'all'
+    ): array {
         $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
         if (! $officeId) {
             return [];
@@ -3127,6 +3204,8 @@ class OfficeIntakeHelper
                 $groupKey
             );
         }
+
+        self::applyOfficeReceiptFilter($query, (int) $officeId, $receiptFilter);
 
         $select = [
                 'ml.id',
@@ -3167,11 +3246,9 @@ class OfficeIntakeHelper
             $requestId = (int) ($ml->request_id ?? 0);
             $receipt = $receipts[$requestId] ?? null;
             $receivedAt = $receipt['received_at'] ?? null;
-            $distStatus = $receipt['distribution_status'] ?? null;
-            $retStatus = $receipt['copy_retrieval_status'] ?? null;
-            $awaitingVerify = ! empty($receipt['verification_required']);
-            $distributed = $distStatus === \App\Helpers\DistributionRetrievalHelper::DIST_DISTRIBUTED
-                || $receivedAt !== null;
+            $isDistributed = (bool) ($receipt['is_distributed'] ?? ($receivedAt !== null));
+            $pendingVerify = (bool) ($receipt['pending_admin_verification'] ?? false);
+            $canAcknowledge = (bool) ($receipt['can_acknowledge'] ?? ($requestId > 0 && $receipt !== null && $receivedAt === null));
             $rows[] = [
                 'item_no' => $itemNo,
                 'request_id' => $requestId,
@@ -3182,15 +3259,15 @@ class OfficeIntakeHelper
                 'effectivity_date' => $ml->effectivity_date
                     ? RegisterQueryHelper::formatSmartDate($ml->effectivity_date)
                     : null,
-                'can_receive' => $requestId > 0 && $receipt !== null && ! $distributed && ! $awaitingVerify,
-                'awaiting_verify' => $awaitingVerify && ! $distributed,
+                'can_receive' => $canAcknowledge,
+                'can_acknowledge' => $canAcknowledge,
+                'is_distributed' => $isDistributed,
+                'pending_admin_verification' => $pendingVerify,
+                'incoming_action' => $isDistributed
+                    ? 'appraisal'
+                    : ($pendingVerify ? 'pending_verification' : 'acknowledge'),
                 'received_at' => $receivedAt,
                 'received_by_name' => (string) ($receipt['received_by_name'] ?? ''),
-                'copy_label' => (string) ($receipt['copy_label'] ?? ''),
-                'distribution_status' => $distStatus,
-                'copy_retrieval_status' => $retStatus,
-                'old_version_label' => (string) ($receipt['old_version_label'] ?? ''),
-                'copies' => (int) ($receipt['copies'] ?? 1),
             ];
         }
 
@@ -3199,23 +3276,29 @@ class OfficeIntakeHelper
 
     /**
      * @param  list<int>  $requestIds
-     * @return array<int, array<string, mixed>>
+     * @return array<int, array{received_at: string|null, received_by_name: string}>
      */
     protected static function officeDistributionReceipts(int $officeId, array $requestIds): array
     {
         $requestIds = array_values(array_filter($requestIds, static fn (int $id) => $id > 0));
-        if ($requestIds === [] || ! Schema::hasTable('dcs_distribution_offices')) {
+        if ($requestIds === []) {
             return [];
         }
 
-        $select = ['dist.request_id', 'doff.copies'];
-        if (Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
-            $select[] = 'doff.office_received_at';
-            $select[] = 'doff.office_received_by';
-        }
-        foreach (['copy_no', 'distribution_status', 'copy_retrieval_status', 'old_version_label', 'verification_required', 'client_acknowledged_by'] as $col) {
+        $cols = [
+            'dist.request_id',
+            'doff.copies',
+        ];
+        foreach ([
+            'office_received_at',
+            'office_received_by',
+            'distribution_status',
+            'pending_admin_verification',
+            'client_acknowledged_at',
+            'client_acknowledged_by',
+        ] as $col) {
             if (Schema::hasColumn('dcs_distribution_offices', $col)) {
-                $select[] = 'doff.' . $col;
+                $cols[] = 'doff.'.$col;
             }
         }
 
@@ -3223,15 +3306,12 @@ class OfficeIntakeHelper
             ->join('dcs_distribution_offices as doff', 'doff.distribution_id', '=', 'dist.id')
             ->whereIn('dist.request_id', $requestIds)
             ->where('doff.office_id', $officeId)
-            ->get($select);
+            ->get($cols);
 
         $names = [];
         $receiverIds = $rows
-            ->pluck('office_received_by');
-        if (Schema::hasColumn('dcs_distribution_offices', 'client_acknowledged_by')) {
-            $receiverIds = $receiverIds->merge($rows->pluck('client_acknowledged_by'));
-        }
-        $receiverIds = $receiverIds
+            ->pluck('office_received_by')
+            ->merge($rows->pluck('client_acknowledged_by'))
             ->filter(fn ($id) => $id !== null && (int) $id > 0)
             ->map(fn ($id) => (int) $id)
             ->unique()
@@ -3243,7 +3323,7 @@ class OfficeIntakeHelper
                 ->whereIn('account_id', $receiverIds)
                 ->get(['account_id', 'first_name', 'last_name'])
                 ->mapWithKeys(fn ($d) => [
-                    (int) $d->account_id => trim(trim((string) ($d->first_name ?? '')) . ' ' . trim((string) ($d->last_name ?? ''))),
+                    (int) $d->account_id => trim(trim((string) ($d->first_name ?? '')).' '.trim((string) ($d->last_name ?? ''))),
                 ])
                 ->all();
         }
@@ -3252,23 +3332,25 @@ class OfficeIntakeHelper
         foreach ($rows as $row) {
             $requestId = (int) $row->request_id;
             $rid = (int) ($row->office_received_by ?? 0);
+            $distStatus = (string) ($row->distribution_status ?? '');
+            if ($distStatus === '' && ! empty($row->office_received_at ?? null)) {
+                $distStatus = \App\Helpers\DistributionRetrievalHelper::DIST_DISTRIBUTED;
+            }
+            if ($distStatus === '') {
+                $distStatus = \App\Helpers\DistributionRetrievalHelper::DIST_PENDING;
+            }
+            $isDistributed = $distStatus === \App\Helpers\DistributionRetrievalHelper::DIST_DISTRIBUTED;
+            $pendingVerify = (bool) ($row->pending_admin_verification ?? false);
             $out[$requestId] = [
                 'received_at' => ! empty($row->office_received_at)
                     ? \Carbon\Carbon::parse($row->office_received_at)->format('M d, Y g:i A')
                     : null,
                 'received_by_name' => $rid > 0 ? trim((string) ($names[$rid] ?? '')) : '',
-                'copies' => max(1, (int) ($row->copies ?? 1)),
-                'copy_label' => \App\Helpers\DistributionRetrievalHelper::copyLabel(
-                    (int) ($row->copy_no ?? 0),
-                    max(1, (int) ($row->copies ?? 1))
-                ),
-                'distribution_status' => $row->distribution_status
-                    ?? (! empty($row->office_received_at)
-                        ? \App\Helpers\DistributionRetrievalHelper::DIST_DISTRIBUTED
-                        : \App\Helpers\DistributionRetrievalHelper::DIST_PENDING),
-                'copy_retrieval_status' => $row->copy_retrieval_status ?? \App\Helpers\DistributionRetrievalHelper::RET_NA,
-                'old_version_label' => trim((string) ($row->old_version_label ?? '')),
-                'verification_required' => (bool) ($row->verification_required ?? false),
+                'distribution_status' => $distStatus,
+                'is_distributed' => $isDistributed,
+                'pending_admin_verification' => $pendingVerify,
+                'can_acknowledge' => ! $isDistributed && ! $pendingVerify,
+                'copies' => (int) ($row->copies ?? 1),
             ];
         }
 
@@ -3280,7 +3362,8 @@ class OfficeIntakeHelper
      */
     public static function markOfficeDocumentReceived(int $requestId): array
     {
-        if (\App\Helpers\DistributionRetrievalHelper::tablesReady()) {
+        // Path B: Accept / Acknowledge Receipt — notify admin; do not auto-distribute.
+        if (\App\Helpers\DistributionRetrievalHelper::schemaReady()) {
             return \App\Helpers\DistributionRetrievalHelper::acknowledgeReceipt($requestId);
         }
 
@@ -3306,10 +3389,11 @@ class OfficeIntakeHelper
         }
 
         $ml = Schema::hasTable('dcs_masterlist_registration')
-            ? DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first(['doc_title', 'doc_no'])
+            ? DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first(['doc_title', 'doc_no', 'revise_no'])
             : null;
         $title = trim((string) ($ml->doc_title ?? ''));
         $docNo = trim((string) ($ml->doc_no ?? ''));
+        $revNo = isset($ml->revise_no) ? (int) $ml->revise_no : null;
 
         if (! empty($row->office_received_at)) {
             $who = self::displayNameForUser((int) ($row->office_received_by ?? 0));
@@ -3329,16 +3413,26 @@ class OfficeIntakeHelper
             'office_received_by' => $userId > 0 ? $userId : null,
         ]);
 
+        $receiverName = RegisterQueryHelper::currentUserDisplayName();
         $officeCode = RegisterQueryHelper::currentOfficeCode();
         if ($officeCode) {
             DcsNotificationService::notifyOfficeDocumentReceived(
                 $officeCode,
-                RegisterQueryHelper::currentUserDisplayName(),
+                $receiverName,
                 $title !== '' ? $title : $docNo,
                 $docNo !== '' ? $docNo : null,
                 $userId > 0 ? $userId : null
             );
         }
+
+        DcsNotificationService::notifyAdminOfficeReceivedDocument(
+            RegisterQueryHelper::currentOfficeName(),
+            $receiverName,
+            $title !== '' ? $title : $docNo,
+            $docNo !== '' ? $docNo : null,
+            $requestId,
+            $revNo
+        );
 
         return ['ok' => true, 'already' => false, 'message' => 'Document marked as received.'];
     }

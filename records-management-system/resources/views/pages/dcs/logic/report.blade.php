@@ -38,6 +38,7 @@ class ReportHelper
                     'logbooks'       => 'Logbooks',
                     'drf'            => 'DRF',
                     'dcn'            => 'DCN',
+                    'dnr'            => 'Distribution & Retrieval',
                 ],
             ],
             'opcr' => [
@@ -760,6 +761,7 @@ class ReportHelper
     {
         if ($sub === 'drf') return $this->drfReport($dateFrom, $dateTo, $filters);
         if ($sub === 'dcn') return $this->dcnReport($dateFrom, $dateTo, $filters);
+        if ($sub === 'dnr') return $this->dnrReport($dateFrom, $dateTo, $filters);
         if ($sub === 'internal_docs') return $this->documentMonitoringLog('Internal', $dateFrom, $dateTo, $filters);
         if ($sub === 'external_docs') return $this->documentMonitoringLog('External', $dateFrom, $dateTo, $filters);
         if (in_array($sub, ['internal_forms', 'forms', 'logbooks'])) {
@@ -1269,6 +1271,50 @@ class ReportHelper
             'columns'    => $columns,
             'title'      => 'DCN Monitoring Report',
             'total_rows' => $rows->count(),
+        ]);
+    }
+
+    /** Flattened export/preview rows for Distribution & Retrieval monitoring. */
+    private function dnrReport(?string $dateFrom, ?string $dateTo, array $filters = [])
+    {
+        $cards = DistributionRetrievalHelper::monitoringCards($dateFrom, $dateTo, 'all');
+        $rows = collect();
+        $item = 0;
+        foreach ($cards as $card) {
+            foreach ($card['offices'] as $office) {
+                $item++;
+                $rows->push([
+                    'item_no' => $item,
+                    'doc_no' => $card['doc_no'] !== '' ? $card['doc_no'] : '—',
+                    'doc_title' => $card['doc_title'] !== '' ? $card['doc_title'] : '—',
+                    'revise_no' => $card['revise_no'],
+                    'office' => $office['office_name'],
+                    'copies' => $office['copies'],
+                    'distribution_status' => $office['distribution_status_label'],
+                    'copy_retrieval_status' => $office['copy_retrieval_status_label'],
+                    'pending_verification' => ! empty($office['needs_verify']) || ! empty($office['pending_admin_verification']) ? 'Yes' : '—',
+                ]);
+            }
+        }
+
+        $columns = [
+            'item_no' => 'ITEM NO.',
+            'doc_no' => 'DOC. NO.',
+            'doc_title' => 'DOCUMENT TITLE',
+            'revise_no' => 'REV.',
+            'office' => 'RECIPIENT OFFICE',
+            'copies' => 'COPIES',
+            'distribution_status' => 'DISTRIBUTION STATUS',
+            'copy_retrieval_status' => 'COPY RETRIEVAL STATUS',
+            'pending_verification' => 'CLIENT ACK.',
+        ];
+
+        return response()->json([
+            'rows' => $rows->values(),
+            'columns' => $columns,
+            'title' => 'Distribution & Retrieval Monitoring',
+            'total_rows' => $rows->count(),
+            'dnr_interactive' => true,
         ]);
     }
 

@@ -88,39 +88,23 @@ class DcsNotificationTest extends TestCase
         );
 
         $this->assertDatabaseHas($this->contentTable(), [
-            'content' => 'Document CSPC-FM-001 (Rev 2) has been registered by Jane Doe.',
-            'redirect_url' => '/dcs/register/42/edit',
+            'content' => 'A revised controlled document CSPC-FM-001 (Rev 2) has been registered by Jane Doe.',
+            'redirect_url' => '/dcs/office/documents',
         ]);
     }
 
     public function test_notify_document_distributed_message_and_redirect(): void
     {
-        DcsNotificationService::notifyDocumentPickupReady(
+        DcsNotificationService::notifyDocumentDistributed(
             $this->officeCode,
-            'Vehicle Policy 2026',
-            'Copy #3',
-            false
+            'CSPC-F-COL',
+            'Continuation of the Curriculum',
+            1
         );
 
         $this->assertDatabaseHas($this->contentTable(), [
-            'content' => 'Your office has a new controlled document to receive and it is ready for pickup (Vehicle Policy 2026). Please send a representative to the Records Office to sign the physical D&R list and claim Copy #3.',
-            'redirect_url' => '/dcs/office/documents?pickup=1',
-        ]);
-    }
-
-    public function test_notify_revised_document_pickup_ready(): void
-    {
-        DcsNotificationService::notifyDocumentPickupReady(
-            $this->officeCode,
-            'Vehicle Policy 2026',
-            'Copy #3',
-            true,
-            'Rev 0'
-        );
-
-        $this->assertDatabaseHas($this->contentTable(), [
-            'content' => 'Your office is about to receive a new revision of Vehicle Policy 2026 is ready for pickup. Please bring your office\'s current physical paper copy (Rev 0) to the Records Office to return it in exchange for Copy #3.',
-            'redirect_url' => '/dcs/office/documents?pickup=1',
+            'content' => 'Your office has a revised controlled document to receive: "Continuation of the Curriculum" (CSPC-F-COL, Rev 1).',
+            'redirect_url' => '/dcs/office/incoming',
         ]);
     }
 
@@ -137,6 +121,27 @@ class DcsNotificationTest extends TestCase
         $this->assertDatabaseHas($this->contentTable(), [
             'content' => 'Maria Santos marked incoming document "Continuation of the Curriculum" as received.',
             'redirect_url' => '/dcs/office/documents?ack_by=15',
+        ]);
+    }
+
+    public function test_notify_admin_when_office_receives_distributed_document(): void
+    {
+        DcsNotificationService::notifyAdminOfficeReceivedDocument(
+            'College of Computer Studies',
+            'Niño Bermundo',
+            'Human Rights Education Process',
+            'CSPC-WI-CHRE-01',
+            42,
+            1
+        );
+
+        $adminOffice = \App\Helpers\RegisterQueryHelper::rfioNotificationOfficeCode();
+        $this->assertDatabaseHas($this->contentTable(), [
+            'content' => 'College of Computer Studies received "Human Rights Education Process" (CSPC-WI-CHRE-01, Rev 1) (marked by Niño Bermundo).',
+            'redirect_url' => '/dcs/register/42/edit',
+        ]);
+        $this->assertDatabaseHas($this->notifTable(), [
+            'office' => $adminOffice,
         ]);
     }
 
@@ -185,18 +190,5 @@ class DcsNotificationTest extends TestCase
             'content' => 'Document CSPC-FM-010 has been stamped (Reference) by Jan Russel.',
             'redirect_url' => '/dcs/stamping?request_id=99',
         ]);
-    }
-
-    public function test_copy_label_formats_ranges(): void
-    {
-        $this->assertSame('Copy #3', \App\Helpers\DistributionRetrievalHelper::copyLabel(3, 1));
-        $this->assertSame('Copy #3–4', \App\Helpers\DistributionRetrievalHelper::copyLabel(3, 2));
-        $this->assertSame('Copy #—', \App\Helpers\DistributionRetrievalHelper::copyLabel(0, 1));
-    }
-
-    public function test_pickup_notification_detection(): void
-    {
-        $this->assertTrue(\App\Helpers\DistributionRetrievalHelper::isPickupNotification('/dcs/office/documents?pickup=1'));
-        $this->assertFalse(\App\Helpers\DistributionRetrievalHelper::isPickupNotification('/dcs/office/documents'));
     }
 }

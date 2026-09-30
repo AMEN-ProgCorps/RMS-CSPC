@@ -61,14 +61,44 @@ class DtsRdpIntakeService
                     ->first();
             }
 
-            // Optional RDP record-series type linked to the DTS flow (contin_rdp_id).
-            $seriesTypeId = null;
+            // Record series continuity for the completed transaction (contin_rdp_id on
+            // dts_transaction_flow). A flow left at "Server default" (NULL) falls back
+            // to the record series configured in System Settings, so changing that
+            // setting immediately affects every flow still on Server default.
+            $recordSeriesId = null;
             if (!empty($trans->transaction_flow)
                 && Schema::hasTable('dts_transaction_flow')
                 && Schema::hasColumn('dts_transaction_flow', 'contin_rdp_id')) {
-                $seriesTypeId = DB::table('dts_transaction_flow')
+                $recordSeriesId = DB::table('dts_transaction_flow')
                     ->where('flow_code', $trans->transaction_flow)
                     ->value('contin_rdp_id');
+            }
+
+            if (empty($recordSeriesId)) {
+                $settingsTable = Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
+                if (Schema::hasTable($settingsTable)) {
+                    $recordSeriesId = DB::table($settingsTable)
+                        ->where('key', 'rdp_server_default_record_series_id')
+                        ->value('value');
+                }
+            }
+
+            $recordSeriesId = ($recordSeriesId !== null && $recordSeriesId !== '')
+                ? (int) $recordSeriesId
+                : null;
+
+            $seriesTypeId = null;
+            if ($recordSeriesId !== null && Schema::hasTable('rdp_record_series')) {
+                $series = DB::table('rdp_record_series')
+                    ->where('id', $recordSeriesId)
+                    ->first(['id', 'series_type']);
+
+                if ($series) {
+                    $seriesTypeId = $series->series_type;
+                } else {
+                    // Referenced series no longer exists — fall back to no series.
+                    $recordSeriesId = null;
+                }
             }
 
             $response = self::callIntakeEndpoint([
@@ -85,6 +115,7 @@ class DtsRdpIntakeService
                 'metadata'            => [
                     'transaction_id'            => (string) $trans->transaction_id,
                     'flow_code'                 => $trans->transaction_flow ?? null,
+                    'record_series_id'          => $recordSeriesId,
                     'rdp_record_series_type_id' => $seriesTypeId,
                     'completed_at'              => now()->toIso8601String(),
                     'completed_by'              => auth()->user()?->username ?: 'System',

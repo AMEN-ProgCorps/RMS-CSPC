@@ -109,6 +109,12 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                 $nextCode = $nextSequence->office_code;
                 if ($nextCode === 'ORIGIN') {
                     $nextCode = $t->originated_from;
+                } elseif ($nextCode === '[H]') {
+                    // Resolve cluster head placeholder from the originating office's cluster
+                    $originClusterCode = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $t->originated_from)->value('cluster');
+                    $nextCode = $originClusterCode
+                        ? (DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster')->where('cluster_code', $originClusterCode)->value('cluster_head') ?: $t->originated_from)
+                        : $t->originated_from;
                 } elseif ($nextCode === '[HUB]') {
                     $cfRecord = DB::table('dts_copy_filled_transaction')->where('control_num', $t->control_number)->first();
                     $hubOffices = $cfRecord ? DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->pluck('office_code')->toArray() : [];
@@ -584,7 +590,7 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                                         <button wire:click="openForwardModal('{{ $t->transaction_id }}')" class="btn-forward-action">
                                             👁 View
                                         </button>
-                                        <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="btn-forward-action" style="background: #0284c7;">
+                                        <button type="button" onclick="if(window.openScannerModal) window.openScannerModal();" class="btn-forward-action" style="background: #0284c7;">
                                             📷 Scan
                                         </button>
                                     </div>
@@ -615,7 +621,7 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                             <button wire:click="openForwardModal('{{ $t->transaction_id }}')" class="btn-forward-action" style="flex: 1; justify-content: center;">
                                 👁 View
                             </button>
-                            <button type="button" onclick="if(window.openScannerModal) window.openScannerModal('{{ $t->control_number }}');" class="btn-forward-action" style="flex: 1; justify-content: center; background: #0284c7;">
+                            <button type="button" onclick="if(window.openScannerModal) window.openScannerModal();" class="btn-forward-action" style="flex: 1; justify-content: center; background: #0284c7;">
                                 📷 Scan
                             </button>
                         </div>

@@ -394,16 +394,32 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                 if ($flowRow) {
                     $originOfficeCode = $flow->originated_from;
                     $originOfficeName = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $originOfficeCode)->value('office_name') ?: $originOfficeCode;
+
+                    // Resolve [H] (cluster head placeholder) from the originating office's cluster
+                    $clusterHeadCode = $originOfficeCode;
+                    $clusterHeadName = $originOfficeName;
+                    $originOfficeRow = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $originOfficeCode)->first();
+                    if ($originOfficeRow && $originOfficeRow->cluster) {
+                        $originClusterRow = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster')->where('cluster_code', $originOfficeRow->cluster)->first();
+                        if ($originClusterRow && $originClusterRow->cluster_head) {
+                            $clusterHeadCode = $originClusterRow->cluster_head;
+                            $clusterHeadName = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $originClusterRow->cluster_head)->value('office_name') ?: $clusterHeadCode;
+                        }
+                    }
+
                     $steps = DB::table('dts_sequence_list as seq')
                         ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'seq.office_code')
                         ->where('seq.control_id', $flowRow->id)
                         ->select('seq.*', 'office.office_name')
                         ->orderBy('seq.sequence_ranking', 'asc')
                         ->get()
-                        ->map(function ($step) use ($originOfficeCode, $originOfficeName, $t) {
+                        ->map(function ($step) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName, $t) {
                             if ($step->office_code === 'ORIGIN') {
                                 $step->office_code = $originOfficeCode;
                                 $step->office_name = $originOfficeName;
+                            } elseif ($step->office_code === '[H]') {
+                                $step->office_code = $clusterHeadCode;
+                                $step->office_name = $clusterHeadName;
                             }
                             return $step;
                         });

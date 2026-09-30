@@ -770,24 +770,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
 
         // 1. Validate inputs
         if ($this->selectedPredefined === 'new') {
-            // Check if a deactivated flow with the same name or code exists
+            // Check if a deactivated flow with the same code exists (codes stay unique)
             $deactivatedByCode = \DB::table('dts_transaction_flow')
                 ->where('flow_code', strtoupper(trim($this->flowCode)))
                 ->where('is_active', false)
                 ->first();
 
-            $deactivatedByName = \DB::table('dts_transaction_flow')
-                ->where('flow_name', trim($this->flowName))
-                ->where('is_active', false)
-                ->first();
-
-            // For uniqueness validation, exclude inactive records
-            $nameExcludeId = $deactivatedByName ? $deactivatedByName->id : null;
             $codeExcludeId = $deactivatedByCode ? $deactivatedByCode->id : null;
 
-            $nameRule = $nameExcludeId
-                ? 'required|string|max:255|unique:dts_transaction_flow,flow_name,' . $nameExcludeId . ',id'
-                : 'required|string|max:255|unique:dts_transaction_flow,flow_name';
+            // flow_name is intentionally NOT unique: the database no longer enforces it,
+            // so several flows may share a name and stay apart through their flow_code.
+            $nameRule = 'required|string|max:255';
 
             $codeRule = $codeExcludeId
                 ? 'required|string|max:255|unique:dts_transaction_flow,flow_code,' . $codeExcludeId . ',id|regex:/^[A-Z0-9_\-]+$/i'
@@ -802,7 +795,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             ]);
         } else {
             $this->validate([
-                'flowName' => 'required|string|max:255|unique:dts_transaction_flow,flow_name,' . $this->selectedPredefined . ',id',
+                'flowName' => 'required|string|max:255',
                 'flowUse' => 'required|string|in:internal,external,issuances,application,others,none',
             ]);
         }

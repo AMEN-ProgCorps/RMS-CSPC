@@ -93,12 +93,17 @@ new class extends Component {
         // Clean common barcode gun framing artifacts (trailing bracket, quotes, semicolons)
         $cleanedCode = trim($rawCode, " \t\n\r\0\x0B[]{}()\"'<>");
 
+        if (str_contains($cleanedCode, '%')) {
+            $cleanedCode = urldecode($cleanedCode);
+        }
+
         // Attempt Base64 decode: accept if decoded result is printable ASCII (32–126)
         // or matches the XXXX-XXXX-... QR code dash-segment pattern.
-        // (ctype_print rejects multi-byte chars that can appear in base64-decoded QR codes)
+        // Handles standard Base64 as well as URL-safe Base64 (- and _).
         $code = $cleanedCode;
-        if (preg_match('/^[A-Za-z0-9+\/]+=*$/', $cleanedCode) && strlen($cleanedCode) >= 8) {
-            $tryDecode = base64_decode($cleanedCode, true);
+        $candidateB64 = strtr($cleanedCode, '-_', '+/');
+        if (preg_match('/^[A-Za-z0-9+\/]+=*$/', $candidateB64) && strlen($candidateB64) >= 8) {
+            $tryDecode = base64_decode($candidateB64, true);
             if ($tryDecode !== false) {
                 $decodedClean = trim($tryDecode);
                 // Accept if all chars are printable ASCII OR matches QR dash-segment pattern
@@ -111,6 +116,8 @@ new class extends Component {
             }
         }
 
+        // Always synchronize scannedCode with the decoded code so the frontend input updates immediately
+        $this->scannedCode = $code;
         $this->lastScannedCode = $code;
 
         // Log scan
@@ -230,6 +237,15 @@ new class extends Component {
                     ->first();
                 if ($nextSeq) {
                     $nextOfficeCode = $nextSeq->office_code;
+                    if ($nextOfficeCode === 'ORIGIN') {
+                        $nextOfficeCode = $transaction->originated_from;
+                    } elseif ($nextOfficeCode === '[H]') {
+                        // Resolve cluster head placeholder from the originating office's cluster
+                        $originClusterCode = DB::table('sys_office')->where('office_code', $transaction->originated_from)->value('cluster');
+                        $nextOfficeCode = $originClusterCode
+                            ? (DB::table('sys_cluster')->where('cluster_code', $originClusterCode)->value('cluster_head') ?: $transaction->originated_from)
+                            : $transaction->originated_from;
+                    }
                     $nextOfficeName = DB::table('sys_office')->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
                 }
             }
@@ -492,6 +508,12 @@ new class extends Component {
                                         $nextOfficeCode = $nextSeq->office_code;
                                         if ($nextOfficeCode === 'ORIGIN') {
                                             $nextOfficeCode = $this->activeTransaction['originated_office_code'];
+                                        } elseif ($nextOfficeCode === '[H]') {
+                                            // Resolve cluster head placeholder from the originating office's cluster
+                                            $originClusterCode = DB::table('sys_office')->where('office_code', $this->activeTransaction['originated_office_code'])->value('cluster');
+                                            $nextOfficeCode = $originClusterCode
+                                                ? (DB::table('sys_cluster')->where('cluster_code', $originClusterCode)->value('cluster_head') ?: $this->activeTransaction['originated_office_code'])
+                                                : $this->activeTransaction['originated_office_code'];
                                         }
                                     }
                                 }
@@ -1276,12 +1298,15 @@ new class extends Component {
                         };
 
                         const decodeIfBase64 = (raw) => {
-                            if (!/^[A-Za-z0-9+/]+=*$/.test(raw) || raw.length < 8) return raw;
+                            if (!raw) return raw;
+                            const str = raw.trim();
+                            if (!/^[A-Za-z0-9+/_\-=]+$/.test(str) || str.length < 8) return str;
                             try {
-                                const decoded = atob(raw);
+                                const normalized = str.replace(/-/g, '+').replace(/_/g, '/');
+                                const decoded = atob(normalized);
                                 if (/^[\x20-\x7E]+$/.test(decoded)) return decoded.trim();
                             } catch (e) { /* not valid Base64 */ }
-                            return raw;
+                            return str;
                         };
 
                         const onScanSuccess = (decodedText) => {
@@ -1319,18 +1344,24 @@ new class extends Component {
                             qrbox: calculateQrboxSize
                         };
 
-                        // Strategy 1: environment + HD ideal
+                        // Strategy 1: environment (rear) + HD ideal
                         try {
                             await html5QrCode.start({ facingMode: "environment" }, hdConfig, onScanSuccess, () => {});
                         } catch (e1) {
-                            console.warn('Modal camera env+HD failed, trying user+HD:', e1);
-                            // Strategy 2: front-facing + HD ideal
+                            console.warn('Modal camera env+HD failed, trying env+bare:', e1);
+                            // Strategy 2: rear camera, no resolution constraints
                             try {
-                                await html5QrCode.start({ facingMode: "user" }, hdConfig, onScanSuccess, () => {});
+                                await html5QrCode.start({ facingMode: "environment" }, bareConfig, onScanSuccess, () => {});
                             } catch (e2) {
-                                console.warn('Modal camera user+HD failed, trying bare:', e2);
-                                // Strategy 3: front-facing, no resolution constraints
-                                await html5QrCode.start({ facingMode: "user" }, bareConfig, onScanSuccess, () => {});
+                                console.warn('Modal camera env+bare failed, trying user+HD:', e2);
+                                // Strategy 3: front-facing + HD ideal (last resort)
+                                try {
+                                    await html5QrCode.start({ facingMode: "user" }, hdConfig, onScanSuccess, () => {});
+                                } catch (e3) {
+                                    console.warn('Modal camera user+HD failed, trying user bare:', e3);
+                                    // Strategy 4: front-facing, no resolution constraints (last resort)
+                                    await html5QrCode.start({ facingMode: "user" }, bareConfig, onScanSuccess, () => {});
+                                }
                             }
                         }
 

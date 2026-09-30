@@ -319,31 +319,63 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
     public function updatedTypeOfDocument($value): void
     {
         if (empty($value)) {
-            $this->transaction_flow = '';
-            $this->flow_offices = [];
-            $this->cf_selected_offices = [];
+            $this->applyTypeOfDocument(null);
             return;
         }
 
-        $flow = DB::table('dts_transaction_flow')
-            ->where('flow_name', $value)
-            ->first();
-
-        if ($flow) {
-            $this->transaction_flow = $flow->flow_code;
-            $this->updatedTransactionFlow($flow->flow_code);
-        } else {
-            $this->transaction_flow = '';
-            $this->flow_offices = [];
-            $this->cf_selected_offices = [];
-        }
+        // Typed text only carries the name, so match it against the flows this screen
+        // may use; the dropdown passes a flow_code for an exact match.
+        $this->applyTypeOfDocument($this->resolveFlow(null, (string) $value));
     }
 
-    public function selectDocumentType(string $flowName): void
+    public function selectDocumentType(string $flowName, string $flowCode = ''): void
     {
         $this->type_of_document = $flowName;
         $this->showDocTypeDropdown = false;
-        $this->updatedTypeOfDocument($flowName);
+        $this->applyTypeOfDocument($this->resolveFlow($flowCode ?: null, $flowName));
+    }
+
+    /**
+     * flow_name is not unique anymore, so resolve a picker selection by flow_code
+     * whenever the dropdown provides one.
+     */
+    protected function resolveFlow(?string $flowCode, string $flowName): ?object
+    {
+        if ($flowCode) {
+            $listed = collect($this->flows)->firstWhere('flow_code', $flowCode);
+            if ($listed) {
+                return (object) $listed;
+            }
+
+            $flow = DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
+            if ($flow) {
+                return $flow;
+            }
+        }
+
+        $listed = collect($this->flows)->firstWhere('flow_name', $flowName);
+        if ($listed) {
+            return (object) $listed;
+        }
+
+        return DB::table('dts_transaction_flow')
+            ->where('flow_name', $flowName)
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->first();
+    }
+
+    protected function applyTypeOfDocument(?object $flow): void
+    {
+        if ($flow) {
+            $this->transaction_flow = $flow->flow_code;
+            $this->updatedTransactionFlow($flow->flow_code);
+            return;
+        }
+
+        $this->transaction_flow = '';
+        $this->flow_offices = [];
+        $this->cf_selected_offices = [];
     }
 
     public function updatedTransactionFlow($value): void
@@ -709,6 +741,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
             $this->flows = DB::table('dts_transaction_flow')
                 ->where('is_active', true)
                 ->whereIn('flow_use', ['internal', 'none'])
+                ->where('flow_name', 'not like', 'Flow for %')
                 ->where(function($query) use ($userOfficeId) {
                     $query->where('flow_for', 'system')
                           ->orWhere(function($q) {
@@ -1364,8 +1397,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                                     @if(count($predefinedFlows) > 0)
                                         <div class="dts-dropdown-header">Predefined Flows</div>
                                         @foreach($predefinedFlows as $flow)
-                                            <div class="dts-dropdown-item" wire:click="selectDocumentType('{{ addslashes($flow['flow_name']) }}')">
-                                                <span>{{ $flow['flow_name'] }}</span>
+                                            <div class="dts-dropdown-item" wire:click="selectDocumentType('{{ addslashes($flow['flow_name']) }}', '{{ $flow['flow_code'] }}')">
+                                                <span>{{ $flow['flow_name'] }} <span style="color: #94a3b8; font-size: 10px;">({{ $flow['flow_code'] }})</span></span>
                                             </div>
                                         @endforeach
                                     @endif
@@ -1373,8 +1406,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                                     @if(count($customFlows) > 0)
                                         <div class="dts-dropdown-header" @if(count($predefinedFlows) > 0) style="border-top: 1px solid #e2e8f0;" @endif>Custom Flows</div>
                                         @foreach($customFlows as $flow)
-                                            <div class="dts-dropdown-item" wire:click="selectDocumentType('{{ addslashes($flow['flow_name']) }}')">
-                                                <span>{{ $flow['flow_name'] }}</span>
+                                            <div class="dts-dropdown-item" wire:click="selectDocumentType('{{ addslashes($flow['flow_name']) }}', '{{ $flow['flow_code'] }}')">
+                                                <span>{{ $flow['flow_name'] }} <span style="color: #94a3b8; font-size: 10px;">({{ $flow['flow_code'] }})</span></span>
                                             </div>
                                         @endforeach
                                     @endif

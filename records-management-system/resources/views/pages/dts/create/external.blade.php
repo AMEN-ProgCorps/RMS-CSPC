@@ -825,6 +825,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create External
             $this->flows = DB::table('dts_transaction_flow')
                 ->where('is_active', true)
                 ->whereIn('flow_use', ['external', 'none'])
+                ->where('flow_name', 'not like', 'Flow for %')
                 ->where(function($query) use ($userOfficeId) {
                     $query->where('flow_for', 'system')
                           ->orWhere(function($q) {

@@ -1164,7 +1164,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                                     <tr class="req-tbl-row {{ $selectedRequestorId === $req->id ? 'selected-row' : '' }}" wire:click="selectRequestorItem({{ $req->id }})" wire:key="req-tbl-{{ $req->id }}">
                                         <td class="user-name-cell">
                                             <div style="display: flex; align-items: center; gap: 8px;">
-                                                <div style="width: 28px; height: 28px; border-radius: 50%; background: #0284c7; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;">
+                                                <div style="width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: #0284c7; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;">
                                                     <i class="fa-solid fa-user-pen"></i>
                                                 </div>
                                                 <span>{{ $req->requestor_name }}</span>

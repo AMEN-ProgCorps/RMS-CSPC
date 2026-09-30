@@ -1346,27 +1346,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                         @enderror
                     </div>
                 </div>
-
-                <!-- Originating Unit / College field -->
-                @if(auth()->user()?->permissions?->is_sadm)
-                <div class="form-row">
-                    <div class="form-col medium-input">
-                        <label class="input-label">Originating Unit / College</label>
-                        <select wire:model.live="unit_college" class="select-input">
-                            <option value="">Select Unit / College</option>
-                            @foreach($offices as $office)
-                                <option value="{{ $office['office_code'] }}">{{ $office['office_name'] }} ({{ $office['office_code'] }})</option>
-                            @endforeach
-                        </select>
-                        @error('unit_college')
-                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
-                        @enderror
-                    </div>
-                </div>
-                @endif
-
-
-
                 <!-- Subject field with label and textarea -->
                 <div class="form-row">
                     <div class="form-col subject-wrapper">
@@ -1380,9 +1359,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
 
                 <!-- Type of Document field -->
                 <div class="form-row">
-                    <div class="form-col small-input" style="position: relative;">
+                    <div class="form-col small-input" style="position: relative; max-width: 540px;">
                         <label class="input-label">Type of Document</label>
-                        <div style="position: relative;" wire:click.outside="$set('showDocTypeDropdown', false)">
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                        <div style="position: relative; flex: 1;" wire:click.outside="$set('showDocTypeDropdown', false)">
                             <input type="text" wire:model.live="type_of_document" wire:focus="$set('showDocTypeDropdown', true)" class="text-input" placeholder="Type of Document" autocomplete="off" style="padding-right: 32px;">
                             <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #94a3b8; font-size: 10px;">▼</span>
                             @if($showDocTypeDropdown)
@@ -1418,26 +1398,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                                 </div>
                             @endif
                         </div>
-                        @error('type_of_document')
-                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
-                        @enderror
-                    </div>
-                </div>
-
-                <!-- View Path field -->
-                <div class="form-row">
-                    <div class="form-col viewpath-wrapper">
-                        <label class="input-label">Transaction Flow / Path</label>
-                        <div style="display: flex; gap: 8px; align-items: center;">
-                            <input type="text" class="text-input" style="flex: 1; background-color: #f1f5f9; color: #475569;" value="{{ $transaction_flow ? $transaction_flow : 'No flow selected' }}" readonly>
-                            <button type="button" wire:click="openFlowDiagram" class="btn-primary" style="padding: 0 16px; height: 38px; font-size: 12px; font-weight: 600; background-color: #4b5563; border-radius: 4px;" {{ empty($transaction_flow) ? 'disabled' : '' }}>
+                            <button type="button" wire:click="openFlowDiagram" class="btn-primary" style="padding: 0 16px; height: 40px; font-size: 12px; font-weight: 600; background-color: #4b5563; border-radius: 4px; white-space: nowrap; flex-shrink: 0;" {{ empty($transaction_flow) ? 'disabled' : '' }}>
                                 View Flow Diagram
                             </button>
                         </div>
+                        @error('type_of_document')
+                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                        @enderror
                         @error('transaction_flow')
                             <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
                         @enderror
-                        <a href="#" wire:click.prevent="openCustomFlowCreator" style="font-size: 11.5px; color: #2563eb; text-decoration: none; font-weight: 600; margin-top: 4px; display: inline-block;">Flow Can't be found?</a>
+                        @if(empty($transaction_flow))
+                            <a href="#" wire:click.prevent="openCustomFlowCreator" style="font-size: 11.5px; color: #2563eb; text-decoration: none; font-weight: 600; margin-top: 6px; display: inline-block;">Flow Can't be found?</a>
+                        @endif
                     </div>
                 </div>
 

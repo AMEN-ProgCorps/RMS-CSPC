@@ -77,6 +77,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
                 'can_dts_view_all_list'          => 'View All Lists',
                 'can_dts_view_all_archive'       => 'View All Archives',
                 'can_dts_view_all_current_trans' => 'View All Current Transactions',
+                'can_dts_view_all_scanner_codes' => 'View All Scanner Codes',
                 'can_dts_create_own_flow'        => 'Create Own Transaction Flow',
                 'can_dts_use_internal'           => 'Access Internal Transactions',
                 'can_dts_use_external'           => 'Access External Transactions',

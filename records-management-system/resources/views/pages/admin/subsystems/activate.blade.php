@@ -75,6 +75,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Active Subsystems')] cla
             });
 
             $this->successMessage = "Subsystem '{$subsystem->subsystem_name}' has been successfully deactivated!";
+
+            // Hand the new token to this tab so only other users soft-refresh.
+            $this->dispatch('system-refresh-token-changed', token: \App\Helpers\SubsystemHelper::refreshToken());
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to deactivate subsystem: ' . $e->getMessage();
         }

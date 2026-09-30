@@ -106,6 +106,8 @@ new class extends Component {
         timeoutMs: {{ (int) $idleTimeoutMinutes }} * 60 * 1000,
         warningMs: 60 * 1000,
         pingIntervalMs: 2 * 60 * 1000,
+        refreshToken: '{{ \App\Helpers\SubsystemHelper::refreshToken() }}',
+        refreshing: false,
 
         onUserActivity() {
             this.lastActive = Date.now();
@@ -139,10 +141,40 @@ new class extends Component {
             this.lastPing = Date.now();
             this.warn = false;
             $wire.stay();
+        },
+
+        checkSystemRefresh() {
+            if (this.refreshing) return;
+            fetch('{{ url('/api/systems/refresh-token') }}', { headers: { 'Accept': 'application/json' } })
+                .then((r) => (r.ok ? r.json() : null))
+                .then((data) => {
+                    if (!data || !data.token) return;
+                    if (!this.refreshToken) {
+                        this.refreshToken = data.token;
+                        return;
+                    }
+                    if (data.token !== this.refreshToken) {
+                        this.refreshing = true;
+                        window.location.reload();
+                    }
+                })
+                .catch(() => {});
+        },
+
+        applySystemRefreshToken(detail) {
+            const token = typeof detail === 'string' ? detail : (detail && detail.token);
+            if (token) this.refreshToken = token;
         }
     }"
     x-init="
         setInterval(() => tick(), 1000);
+        setInterval(() => checkSystemRefresh(), 30000);
+        const applyRefreshToken = (e) => applySystemRefreshToken(e && e.detail !== undefined ? e.detail : e);
+        document.addEventListener('system-refresh-token-changed', applyRefreshToken);
+        window.addEventListener('system-refresh-token-changed', applyRefreshToken);
+        if (window.Livewire && typeof window.Livewire.on === 'function') {
+            window.Livewire.on('system-refresh-token-changed', (e) => applySystemRefreshToken(e && e.detail !== undefined ? e.detail : e));
+        }
         window.addEventListener('pagehide', () => {
             const data = new FormData();
             data.append('_token', '{{ csrf_token() }}');

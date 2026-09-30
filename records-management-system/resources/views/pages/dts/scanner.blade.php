@@ -140,7 +140,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
             ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
 
-        if (!$userOfficeCode && !auth()->user()?->permissions?->is_sadm) {
+        // "View All Scanner Codes" clearance — without it the list is scoped to this station's office
+        $canViewAllCodes = (bool) (auth()->user()?->permissions?->can_dts_view_all_scanner_codes ?? false);
+
+        if (!$userOfficeCode && !$canViewAllCodes && !auth()->user()?->permissions?->is_sadm) {
             return collect();
         }
 
@@ -151,8 +154,19 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
             ->whereNotIn('dt.status', ['completed', 'cancelled']);
 
-        if (!auth()->user()?->permissions?->is_sadm) {
-            $query->where('dt.current_office', $userOfficeCode);
+        // Scope to the user's own station: "Incoming / To Receive" and
+        // "In Custody / To Forward" are both transactions currently sitting at
+        // this office — regardless of role — unless the role holds the
+        // "View All Scanner Codes" clearance.
+        if ($userOfficeCode && !$canViewAllCodes) {
+            $query->where(function ($q) use ($userOfficeCode) {
+                $q->where('dt.current_office', $userOfficeCode)
+                  ->orWhere(function ($sub) use ($userOfficeCode) {
+                      // Legacy rows saved with current_office = 'ORIGIN'
+                      $sub->where('dt.current_office', 'ORIGIN')
+                          ->where('dtd.originated_from', $userOfficeCode);
+                  });
+            });
         }
 
         if (!empty(trim($this->availableSearch))) {
@@ -214,15 +228,25 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
             ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
 
-        if (!$userOfficeCode && !auth()->user()?->permissions?->is_sadm) {
+        if (!$userOfficeCode && !(auth()->user()?->permissions?->can_dts_view_all_scanner_codes ?? false) && !auth()->user()?->permissions?->is_sadm) {
             return ['all' => 0, 'incoming' => 0, 'received' => 0];
         }
 
         $query = DB::table('dts_transactions as dt')
+            ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->whereNotIn('dt.status', ['completed', 'cancelled']);
 
-        if (!auth()->user()?->permissions?->is_sadm) {
-            $query->where('dt.current_office', $userOfficeCode);
+        // Same station scope as getAvailableTransactionsProperty(), honoring the "View All Scanner Codes" clearance
+        $canViewAllCodes = (bool) (auth()->user()?->permissions?->can_dts_view_all_scanner_codes ?? false);
+        if ($userOfficeCode && !$canViewAllCodes) {
+            $query->where(function ($q) use ($userOfficeCode) {
+                $q->where('dt.current_office', $userOfficeCode)
+                  ->orWhere(function ($sub) use ($userOfficeCode) {
+                      // Legacy rows saved with current_office = 'ORIGIN'
+                      $sub->where('dt.current_office', 'ORIGIN')
+                          ->where('dtd.originated_from', $userOfficeCode);
+                  });
+            });
         }
 
         $allRows = $query->select('dt.transaction_id', 'dt.current_office')->get();

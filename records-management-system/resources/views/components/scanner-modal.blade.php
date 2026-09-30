@@ -237,6 +237,15 @@ new class extends Component {
                     ->first();
                 if ($nextSeq) {
                     $nextOfficeCode = $nextSeq->office_code;
+                    if ($nextOfficeCode === 'ORIGIN') {
+                        $nextOfficeCode = $transaction->originated_from;
+                    } elseif ($nextOfficeCode === '[H]') {
+                        // Resolve cluster head placeholder from the originating office's cluster
+                        $originClusterCode = DB::table('sys_office')->where('office_code', $transaction->originated_from)->value('cluster');
+                        $nextOfficeCode = $originClusterCode
+                            ? (DB::table('sys_cluster')->where('cluster_code', $originClusterCode)->value('cluster_head') ?: $transaction->originated_from)
+                            : $transaction->originated_from;
+                    }
                     $nextOfficeName = DB::table('sys_office')->where('office_code', $nextOfficeCode)->value('office_name') ?: $nextOfficeCode;
                 }
             }
@@ -499,6 +508,12 @@ new class extends Component {
                                         $nextOfficeCode = $nextSeq->office_code;
                                         if ($nextOfficeCode === 'ORIGIN') {
                                             $nextOfficeCode = $this->activeTransaction['originated_office_code'];
+                                        } elseif ($nextOfficeCode === '[H]') {
+                                            // Resolve cluster head placeholder from the originating office's cluster
+                                            $originClusterCode = DB::table('sys_office')->where('office_code', $this->activeTransaction['originated_office_code'])->value('cluster');
+                                            $nextOfficeCode = $originClusterCode
+                                                ? (DB::table('sys_cluster')->where('cluster_code', $originClusterCode)->value('cluster_head') ?: $this->activeTransaction['originated_office_code'])
+                                                : $this->activeTransaction['originated_office_code'];
                                         }
                                     }
                                 }

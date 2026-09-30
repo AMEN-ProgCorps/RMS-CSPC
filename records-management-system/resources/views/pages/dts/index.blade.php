@@ -822,8 +822,18 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         foreach ($logs as $log) {
             $step = new \stdClass();
             $step->sequence_ranking = $stepIndex++;
-            $step->office_code = $log->office_code;
-            $step->office_name = $log->office_name ?: $log->office_code;
+            // Logs may contain placeholder codes (written by older paths) — resolve them for display
+            $logOfficeCode = $log->office_code;
+            $logOfficeName = $log->office_name;
+            if ($logOfficeCode === 'ORIGIN') {
+                $logOfficeCode = $originOfficeCode;
+                $logOfficeName = $originOfficeName;
+            } elseif ($logOfficeCode === '[H]') {
+                $logOfficeCode = $clusterHeadCode;
+                $logOfficeName = $clusterHeadName;
+            }
+            $step->office_code = $logOfficeCode;
+            $step->office_name = $logOfficeName ?: $logOfficeCode;
             $step->date_in = $log->date_in;
             $step->date_out = $log->date_out;
             $step->action_needed = match($log->type) {

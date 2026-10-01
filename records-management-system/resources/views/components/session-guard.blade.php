@@ -169,6 +169,10 @@ new class extends Component {
     x-init="
         setInterval(() => tick(), 1000);
         setInterval(() => checkSystemRefresh(), 30000);
+        // Camera / barcode-scanner usage is real activity even when the user
+        // never touches the mouse or keyboard — without this, a camera-only
+        // scanning session would hit the inactivity logout mid-use.
+        window.addEventListener('scanner-activity', () => onUserActivity());
         const applyRefreshToken = (e) => applySystemRefreshToken(e && e.detail !== undefined ? e.detail : e);
         document.addEventListener('system-refresh-token-changed', applyRefreshToken);
         window.addEventListener('system-refresh-token-changed', applyRefreshToken);

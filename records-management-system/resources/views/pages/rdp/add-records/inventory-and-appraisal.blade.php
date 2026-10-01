@@ -1749,10 +1749,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 @else
                     <!-- Description -->
                     <div class="ia-form-row" wire:key="ia-row-desc" style="align-items: flex-start;">
-                        <div style="display: flex; flex-direction: column; width: 140px; min-width: 140px; margin-top: 6px;">
-                            <span class="ia-label {{ $isAppraising ? '' : 'ia-label-required' }}">Description</span>
+                        <div class="ia-label-stack" style="margin-top: 6px;">
+                            <span class="{{ $isAppraising ? '' : 'ia-label-required' }}">Description</span>
                             @if($isAppraising)
-                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; width: fit-content; margin-top: 4px; border: 1px solid #e2e8f0;">
+                                <span class="ia-locked-badge">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                                     LOCKED (From DTS)
                                 </span>
@@ -1808,10 +1808,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
                     <!-- Records Medium -->
                     <div class="ia-form-row" wire:key="ia-row-medium">
-                        <div style="display: flex; flex-direction: column; width: 140px; min-width: 140px;">
-                            <span class="ia-label">Records Medium</span>
+                        <div class="ia-label-stack">
+                            <span>Records Medium</span>
                             @if($isAppraising)
-                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; width: fit-content; margin-top: 2px; border: 1px solid #e2e8f0;">
+                                <span class="ia-locked-badge">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                                     LOCKED (Default)
                                 </span>
@@ -1839,10 +1839,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
                     <!-- Restriction -->
                     <div class="ia-form-row" wire:key="ia-row-restriction">
-                        <div style="display: flex; flex-direction: column; width: 140px; min-width: 140px;">
-                            <span class="ia-label">Restriction / Access</span>
+                        <div class="ia-label-stack">
+                            <span>Restriction / Access</span>
                             @if($isAppraising)
-                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; width: fit-content; margin-top: 2px; border: 1px solid #e2e8f0;">
+                                <span class="ia-locked-badge">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                                     LOCKED (Default)
                                 </span>
@@ -1876,10 +1876,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
                     <!-- Frequency of Use -->
                     <div class="ia-form-row" wire:key="ia-row-frequency">
-                        <div style="display: flex; flex-direction: column; width: 140px; min-width: 140px;">
-                            <span class="ia-label">Frequency of Use</span>
+                        <div class="ia-label-stack">
+                            <span>Frequency of Use</span>
                             @if($isAppraising)
-                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; width: fit-content; margin-top: 2px; border: 1px solid #e2e8f0;">
+                                <span class="ia-locked-badge">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                                     LOCKED (Annually)
                                 </span>
@@ -1909,10 +1909,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             @if(!$isBatchMode)
             <!-- Duplicate -->
             <div class="ia-form-row" wire:key="ia-row-duplicate" style="align-items: flex-start;">
-                <div style="display: flex; flex-direction: column; width: 140px; min-width: 140px; margin-top: 6px;">
-                    <span class="ia-label">Duplicate</span>
+                <div class="ia-label-stack" style="margin-top: 6px;">
+                    <span>Duplicate</span>
                     @if($isAppraising)
-                        <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; width: fit-content; margin-top: 4px; border: 1px solid #e2e8f0;">
+                        <span class="ia-locked-badge">
                             <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                             LOCKED (From DTS)
                         </span>

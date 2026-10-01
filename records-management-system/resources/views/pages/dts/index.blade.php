@@ -1259,10 +1259,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             }
         });
 
-        // TEMPORARY: hand a fully-completed transaction to RDP intake.
-        \App\Services\DtsRdpIntakeService::recordCompleted($this->selectedTransactionId);
-
+        $completedTxId = $this->selectedTransactionId;
+        $controlNo = $this->selectedTransaction->control_number ?? $this->controlNumber ?? '';
         $this->closeTransaction();
+
+        if ($completedTxId) {
+            $this->dispatch('open-dts-rdp-handoff', transactionId: $completedTxId, controlNumber: $controlNo);
+        }
     }
 
     public function triggerUploadFileModal(): void

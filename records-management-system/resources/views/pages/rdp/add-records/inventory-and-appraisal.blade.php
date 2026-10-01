@@ -58,6 +58,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     // Form Input Properties
     public string $description = '';
     public string $volume = '';
+    public string $volume_amount = '';
+    public string $volume_unit = 'Folder';
     public ?int $records_medium = null;
     public ?string $restriction = null;
     public string $records_location = '';
@@ -73,6 +75,28 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public string $active_period = '';
     public string $storage_period = '';
     public string $disposition_provision = '';
+
+    public bool $isAppraising = false;
+
+    public function updatedVolumeAmount($val): void
+    {
+        $val = trim((string)$val);
+        if (!empty($val)) {
+            $this->volume = $val . ' ' . ($this->volume_unit ?: 'Folder');
+        } else {
+            $this->volume = '';
+        }
+    }
+
+    public function updatedVolumeUnit($val): void
+    {
+        $amt = trim((string)$this->volume_amount);
+        if (!empty($amt)) {
+            $this->volume = $amt . ' ' . ($val ?: 'Folder');
+        } else {
+            $this->volume = '';
+        }
+    }
 
     public $uploadedFile = null;
     public ?string $successMessage = null;
@@ -386,6 +410,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->prefill_doc_id = request()->query('prefill_doc_id');
 
         if ($this->prefill_intake_id) {
+            $this->isAppraising = true;
             $intake = DB::table('rdp_received_documents')->where('id', $this->prefill_intake_id)->first();
             if ($intake) {
                 $this->parentSeriesTitle = $intake->document_title ?? '';
@@ -400,6 +425,78 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 if ($intake->document_id_handler) {
                     $this->prefill_doc_id = $intake->document_id_handler;
                 }
+
+                // Unpack metadata from DTS Handoff if present
+                if (!empty($intake->metadata)) {
+                    $meta = is_string($intake->metadata) ? json_decode($intake->metadata, true) : (array)$intake->metadata;
+                    if (is_array($meta)) {
+                        if (!empty($meta['record_series_id'])) {
+                            $this->loadSeriesById((int)$meta['record_series_id']);
+                        }
+                        $medId = $meta['records_medium_id'] ?? $meta['records_medium'] ?? null;
+                        if (!empty($medId)) {
+                            $this->records_medium = (int)$medId;
+                        }
+                        $restName = $meta['restriction_name'] ?? $meta['restriction'] ?? null;
+                        if (!empty($restName)) {
+                            $this->restriction = $restName;
+                        }
+
+                        // Volume Amount & Unit extraction (strictly require numbers)
+                        $rawVol = trim((string)($meta['volume'] ?? ''));
+                        $rawAmt = trim((string)($meta['volume_amount'] ?? ''));
+                        $rawUnit = trim((string)($meta['volume_unit'] ?? 'Folder'));
+
+                        if (!empty($rawAmt) && preg_match('/\d/', $rawAmt)) {
+                            $this->volume_amount = $rawAmt;
+                            $this->volume_unit = $rawUnit ?: 'Folder';
+                            $this->volume = $this->volume_amount . ' ' . $this->volume_unit;
+                        } elseif (!empty($rawVol) && preg_match('/\d/', $rawVol)) {
+                            $this->volume = $rawVol;
+                            if (preg_match('/^(\d+)\s*(.*)$/i', $rawVol, $m)) {
+                                $this->volume_amount = $m[1];
+                                if (!empty(trim($m[2]))) {
+                                    $this->volume_unit = ucfirst(strtolower(trim($m[2])));
+                                }
+                            }
+                        } else {
+                            $this->volume = '';
+                            $this->volume_amount = '';
+                            $this->volume_unit = 'Folder';
+                        }
+
+                        if (!empty($meta['records_location'])) {
+                            $this->records_location = $meta['records_location'];
+                        }
+                        $this->frequence_use = $meta['frequence_use'] ?? 'Annually';
+                        if (!empty($meta['duplicate_offices']) && is_array($meta['duplicate_offices'])) {
+                            $this->duplicate_offices = array_values(array_unique(array_merge($this->duplicate_offices, $meta['duplicate_offices'])));
+                        }
+                        if (!empty($meta['utility_values']) && is_array($meta['utility_values'])) {
+                            $this->utility_values = array_values(array_unique(array_merge($this->utility_values, $meta['utility_values'])));
+                        }
+                        if (!empty($meta['date_covered'])) {
+                            $this->date_covered = Carbon::parse($meta['date_covered'])->format('Y-m-d');
+                        }
+                    }
+                }
+
+                // Defaults for locked appraisal fields
+                if (empty($this->restriction)) {
+                    $this->restriction = 'Restricted';
+                }
+                if (empty($this->frequence_use)) {
+                    $this->frequence_use = 'Annually';
+                }
+                if (empty($this->records_medium)) {
+                    $this->records_medium = $this->getDefaultMediumId();
+                }
+                if (empty($this->duplicate_offices)) {
+                    $userOffice = Auth::user()?->details?->office?->office_code ?? Auth::user()?->details?->office_code ?? null;
+                    if ($userOffice) {
+                        $this->duplicate_offices = [$userOffice];
+                    }
+                }
             }
         } elseif (request()->query('prefill_title')) {
             $this->parentSeriesTitle = request()->query('prefill_title');
@@ -413,8 +510,77 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    public function loadSeriesById(int $id): void
+    {
+        $series = DB::table('rdp_record_series')->where('id', $id)->first();
+        if (!$series) return;
+
+        $this->record_series_id = $series->id;
+        $chain = [];
+        $curr = $series;
+        while ($curr) {
+            array_unshift($chain, $curr);
+            $curr = $curr->parent_id ? DB::table('rdp_record_series')->where('id', $curr->parent_id)->first() : null;
+        }
+
+        $this->parentSeriesTitle = $chain[0]->series_title;
+        $this->subsections = [];
+        for ($i = 1; $i < count($chain); $i++) {
+            $this->subsections[] = $chain[$i]->series_title;
+        }
+
+        $this->selectedSeriesHierarchy = array_map(function ($s) {
+            return [
+                'title' => $s->series_title,
+                'is_predefined' => true,
+            ];
+        }, $chain);
+
+        $this->selectedSeriesTitle = implode(' ➔ ', array_column($this->selectedSeriesHierarchy, 'title'));
+        $this->isCustomSeries = false;
+
+        $retention = null;
+        if ($series->retention_period) {
+            $retention = DB::table('rdp_retention_period')->where('id', $series->retention_period)->first();
+        }
+
+        if (!empty($series->remarks)) {
+            $this->hasPredefinedRemarks = true;
+            $this->disposition_provision = $series->remarks;
+        }
+
+        $isPermFlag = (bool)($series->is_retention_period_permanent ?? false);
+        $isActivePermanent = $retention && strtolower($retention->active_period ?? '') === 'permanent';
+        $isTotalPermanent  = $retention && strtolower($retention->total_period ?? '') === 'permanent';
+        $isTitlePermanent  = str_contains(strtolower($series->series_title), 'permanent');
+
+        if ($series->retention_period || $isPermFlag || $retention) {
+            $this->hasPredefinedRetention = true;
+        }
+
+        if ($isPermFlag || $isActivePermanent || $isTotalPermanent || $isTitlePermanent) {
+            $this->is_permanent = true;
+            $this->active_period = '';
+            $this->storage_period = '';
+            $this->retention_period = 'Permanent';
+            $this->time_value = 'P';
+        } else {
+            $this->is_permanent = false;
+            $this->active_period = mb_strtoupper($retention->active_period ?? '');
+            $this->storage_period = mb_strtoupper($retention->storage_period ?? '');
+            $this->retention_period = mb_strtoupper($this->computeTotalPeriod($this->active_period, $this->storage_period, false));
+            $this->time_value = 'T';
+        }
+
+        $this->syncArchivalAutoSelect();
+    }
+
     public function addDuplicateOffice(?string $officeCode = null): void
     {
+        if ($this->isAppraising) {
+            return;
+        }
+
         $codeToAdd = strtoupper(trim($officeCode ?? $this->duplicate_search));
         if (empty($codeToAdd)) {
             return;
@@ -444,6 +610,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function removeDuplicateOffice(int $index): void
     {
+        if ($this->isAppraising) {
+            return;
+        }
+
         if (isset($this->duplicate_offices[$index])) {
             unset($this->duplicate_offices[$index]);
             $this->duplicate_offices = array_values($this->duplicate_offices);
@@ -452,6 +622,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function clearDuplicateOffices(): void
     {
+        if ($this->isAppraising) {
+            return;
+        }
+
         $this->duplicate_offices = [];
         $this->duplicate_search = '';
         $this->showDuplicateDropdown = false;
@@ -460,6 +634,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     // --- Record Series Modal Handlers ---
     public function openSeriesModal(): void
     {
+        if ($this->isAppraising) {
+            return;
+        }
+
         $this->showSeriesModal = true;
     }
 
@@ -773,9 +951,15 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             $user = Auth::user();
             $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
-            $documentIdHandler = null;
-
-            $formattedVolume = mb_strtoupper(trim($this->volume));
+            $rawVol = trim($this->volume);
+            $rawAmt = trim((string)$this->volume_amount);
+            if (!empty($rawAmt) && preg_match('/\d/', $rawAmt)) {
+                $formattedVolume = mb_strtoupper($rawAmt . ' ' . ($this->volume_unit ?: 'FOLDER'));
+            } elseif (!empty($rawVol) && preg_match('/\d/', $rawVol)) {
+                $formattedVolume = mb_strtoupper($rawVol);
+            } else {
+                $formattedVolume = null;
+            }
 
             $titles = explode(' ➔ ', $this->selectedSeriesTitle);
             $lastSeriesId = null;
@@ -977,9 +1161,34 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             $user = Auth::user();
             $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
-            $documentIdHandler = null;
+            $rawVol = trim($this->volume);
+            $rawAmt = trim((string)$this->volume_amount);
+            if (!empty($rawAmt) && preg_match('/\d/', $rawAmt)) {
+                $formattedVolume = mb_strtoupper($rawAmt . ' ' . ($this->volume_unit ?: 'FOLDER'));
+            } elseif (!empty($rawVol) && preg_match('/\d/', $rawVol)) {
+                $formattedVolume = mb_strtoupper($rawVol);
+            } else {
+                $formattedVolume = '';
+            }
 
-            $formattedVolume = mb_strtoupper(trim($this->volume));
+            if ($this->isAppraising && empty($formattedVolume)) {
+                DB::rollBack();
+                $this->errorMessage = 'Please input a total number for Volume Amount.';
+                $this->dispatch('scroll-to-top');
+                return;
+            }
+
+            if ($this->isAppraising) {
+                if (empty($this->records_medium)) {
+                    $this->records_medium = $this->getDefaultMediumId();
+                }
+                if (empty($this->restriction)) {
+                    $this->restriction = 'Restricted';
+                }
+                if (empty($this->frequence_use)) {
+                    $this->frequence_use = 'Annually';
+                }
+            }
 
             $titles = explode(' ➔ ', $this->selectedSeriesTitle);
             $lastSeriesId = null;
@@ -1166,6 +1375,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->record_series_id = null;
         $this->description = '';
         $this->volume = '';
+        $this->volume_amount = '';
+        $this->volume_unit = 'Folder';
+        $this->isAppraising = false;
+        $this->prefill_intake_id = null;
         $this->records_medium = $this->getDefaultMediumId();
         $this->restriction = 'Restricted';
         $this->records_location = '';
@@ -1270,32 +1483,43 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             <!-- Mode Header Bar (Always visible across all monitor resolutions) -->
             <div class="ia-mode-bar">
                 <div class="ia-mode-info">
-                    <span class="ia-mode-pill {{ $isBatchMode ? 'is-batch' : 'is-single' }}">
-                        {{ $isBatchMode ? 'BATCH ENTRY MODE (' . count($batchItems) . ' RECORDS)' : 'SINGLE ENTRY MODE' }}
-                    </span>
-                    <span class="ia-mode-desc">
-                        {{ $isBatchMode ? 'Add multiple records simultaneously under the selected series' : 'Add an individual inventory and appraisal record' }}
-                    </span>
-                </div>
-                <div class="ia-mode-actions">
-                    @if($isBatchMode)
-                        <button type="button" 
-                                wire:click="switchToSingleMode" 
-                                class="ia-mode-toggle-btn is-exit" 
-                                title="Exit batch mode and return to single mode">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                            <span>Exit Batch Mode</span>
-                        </button>
+                    @if($isAppraising)
+                        <span class="ia-mode-pill" style="background: #2563eb; color: #ffffff;">
+                            DOCUMENT APPRAISAL MODE
+                        </span>
+                        <span class="ia-mode-desc">
+                            Appraise incoming document {{ $prefill_code ? '#' . $prefill_code : '' }} directly into RDP
+                        </span>
                     @else
-                        <button type="button" 
-                                wire:click="addBatchItem" 
-                                class="ia-side-add-pill-btn" 
-                                title="Switch to Batch Mode to add multiple records under this series">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                            <span>Batch Mode</span>
-                        </button>
+                        <span class="ia-mode-pill {{ $isBatchMode ? 'is-batch' : 'is-single' }}">
+                            {{ $isBatchMode ? 'BATCH ENTRY MODE (' . count($batchItems) . ' RECORDS)' : 'SINGLE ENTRY MODE' }}
+                        </span>
+                        <span class="ia-mode-desc">
+                            {{ $isBatchMode ? 'Add multiple records simultaneously under the selected series' : 'Add an individual inventory and appraisal record' }}
+                        </span>
                     @endif
                 </div>
+                @if(!$isAppraising)
+                    <div class="ia-mode-actions">
+                        @if($isBatchMode)
+                            <button type="button" 
+                                    wire:click="switchToSingleMode" 
+                                    class="ia-mode-toggle-btn is-exit" 
+                                    title="Exit batch mode and return to single mode">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                <span>Exit Batch Mode</span>
+                            </button>
+                        @else
+                            <button type="button" 
+                                    wire:click="addBatchItem" 
+                                    class="ia-side-add-pill-btn" 
+                                    title="Switch to Batch Mode to add multiple records under this series">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                <span>Batch Mode</span>
+                            </button>
+                        @endif
+                    </div>
+                @endif
             </div>
 
             <div style="padding: 28px 32px;">
@@ -1303,7 +1527,31 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 <div class="ia-form-row" wire:key="ia-row-series">
                     <span class="ia-label ia-label-required">Record Series Title</span>
                     <div style="flex: 1; display: flex; align-items: center;">
-                        @if($selectedSeriesTitle)
+                        @if($isAppraising && $selectedSeriesTitle)
+                            <div class="ia-badge ia-badge-green" style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px; padding: 10px 16px;">
+                                <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px;">
+                                    @if(!empty($selectedSeriesHierarchy))
+                                        @foreach($selectedSeriesHierarchy as $idx => $node)
+                                            @if($idx > 0)
+                                                <span style="margin: 0 4px; color: #059669; font-weight: 800;">➔</span>
+                                            @endif
+                                            <span style="font-weight: 800; color: #065f46;">{{ $node['title'] }}</span>
+                                            @if($node['is_predefined'])
+                                                <span style="font-size: 10px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; display: inline-flex; align-items: center;">PREDEFINED</span>
+                                            @else
+                                                <span style="font-size: 10px; font-weight: 800; background: #faf5ff; color: #7e22ce; border: 1px solid #e9d5ff; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; display: inline-flex; align-items: center;">USER</span>
+                                            @endif
+                                        @endforeach
+                                    @else
+                                        <span style="font-weight: 800; color: #065f46;">{{ $selectedSeriesTitle }}</span>
+                                    @endif
+                                </div>
+                                <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; background: #fef3c7; color: #92400e; padding: 4px 10px; border-radius: 6px; border: 1px solid #fde68a; white-space: nowrap;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                    LOCKED (System Preconfigured)
+                                </span>
+                            </div>
+                        @elseif($selectedSeriesTitle)
                             <div class="ia-badge ia-badge-green" style="display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px; padding: 10px 16px;">
                                 <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px;">
                                     @if(!empty($selectedSeriesHierarchy))
@@ -1501,8 +1749,20 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 @else
                     <!-- Description -->
                     <div class="ia-form-row" wire:key="ia-row-desc" style="align-items: flex-start;">
-                        <span class="ia-label" style="margin-top: 10px;">Description</span>
-                        <textarea class="ia-input" wire:model="description" rows="3" placeholder="ENTER RECORD DESCRIPTION OR SPECIFIC DETAILS..." style="font-family: inherit;"></textarea>
+                        <div style="display: flex; flex-direction: column; width: 140px; min-width: 140px; margin-top: 6px;">
+                            <span class="ia-label {{ $isAppraising ? '' : 'ia-label-required' }}">Description</span>
+                            @if($isAppraising)
+                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; width: fit-content; margin-top: 4px; border: 1px solid #e2e8f0;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                    LOCKED (From DTS)
+                                </span>
+                            @endif
+                        </div>
+                        @if($isAppraising)
+                            <textarea class="ia-input" wire:model="description" rows="3" readonly style="flex: 1; background: #f8fafc; cursor: not-allowed; color: #334155; font-weight: 500; font-family: inherit; border: 1px solid #cbd5e1;"></textarea>
+                        @else
+                            <textarea class="ia-input" wire:model="description" rows="3" placeholder="ENTER RECORD DESCRIPTION OR SPECIFIC DETAILS..." style="flex: 1; font-family: inherit;"></textarea>
+                        @endif
                     </div>
 
                     <!-- Selected Date -->
@@ -1518,34 +1778,94 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
                     <!-- Volume Amount & Unit -->
                     <div class="ia-form-row" wire:key="ia-row-volume">
-                        <span class="ia-label">Volume Amount & Unit</span>
-                        <input type="text" class="ia-input" wire:model="volume" placeholder="E.G. 1 BOX 20 PAPERS, 2 BUNDLES..." style="flex: 1;">
+                        <span class="ia-label ia-label-required">Volume Amount & Unit</span>
+                        <div style="flex: 1; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                            <input type="number" min="1" step="1" 
+                                   class="ia-input" 
+                                   wire:model.live="volume_amount" 
+                                   placeholder="e.g. 1" 
+                                   style="max-width: 140px; {{ empty($volume_amount) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}">
+                            <select class="ia-input" wire:model.live="volume_unit" style="max-width: 180px;">
+                                <option value="Folder">Folder(s)</option>
+                                <option value="Volume">Volume(s)</option>
+                                <option value="Box">Box(es)</option>
+                                <option value="Bundle">Bundle(s)</option>
+                                <option value="Pages">Page(s)</option>
+                                <option value="Pieces">Piece(s)</option>
+                            </select>
+                            @if(!empty($volume_amount))
+                                <span style="font-size: 12px; color: #16a34a; font-weight: 700; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 4px 10px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                    Total: {{ $volume_amount }} {{ $volume_unit }}
+                                </span>
+                            @else
+                                <span style="font-size: 11.5px; color: #dc2626; font-style: italic;">
+                                    * Total number required (will not record unit alone)
+                                </span>
+                            @endif
+                        </div>
                     </div>
 
                     <!-- Records Medium -->
                     <div class="ia-form-row" wire:key="ia-row-medium">
-                        <span class="ia-label">Records Medium</span>
-                        <select class="ia-input" wire:model.live="records_medium">
-                            <option value="" disabled {{ empty($records_medium) ? 'selected' : '' }}>Select Medium...</option>
-                            @foreach($mediaList as $med)
-                                <option value="{{ $med->id }}" {{ (string)$records_medium === (string)$med->id ? 'selected' : '' }}>
-                                    {{ $med->medium_name }} ({{ $med->description }})
-                                </option>
-                            @endforeach
-                        </select>
+                        <div style="display: flex; flex-direction: column; width: 140px; min-width: 140px;">
+                            <span class="ia-label">Records Medium</span>
+                            @if($isAppraising)
+                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; width: fit-content; margin-top: 2px; border: 1px solid #e2e8f0;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                    LOCKED (Default)
+                                </span>
+                            @endif
+                        </div>
+                        @if($isAppraising)
+                            <select class="ia-input ia-input-disabled" disabled style="cursor: not-allowed; background: #f8fafc; color: #334155; border: 1px solid #cbd5e1; font-weight: 600;">
+                                @foreach($mediaList as $med)
+                                    <option value="{{ $med->id }}" {{ (string)$records_medium === (string)$med->id ? 'selected' : '' }}>
+                                        {{ $med->medium_name }} ({{ $med->description }})
+                                    </option>
+                                @endforeach
+                            </select>
+                        @else
+                            <select class="ia-input" wire:model.live="records_medium">
+                                <option value="" disabled {{ empty($records_medium) ? 'selected' : '' }}>Select Medium...</option>
+                                @foreach($mediaList as $med)
+                                    <option value="{{ $med->id }}" {{ (string)$records_medium === (string)$med->id ? 'selected' : '' }}>
+                                        {{ $med->medium_name }} ({{ $med->description }})
+                                    </option>
+                                @endforeach
+                            </select>
+                        @endif
                     </div>
 
                     <!-- Restriction -->
                     <div class="ia-form-row" wire:key="ia-row-restriction">
-                        <span class="ia-label">Restriction / Access</span>
-                        <select class="ia-input" wire:model.live="restriction">
-                            <option value="" disabled {{ empty($restriction) ? 'selected' : '' }}>Select Restriction Type...</option>
-                            @foreach($restrictionsList as $rest)
-                                <option value="{{ $rest->restriction_value }}" {{ $restriction === $rest->restriction_value ? 'selected' : '' }}>
-                                    {{ $rest->restriction_value }}
-                                </option>
-                            @endforeach
-                        </select>
+                        <div style="display: flex; flex-direction: column; width: 140px; min-width: 140px;">
+                            <span class="ia-label">Restriction / Access</span>
+                            @if($isAppraising)
+                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; width: fit-content; margin-top: 2px; border: 1px solid #e2e8f0;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                    LOCKED (Default)
+                                </span>
+                            @endif
+                        </div>
+                        @if($isAppraising)
+                            <select class="ia-input ia-input-disabled" disabled style="cursor: not-allowed; background: #f8fafc; color: #334155; border: 1px solid #cbd5e1; font-weight: 600;">
+                                @foreach($restrictionsList as $rest)
+                                    <option value="{{ $rest->restriction_value }}" {{ $restriction === $rest->restriction_value ? 'selected' : '' }}>
+                                        {{ $rest->restriction_value }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        @else
+                            <select class="ia-input" wire:model.live="restriction">
+                                <option value="" disabled {{ empty($restriction) ? 'selected' : '' }}>Select Restriction Type...</option>
+                                @foreach($restrictionsList as $rest)
+                                    <option value="{{ $rest->restriction_value }}" {{ $restriction === $rest->restriction_value ? 'selected' : '' }}>
+                                        {{ $rest->restriction_value }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        @endif
                     </div>
 
                     <!-- Records Location -->
@@ -1556,87 +1876,137 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
                     <!-- Frequency of Use -->
                     <div class="ia-form-row" wire:key="ia-row-frequency">
-                        <span class="ia-label">Frequency of Use</span>
-                        <select class="ia-input" wire:model.live="frequence_use">
-                            <option value="" disabled {{ empty($frequence_use) ? 'selected' : '' }}>Select Frequency...</option>
-                            @foreach($frequenciesList as $freq)
-                                <option value="{{ $freq->freq_type }}" {{ $frequence_use === $freq->freq_type ? 'selected' : '' }}>
-                                    {{ $freq->freq_type }}
-                                </option>
-                            @endforeach
-                        </select>
+                        <div style="display: flex; flex-direction: column; width: 140px; min-width: 140px;">
+                            <span class="ia-label">Frequency of Use</span>
+                            @if($isAppraising)
+                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; width: fit-content; margin-top: 2px; border: 1px solid #e2e8f0;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                    LOCKED (Annually)
+                                </span>
+                            @endif
+                        </div>
+                        @if($isAppraising)
+                            <select class="ia-input ia-input-disabled" disabled style="cursor: not-allowed; background: #f8fafc; color: #334155; border: 1px solid #cbd5e1; font-weight: 600;">
+                                @foreach($frequenciesList as $freq)
+                                    <option value="{{ $freq->freq_type }}" {{ ($frequence_use ?: 'Annually') === $freq->freq_type ? 'selected' : '' }}>
+                                        {{ $freq->freq_type }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        @else
+                            <select class="ia-input" wire:model.live="frequence_use">
+                                <option value="" disabled {{ empty($frequence_use) ? 'selected' : '' }}>Select Frequency...</option>
+                                @foreach($frequenciesList as $freq)
+                                    <option value="{{ $freq->freq_type }}" {{ $frequence_use === $freq->freq_type ? 'selected' : '' }}>
+                                        {{ $freq->freq_type }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        @endif
                     </div>
                 @endif
 
             @if(!$isBatchMode)
             <!-- Duplicate -->
             <div class="ia-form-row" wire:key="ia-row-duplicate" style="align-items: flex-start;">
-                <span class="ia-label" style="margin-top: 10px;">Duplicate</span>
-                <div style="flex: 1; position: relative;" wire:click.outside="$set('showDuplicateDropdown', false)">
-                    @if(count($duplicate_offices) > 0)
-                        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
-                            @foreach($duplicate_offices as $index => $offCode)
-                                @php
-                                    $offObj = collect($officesList)->firstWhere('office_code', $offCode);
-                                    $offName = $offObj->office_name ?? $offCode;
-                                @endphp
-                                <span style="display: inline-flex; align-items: center; gap: 6px; background-color: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;">
-                                    <span><strong>{{ $offCode }}</strong> — {{ $offName }}</span>
-                                    <button type="button" wire:click="removeDuplicateOffice({{ $index }})" style="border: none; background: none; color: #1e40af; cursor: pointer; font-weight: 900; font-size: 14px; line-height: 1; padding: 0 2px;">&times;</button>
-                                </span>
-                            @endforeach
-                            <button type="button" wire:click="clearDuplicateOffices" class="ia-btn ia-btn-secondary" style="padding: 2px 10px; font-size: 11px; height: 26px; align-self: center;">Clear</button>
-                        </div>
+                <div style="display: flex; flex-direction: column; width: 140px; min-width: 140px; margin-top: 6px;">
+                    <span class="ia-label">Duplicate</span>
+                    @if($isAppraising)
+                        <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; width: fit-content; margin-top: 4px; border: 1px solid #e2e8f0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                            LOCKED (From DTS)
+                        </span>
                     @endif
-
-                    <div style="position: relative;">
-                        <input type="text"
-                            class="ia-input"
-                            wire:model.live.debounce.150ms="duplicate_search"
-                            wire:focus="$set('showDuplicateDropdown', true)"
-                            wire:keydown.enter.prevent="addDuplicateOffice"
-                            placeholder="SEARCH OFFICE CODE OR NAME..."
-                            style="width: 100%;">
-
-                        @if($showDuplicateDropdown && !empty(trim($duplicate_search)))
-                            @php
-                                $searchLower = strtolower(trim($duplicate_search));
-                                $filteredOffices = collect($officesList)->filter(function($off) use ($searchLower, $duplicate_offices) {
-                                    return !in_array($off->office_code, $duplicate_offices, true) &&
-                                           (str_contains(strtolower($off->office_code), $searchLower) ||
-                                            str_contains(strtolower($off->office_name), $searchLower));
-                                })->take(8);
-                            @endphp
-
-                            <div class="ia-autocomplete-dropdown" style="top: 100%; left: 0; right: 0; z-index: 1050; max-height: 220px; overflow-y: auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); margin-top: 4px;">
-                                @if($filteredOffices->isNotEmpty())
-                                    @foreach($filteredOffices as $off)
-                                        <div wire:click="addDuplicateOffice('{{ $off->office_code }}')"
-                                             class="ia-autocomplete-item"
-                                             style="padding: 8px 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f1f5f9;">
-                                             <div style="display: flex; align-items: center; gap: 8px;">
-                                                <span style="font-size: 10.5px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px;">
-                                                    {{ $off->office_code }}
-                                                </span>
-                                                <span style="font-size: 13px; font-weight: 600; color: #1e293b;">
-                                                    {{ $off->office_name }}
-                                                </span>
-                                             </div>
-                                             <span style="font-size: 11px; color: #2563eb; font-weight: 700;">+ Add</span>
-                                        </div>
-                                    @endforeach
-                                @else
-                                    <div style="padding: 10px 14px; font-size: 12px; color: #64748b; font-style: italic;">
-                                        No matching active offices found.
-                                    </div>
-                                @endif
+                </div>
+                @if($isAppraising)
+                    <div style="flex: 1;">
+                        @if(count($duplicate_offices) > 0)
+                            <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px;">
+                                @foreach($duplicate_offices as $offCode)
+                                    @php
+                                        $offObj = collect($officesList)->firstWhere('office_code', $offCode);
+                                        $offName = $offObj->office_name ?? $offCode;
+                                    @endphp
+                                    <span style="display: inline-flex; align-items: center; gap: 6px; background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                        <span><strong>{{ $offCode }}</strong> — {{ $offName }}</span>
+                                    </span>
+                                @endforeach
                             </div>
+                            <div style="font-size: 11.5px; color: #64748b; margin-top: 4px;">
+                                Assigned from Copy Furnished offices in the DTS transaction.
+                            </div>
+                        @else
+                            <span style="color: #64748b; font-size: 12px; font-style: italic;">No duplicate copies assigned.</span>
                         @endif
                     </div>
-                    <div style="font-size: 11.5px; color: #64748b; margin-top: 4px;">
-                        Selected offices will have visibility to this record.
+                @else
+                    <div style="flex: 1; position: relative;" wire:click.outside="$set('showDuplicateDropdown', false)">
+                        @if(count($duplicate_offices) > 0)
+                            <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
+                                @foreach($duplicate_offices as $index => $offCode)
+                                    @php
+                                        $offObj = collect($officesList)->firstWhere('office_code', $offCode);
+                                        $offName = $offObj->office_name ?? $offCode;
+                                    @endphp
+                                    <span style="display: inline-flex; align-items: center; gap: 6px; background-color: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;">
+                                        <span><strong>{{ $offCode }}</strong> — {{ $offName }}</span>
+                                        <button type="button" wire:click="removeDuplicateOffice({{ $index }})" style="border: none; background: none; color: #1e40af; cursor: pointer; font-weight: 900; font-size: 14px; line-height: 1; padding: 0 2px;">&times;</button>
+                                    </span>
+                                @endforeach
+                                <button type="button" wire:click="clearDuplicateOffices" class="ia-btn ia-btn-secondary" style="padding: 2px 10px; font-size: 11px; height: 26px; align-self: center;">Clear</button>
+                            </div>
+                        @endif
+
+                        <div style="position: relative;">
+                            <input type="text"
+                                class="ia-input"
+                                wire:model.live.debounce.150ms="duplicate_search"
+                                wire:focus="$set('showDuplicateDropdown', true)"
+                                wire:keydown.enter.prevent="addDuplicateOffice"
+                                placeholder="SEARCH OFFICE CODE OR NAME..."
+                                style="width: 100%;">
+
+                            @if($showDuplicateDropdown && !empty(trim($duplicate_search)))
+                                @php
+                                    $searchLower = strtolower(trim($duplicate_search));
+                                    $filteredOffices = collect($officesList)->filter(function($off) use ($searchLower, $duplicate_offices) {
+                                        return !in_array($off->office_code, $duplicate_offices, true) &&
+                                               (str_contains(strtolower($off->office_code), $searchLower) ||
+                                                str_contains(strtolower($off->office_name), $searchLower));
+                                    })->take(8);
+                                @endphp
+
+                                <div class="ia-autocomplete-dropdown" style="top: 100%; left: 0; right: 0; z-index: 1050; max-height: 220px; overflow-y: auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); margin-top: 4px;">
+                                    @if($filteredOffices->isNotEmpty())
+                                        @foreach($filteredOffices as $off)
+                                            <div wire:click="addDuplicateOffice('{{ $off->office_code }}')"
+                                                 class="ia-autocomplete-item"
+                                                 style="padding: 8px 12px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f1f5f9;">
+                                                 <div style="display: flex; align-items: center; gap: 8px;">
+                                                    <span style="font-size: 10.5px; font-weight: 800; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px;">
+                                                        {{ $off->office_code }}
+                                                    </span>
+                                                    <span style="font-size: 13px; font-weight: 600; color: #1e293b;">
+                                                        {{ $off->office_name }}
+                                                    </span>
+                                                 </div>
+                                                 <span style="font-size: 11px; color: #2563eb; font-weight: 700;">+ Add</span>
+                                            </div>
+                                        @endforeach
+                                    @else
+                                        <div style="padding: 10px 14px; font-size: 12px; color: #64748b; font-style: italic;">
+                                            No matching active offices found.
+                                        </div>
+                                    @endif
+                                </div>
+                            @endif
+                        </div>
+                        <div style="font-size: 11.5px; color: #64748b; margin-top: 4px;">
+                            Selected offices will have visibility to this record.
+                        </div>
                     </div>
-                </div>
+                @endif
             </div>
             @endif
 

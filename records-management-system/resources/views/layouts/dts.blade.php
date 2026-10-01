@@ -122,6 +122,7 @@
     </section>
     <x-chatify.floating-widget />
     <livewire:components.scanner-modal />
+    <livewire:components.dts-rdp-handoff-modal />
     @auth
     <livewire:components.session-guard />
     @endauth

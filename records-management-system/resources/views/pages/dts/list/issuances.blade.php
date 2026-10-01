@@ -1466,10 +1466,17 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                 ]);
         }
 
-        // TEMPORARY: hand a fully-completed transaction to RDP intake.
-        \App\Services\DtsRdpIntakeService::recordCompleted($this->selectedTransactionId);
+        $completedTxId = $this->selectedTransactionId;
+        $controlNo = $this->selectedTransaction->control_number ?? $this->controlNumber ?? '';
+        $isCompletedNow = DB::table('dts_transactions')
+            ->where('transaction_id', $completedTxId)
+            ->value('status') === 'completed';
 
         $this->closeTransaction();
+
+        if ($isCompletedNow) {
+            $this->dispatch('open-dts-rdp-handoff', transactionId: $completedTxId, controlNumber: $controlNo);
+        }
     }
 
     public function deleteTransaction(): void

@@ -216,12 +216,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             }
 
             if (!empty($this->search)) {
-                $s = '%' . trim($this->search) . '%';
-                $query->where(function ($q) use ($s) {
-                    $q->where('rdp_record_series.series_title', 'ilike', $s)
-                      ->orWhere('rdp_record_series.remarks', 'ilike', $s)
-                      ->orWhere(DB::raw("CAST(rdp_record_series.item_number AS TEXT)"), 'ilike', $s);
-                });
+                $this->applySearchFilter($query, [
+                    'rdp_record_series.series_title',
+                    'rdp_record_series.remarks',
+                    'CAST(rdp_record_series.item_number AS TEXT)',
+                ]);
             }
 
             $allIds = $query->pluck('id')->toArray();
@@ -231,6 +230,33 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         }
     }
 
+
+    /**
+     * Word-level AND search: every typed word must match at least one of the
+     * given columns, in any order — so "Pasay Travel" finds
+     * "Travel Order to Pasay", and swapping a word ("Pasay certificate")
+     * narrows the list to the records containing that word.
+     */
+    private function applySearchFilter($query, array $columns): void
+    {
+        $tokens = preg_split('/\s+/', trim($this->search), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        foreach ($tokens as $token) {
+            $like = '%' . addcslashes($token, '%_\\') . '%';
+
+            $query->where(function ($q) use ($columns, $like) {
+                foreach ($columns as $index => $column) {
+                    $method = $index === 0 ? 'where' : 'orWhere';
+
+                    if (stripos($column, 'CAST(') === 0) {
+                        $q->{$method}(DB::raw($column), 'ilike', $like);
+                    } else {
+                        $q->{$method}($column, 'ilike', $like);
+                    }
+                }
+            });
+        }
+    }
 
     public function openViewModal(int $id): void
     {
@@ -598,12 +624,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         }
 
         if (!empty($this->search)) {
-            $query->where(function ($q) {
-                $q->where('rdp_record_series.series_title', 'ilike', '%' . $this->search . '%')
-                  ->orWhere('rdp_record_series.remarks', 'ilike', '%' . $this->search . '%')
-                  ->orWhere('parent.series_title', 'ilike', '%' . $this->search . '%')
-                  ->orWhere(DB::raw("CAST(rdp_record_series.item_number AS TEXT)"), 'ilike', '%' . $this->search . '%');
-            });
+            $this->applySearchFilter($query, [
+                'rdp_record_series.series_title',
+                'rdp_record_series.remarks',
+                'parent.series_title',
+                'CAST(rdp_record_series.item_number AS TEXT)',
+            ]);
         }
 
         $allFetched = $query->orderByRaw('rdp_record_series.recorded_at_office ASC NULLS LAST, rdp_record_series.item_number ASC NULLS LAST, rdp_record_series.series_title ASC')->get();

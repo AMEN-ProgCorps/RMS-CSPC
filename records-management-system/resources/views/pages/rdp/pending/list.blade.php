@@ -1381,9 +1381,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $user = Auth::user();
         $perms = $user?->permissions;
         $canViewAll = (bool)($perms?->is_sadm ?? false)
-            || (bool)($perms?->is_rdp_view_all_pending_list ?? false)
-            || (bool)($perms?->can_access_rdp_admin ?? false)
-            || (bool)($perms?->rdp_view_all_files ?? false);
+            || (bool)($perms?->is_rdp_view_all_pending_list ?? false);
+        if (!$canViewAll) {
+            $this->officeFilter = '';
+        }
         $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
         $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
         $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';

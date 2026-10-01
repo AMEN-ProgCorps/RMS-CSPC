@@ -370,10 +370,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
     {
         $user = Auth::user();
         $perms = $user?->permissions;
-        $isSadm = (bool)($perms?->is_sadm ?? false)
-            || (bool)($perms?->is_rdp_view_all_pending_list ?? false)
-            || (bool)($perms?->can_access_rdp_admin ?? false)
-            || (bool)($perms?->rdp_view_all_files ?? false);
+        $isSadm = (bool)($perms?->is_sadm ?? false);
 
         $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
         $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;

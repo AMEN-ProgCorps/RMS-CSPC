@@ -45,6 +45,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     public ?string $editSubjectFrequency = null;
     public string $editSubjectTimeValue = 'T';
     public array $editSubjectUtilities = [];
+    public bool $canEditDescription = true;
+    public bool $canCancelRecord = true;
 
     // Printable Custom Header & Signature Fields (NAP Form 3 Revised 2012)
     public string $agencyName = 'Camarines Sur Polytechnic Colleges';
@@ -394,6 +396,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     {
         $rec = DB::table('rdp_record')->where('id', $id)->first();
         if ($rec) {
+            $user = Auth::user();
+            $perms = $user?->permissions;
+            $isSadm = (bool)($perms->is_sadm ?? false);
+            $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+            if (empty($userOffice) && !empty($user?->details?->office_id)) {
+                $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+                $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+            }
+            $isOtherOffice = !empty($userOffice) && !empty($rec->office_own) && ($rec->office_own !== $userOffice);
+            $this->canEditDescription = $isSadm || (!$isOtherOffice ? (bool)($perms->can_rdp_modify_form_3 ?? true) : ((bool)($perms->can_rdp_modify_form_3 ?? true) && (bool)($perms->can_rdp_edit_others_form_3 ?? false)));
+            $this->canCancelRecord = $this->canEditDescription;
+
             $this->editingSubjectId = $rec->id;
             $this->editSubjectDescription = $rec->description ?? '';
             $this->editSubjectVolume = $rec->volume ?? '';
@@ -425,12 +439,54 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $this->editingSubjectId = null;
     }
 
+    public function cancelRecord(): void
+    {
+        if (!$this->editingSubjectId) return;
+
+        if (!$this->canCancelRecord) {
+            $this->errorMessage = 'You do not have clearance to cancel records on NAP Form 3.';
+            return;
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $record = DB::table('rdp_record')->where('id', $this->editingSubjectId)->first();
+            if (!$record) {
+                $this->errorMessage = 'Record not found.';
+                return;
+            }
+
+            DB::table('rdp_record')->where('id', $this->editingSubjectId)->update([
+                'is_active'  => false,
+                'updated_at' => Carbon::now(),
+            ]);
+
+            // Audit Log
+            $adminId = auth()->id() ?? 1;
+            DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
+                'admin_id'     => $adminId,
+                'changes'      => 'Canceled Subject Record via NAP Form 3: "' . ($record->description ?? '') . '" (ID: ' . $this->editingSubjectId . ')',
+                'what_system'  => 2,
+                'when_changes' => now(),
+            ]);
+
+            DB::commit();
+
+            $this->successMessage = 'Record canceled successfully.';
+            $this->closeEditSubjectModal();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->errorMessage = 'Failed to cancel record: ' . $e->getMessage();
+        }
+    }
+
     public function saveEditSubject(): void
     {
         if (!$this->editingSubjectId) return;
 
         $cleanDesc = trim($this->editSubjectDescription);
-        if (empty($cleanDesc)) {
+        if ($this->canEditDescription && empty($cleanDesc)) {
             $this->errorMessage = 'Subject description cannot be empty.';
             return;
         }
@@ -438,18 +494,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         try {
             DB::beginTransaction();
 
+            $updatePayload = [
+                'volume'           => mb_strtoupper(trim($this->editSubjectVolume)),
+                'records_location' => mb_strtoupper(trim($this->editSubjectLocation)),
+                'records_medium'   => $this->editSubjectMedium ?: null,
+                'restriction'      => $this->editSubjectRestriction ?: null,
+                'frequence_use'    => $this->editSubjectFrequency ?: null,
+                'time_value'       => $this->editSubjectTimeValue ?: 'T',
+                'updated_at'       => Carbon::now(),
+            ];
+
+            if ($this->canEditDescription) {
+                $updatePayload['description'] = mb_strtoupper($cleanDesc);
+            }
+
             DB::table('rdp_record')
                 ->where('id', $this->editingSubjectId)
-                ->update([
-                    'description'      => mb_strtoupper($cleanDesc),
-                    'volume'           => mb_strtoupper(trim($this->editSubjectVolume)),
-                    'records_location' => mb_strtoupper(trim($this->editSubjectLocation)),
-                    'records_medium'   => $this->editSubjectMedium ?: null,
-                    'restriction'      => $this->editSubjectRestriction ?: null,
-                    'frequence_use'    => $this->editSubjectFrequency ?: null,
-                    'time_value'       => $this->editSubjectTimeValue ?: 'T',
-                    'updated_at'       => Carbon::now(),
-                ]);
+                ->update($updatePayload);
 
             // Update or insert period covered
             $existingPeriod = DB::table('rdp_period_covered')->where('period_owner', $this->editingSubjectId)->orderBy('id', 'desc')->first();
@@ -2028,8 +2089,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 <form wire:submit.prevent="saveEditSubject" style="display: flex; flex-direction: column; gap: 14px;">
                     <!-- Subject Description -->
                     <div>
-                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Subject / Description</label>
-                        <textarea wire:model="editSubjectDescription" rows="2" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;" placeholder="Enter record subject title or description" required></textarea>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                            <label style="font-size: 12px; font-weight: 700; color: #334155;">Subject / Description</label>
+                            @if(!$canEditDescription)
+                                <span title="You do not have clearance to edit this record's description" style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: #94a3b8; background: #f1f5f9; padding: 2px 8px; border-radius: 9999px; border: 1px solid #cbd5e1;">
+                                    <i class="fa-solid fa-lock" style="font-size: 10px;"></i> Locked
+                                </span>
+                            @endif
+                        </div>
+                        @if($canEditDescription)
+                            <textarea wire:model="editSubjectDescription" rows="2" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;" placeholder="Enter record subject title or description" required></textarea>
+                        @else
+                            <textarea wire:model="editSubjectDescription" rows="2" readonly disabled style="width: 100%; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #f8fafc; color: #64748b; cursor: not-allowed;" title="Editing description is locked due to lack of clearance"></textarea>
+                        @endif
                     </div>
 
                     <!-- Row 1: Period Covered & Volume -->
@@ -2106,9 +2178,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         </div>
                     </div>
 
-                    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
-                        <button type="button" wire:click="closeEditSubjectModal" class="nap-btn nap-btn-secondary">Cancel</button>
-                        <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
+                        <div>
+                            @if($canCancelRecord)
+                                <button type="button" wire:click="cancelRecord" wire:confirm="Are you sure you want to cancel this record? This will remove it from NAP Form 3." class="nap-btn" style="background: #fee2e2; color: #dc2626; border: 1px solid #fecaca;">
+                                    Cancel Record
+                                </button>
+                            @endif
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button type="button" wire:click="closeEditSubjectModal" class="nap-btn nap-btn-secondary">Close</button>
+                            <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                        </div>
                     </div>
                 </form>
             </div>

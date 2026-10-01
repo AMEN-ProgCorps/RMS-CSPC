@@ -201,10 +201,10 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
         $user = Auth::user();
         $perms = $user?->permissions;
         $canViewAll = (bool)($perms?->is_sadm ?? false)
-            || (bool)($perms?->is_admin ?? false)
-            || (bool)($perms?->can_access_rdp_admin ?? false)
-            || (bool)($perms?->is_rdp_view_all_pending_list ?? false)
-            || (bool)($perms?->rdp_view_all_files ?? false);
+            || (bool)($perms?->is_rdp_view_all_received_docs ?? false);
+        if (!$canViewAll) {
+            $this->officeFilter = '';
+        }
         $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
         $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
         if (empty($userOffice) && !empty($user?->details?->office_id)) {

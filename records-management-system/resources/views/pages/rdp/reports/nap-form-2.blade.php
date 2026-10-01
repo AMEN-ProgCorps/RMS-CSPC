@@ -135,6 +135,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     public string $editRemarks = '';
     public bool $isRootParentForEdit = false;
     public bool $isSeriesUsedInNap1 = false;
+    public bool $canEditDescription = true;
+    public bool $canCancelRecord = true;
 
     // Preview Header & Signature Fields
     public string $agencyName = 'Camarines Sur Polytechnic Colleges';
@@ -301,25 +303,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
     public function openEditModal(int $id): void
     {
-        $perms = Auth::user()?->permissions;
-        $isSadm = (bool)($perms->is_sadm ?? false);
-        // Modify clearance
-        if (!$isSadm && !(bool)($perms->can_rdp_modify_form_2 ?? true)) {
-            $this->errorMessage = 'You do not have clearance to edit records on NAP Form 2.';
-            return;
-        }
         $record = DB::table('rdp_record_series')->where('id', $id)->first();
         if ($record) {
-            $userOffice = Auth::user()?->details?->office?->office_code ?? Auth::user()?->details?->office_code ?? null;
-            if (empty($userOffice) && !empty(Auth::user()?->details?->office_id)) {
+            $user = Auth::user();
+            $perms = $user?->permissions;
+            $isSadm = (bool)($perms->is_sadm ?? false);
+            $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+            if (empty($userOffice) && !empty($user?->details?->office_id)) {
                 $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
-                $userOffice = DB::table($officeTbl)->where('id', Auth::user()->details->office_id)->value('office_code');
+                $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
             }
-            $isOtherOffice = $userOffice && $record->recorded_at_office && $record->recorded_at_office !== $userOffice;
-            if (!$isSadm && $isOtherOffice && !(bool)($perms->can_rdp_edit_others_form_2 ?? false)) {
-                $this->errorMessage = 'You do not have clearance to edit records from another office on NAP Form 2.';
-                return;
-            }
+            $isOtherOffice = !empty($userOffice) && !empty($record->recorded_at_office) && ($record->recorded_at_office !== $userOffice);
+            $this->canEditDescription = $isSadm || (!$isOtherOffice ? (bool)($perms->can_rdp_modify_form_2 ?? true) : ((bool)($perms->can_rdp_modify_form_2 ?? true) && (bool)($perms->can_rdp_edit_others_form_2 ?? false)));
+            $this->canCancelRecord = $this->canEditDescription;
+
             $this->editingSeriesId = $record->id;
             $this->editSeriesTitle = $record->series_title ?? '';
             $this->editItemNumber = $record->item_number !== null ? (string)$record->item_number : '';
@@ -357,9 +354,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     {
         if (!$this->editingSeriesId) return;
 
-        $perms = Auth::user()?->permissions;
-        $isSadm = (bool)($perms->is_sadm ?? false);
-        if (!$isSadm && !(bool)($perms->can_rdp_modify_form_2 ?? true)) {
+        if (!$this->canCancelRecord) {
             $this->errorMessage = 'You do not have clearance to cancel records on NAP Form 2.';
             return;
         }
@@ -428,10 +423,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $series = DB::table('rdp_record_series')->where('id', $this->editingSeriesId)->first();
         if (!$series) return;
 
+        $cleanTitle = trim($this->editSeriesTitle);
+        if ($this->canEditDescription && empty($cleanTitle)) {
+            $this->errorMessage = 'Series title cannot be empty.';
+            return;
+        }
+
         $updateData = [
-            'series_title' => trim($this->editSeriesTitle),
-            'remarks'      => trim($this->editRemarks) ?: null,
+            'remarks' => trim($this->editRemarks) ?: null,
         ];
+
+        if ($this->canEditDescription) {
+            $updateData['series_title'] = $cleanTitle;
+        }
 
         // ONLY root parent record series (parent_id IS NULL) can have an assigned Item No.
         if (empty($series->parent_id)) {
@@ -447,6 +451,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             // Subsections CANNOT have an item number
             $updateData['item_number'] = null;
         }
+
+        $updateData['updated_at'] = Carbon::now();
 
         DB::table('rdp_record_series')->where('id', $this->editingSeriesId)->update($updateData);
 
@@ -1164,8 +1170,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
                 <form wire:submit.prevent="saveEditSeries" style="display: flex; flex-direction: column; gap: 16px;">
                     <div>
-                        <label style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">Series Title</label>
-                        <input type="text" wire:model="editSeriesTitle" style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box;" required>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                            <label style="font-size: 13px; font-weight: 700; color: #334155;">Series Title</label>
+                            @if(!$canEditDescription)
+                                <span title="You do not have clearance to edit this series title" style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: #94a3b8; background: #f1f5f9; padding: 2px 8px; border-radius: 9999px; border: 1px solid #cbd5e1;">
+                                    <i class="fa-solid fa-lock" style="font-size: 10px;"></i> Locked
+                                </span>
+                            @endif
+                        </div>
+                        @if($canEditDescription)
+                            <input type="text" wire:model="editSeriesTitle" style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box;" required>
+                        @else
+                            <input type="text" wire:model="editSeriesTitle" readonly disabled style="width: 100%; padding: 10px 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box; background: #f8fafc; color: #64748b; cursor: not-allowed;" title="Editing series title is locked due to lack of clearance">
+                        @endif
                     </div>
 
                     <div>
@@ -1189,18 +1206,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                     </div>
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
-                        @if($isSeriesUsedInNap1)
-                            <div style="display: inline-flex; align-items: center; gap: 8px;">
-                                <button type="button" disabled class="nap-btn" style="background: #f1f5f9; color: #94a3b8; border: 1px solid #cbd5e1; cursor: not-allowed; opacity: 0.7;" title="Cannot be canceled: this record series is currently used in NAP Form 1">
-                                    Cancel Series
-                                </button>
-                                <span style="font-size: 11.5px; color: #dc2626; font-weight: 600;">(Cannot cancel: currently used in NAP Form 1)</span>
-                            </div>
-                        @else
-                            <button type="button" wire:click="cancelRecordSeries" wire:confirm="Are you sure you want to cancel this record series? This will remove it from NAP Form 2." class="nap-btn" style="background: #fee2e2; color: #dc2626; border: 1px solid #fecaca;">
-                                Cancel Series
-                            </button>
-                        @endif
+                        <div>
+                            @if($canCancelRecord)
+                                @if($isSeriesUsedInNap1)
+                                    <div style="display: inline-flex; align-items: center; gap: 8px;">
+                                        <button type="button" disabled class="nap-btn" style="background: #f1f5f9; color: #94a3b8; border: 1px solid #cbd5e1; cursor: not-allowed; opacity: 0.7;" title="Cannot be canceled: this record series is currently used in NAP Form 1">
+                                            Cancel Series
+                                        </button>
+                                        <span style="font-size: 11.5px; color: #dc2626; font-weight: 600;">(Cannot cancel: currently used in NAP Form 1)</span>
+                                    </div>
+                                @else
+                                    <button type="button" wire:click="cancelRecordSeries" wire:confirm="Are you sure you want to cancel this record series? This will remove it from NAP Form 2." class="nap-btn" style="background: #fee2e2; color: #dc2626; border: 1px solid #fecaca;">
+                                        Cancel Series
+                                    </button>
+                                @endif
+                            @endif
+                        </div>
 
                         <div style="display: flex; gap: 10px;">
                             <button type="button" wire:click="closeEditModal" class="nap-btn nap-btn-secondary">Close</button>

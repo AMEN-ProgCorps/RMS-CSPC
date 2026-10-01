@@ -426,17 +426,15 @@ class DocumentNumberSeriesHelper
 
         $series = (string) $parsed['series'];
         $slot = (int) $parsed['number'];
+        $insertedSuffix = (string) ($parsed['suffix'] ?? '');
         $live = self::liveDocNos($docTypeId, $subTypeId, $excludeRequestId);
         $numeric = self::membersInSeries($live, $series, true);
-        $letters = $renameLetters ? self::membersInSeries($live, $series, false) : [];
+        $letters = self::membersInSeries($live, $series, false);
 
         $toShift = array_values(array_filter(
             $numeric,
             fn ($row) => $row['number'] >= $slot && ($row['suffix'] ?? '') === ''
         ));
-        if ($toShift === []) {
-            return ['error' => 'Nothing to shift — that number is not in this series.', 'next_free' => $nextFree];
-        }
 
         $shifts = [];
         foreach ($toShift as $row) {
@@ -447,17 +445,26 @@ class DocumentNumberSeriesHelper
             ];
         }
 
-        if ($renameLetters) {
-            foreach ($letters as $row) {
-                if (($row['suffix'] ?? '') === '' || $row['number'] < $slot) {
-                    continue;
-                }
-                $shifts[] = [
-                    'from' => $row['doc_no'],
-                    'to' => self::formatDocNo($row['series'], $row['number'] + 1, $row['width'], $row['suffix']),
-                    'title' => null,
-                ];
+        foreach ($letters as $row) {
+            if (($row['suffix'] ?? '') === '' || $row['number'] < $slot) {
+                continue;
             }
+            $sameSuffix = strcasecmp((string) $row['suffix'], $insertedSuffix) === 0;
+            if (! $renameLetters && ! $sameSuffix) {
+                continue;
+            }
+            if (! $renameLetters && $insertedSuffix === '') {
+                continue;
+            }
+            $shifts[] = [
+                'from' => $row['doc_no'],
+                'to' => self::formatDocNo($row['series'], $row['number'] + 1, $row['width'], $row['suffix']),
+                'title' => null,
+            ];
+        }
+
+        if ($shifts === []) {
+            return ['error' => 'Nothing to shift — that number is not in this series.', 'next_free' => $nextFree];
         }
 
         $targets = [];

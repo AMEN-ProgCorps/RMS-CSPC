@@ -489,7 +489,7 @@ class RegisterPersistHelper
     public static function resolveReviseNo(Request $request, mixed $fallback = null): int
     {
         $mode = $request->input('registration_mode', 'new');
-        if ($mode !== 'revised' && $request->boolean('insert_shift_confirmed')) {
+        if ($mode !== 'revised' && ($request->boolean('insert_shift_confirmed') || $request->boolean('allow_duplicate_doc_no'))) {
             return 0;
         }
 
@@ -904,10 +904,49 @@ class RegisterPersistHelper
         return DocumentStorageService::dcsScanFields($table, $pathColumn, $path);
     }
 
+    /**
+     * @param  list<int|string>  $ids
+     * @return array<int, int> office id => office id, for isset() checks
+     */
+    public static function existingOfficeIdSet(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn (int $id) => $id > 0)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $table = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        if (! Schema::hasTable($table)) {
+            return [];
+        }
+
+        return DB::table($table)
+            ->whereIn('id', $ids)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->flip()
+            ->all();
+    }
+
+    /**
+     * @return array{college_id: int, program_id: int, semester_id: int, school_year_id: int, course_type: string}
+     */
+    public static function syllabiDraftContext(Request $request): array
+    {
+        return [
+            'college_id' => (int) $request->input('college_id', 0),
+            'program_id' => (int) $request->input('program_id', 0),
+            'semester_id' => (int) $request->input('semester_id', 0),
+            'school_year_id' => (int) $request->input('school_year_id', 0),
+            'course_type' => trim((string) $request->input('course_type', '')),
+        ];
+    }
+
     public static function saveDistributionOffices(int $distributionId, Request $request): void
     {
         $officeIds = array_values(array_filter(array_map('intval', (array) $request->input('distOffice', []))));
         $copies = (array) $request->input('distCopies', []);
+        $validOffices = self::existingOfficeIdSet($officeIds);
 
         // DRF office intake: distribution offices are fixed to what the submitter selected.
         $intakeType = strtolower(trim((string) $request->input('office_intake_type', '')));
@@ -935,7 +974,7 @@ class RegisterPersistHelper
         DB::table('dcs_distribution_offices')->where('distribution_id', $distributionId)->delete();
 
         foreach ($officeIds as $i => $id) {
-            if ($id <= 0) {
+            if ($id <= 0 || ! isset($validOffices[$id])) {
                 continue;
             }
             $row = [
@@ -1104,7 +1143,7 @@ class RegisterPersistHelper
             }
         }
 
-        if ($mode === 'new' && $request->boolean('insert_shift_confirmed')) {
+        if ($mode === 'new' && ($request->boolean('insert_shift_confirmed') || $request->boolean('allow_duplicate_doc_no'))) {
             $request->merge([
                 'masterlistRevisionNo' => 0,
                 'revised_from_doc_no' => null,
@@ -1241,11 +1280,15 @@ class RegisterPersistHelper
 
         if ($saveAsDraft && RegisterQueryHelper::supportsDrafts()) {
             $draftDocNo = trim((string) $request->input('masterlistDocNo', ''));
+            $draftSubTypeId = $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null;
+            $draftContext = $isSyllabi ? self::syllabiDraftContext($request) : null;
             $existingDraftId = $draftDocNo !== ''
                 ? RegisterQueryHelper::findExistingDraftRequestId(
                     $draftDocNo,
                     (int) $request->input('doc_type_id'),
-                    $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null
+                    $draftSubTypeId,
+                    0,
+                    $draftContext
                 )
                 : null;
             if ($existingDraftId) {
@@ -1253,7 +1296,9 @@ class RegisterPersistHelper
                 $existingDraftId = RegisterQueryHelper::findExistingDraftRequestId(
                     $draftDocNo,
                     (int) $request->input('doc_type_id'),
-                    $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null
+                    $draftSubTypeId,
+                    0,
+                    $draftContext
                 ) ?: $existingDraftId;
 
                 return RegisterUpdateHelper::update($request, $existingDraftId);
@@ -1274,7 +1319,9 @@ class RegisterPersistHelper
                     if (RegisterQueryHelper::supportsDrafts()) {
                         $publishedMatches = $publishedMatches->filter(fn ($row) => empty($row->is_draft))->values();
                     }
-                    if ($publishedMatches->isNotEmpty() && ! $request->boolean('insert_shift_confirmed')) {
+                    if ($publishedMatches->isNotEmpty()
+                        && ! $request->boolean('insert_shift_confirmed')
+                        && ! $request->boolean('allow_duplicate_doc_no')) {
                         $latest = DB::table('dcs_masterlist_registration')
                             ->whereIn('request_id', $publishedMatches->pluck('id'))
                             ->where('doc_no', $docNo)
@@ -1476,7 +1523,10 @@ class RegisterPersistHelper
                     // so they stay out of the live unique index and inventory listings.
                     $masterlistRow['revision_status'] = $saveAsDraft ? 'obsolete' : 'latest';
                 }
-                self::applyAllowsRevisionToMasterlistRow($masterlistRow, $allowsRevision);
+                self::applyAllowsRevisionToMasterlistRow(
+                    $masterlistRow,
+                    $allowsRevision && ! $request->boolean('allow_duplicate_doc_no')
+                );
                 if (! $allowsRevision) {
                     $masterlistRow['revise_no'] = 0;
                 }
@@ -1563,7 +1613,10 @@ class RegisterPersistHelper
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
                     $masterlistData['revision_status'] = $saveAsDraft ? 'obsolete' : 'latest';
                 }
-                self::applyAllowsRevisionToMasterlistRow($masterlistData, $allowsRevision);
+                self::applyAllowsRevisionToMasterlistRow(
+                    $masterlistData,
+                    $allowsRevision && ! $request->boolean('allow_duplicate_doc_no')
+                );
                 if (! $allowsRevision) {
                     $masterlistData['revise_no'] = 0;
                 }
@@ -1618,9 +1671,10 @@ class RegisterPersistHelper
                 ]);
 
                 if ($request->has('retrievalOffice')) {
+                    $validRetrievalOffices = self::existingOfficeIdSet((array) $request->retrievalOffice);
                     foreach ($request->retrievalOffice as $i => $officeId) {
                         $id = (int) $officeId;
-                        if ($id <= 0) {
+                        if ($id <= 0 || ! isset($validRetrievalOffices[$id])) {
                             continue;
                         }
                         $retrievalOfficeRow = [
@@ -2086,6 +2140,42 @@ class RegisterPersistHelper
             return null;
         }
 
+        $courseNames = collect((array) $request->input('syllabiCourseName', []))
+            ->map(fn ($name) => trim((string) $name))
+            ->filter();
+        $missingContext = [];
+        foreach ([
+            'college_id' => 'College',
+            'program_id' => 'Program',
+            'semester_id' => 'Semester',
+            'course_type' => 'Course type',
+            'school_year_id' => 'School year',
+        ] as $field => $label) {
+            if (trim((string) $request->input($field, '')) === '') {
+                $missingContext[] = $label;
+            }
+        }
+        if ($missingContext !== []) {
+            return back()->withInput()->with(
+                'error',
+                'Select ' . implode(', ', $missingContext) . ' before registering this document.'
+            );
+        }
+
+        if (! self::settingsHasSyllabiCourses($request)) {
+            return back()->withInput()->with(
+                'error',
+                'There are no course names in Settings for this program, semester, and course type. Add them in Settings before registering.'
+            );
+        }
+
+        if ($courseNames->isEmpty()) {
+            return back()->withInput()->with(
+                'error',
+                'Add at least one course from Settings before registering this document.'
+            );
+        }
+
         if ($redirect = self::rejectDuplicateSyllabiContext($request, $exceptRequestId)) {
             return $redirect instanceof \Illuminate\Http\RedirectResponse ? $redirect : back()->withInput()->with(
                 'error',
@@ -2117,6 +2207,13 @@ class RegisterPersistHelper
             if ($rowYear === null && Schema::hasColumn('dcs_program_courses', 'year_level')) {
                 return back()->withInput()->with('error',
                     "{$courseLabel}: Year level is required.");
+            }
+
+            if (! self::settingsCourseForSyllabiRow($request, trim((string) $courseName), $rowYear)) {
+                return back()->withInput()->with(
+                    'error',
+                    "\"{$courseLabel}\" is not a course name in Settings for this program, semester, and course type."
+                );
             }
 
             $usedFaculty = [];
@@ -2246,6 +2343,13 @@ class RegisterPersistHelper
             $query->whereNull('dr.deleted_at');
         }
 
+        // Drafts are not registrations. Only a saved document blocks the same context.
+        if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+            $query->where(function ($q) {
+                $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
+        }
+
         if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
             $query->join('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
                 ->where('pc.course_type', $courseType);
@@ -2371,9 +2475,10 @@ class RegisterPersistHelper
         DB::table('dcs_dcn_offices')->where('dcn_id', $dcnId)->delete();
         $now = now();
         $seen = [];
+        $validOffices = self::existingOfficeIdSet($officeIds);
         foreach ($officeIds as $officeId) {
             $id = (int) trim((string) $officeId);
-            if ($id <= 0 || isset($seen[$id])) {
+            if ($id <= 0 || isset($seen[$id]) || ! isset($validOffices[$id])) {
                 continue;
             }
             $seen[$id] = true;
@@ -2390,9 +2495,10 @@ class RegisterPersistHelper
     {
         $now = now();
         $seen = [];
+        $validOffices = self::existingOfficeIdSet($officeIds);
         foreach ($officeIds as $officeId) {
             $id = (int) trim((string) $officeId);
-            if ($id <= 0 || isset($seen[$id])) {
+            if ($id <= 0 || isset($seen[$id]) || ! isset($validOffices[$id])) {
                 continue;
             }
             $seen[$id] = true;
@@ -2428,6 +2534,53 @@ class RegisterPersistHelper
         }
     }
 
+    private static function settingsHasSyllabiCourses(Request $request): bool
+    {
+        if (! Schema::hasTable('dcs_program_courses') || empty($request->program_id) || empty($request->semester_id)) {
+            return false;
+        }
+
+        $query = DB::table('dcs_program_courses')
+            ->where('program_id', $request->program_id)
+            ->where('semester_id', $request->semester_id)
+            ->whereRaw("TRIM(COALESCE(course_name, '')) <> ''");
+
+        if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
+            $courseType = trim((string) $request->input('course_type', ''));
+            if ($courseType !== '') {
+                $query->where('course_type', $courseType);
+            }
+        }
+
+        return $query->exists();
+    }
+
+    private static function settingsCourseForSyllabiRow(Request $request, string $courseName, ?string $yearLevel): ?object
+    {
+        $courseName = trim($courseName);
+        if ($courseName === '' || ! Schema::hasTable('dcs_program_courses') || empty($request->program_id) || empty($request->semester_id)) {
+            return null;
+        }
+
+        $query = DB::table('dcs_program_courses')
+            ->where('program_id', $request->program_id)
+            ->where('semester_id', $request->semester_id)
+            ->whereRaw('LOWER(TRIM(course_name)) = ?', [mb_strtolower($courseName)]);
+
+        if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
+            $courseType = trim((string) $request->input('course_type', ''));
+            if ($courseType !== '') {
+                $query->where('course_type', $courseType);
+            }
+        }
+
+        if ($yearLevel !== null && Schema::hasColumn('dcs_program_courses', 'year_level')) {
+            $query->where('year_level', $yearLevel);
+        }
+
+        return $query->first();
+    }
+
     public static function saveSyllabiRowsFromRequest(
         int $requestId,
         Request $request,
@@ -2439,7 +2592,6 @@ class RegisterPersistHelper
         }
 
         $courseNames = $request->syllabiCourseName;
-        $courseCodes = $request->syllabiCourseCode ?? [];
         $availability = $request->syllabiAvailability ?? [];
         $copiesArr = $request->syllabiCopies ?? [];
         $pagesArr = $request->syllabiNoPages ?? [];
@@ -2455,12 +2607,8 @@ class RegisterPersistHelper
         $total = count($courseNames);
         $i = 0;
         $now = now();
-        $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
         $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
-        $hasCourseType = Schema::hasColumn('dcs_program_courses', 'course_type');
         $yearArr = $request->syllabiYearLevel ?? [];
-        $courseType = $hasCourseType ? trim((string) ($request->input('course_type') ?? '')) : '';
-        $courseType = $courseType !== '' ? $courseType : null;
 
         while ($i < $total) {
             $courseName = $courseNames[$i];
@@ -2477,58 +2625,12 @@ class RegisterPersistHelper
                 continue;
             }
 
-            $courseQuery = DB::table('dcs_program_courses')
-                ->where('program_id', $request->program_id)
-                ->where('semester_id', $request->semester_id)
-                ->where('course_name', $courseName);
-            if ($hasYearLevel && $yearLevel !== null) {
-                $courseQuery->where('year_level', $yearLevel);
+            $course = self::settingsCourseForSyllabiRow($request, trim((string) $courseName), $yearLevel);
+            if (! $course) {
+                $i += $copies;
+                continue;
             }
-            if ($hasCourseType && $courseType !== null) {
-                $courseQuery->where('course_type', $courseType);
-            }
-            $course = $courseQuery->first();
-
-            $courseCode = trim((string) ($courseCodes[$i] ?? ''));
-            $courseCode = $courseCode !== '' ? $courseCode : null;
-            $codeInUse = $hasCourseCode && $courseCode
-                ? self::programCourseCodeTaken(
-                    (int) $request->program_id,
-                    (int) $request->semester_id,
-                    $courseCode,
-                    $course?->id,
-                    $yearLevel,
-                    $courseType
-                )
-                : false;
-
-            if (!$course) {
-                $insert = [
-                    'program_id' => $request->program_id,
-                    'semester_id' => $request->semester_id,
-                    'course_name' => $courseName,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-                if ($hasYearLevel && $yearLevel !== null) {
-                    $insert['year_level'] = $yearLevel;
-                }
-                if ($hasCourseType && $courseType !== null) {
-                    $insert['course_type'] = $courseType;
-                }
-                if ($hasCourseCode) {
-                    $insert['course_code'] = $codeInUse ? null : $courseCode;
-                }
-                $courseId = DB::table('dcs_program_courses')->insertGetId($insert);
-            } else {
-                $courseId = $course->id;
-                if ($hasCourseCode && $courseCode && !$codeInUse && ($course->course_code ?? null) !== $courseCode) {
-                    DB::table('dcs_program_courses')->where('id', $courseId)->update([
-                        'course_code' => $courseCode,
-                        'updated_at' => $now,
-                    ]);
-                }
-            }
+            $courseId = $course->id;
 
             $syllabiId = DB::table('dcs_syllabi')->insertGetId([
                 'request_id' => $requestId,

@@ -182,6 +182,173 @@ class RegisterQueryHelper
         return str_contains($n, 'syllab') || str_contains($n, 'tos') || str_contains($n, 'rubric');
     }
 
+    /** @return list<string> */
+    public static function searchTokens(string $search): array
+    {
+        $parts = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower(trim($search))) ?: [];
+        $tokens = [];
+        foreach ($parts as $part) {
+            $part = trim((string) $part);
+            if ($part !== '' && mb_strlen($part) >= 2) {
+                $tokens[$part] = $part;
+            }
+        }
+
+        return array_values($tokens);
+    }
+
+    /**
+     * Match a phrase or the same words in any order.
+     * Higher score = closer to the typed query (phrase, then word order, then tightness).
+     */
+    public static function looseSearchScore(string $search, string $haystack): int
+    {
+        $hay = mb_strtolower(trim($haystack));
+        $query = mb_strtolower(trim($search));
+        if ($query === '' || $hay === '') {
+            return 0;
+        }
+
+        $tokens = self::searchTokens($query);
+        if ($tokens === []) {
+            return str_contains($hay, $query) ? 100 : 0;
+        }
+
+        $positions = [];
+        foreach ($tokens as $token) {
+            $pos = mb_strpos($hay, $token);
+            if ($pos === false) {
+                return 0;
+            }
+            $positions[] = $pos;
+        }
+
+        $score = 100 * count($tokens);
+        if (str_contains($hay, $query)) {
+            $score += 500;
+        }
+
+        $ordered = true;
+        for ($i = 1, $n = count($positions); $i < $n; $i++) {
+            if ($positions[$i] < $positions[$i - 1]) {
+                $ordered = false;
+                break;
+            }
+        }
+        if ($ordered) {
+            $score += 200;
+        }
+
+        $span = max($positions) - min($positions);
+        $score += max(0, 180 - (int) $span);
+        if (str_starts_with($hay, $tokens[0])) {
+            $score += 40;
+        }
+
+        return $score;
+    }
+
+    /**
+     * Inventory stack key.
+     * Syllabi stack only within the same college + program + course type.
+     * Other non-revisable rows that merely share a document number stay separate.
+     */
+    public static function inventoryStackKey(array $row): string
+    {
+        $type = (int) ($row['doc_type_id'] ?? 0) . '||' . (int) ($row['sub_type_id'] ?? 0);
+        $syllabi = trim((string) ($row['syllabi_stack'] ?? ''));
+        if ($syllabi !== '') {
+            return 'syl||' . $syllabi . '||' . $type;
+        }
+
+        if (empty($row['allows_revision'])) {
+            return 'solo||' . (int) ($row['request_id'] ?? 0);
+        }
+
+        $docNo = trim((string) ($row['doc_no'] ?? ''));
+        if ($docNo === '' || strcasecmp($docNo, 'N/A') === 0) {
+            return 'no_ml_' . (int) ($row['request_id'] ?? 0);
+        }
+
+        return strtolower($docNo) . '||' . $type;
+    }
+
+    /**
+     * college|program|course type for each syllabi registration.
+     *
+     * @param  list<int>  $requestIds
+     * @return array<int, string>
+     */
+    public static function syllabiStackByRequest(array $requestIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $requestIds))));
+        if ($ids === [] || ! \Illuminate\Support\Facades\Schema::hasTable('dcs_syllabi')) {
+            return [];
+        }
+
+        $select = ['s.request_id', 's.college_id', 's.program_id'];
+        $hasType = \Illuminate\Support\Facades\Schema::hasColumn('dcs_program_courses', 'course_type');
+        if ($hasType) {
+            $select[] = 'pc.course_type';
+        }
+
+        $rows = DB::table('dcs_syllabi as s')
+            ->leftJoin('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
+            ->whereIn('s.request_id', $ids)
+            ->orderBy('s.id')
+            ->get($select);
+
+        $out = [];
+        foreach ($rows as $row) {
+            $rid = (int) $row->request_id;
+            if (isset($out[$rid])) {
+                continue;
+            }
+            $out[$rid] = (int) ($row->college_id ?? 0)
+                . '|' . (int) ($row->program_id ?? 0)
+                . '|' . mb_strtolower(trim((string) ($row->course_type ?? '')));
+        }
+
+        return $out;
+    }
+
+    /**
+     * Phrase match, or every word present in any order across the given columns.
+     *
+     * @param  list<string>  $columns
+     */
+    public static function applyLooseColumnSearch($query, string $search, array $columns): void
+    {
+        $search = trim($search);
+        if ($search === '' || $columns === []) {
+            return;
+        }
+
+        $tokens = self::searchTokens($search);
+        $phrase = '%' . $search . '%';
+        $query->where(function ($outer) use ($phrase, $tokens, $columns) {
+            $outer->where(function ($q) use ($phrase, $columns) {
+                foreach ($columns as $i => $col) {
+                    $method = $i === 0 ? 'where' : 'orWhere';
+                    $q->{$method}($col, 'ilike', $phrase);
+                }
+            });
+            if (count($tokens) > 1) {
+                $outer->orWhere(function ($all) use ($tokens, $columns) {
+                    foreach ($tokens as $token) {
+                        $like = '%' . $token . '%';
+                        $all->where(function ($one) use ($like, $columns) {
+                            foreach ($columns as $i => $col) {
+                                $method = $i === 0 ? 'where' : 'orWhere';
+                                $one->{$method}($col, 'ilike', $like);
+                            }
+                        });
+                    }
+                });
+            }
+        });
+    }
+
     /** Whether a doc-type/subtype row allows New→Revised / DCN lineage. */
     public static function typeAllowsRevision(?object $typeRow): bool
     {
@@ -1424,13 +1591,17 @@ class RegisterQueryHelper
     }
 
     /**
-     * Newest open draft for this document number + type (one draft per document).
+     * Newest open draft for this document number, type, subtype, and syllabi context.
+     * Syllabi drafts that differ by college, program, course type, semester, or school year stay separate.
+     *
+     * @param  array{college_id?: int, program_id?: int, semester_id?: int, school_year_id?: int, course_type?: string}|null  $syllabiContext
      */
     public static function findExistingDraftRequestId(
         string $docNo,
         int $docTypeId,
         ?int $subTypeId = null,
-        int $excludeRequestId = 0
+        int $excludeRequestId = 0,
+        ?array $syllabiContext = null
     ): ?int {
         if (! self::supportsDrafts()) {
             return null;
@@ -1449,6 +1620,45 @@ class RegisterQueryHelper
         self::applyNotDeleted($query, 'dr');
         self::applyOfficeScope($query, 'dr');
         self::applyExcludeOfficeIntakeRequests($query, 'dr');
+
+        if ($subTypeId) {
+            $query->where('dr.sub_type_id', $subTypeId);
+        } else {
+            $query->whereNull('dr.sub_type_id');
+        }
+
+        if ($syllabiContext !== null) {
+            $collegeId = (int) ($syllabiContext['college_id'] ?? 0);
+            $programId = (int) ($syllabiContext['program_id'] ?? 0);
+            $semesterId = (int) ($syllabiContext['semester_id'] ?? 0);
+            $schoolYearId = (int) ($syllabiContext['school_year_id'] ?? 0);
+            $courseType = trim((string) ($syllabiContext['course_type'] ?? ''));
+            if ($collegeId > 0 && $programId > 0) {
+                $query->whereExists(function ($q) use ($collegeId, $programId, $semesterId, $schoolYearId, $courseType) {
+                    $q->select(DB::raw(1))
+                        ->from('dcs_syllabi as s')
+                        ->leftJoin('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
+                        ->whereColumn('s.request_id', 'dr.id')
+                        ->where('s.college_id', $collegeId)
+                        ->where('s.program_id', $programId);
+                    if ($semesterId > 0) {
+                        $q->where('s.semester_id', $semesterId);
+                    }
+                    if ($schoolYearId > 0) {
+                        $q->where('s.school_year_id', $schoolYearId);
+                    }
+                    if ($courseType !== '' && Schema::hasColumn('dcs_program_courses', 'course_type')) {
+                        $q->where('pc.course_type', $courseType);
+                    }
+                });
+            } else {
+                $query->whereNotExists(function ($q) {
+                    $q->select(DB::raw(1))
+                        ->from('dcs_syllabi as s')
+                        ->whereColumn('s.request_id', 'dr.id');
+                });
+            }
+        }
 
         if ($excludeRequestId > 0) {
             $query->where('dr.id', '!=', $excludeRequestId);
@@ -2088,6 +2298,16 @@ class RegisterQueryHelper
             return $groups;
         }
 
+        $isStandalone = function ($g): bool {
+            return empty($g['allows_revision'])
+                || trim((string) ($g['parent']['syllabi_stack'] ?? '')) !== '';
+        };
+        $standalone = $groups->filter($isStandalone)->values();
+        $groups = $groups->reject($isStandalone)->values();
+        if ($groups->isEmpty()) {
+            return $standalone;
+        }
+
         $byKey = [];
         foreach ($groups as $g) {
             $p = $g['parent'];
@@ -2102,7 +2322,7 @@ class RegisterQueryHelper
         }
 
         if ($byKey === []) {
-            return $groups;
+            return $groups->concat($standalone)->values();
         }
 
         $parentIds = $groups
@@ -2128,7 +2348,7 @@ class RegisterQueryHelper
         $edges = self::buildLineageMergeEdges(self::lineageGroupTipsFromParents($parentsByKey), $visibleIds);
 
         if ($edges === []) {
-            return $groups;
+            return $groups->concat($standalone)->values();
         }
 
         $absorbedAsTopLevel = [];
@@ -2226,7 +2446,7 @@ class RegisterQueryHelper
             $merged->push($g);
         }
 
-        return $merged;
+        return $merged->concat($standalone)->values();
     }
 
     /**
@@ -2415,13 +2635,31 @@ class RegisterQueryHelper
         $matchedIds = null;
         if ($search !== '') {
             $like = '%' . $search . '%';
-            $matchQuery = (clone $query)->where(function ($q) use ($like) {
-                $q->whereRaw('dr.id::text ilike ?', [$like])
-                    ->orWhere('ml.doc_no', 'ilike', $like)
-                    ->orWhere('ml.doc_title', 'ilike', $like)
-                    ->orWhere('drf.drf_no', 'ilike', $like)
-                    ->orWhere('drf.doc_title', 'ilike', $like)
-                    ->orWhere('dcn.dcn_no', 'ilike', $like);
+            $tokens = self::searchTokens($search);
+            $matchQuery = (clone $query)->where(function ($q) use ($like, $tokens) {
+                $q->where(function ($phrase) use ($like) {
+                    $phrase->whereRaw('dr.id::text ilike ?', [$like])
+                        ->orWhere('ml.doc_no', 'ilike', $like)
+                        ->orWhere('ml.doc_title', 'ilike', $like)
+                        ->orWhere('drf.drf_no', 'ilike', $like)
+                        ->orWhere('drf.doc_title', 'ilike', $like)
+                        ->orWhere('dcn.dcn_no', 'ilike', $like);
+                });
+                if (count($tokens) > 1) {
+                    $q->orWhere(function ($all) use ($tokens) {
+                        foreach ($tokens as $token) {
+                            $tokenLike = '%' . $token . '%';
+                            $all->where(function ($one) use ($tokenLike) {
+                                $one->where('ml.doc_no', 'ilike', $tokenLike)
+                                    ->orWhere('ml.doc_title', 'ilike', $tokenLike)
+                                    ->orWhere('drf.drf_no', 'ilike', $tokenLike)
+                                    ->orWhere('drf.doc_title', 'ilike', $tokenLike)
+                                    ->orWhere('dcn.dcn_no', 'ilike', $tokenLike)
+                                    ->orWhereRaw('dr.id::text ilike ?', [$tokenLike]);
+                            });
+                        }
+                    });
+                }
             });
             $matchedIds = $matchQuery->pluck('dr.id')->map(fn ($id) => (int) $id)->all();
             if ($matchedIds === []) {
@@ -2430,8 +2668,9 @@ class RegisterQueryHelper
         }
 
         $documents = $query->orderByDesc('dr.id')->get();
+        $viewerCanEdit = self::isFullDcsUser();
 
-        $mapRow = function ($doc): array {
+        $mapRow = function ($doc) use ($viewerCanEdit): array {
             $docNo = trim((string) ($doc->doc_no ?? ''));
             $title = $doc->ml_title ?: ($doc->drf_title ?: 'N/A');
             $isDraft = self::supportsDrafts() && !empty($doc->is_draft);
@@ -2444,8 +2683,6 @@ class RegisterQueryHelper
             $allowsRevision = self::supportsAllowsRevisionColumn()
                 ? (bool) ($doc->allows_revision ?? true)
                 : self::effectiveTypeAllowsRevision($doc->doc_type_id ?? null, $doc->sub_type_id ?? null);
-
-            $canEdit = self::canEditDocument((int) $doc->id, $doc);
 
             return [
                 'request_id' => (int) $doc->id,
@@ -2462,19 +2699,19 @@ class RegisterQueryHelper
                 'edit_url' => route('dcs.register.edit', $doc->id),
                 'history_url' => (!$isDraft && $docNo !== '') ? route('dcs.register.history', $docNo) : null,
                 'can_delete' => $status !== 'obsolete',
-                'can_edit' => $canEdit,
+                'can_edit' => $viewerCanEdit || self::canEditDocument((int) $doc->id, $doc),
             ];
         };
 
         $rows = $documents->map($mapRow);
+        $stacks = self::syllabiStackByRequest($rows->pluck('request_id')->all());
+        $rows = $rows->map(function (array $row) use ($stacks) {
+            $row['syllabi_stack'] = $stacks[(int) $row['request_id']] ?? '';
 
-        $grouped = $rows->groupBy(function ($row) {
-            if ($row['doc_no'] === 'N/A') {
-                return 'no_ml_' . $row['request_id'];
-            }
-
-            return strtolower($row['doc_no']) . '||' . $row['doc_type_id'] . '||' . $row['sub_type_id'];
+            return $row;
         });
+
+        $grouped = $rows->groupBy(fn ($row) => self::inventoryStackKey($row));
 
         $groups = collect();
         foreach ($grouped as $family) {
@@ -2549,6 +2786,20 @@ class RegisterQueryHelper
         }
 
         $groups = $groups->sortByDesc('sort_id')->values();
+        if ($search !== '') {
+            $groups = $groups->sortByDesc(function ($g) use ($search) {
+                $bits = [
+                    $g['parent']['doc_no'] ?? '',
+                    $g['parent']['title'] ?? '',
+                    $g['parent']['doc_type'] ?? '',
+                ];
+                foreach ($g['children'] ?? [] as $child) {
+                    $bits[] = ($child['doc_no'] ?? '') . ' ' . ($child['title'] ?? '');
+                }
+
+                return self::looseSearchScore($search, implode(' ', $bits));
+            })->values();
+        }
 
         $total = $groups->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
@@ -2612,17 +2863,36 @@ class RegisterQueryHelper
         $search = trim($search);
         if ($search !== '') {
             $like = '%' . $search . '%';
-            $query->where(function ($q) use ($like) {
-                $q->whereRaw('dr.id::text ilike ?', [$like])
-                    ->orWhere('ml.doc_no', 'ilike', $like)
-                    ->orWhere('ml.doc_title', 'ilike', $like)
-                    ->orWhere('drf.drf_no', 'ilike', $like)
-                    ->orWhere('drf.doc_title', 'ilike', $like)
-                    ->orWhere('dcn.dcn_no', 'ilike', $like);
+            $tokens = self::searchTokens($search);
+            $query->where(function ($q) use ($search, $like, $tokens) {
+                self::applyLooseColumnSearch($q, $search, [
+                    'ml.doc_no',
+                    'ml.doc_title',
+                    'drf.doc_title',
+                    'drf.drf_no',
+                    'dcn.dcn_no',
+                ]);
+                $q->orWhereRaw('dr.id::text ilike ?', [$like]);
+                if (count($tokens) > 1) {
+                    $q->orWhere(function ($all) use ($tokens) {
+                        foreach ($tokens as $token) {
+                            $all->whereRaw('dr.id::text ilike ?', ['%' . $token . '%']);
+                        }
+                    });
+                }
             });
         }
 
-        $documents = $query->orderByDesc('dr.updated_at')->orderByDesc('dr.id')->get();
+        $searchActive = $search !== '';
+        $total = (int) (clone $query)->distinct()->count('dr.id');
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min(max(1, $page), $lastPage);
+
+        $pageQuery = $query->orderByDesc('dr.updated_at')->orderByDesc('dr.id');
+        if (! $searchActive) {
+            $pageQuery->offset(($page - 1) * $perPage)->limit($perPage);
+        }
+        $documents = $pageQuery->get();
         $rows = $documents->map(function ($doc) {
             $docNo = trim((string) ($doc->doc_no ?? ''));
             $title = $doc->ml_title ?: ($doc->drf_title ?: 'Untitled draft');
@@ -2642,10 +2912,18 @@ class RegisterQueryHelper
             ];
         })->values();
 
-        $total = $rows->count();
-        $lastPage = max(1, (int) ceil($total / $perPage));
-        $page = min(max(1, $page), $lastPage);
-        $pageRows = $rows->slice(($page - 1) * $perPage, $perPage)->values()->all();
+        if ($searchActive) {
+            $rows = $rows->sortByDesc(fn ($row) => self::looseSearchScore(
+                $search,
+                trim(($row['doc_no'] ?? '') . ' ' . ($row['title'] ?? '') . ' ' . ($row['doc_type'] ?? ''))
+            ))->values();
+            $total = $rows->count();
+            $lastPage = max(1, (int) ceil($total / $perPage));
+            $page = min(max(1, $page), $lastPage);
+            $pageRows = $rows->slice(($page - 1) * $perPage, $perPage)->values()->all();
+        } else {
+            $pageRows = $rows->values()->all();
+        }
 
         return [
             'rows' => $pageRows,
@@ -2701,19 +2979,40 @@ class RegisterQueryHelper
         $search = trim($search);
         if ($search !== '') {
             $like = '%' . $search . '%';
-            $query->where(function ($q) use ($like) {
-                $q->whereRaw('dr.id::text ilike ?', [$like])
-                    ->orWhere('ml.doc_no', 'ilike', $like)
-                    ->orWhere('ml.doc_title', 'ilike', $like)
-                    ->orWhere('drf.doc_title', 'ilike', $like);
+            $tokens = self::searchTokens($search);
+            $query->where(function ($q) use ($search, $like, $tokens) {
+                self::applyLooseColumnSearch($q, $search, [
+                    'ml.doc_no',
+                    'ml.doc_title',
+                    'drf.doc_title',
+                ]);
+                $q->orWhereRaw('dr.id::text ilike ?', [$like]);
+                if (count($tokens) > 1) {
+                    $q->orWhere(function ($all) use ($tokens) {
+                        foreach ($tokens as $token) {
+                            $all->whereRaw('dr.id::text ilike ?', ['%' . $token . '%']);
+                        }
+                    });
+                }
             });
+            $matched = $query->get()->sortByDesc(function ($doc) use ($search) {
+                $title = $doc->ml_title ?: ($doc->drf_title ?: '');
+
+                return self::looseSearchScore(
+                    $search,
+                    trim(($doc->doc_no ?? '') . ' ' . $title . ' ' . ($doc->doc_type_name ?? ''))
+                );
+            })->values();
+            $total = $matched->count();
+            $lastPage = max(1, (int) ceil($total / $perPage));
+            $page = min(max(1, $page), $lastPage);
+            $documents = $matched->slice(($page - 1) * $perPage, $perPage)->values();
+        } else {
+            $total = (clone $query)->count();
+            $lastPage = max(1, (int) ceil($total / $perPage));
+            $page = min(max(1, $page), $lastPage);
+            $documents = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
         }
-
-        $total = (clone $query)->count();
-        $lastPage = max(1, (int) ceil($total / $perPage));
-        $page = min(max(1, $page), $lastPage);
-
-        $documents = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
 
         $deletedByIds = $documents->pluck('deleted_by')->filter()->unique()->all();
         $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
@@ -2837,15 +3136,14 @@ class RegisterQueryHelper
 
         $search = trim($search);
         if ($search !== '') {
-            $like = '%' . $search . '%';
-            $query->where(function ($q) use ($like) {
-                $q->where('ml.doc_no', 'ilike', $like)
-                    ->orWhere('ml.doc_title', 'ilike', $like);
-            });
+            self::applyLooseColumnSearch($query, $search, [
+                'ml.doc_no',
+                'ml.doc_title',
+            ]);
         }
 
         // Resolve renumber lineage tips so prior numbers don't appear as separate review rows.
-        $candidates = $query->limit(120)->get();
+        $candidates = $query->limit(400)->get();
         $hasKeywords = Schema::hasColumn('dcs_masterlist_registration', 'keywords');
         $tipRows = collect();
         $seenTipKeys = [];
@@ -2890,6 +3188,13 @@ class RegisterQueryHelper
 
             return $doc;
         })->values();
+
+        if (trim($search) !== '') {
+            $tipRows = $tipRows->sortByDesc(fn ($doc) => self::looseSearchScore(
+                $search,
+                trim(($doc->doc_no ?? '') . ' ' . ($doc->doc_title ?? '') . ' ' . ($doc->type_name ?? ''))
+            ))->values();
+        }
 
         $total = $tipRows->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
@@ -4276,15 +4581,15 @@ class RegisterQueryHelper
 
         $query->where(function ($qr) use ($q, $field, $hasKeywords) {
             if ($field === 'no') {
-                $qr->where('ml.doc_no', 'ilike', "%{$q}%");
+                self::applyLooseColumnSearch($qr, $q, ['ml.doc_no']);
             } elseif ($field === 'title') {
-                $qr->where('ml.doc_title', 'ilike', "%{$q}%");
+                self::applyLooseColumnSearch($qr, $q, ['ml.doc_title']);
             } else {
-                $qr->where('ml.doc_title', 'ilike', "%{$q}%")
-                    ->orWhere('ml.doc_no', 'ilike', "%{$q}%");
+                $columns = ['ml.doc_title', 'ml.doc_no'];
                 if ($hasKeywords) {
-                    $qr->orWhere('ml.keywords', 'ilike', "%{$q}%");
+                    $columns[] = 'ml.keywords';
                 }
+                self::applyLooseColumnSearch($qr, $q, $columns);
             }
         });
 
@@ -4319,7 +4624,7 @@ class RegisterQueryHelper
         $rows = $query->orderByDesc('ml.revise_no')
             ->orderBy('ml.doc_no')
             ->orderBy('ml.doc_title')
-            ->limit($allRevisions ? 50 : ($dashboardSearch ? 60 : 30))
+            ->limit(count(self::searchTokens($q)) > 1 ? 200 : ($allRevisions ? 50 : ($dashboardSearch ? 60 : 30)))
             ->get($select);
 
         $forRevision = $request->boolean('for_revision') || in_array($field, ['no', 'title'], true);
@@ -4358,6 +4663,11 @@ class RegisterQueryHelper
                 return true;
             })->values();
         }
+
+        $rows = $rows->sortByDesc(fn ($m) => self::looseSearchScore(
+            $q,
+            trim(($m->doc_no ?? '') . ' ' . ($m->doc_title ?? '') . ' ' . ($m->keywords ?? '') . ' ' . ($m->type_name ?? ''))
+        ))->values();
 
         $rows = $rows->take(15);
 
@@ -4455,9 +4765,9 @@ class RegisterQueryHelper
 
         $query->where(function ($qr) use ($q, $field) {
             if ($field === 'title') {
-                $qr->where('ml.doc_title', 'ilike', "%{$q}%");
+                self::applyLooseColumnSearch($qr, $q, ['ml.doc_title']);
             } else {
-                $qr->where('ml.doc_no', 'ilike', "%{$q}%");
+                self::applyLooseColumnSearch($qr, $q, ['ml.doc_no', 'ml.doc_title']);
             }
         });
 
@@ -6119,6 +6429,17 @@ class RegisterQueryHelper
             ];
         }
 
+        if ($request->boolean('allow_duplicate_doc_no')) {
+            return [
+                'taken' => false,
+                'duplicate_copy' => true,
+                'revise_no' => 0,
+                'taken_revs' => [],
+                'next_rev' => 0,
+                'message' => 'Same number kept as a new registration. Other numbers will not move.',
+            ];
+        }
+
         if ($docNo === '') {
             return [
                 'taken' => false,
@@ -6819,6 +7140,9 @@ class RegisterQueryHelper
         if (Schema::hasColumn('dcs_program_courses', 'course_code')) {
             $historySyllabiSelect[] = 'c.course_code';
         }
+        if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
+            $historySyllabiSelect[] = 'c.course_type';
+        }
 
         $syllabi = DB::table('dcs_syllabi as s')
             ->leftJoin('dcs_program_courses as c', 'c.id', '=', 's.course_id')
@@ -6832,6 +7156,7 @@ class RegisterQueryHelper
             $row->course = (object) [
                 'course_name' => $row->course_name,
                 'course_code' => $row->course_code ?? null,
+                'course_type' => $row->course_type ?? null,
             ];
             $row->drfs = $drfsBySyl->get($row->id, collect());
 

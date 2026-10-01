@@ -265,26 +265,58 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
             if ($this->search !== '') {
                 $like = '%' . $this->search . '%';
-                $query->where(function ($q) use ($like) {
-                    $q->whereExists(function ($q2) use ($like) {
-                        $q2->select(DB::raw(1))
-                            ->from('dcs_document_request_form as drf')
-                            ->whereColumn('drf.request_id', 'dr.id')
-                            ->where(function ($q3) use ($like) {
-                                $q3->where('drf.doc_title', 'ilike', $like)
-                                    ->orWhere('drf.drf_no', 'ilike', $like);
-                            });
-                    })
-                    ->orWhereExists(function ($q2) use ($like) {
-                        $q2->select(DB::raw(1))
-                            ->from('dcs_masterlist_registration as ml')
-                            ->whereColumn('ml.request_id', 'dr.id')
-                            ->where(function ($q3) use ($like) {
-                                $q3->where('ml.doc_no', 'ilike', $like)
-                                    ->orWhere('ml.doc_title', 'ilike', $like);
-                            });
-                    })
-                    ->orWhereRaw('dr.id::text ilike ?', [$like]);
+                $tokens = RegisterQueryHelper::searchTokens($this->search);
+                $query->where(function ($q) use ($like, $tokens) {
+                    $q->where(function ($phrase) use ($like) {
+                        $phrase->whereExists(function ($q2) use ($like) {
+                            $q2->select(DB::raw(1))
+                                ->from('dcs_document_request_form as drf')
+                                ->whereColumn('drf.request_id', 'dr.id')
+                                ->where(function ($q3) use ($like) {
+                                    $q3->where('drf.doc_title', 'ilike', $like)
+                                        ->orWhere('drf.drf_no', 'ilike', $like);
+                                });
+                        })
+                        ->orWhereExists(function ($q2) use ($like) {
+                            $q2->select(DB::raw(1))
+                                ->from('dcs_masterlist_registration as ml')
+                                ->whereColumn('ml.request_id', 'dr.id')
+                                ->where(function ($q3) use ($like) {
+                                    $q3->where('ml.doc_no', 'ilike', $like)
+                                        ->orWhere('ml.doc_title', 'ilike', $like)
+                                        ->orWhere('ml.originator_name', 'ilike', $like);
+                                });
+                        })
+                        ->orWhereRaw('dr.id::text ilike ?', [$like]);
+                    });
+
+                    if (count($tokens) > 1) {
+                        $q->orWhere(function ($all) use ($tokens) {
+                            foreach ($tokens as $token) {
+                                $tokenLike = '%' . $token . '%';
+                                $all->where(function ($one) use ($tokenLike) {
+                                    $one->whereExists(function ($q2) use ($tokenLike) {
+                                        $q2->select(DB::raw(1))
+                                            ->from('dcs_masterlist_registration as ml')
+                                            ->whereColumn('ml.request_id', 'dr.id')
+                                            ->where(function ($q3) use ($tokenLike) {
+                                                $q3->where('ml.doc_no', 'ilike', $tokenLike)
+                                                    ->orWhere('ml.doc_title', 'ilike', $tokenLike)
+                                                    ->orWhere('ml.originator_name', 'ilike', $tokenLike);
+                                            });
+                                    })->orWhereExists(function ($q2) use ($tokenLike) {
+                                        $q2->select(DB::raw(1))
+                                            ->from('dcs_document_request_form as drf')
+                                            ->whereColumn('drf.request_id', 'dr.id')
+                                            ->where(function ($q3) use ($tokenLike) {
+                                                $q3->where('drf.doc_title', 'ilike', $tokenLike)
+                                                    ->orWhere('drf.drf_no', 'ilike', $tokenLike);
+                                            });
+                                    });
+                                });
+                            }
+                        });
+                    }
                 });
             }
 
@@ -360,8 +392,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 });
             }
 
-            $allRows = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get())
-                ->map(fn ($doc) => $this->mapDocument($doc));
+            $usedLight = $paginate && $this->receivedBy === '';
+            $allRows = $usedLight
+                ? $this->lightInventoryRows($query)
+                : RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get())
+                    ->map(fn ($doc) => $this->mapDocument($doc));
 
             // Keep only documents whose displayed receiving offices include the selected office.
             if ($this->receivedBy !== '') {
@@ -392,13 +427,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 })->values();
             }
 
-            $grouped = $allRows->groupBy(function ($row) {
-                if (! $row['doc_no'] || $row['doc_no'] === 'N/A') {
-                    return 'no_ml_' . $row['request_id'];
-                }
-
-                return $row['doc_no'] . '||' . ($row['doc_type_id'] ?? 0) . '||' . ($row['sub_type_id'] ?? 0);
-            });
+            $grouped = $allRows->groupBy(fn ($row) => RegisterQueryHelper::inventoryStackKey($row));
 
             $groups = collect();
             foreach ($grouped as $rows) {
@@ -523,7 +552,27 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 'logbooks' => 4,
             ];
 
-            $groups = $groups->sort(function ($a, $b) use ($categoryOrder) {
+            $searchNeedle = trim($this->search);
+            $groups = $groups->sort(function ($a, $b) use ($categoryOrder, $searchNeedle) {
+                if ($searchNeedle !== '') {
+                    $score = function ($group) use ($searchNeedle) {
+                        $bits = [
+                            $group['parent']['doc_no'] ?? '',
+                            $group['parent']['title'] ?? '',
+                            $group['parent']['originator'] ?? '',
+                        ];
+                        foreach ($group['children'] ?? [] as $child) {
+                            $bits[] = ($child['doc_no'] ?? '') . ' ' . ($child['title'] ?? '');
+                        }
+
+                        return RegisterQueryHelper::looseSearchScore($searchNeedle, implode(' ', $bits));
+                    };
+                    $byScore = $score($b) <=> $score($a);
+                    if ($byScore !== 0) {
+                        return $byScore;
+                    }
+                }
+
                 $catA = $a['parent']['doc_type_name'] ?? 'zzz';
                 $catB = $b['parent']['doc_type_name'] ?? 'zzz';
 
@@ -561,13 +610,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             })->values();
 
             $total = $groups->count();
-            $perPage = 50;
+            $perPage = 20;
             $lastPage = max(1, (int) ceil($total / $perPage));
             $page = min(max(1, $this->page), $lastPage);
 
             $data = $paginate
                 ? $groups->slice(($page - 1) * $perPage, $perPage)->values()->all()
                 : $groups->values()->all();
+
+            if ($usedLight) {
+                $data = $this->hydrateListingPage($data);
+            }
 
             return [
                 'data' => $data,
@@ -591,9 +644,107 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    private function lightInventoryRows($query): \Illuminate\Support\Collection
+    {
+        $select = [
+            'dr.id as request_id',
+            'dr.doc_type_id',
+            'dr.sub_type_id',
+            'dt.doc_type_name',
+            'ml.doc_no',
+            'ml.revise_no',
+            'ml.revision_status',
+        ];
+        if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
+            $select[] = 'dr.deleted_at';
+        }
+        $hasAllows = Schema::hasColumn('dcs_masterlist_registration', 'allows_revision');
+        if ($hasAllows) {
+            $select[] = 'ml.allows_revision';
+        }
+
+        $docs = (clone $query)
+            ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
+            ->orderByDesc('dr.id')
+            ->orderByDesc('ml.id')
+            ->get($select)
+            ->unique('request_id')
+            ->values();
+
+        $stacks = RegisterQueryHelper::syllabiStackByRequest(
+            $docs->pluck('request_id')->map(fn ($id) => (int) $id)->all()
+        );
+
+        return $docs->map(function ($doc) use ($stacks, $hasAllows) {
+            $status = strtolower(trim((string) ($doc->revision_status ?? '')));
+            if ($status === '') {
+                $status = 'latest';
+            }
+
+            return [
+                'request_id' => (int) $doc->request_id,
+                'doc_type_id' => (int) ($doc->doc_type_id ?? 0),
+                'sub_type_id' => (int) ($doc->sub_type_id ?? 0),
+                'doc_type_name' => $doc->doc_type_name ?? 'Uncategorized',
+                'doc_no' => trim((string) ($doc->doc_no ?? '')) !== '' ? trim((string) $doc->doc_no) : 'N/A',
+                'rev_no' => (int) ($doc->revise_no ?? 0),
+                'status' => $status,
+                'allows_revision' => $hasAllows
+                    ? (bool) ($doc->allows_revision ?? true)
+                    : RegisterQueryHelper::effectiveTypeAllowsRevision($doc->doc_type_id ?? null, $doc->sub_type_id ?? null),
+                'syllabi_stack' => $stacks[(int) $doc->request_id] ?? '',
+                'is_deleted' => ! empty($doc->deleted_at ?? null),
+                'dist_office_ids' => [],
+            ];
+        })->values();
+    }
+
+    /** @param  list<array<string, mixed>>  $groups */
+    private function hydrateListingPage(array $groups): array
+    {
+        $ids = [];
+        foreach ($groups as $group) {
+            $ids[] = (int) ($group['parent']['request_id'] ?? 0);
+            foreach ($group['children'] ?? [] as $child) {
+                $ids[] = (int) ($child['request_id'] ?? 0);
+            }
+        }
+        $ids = array_values(array_unique(array_filter($ids)));
+        if ($ids === []) {
+            return $groups;
+        }
+
+        $full = RegisterQueryHelper::hydrateRequests(
+            DB::table('dcs_document_requests')->whereIn('id', $ids)->get()
+        )->mapWithKeys(fn ($doc) => [(int) $doc->id => $this->mapDocument($doc)]);
+
+        return array_map(function (array $group) use ($full) {
+            $pid = (int) ($group['parent']['request_id'] ?? 0);
+            if (isset($full[$pid])) {
+                $group['parent'] = $full[$pid];
+            }
+            $group['children'] = array_map(function ($child) use ($full) {
+                $cid = (int) ($child['request_id'] ?? 0);
+
+                return $full[$cid] ?? $child;
+            }, $group['children'] ?? []);
+
+            return $group;
+        }, $groups);
+    }
+
     private function mapDocument(object $doc): array
     {
         $hasSyllabi = $doc->syllabi->isNotEmpty();
+        $firstSyl = $hasSyllabi ? $doc->syllabi->first() : null;
+        $syllabiCourseType = trim((string) ($firstSyl?->course?->course_type ?? ''));
+        $syllabiStack = '';
+        if ($hasSyllabi && $firstSyl) {
+            $syllabiStack = (int) ($firstSyl->college_id ?? 0)
+                . '|' . (int) ($firstSyl->program_id ?? 0)
+                . '|' . mb_strtolower($syllabiCourseType);
+        }
         $drf = ($doc->documentRequestForm && ! $hasSyllabi) ? $doc->documentRequestForm : null;
         $syllabiCourses = $doc->syllabi->map(function ($syl) {
             $name = $syl->course->course_name ?? null;
@@ -707,6 +858,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 'title' => $r->doc_title,
             ])->values() : [],
             'syllabi_courses' => $syllabiCourses,
+            'syllabi_stack' => $syllabiStack,
             'approval_no' => $appr?->approval_no,
             'approval_date' => ($appr && $appr->approval_date) ? RegisterQueryHelper::formatSmartDate($appr->approval_date) : null,
             'deadline_date' => ($ml && $ml->deadline) ? RegisterQueryHelper::formatSmartDate($ml->deadline) : 'N/A',
@@ -753,6 +905,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             return $groups;
         }
 
+        $standalone = $groups->filter(function ($g) {
+            return empty($g['allows_revision'])
+                || trim((string) ($g['parent']['syllabi_stack'] ?? '')) !== '';
+        })->values();
+        $groups = $groups->reject(function ($g) {
+            return empty($g['allows_revision'])
+                || trim((string) ($g['parent']['syllabi_stack'] ?? '')) !== '';
+        })->values();
+        if ($groups->isEmpty()) {
+            return $standalone;
+        }
+
         $indexed = $groups->values();
         $byKey = [];
         $groupTips = [];
@@ -790,7 +954,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             : RegisterQueryHelper::visibleRequestIds();
         $edges = RegisterQueryHelper::buildLineageMergeEdges($groupTips, $visibleIds);
         if ($edges === []) {
-            return $groups;
+            return $groups->concat($standalone)->values();
         }
 
         $absorbedAsTopLevel = [];
@@ -872,7 +1036,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $merged->push($g);
         }
 
-        return $merged->values();
+        return $merged->concat($standalone)->values();
     }
 
     private function renumberGroupKey(mixed $docNo, mixed $docTypeId, mixed $subTypeId): string
@@ -1574,17 +1738,28 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </table>
         </div>
 
-        @if(($list['last_page'] ?? 1) > 1)
-            <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 16px;">
-                @if(($list['page'] ?? 1) > 1)
-                    <button type="button" class="db-btn" wire:click="goToPage({{ $list['page'] - 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Previous</button>
-                @endif
-                <span>Page {{ $list['page'] }} of {{ $list['last_page'] }}</span>
-                @if(($list['page'] ?? 1) < ($list['last_page'] ?? 1))
-                    <button type="button" class="db-btn" wire:click="goToPage({{ $list['page'] + 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Next</button>
-                @endif
-            </div>
-        @endif
+        @php
+            $pg = (int) ($list['page'] ?? 1);
+            $pgLast = (int) ($list['last_page'] ?? 1);
+            $pgTotal = (int) ($list['total'] ?? 0);
+            $pgSize = (int) ($list['per_page'] ?? 20);
+            $pgFrom = $pgTotal === 0 ? 0 : (($pg - 1) * $pgSize) + 1;
+            $pgTo = min($pgTotal, $pg * $pgSize);
+            $pgStart = max(1, $pg - 2);
+            $pgEnd = min($pgLast, $pg + 2);
+        @endphp
+        <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 16px;flex-wrap:wrap;">
+            <span style="margin-right:auto;color:#475569;font-size:13px;">Showing {{ $pgFrom }}–{{ $pgTo }} of {{ $pgTotal }}</span>
+            @if($pg > 1)
+                <button type="button" class="db-btn" wire:click="goToPage({{ $pg - 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Previous</button>
+            @endif
+            @for($p = $pgStart; $p <= $pgEnd; $p++)
+                <button type="button" class="db-btn {{ $p === $pg ? 'active' : '' }}" wire:click="goToPage({{ $p }})" wire:loading.attr="disabled" wire:target="goToPage" @if($p === $pg) disabled @endif>{{ $p }}</button>
+            @endfor
+            @if($pg < $pgLast)
+                <button type="button" class="db-btn" wire:click="goToPage({{ $pg + 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Next</button>
+            @endif
+        </div>
 
     </section>
 

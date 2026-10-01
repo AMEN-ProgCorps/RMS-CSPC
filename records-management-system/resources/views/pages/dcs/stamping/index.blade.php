@@ -56,31 +56,91 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         if (trim($this->search) !== '') {
             $like = '%' . trim($this->search) . '%';
-            $query->where(function ($q) use ($like) {
-                $q->whereExists(function ($q2) use ($like) {
-                    $q2->select(DB::raw(1))
-                        ->from('dcs_masterlist_registration as ml')
-                        ->whereColumn('ml.request_id', 'dr.id')
-                        ->where(function ($q3) use ($like) {
-                            $q3->where('ml.doc_no', 'ilike', $like)
-                                ->orWhere('ml.doc_title', 'ilike', $like);
-                        });
-                })->orWhereExists(function ($q2) use ($like) {
-                    $q2->select(DB::raw(1))
-                        ->from('dcs_doc_types as dt')
-                        ->whereColumn('dt.id', 'dr.doc_type_id')
-                        ->where('dt.doc_type_name', 'ilike', $like);
-                })->orWhereRaw('dr.id::text ilike ?', [$like]);
+            $tokens = RegisterQueryHelper::searchTokens($this->search);
+            $query->where(function ($q) use ($like, $tokens) {
+                $q->where(function ($phrase) use ($like) {
+                    $phrase->whereExists(function ($q2) use ($like) {
+                        $q2->select(DB::raw(1))
+                            ->from('dcs_masterlist_registration as ml')
+                            ->whereColumn('ml.request_id', 'dr.id')
+                            ->where(function ($q3) use ($like) {
+                                $q3->where('ml.doc_no', 'ilike', $like)
+                                    ->orWhere('ml.doc_title', 'ilike', $like);
+                            });
+                    })->orWhereExists(function ($q2) use ($like) {
+                        $q2->select(DB::raw(1))
+                            ->from('dcs_doc_types as dt')
+                            ->whereColumn('dt.id', 'dr.doc_type_id')
+                            ->where('dt.doc_type_name', 'ilike', $like);
+                    })->orWhereRaw('dr.id::text ilike ?', [$like]);
+                });
+                if (count($tokens) > 1) {
+                    $q->orWhere(function ($all) use ($tokens) {
+                        foreach ($tokens as $token) {
+                            $tokenLike = '%' . $token . '%';
+                            $all->where(function ($one) use ($tokenLike) {
+                                $one->whereExists(function ($q2) use ($tokenLike) {
+                                    $q2->select(DB::raw(1))
+                                        ->from('dcs_masterlist_registration as ml')
+                                        ->whereColumn('ml.request_id', 'dr.id')
+                                        ->where(function ($q3) use ($tokenLike) {
+                                            $q3->where('ml.doc_no', 'ilike', $tokenLike)
+                                                ->orWhere('ml.doc_title', 'ilike', $tokenLike);
+                                        });
+                                })->orWhereExists(function ($q2) use ($tokenLike) {
+                                    $q2->select(DB::raw(1))
+                                        ->from('dcs_doc_types as dt')
+                                        ->whereColumn('dt.id', 'dr.doc_type_id')
+                                        ->where('dt.doc_type_name', 'ilike', $tokenLike);
+                                })->orWhereRaw('dr.id::text ilike ?', [$tokenLike]);
+                            });
+                        }
+                    });
+                }
             });
         }
 
-        $total = (clone $query)->count();
-        $perPage = 15;
-        $lastPage = max(1, (int) ceil($total / $perPage));
-        $page = min(max(1, $this->page), $lastPage);
-        $rows = RegisterQueryHelper::hydrateRequests(
-            (clone $query)->offset(($page - 1) * $perPage)->limit($perPage)->get()
-        );
+        $search = trim($this->search);
+        if ($search !== '') {
+            $matchedIds = (clone $query)->pluck('dr.id')->map(fn ($id) => (int) $id)->all();
+            $scored = [];
+            if ($matchedIds !== []) {
+                $meta = DB::table('dcs_document_requests as dr')
+                    ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+                    ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
+                    ->whereIn('dr.id', $matchedIds)
+                    ->get(['dr.id', 'ml.doc_no', 'ml.doc_title', 'dt.doc_type_name']);
+                foreach ($meta as $row) {
+                    $id = (int) $row->id;
+                    $score = RegisterQueryHelper::looseSearchScore(
+                        $search,
+                        trim(($row->doc_no ?? '') . ' ' . ($row->doc_title ?? '') . ' ' . ($row->doc_type_name ?? ''))
+                    );
+                    $scored[$id] = max($scored[$id] ?? 0, $score);
+                }
+            }
+            usort($matchedIds, fn ($a, $b) => ($scored[$b] ?? 0) <=> ($scored[$a] ?? 0));
+            $total = count($matchedIds);
+            $perPage = 15;
+            $lastPage = max(1, (int) ceil($total / $perPage));
+            $page = min(max(1, $this->page), $lastPage);
+            $pageIds = array_slice($matchedIds, ($page - 1) * $perPage, $perPage);
+            $rows = $pageIds === []
+                ? collect()
+                : RegisterQueryHelper::hydrateRequests(
+                    DB::table('dcs_document_requests as dr')->whereIn('dr.id', $pageIds)->get()
+                );
+            $order = array_flip($pageIds);
+            $rows = $rows->sortBy(fn ($doc) => $order[(int) $doc->id] ?? PHP_INT_MAX)->values();
+        } else {
+            $total = (clone $query)->count();
+            $perPage = 15;
+            $lastPage = max(1, (int) ceil($total / $perPage));
+            $page = min(max(1, $this->page), $lastPage);
+            $rows = RegisterQueryHelper::hydrateRequests(
+                (clone $query)->offset(($page - 1) * $perPage)->limit($perPage)->get()
+            );
+        }
         $documents = new \Illuminate\Pagination\LengthAwarePaginator(
             $rows,
             $total,

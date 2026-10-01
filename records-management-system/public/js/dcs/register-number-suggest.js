@@ -127,7 +127,7 @@
         const subTypeId = document.getElementById('subType')?.value || '';
         const syllabiLike = (typeof window.isSyllabiLikeSubType === 'function' && subTypeId && window.isSyllabiLikeSubType(subTypeId))
             || !!window.__isSyllabiMode
-            || /^CSPC-F-COL-13$/i.test(typed);
+            || /^CSPC-F-COL-1[36]$/i.test(typed);
         if (typed.length < 6 || !docTypeId || syllabiLike) {
             hint.dataset.suggested = '';
             window.__suggestedDocNo = '';
@@ -169,13 +169,25 @@
         docNoTimer = setTimeout(function () { void suggestDocNo(); }, 320);
     }
 
+    window.refreshDocNoSuggestion = function () {
+        const hint = document.getElementById('docNoSuggestHint');
+        window.__suggestedDocNo = '';
+        if (hint) {
+            hint.dataset.suggested = '';
+            setHint(hint, '');
+        }
+        scheduleDocNoSuggest();
+    };
+
     function clearInsertShift() {
         const confirmed = document.getElementById('insertShiftConfirmed');
         const docNo = document.getElementById('insertShiftDocNo');
         const letters = document.getElementById('insertShiftRenameLetters');
+        const allowDup = document.getElementById('allowDuplicateDocNo');
         if (confirmed) confirmed.value = '0';
         if (docNo) docNo.value = '';
         if (letters) letters.value = '0';
+        if (allowDup) allowDup.value = '0';
     }
 
     function currentDocNo() {
@@ -231,6 +243,9 @@
         if (sel && match && match.value) {
             sel.value = match.value;
             sel.dataset.lastValid = match.value;
+            document.querySelectorAll('input[type="hidden"][name="version_id"]').forEach(function (el) {
+                el.value = match.value;
+            });
         }
         const modeEl = document.getElementById('registrationMode');
         if (modeEl) modeEl.value = 'revised';
@@ -340,6 +355,41 @@
         }
     }
 
+    function confirmKeepDuplicate() {
+        clearInsertShift();
+        const allowDup = document.getElementById('allowDuplicateDocNo');
+        if (allowDup) allowDup.value = '1';
+        const revField = document.getElementById('masterlistRevisionNo');
+        if (revField) {
+            revField.value = '0';
+            revField.dataset.userEdited = 'true';
+            revField.readOnly = true;
+            revField.style.background = '#f1f5f9';
+            revField.style.borderColor = '';
+            revField.classList.remove('reg-input-invalid');
+        }
+        const revHint = document.getElementById('revNoHint');
+        if (revHint) {
+            revHint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Same number kept as a new registration (Rev 0). Other numbers will not move.';
+            revHint.style.color = '#16a34a';
+            revHint.dataset.valid = 'duplicate-copy';
+        }
+        if (typeof window.acceptDuplicateDocNoCopy === 'function') {
+            window.acceptDuplicateDocNoCopy();
+        } else if (typeof window.markDocNoInsertReady === 'function') {
+            window.markDocNoInsertReady();
+        } else if (typeof window.setSaveEnabled === 'function') {
+            window.setSaveEnabled(true);
+        }
+        const hint = document.getElementById('docNoHint');
+        if (hint) {
+            hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> This number will be saved as another registration, not a revision.';
+            hint.style.color = '#16a34a';
+            hint.dataset.valid = 'duplicate-copy';
+        }
+        closeInsertModal();
+    }
+
     function bindInsertModal() {
         mountInsertModal();
         document.addEventListener('click', function (e) {
@@ -376,6 +426,10 @@
             }
             if (e.target.closest('#docNoInsertConfirmShift')) {
                 confirmShift();
+                return;
+            }
+            if (e.target.closest('#docNoInsertKeep')) {
+                confirmKeepDuplicate();
             }
         });
         document.addEventListener('change', function (e) {

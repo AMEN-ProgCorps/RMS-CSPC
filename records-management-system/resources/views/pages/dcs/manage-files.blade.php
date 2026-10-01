@@ -109,17 +109,33 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Manage Files')] 
         }
 
         if (!empty($this->search)) {
-            $needle = strtolower($this->search);
+            $needle = $this->search;
             $reports = $reports->filter(function ($report) use ($needle) {
-                return str_contains(strtolower($report->report_token), $needle)
-                    || str_contains(strtolower($report->title), $needle)
-                    || str_contains(strtolower($report->category), $needle)
-                    || str_contains(strtolower((string) ($report->sub_category ?? '')), $needle)
-                    || str_contains(strtolower($report->file_name), $needle);
+                $hay = implode(' ', [
+                    $report->report_token,
+                    $report->title,
+                    $report->category,
+                    (string) ($report->sub_category ?? ''),
+                    $report->file_name,
+                ]);
+
+                return RegisterQueryHelper::looseSearchScore($needle, $hay) > 0;
+            })->sortByDesc(function ($report) use ($needle) {
+                $hay = implode(' ', [
+                    $report->report_token,
+                    $report->title,
+                    $report->category,
+                    (string) ($report->sub_category ?? ''),
+                    $report->file_name,
+                ]);
+
+                return RegisterQueryHelper::looseSearchScore($needle, $hay);
             })->values();
+        } else {
+            $reports = $reports->sortByDesc('date_added')->values();
         }
 
-        return $reports->sortByDesc('date_added')->values();
+        return $reports;
     }
 
     public function with(): array

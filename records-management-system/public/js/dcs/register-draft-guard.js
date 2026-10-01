@@ -69,6 +69,27 @@
         return fallback;
     }
 
+    function syllabiDomHasProgress() {
+        if (!window.__isSyllabiMode) return false;
+        const ids = ['syllabiDocTitle', 'syllabiCollege', 'syllabiProgram', 'syllabiSemester', 'syllabiCourseType', 'syllabiSchoolYear'];
+        for (let i = 0; i < ids.length; i++) {
+            const el = document.getElementById(ids[i]);
+            if (el && String(el.value || '').trim() !== '') return true;
+        }
+        const courses = document.querySelectorAll('#syllabiTableBody .syllabi-merged-course, #syllabiTableBody .syllabi-merged-code');
+        for (let i = 0; i < courses.length; i++) {
+            if (String(courses[i].value || '').trim() !== '') return true;
+        }
+        return false;
+    }
+
+    function hasLeaveProgress() {
+        if (typeof window.__regEditIsDirty === 'function') {
+            return call('__regDraftHasProgress', false);
+        }
+        return call('__regDraftHasProgress', false) || syllabiDomHasProgress();
+    }
+
     function showDraftError(message) {
         if (typeof window.showDraftNoticeModal === 'function') {
             window.showDraftNoticeModal(message);
@@ -299,6 +320,8 @@
         if (hint) {
             if (showSave) {
                 hint.innerHTML = 'Required draft fields are filled, so auto-draft is active. You can move to other pages anytime — your work is kept and you can continue from <strong>Document Registration → Drafts</strong>. You can also click <strong>Save Draft</strong> before leaving.';
+            } else if (wantsDraft && window.__isSyllabiMode) {
+                hint.innerHTML = 'A syllabi draft needs <strong>Document No</strong> plus the syllabi title or course list. Once those are filled, auto-draft turns on and you can open other pages. Until then, leaving now will discard what you entered.';
             } else if (wantsDraft) {
                 hint.innerHTML = 'A draft needs <strong>Document No</strong> plus at least one other masterlist field (Title, Effectivity Date, Pages, Keywords, Originator, or Source Unit). Once those are filled, auto-draft turns on and you can freely open other pages. Until then, leaving now will discard what you entered — or stay and click <strong>Save Draft</strong> when ready.';
             } else {
@@ -326,20 +349,21 @@
 
     document.addEventListener('click', function (e) {
         if (formSubmitting || window.__regFormSubmitting) return;
-        if (!call('__regDraftHasProgress', false)) return;
+        if (!hasLeaveProgress()) return;
 
         const anchor = e.target.closest('a[href]');
         if (!isInternalNavLink(anchor)) return;
 
         e.preventDefault();
         e.stopPropagation();
+        e.stopImmediatePropagation();
 
         const url = new URL(anchor.getAttribute('href'), window.location.origin);
         const dest = url.pathname + url.search + url.hash;
         const autosave = call('__regDraftShouldAutosaveOnLeave', false);
 
         if (autosave && call('__regDraftCanSave', false)) {
-            // Requirements met → silent auto-draft, then navigate (no blocking "unsaved" wall).
+            showSavingDraftOverlay('Saving draft before leaving…');
             setAutosaveStatus('Saving draft before you leave…', 'pending');
             void silentAutosaveDraft({ force: true, keepalive: true }).then(function (ok) {
                 if (ok && navigateAfterDraftSave(dest)) return;
@@ -353,7 +377,7 @@
 
     window.addEventListener('beforeunload', function (e) {
         if (formSubmitting || window.__regFormSubmitting) return;
-        if (!call('__regDraftHasProgress', false)) return;
+        if (!hasLeaveProgress()) return;
         // Best-effort silent autosave (may not finish on hard power loss).
         try { void silentAutosaveDraft({ force: true, keepalive: true }); } catch (_) { /* ignore */ }
         // Requirements already met → auto-draft covers navigation; skip the browser block.
@@ -399,10 +423,24 @@
         return true;
     }
 
+    function isSyllabiContextField(el) {
+        if (!el || !window.__isSyllabiMode) return false;
+        const name = String(el.name || '');
+        return name === 'college_id'
+            || name === 'program_id'
+            || name === 'semester_id'
+            || name === 'course_type'
+            || name === 'school_year_id'
+            || name === 'syllabiDocTitle'
+            || name === 'year_levels[]'
+            || name.indexOf('syllabi') === 0;
+    }
+
     function formFieldSnapshot(form) {
         const parts = [];
         Array.from(form.elements || []).forEach((el) => {
-            if (!el || !el.name || el.disabled) return;
+            if (!el || !el.name) return;
+            if (el.disabled && !isSyllabiContextField(el)) return;
             if (el.type === 'file' || el.type === 'button' || el.type === 'submit') return;
             if (el.name === '_token' || el.name === 'save_as_draft' || el.name === 'autosave' || el.name === 'draft_leave_to') return;
             if ((el.type === 'checkbox' || el.type === 'radio') && !el.checked) return;
@@ -414,7 +452,8 @@
     function buildAutosaveFormData(form) {
         const fd = new FormData();
         Array.from(form.elements || []).forEach((el) => {
-            if (!el || !el.name || el.disabled) return;
+            if (!el || !el.name) return;
+            if (el.disabled && !isSyllabiContextField(el)) return;
             if (el.type === 'file') return; // scans re-uploaded only on manual save
             if (el.type === 'button' || el.type === 'submit') return;
             if ((el.type === 'checkbox' || el.type === 'radio') && !el.checked) return;

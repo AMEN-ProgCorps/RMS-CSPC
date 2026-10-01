@@ -106,7 +106,32 @@ class RegisterUpdateHelper
             $docRequest->doc_type_id,
             $resolvedSubTypeId
         );
-        if ($docNo && $allowsRevision) {
+        $reviseNoForSameRow = RegisterPersistHelper::resolveReviseNo($request, $ml?->revise_no);
+        $sameNumber = $previousDocNo
+            && strcasecmp(trim((string) $previousDocNo), trim((string) $docNo)) === 0
+            && (int) ($ml->revise_no ?? 0) === $reviseNoForSameRow;
+        $storedSeparate = $ml
+            && Schema::hasColumn('dcs_masterlist_registration', 'allows_revision')
+            && ! (bool) ($ml->allows_revision ?? true);
+        $slotTakenByOther = false;
+        if ($docNo && $allowsRevision && $ml && Schema::hasColumn('dcs_masterlist_registration', 'allows_revision')) {
+            $slotQuery = DB::table('dcs_masterlist_registration')
+                ->where('doc_no', $docNo)
+                ->where('revise_no', $reviseNoForSameRow)
+                ->where('doc_type_id', (int) $docRequest->doc_type_id)
+                ->where('id', '!=', $ml->id)
+                ->where('allows_revision', true);
+            if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
+                $slotQuery->where('revision_status', 'latest');
+            }
+            $slotTakenByOther = $slotQuery->exists();
+        }
+        // A second registration of the same number must stay outside the latest-revision slot.
+        $rowStaysSeparate = $request->boolean('allow_duplicate_doc_no')
+            || ($sameNumber && ($storedSeparate || $slotTakenByOther));
+        if ($docNo && $allowsRevision && ! $sameNumber
+            && ! $request->boolean('allow_duplicate_doc_no')
+            && ! $request->boolean('insert_shift_confirmed')) {
             $result = RegisterPersistHelper::findMatchingRegistrationRows(
                 $docNo,
                 (int) $docRequest->doc_type_id,
@@ -187,6 +212,18 @@ class RegisterUpdateHelper
         DB::beginTransaction();
         $uploadedFiles = [];
         $filesToDelete = [];
+
+        if (! $saveAsDraft && $request->boolean('insert_shift_confirmed')) {
+            $shift = \App\Helpers\DocumentNumberSeriesHelper::applyInsertShift($request);
+            if (empty($shift['ok'])) {
+                DB::rollBack();
+
+                return back()->withInput()->with(
+                    'error',
+                    $shift['error'] ?? 'Could not insert this document number into the series.'
+                );
+            }
+        }
 
         try {
             $now = now();
@@ -393,7 +430,10 @@ class RegisterUpdateHelper
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
                     $masterlistData['revision_status'] = $saveAsDraft ? 'obsolete' : 'latest';
                 }
-                RegisterPersistHelper::applyAllowsRevisionToMasterlistRow($masterlistData, $allowsRevision);
+                RegisterPersistHelper::applyAllowsRevisionToMasterlistRow(
+                    $masterlistData,
+                    $allowsRevision && ! $rowStaysSeparate
+                );
                 if (! $allowsRevision) {
                     $masterlistData['revise_no'] = 0;
                 }
@@ -514,7 +554,10 @@ class RegisterUpdateHelper
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
                     $masterlistData['revision_status'] = $saveAsDraft ? 'obsolete' : 'latest';
                 }
-                RegisterPersistHelper::applyAllowsRevisionToMasterlistRow($masterlistData, $allowsRevision);
+                RegisterPersistHelper::applyAllowsRevisionToMasterlistRow(
+                    $masterlistData,
+                    $allowsRevision && ! $rowStaysSeparate
+                );
                 if (! $allowsRevision) {
                     $masterlistData['revise_no'] = 0;
                 }
@@ -533,16 +576,25 @@ class RegisterUpdateHelper
                 $relatedIds = array_filter(array_map('intval', $request->input('relatedDocumentIds', [])));
                 RegisterPersistHelper::saveRelatedDocumentIds($masterlistId, $relatedIds);
 
-                $keepPaths = DB::table('dcs_syllabi as s')
-                    ->join('dcs_syllabi_drf as sd', 'sd.syllabi_id', '=', 's.id')
-                    ->where('s.request_id', $requestId)
-                    ->whereNotNull('sd.scanned_drf')
-                    ->pluck('sd.scanned_drf')
-                    ->all();
-                self::invalidateSyllabiStamps($requestId);
-                self::queueSyllabiFiles($requestId, $filesToDelete, $keepPaths);
-                DB::table('dcs_syllabi')->where('request_id', $requestId)->delete();
-                RegisterPersistHelper::saveSyllabiRowsFromRequest($requestId, $request, $uploadedFiles, $keepPaths);
+                $incomingCourseNames = collect((array) $request->input('syllabiCourseName', []))
+                    ->map(fn ($name) => trim((string) $name))
+                    ->filter()
+                    ->values();
+                $replaceSyllabi = $request->filled('program_id')
+                    && $request->filled('semester_id')
+                    && $incomingCourseNames->isNotEmpty();
+                if ($replaceSyllabi) {
+                    $keepPaths = DB::table('dcs_syllabi as s')
+                        ->join('dcs_syllabi_drf as sd', 'sd.syllabi_id', '=', 's.id')
+                        ->where('s.request_id', $requestId)
+                        ->whereNotNull('sd.scanned_drf')
+                        ->pluck('sd.scanned_drf')
+                        ->all();
+                    self::invalidateSyllabiStamps($requestId);
+                    self::queueSyllabiFiles($requestId, $filesToDelete, $keepPaths);
+                    DB::table('dcs_syllabi')->where('request_id', $requestId)->delete();
+                    RegisterPersistHelper::saveSyllabiRowsFromRequest($requestId, $request, $uploadedFiles, $keepPaths);
+                }
             }
 
             if (in_array(4, $checkedChecklists, true)) {
@@ -562,9 +614,10 @@ class RegisterUpdateHelper
                 }
                 DB::table('dcs_retrieval_offices')->where('retrieval_id', $retrievalId)->delete();
                 if ($request->has('retrievalOffice')) {
+                    $validRetrievalOffices = RegisterPersistHelper::existingOfficeIdSet((array) $request->retrievalOffice);
                     foreach ($request->retrievalOffice as $i => $officeId) {
                         $oid = (int) $officeId;
-                        if ($oid <= 0) {
+                        if ($oid <= 0 || ! isset($validRetrievalOffices[$oid])) {
                             continue;
                         }
                         $retrievalOfficeRow = [
@@ -764,6 +817,13 @@ class RegisterUpdateHelper
             }
             $refId = uniqid('err_');
             Log::error("Document update failed [{$refId}]: " . $e->getMessage());
+
+            if (str_contains($e->getMessage(), 'dcs_ml_doc_no_revise_type_active_unique')) {
+                return back()->withInput()->with(
+                    'error',
+                    'That document number and revision are already registered. Enter a different document number, or choose Register another copy.'
+                );
+            }
 
             return RegisterPersistHelper::draftErrorResponse(
                 $request,
@@ -1043,9 +1103,37 @@ class RegisterUpdateHelper
             ->where('ml.doc_no', '!=', '')
             ->get(['dr.id', 'dr.doc_type_id', 'dr.sub_type_id', 'dr.updated_at', 'ml.doc_no']);
 
+        $contextSelect = [
+            's.request_id',
+            DB::raw('MIN(s.college_id) as college_id'),
+            DB::raw('MIN(s.program_id) as program_id'),
+            DB::raw('MIN(s.semester_id) as semester_id'),
+            DB::raw('MIN(s.school_year_id) as school_year_id'),
+        ];
+        $contextSelect[] = Schema::hasColumn('dcs_program_courses', 'course_type')
+            ? DB::raw('MIN(pc.course_type) as course_type')
+            : DB::raw("'' as course_type");
+        $contextByRequest = DB::table('dcs_syllabi as s')
+            ->leftJoin('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
+            ->whereIn('s.request_id', $draftIds)
+            ->groupBy('s.request_id')
+            ->select($contextSelect)
+            ->get()
+            ->keyBy(fn ($row) => (int) $row->request_id);
+
         $groups = [];
         foreach ($rows as $row) {
-            $key = strtolower(trim((string) $row->doc_no)) . '|' . (int) $row->doc_type_id;
+            $ctx = $contextByRequest[(int) $row->id] ?? null;
+            $key = strtolower(trim((string) $row->doc_no))
+                . '|' . (int) $row->doc_type_id
+                . '|' . (int) ($row->sub_type_id ?? 0);
+            if ($ctx && (int) ($ctx->college_id ?? 0) > 0) {
+                $key .= '|' . (int) $ctx->college_id
+                    . '|' . (int) $ctx->program_id
+                    . '|' . strtolower(trim((string) ($ctx->course_type ?? '')))
+                    . '|' . (int) $ctx->semester_id
+                    . '|' . (int) $ctx->school_year_id;
+            }
             $groups[$key][] = $row;
         }
 

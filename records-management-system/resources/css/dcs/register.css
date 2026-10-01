@@ -2127,21 +2127,39 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 
 #syllabiWizardTable thead th.col-year,
 #syllabiWizardTable tbody td.col-year {
-    width: 118px;
-    min-width: 118px;
-    max-width: 118px;
+    width: 148px;
+    min-width: 148px;
+    max-width: 168px;
     padding-left: 4px;
     padding-right: 4px;
     text-align: center;
+    overflow: visible;
+    position: relative;
+    z-index: 2;
 }
 
 #syllabiWizardTable .syllabi-merged-year {
     max-width: 100%;
     min-width: 0;
     width: 100%;
-    padding-left: 2px;
-    padding-right: 2px;
+    padding: 4px 6px;
     font-size: 0.78rem;
+    pointer-events: auto;
+    cursor: pointer;
+    position: relative;
+    z-index: 3;
+    appearance: auto;
+    background-image: none;
+}
+
+#syllabiWizardTable .syllabi-merged-year:disabled,
+#syllabiWizardTable .syllabi-merged-year.is-locked {
+    pointer-events: none;
+    cursor: default;
+    appearance: none;
+    background: #f1f5f9;
+    color: #0f172a;
+    opacity: 1;
 }
 
 #syllabiWizardTable .syllabi-year-lock {

@@ -481,15 +481,11 @@ class OfficeIntakeHelper
             return [];
         }
 
-        $like = '%' . $q . '%';
         $query = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
-            ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
-            ->where(function ($qr) use ($like) {
-                $qr->where('ml.doc_no', 'ilike', $like)
-                    ->orWhere('ml.doc_title', 'ilike', $like);
-            });
+            ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id');
+        RegisterQueryHelper::applyLooseColumnSearch($query, $q, ['ml.doc_no', 'ml.doc_title']);
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
         RegisterQueryHelper::applyExcludeOfficeIntakeRequests($query, 'dr');
@@ -511,7 +507,7 @@ class OfficeIntakeHelper
 
         $rows = $query
             ->orderBy('ml.doc_no')
-            ->limit(40)
+            ->limit(80)
             ->get($select);
 
         $out = [];
@@ -535,12 +531,18 @@ class OfficeIntakeHelper
                 'revise_no' => (int) ($row->revise_no ?? 0),
                 'doc_type' => $typeLabel !== '' ? $typeLabel : 'Document',
             ];
-            if (count($out) >= 15) {
-                break;
-            }
         }
 
-        return $out;
+        usort($out, function ($a, $b) use ($q) {
+            $score = fn ($row) => RegisterQueryHelper::looseSearchScore(
+                $q,
+                trim(($row['doc_no'] ?? '') . ' ' . ($row['doc_title'] ?? '') . ' ' . ($row['doc_type'] ?? ''))
+            );
+
+            return $score($b) <=> $score($a);
+        });
+
+        return array_slice($out, 0, 15);
     }
 
     /**

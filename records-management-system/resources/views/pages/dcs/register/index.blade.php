@@ -40,6 +40,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <input type="hidden" id="registrationMode" name="registration_mode" value="{{ request()->query('type') === 'revised' ? 'revised' : 'new' }}">
         <input type="hidden" id="revisedFromDocNo" name="revised_from_doc_no" value="">
         <input type="hidden" id="insertShiftConfirmed" name="insert_shift_confirmed" value="0">
+        <input type="hidden" id="allowDuplicateDocNo" name="allow_duplicate_doc_no" value="0">
         <input type="hidden" id="insertShiftDocNo" name="insert_shift_doc_no" value="">
         <input type="hidden" id="insertShiftRenameLetters" name="insert_shift_rename_letters" value="0">
         <input type="hidden" id="saveAsDraft" name="save_as_draft" value="0">
@@ -470,7 +471,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                     <div class="reg-field">
                         <label>Revision No.</label>
-                        <input type="number" id="masterlistRevisionNo" name="masterlistRevisionNo" min="0" placeholder="0">
+                        <input type="number" id="masterlistRevisionNo" name="masterlistRevisionNo" min="0" value="0" placeholder="0">
                         <span id="revNoHint" style="display:block;margin-top:4px;font-size:12px;"></span>
                     </div>
                     <div class="reg-field">
@@ -804,6 +805,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     <button type="button" class="reg-insert-choice" id="docNoInsertShift">
                         <strong>Insert here and shift later numbers</strong>
                         <span>Only later numbers in this same group move up. Preview first.</span>
+                    </button>
+                    <button type="button" class="reg-insert-choice" id="docNoInsertKeep">
+                        <strong>Register another copy with this number</strong>
+                        <span>Keep this number as its own registration. It will not become a revision, and other numbers stay where they are.</span>
                     </button>
                 </div>
                 <label class="reg-insert-letters" id="docNoInsertLettersWrap" hidden>
@@ -2490,13 +2495,26 @@ function applyRevisedModeLookupResult(data, hintEl, revField) {
     }
 }
 
+function isSharedSyllabiForm() {
+    if (window.__isSyllabiMode) return true;
+    const subTypeId = document.getElementById('subType')?.value;
+    if (subTypeId && typeof isSyllabiLikeSubType === 'function' && isSyllabiLikeSubType(subTypeId)) return true;
+    const typed = String(document.getElementById('masterlistDocNo')?.value || '').trim();
+    return /^CSPC-F-COL-13$/i.test(typed) || /^CSPC-F-COL-16$/i.test(typed);
+}
+
 function applyNewModeLookupResult(data, hintEl, revField) {
-    if (data.exists && data.allows_revision === false) {
+    if (data.exists && document.getElementById('allowDuplicateDocNo')?.value === '1' && !isSharedSyllabiForm()) {
+        docNoDuplicate = false;
+        setSaveEnabled(true);
+        return;
+    }
+    if (data.exists && isSharedSyllabiForm()) {
         docNoDuplicate = false;
         revNoDuplicate = false;
         setSaveEnabled(true);
         if (hintEl) {
-            hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Same form number is OK. This will be another copy (new school year), not Rev 1.';
+            hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> This form number is shared by every syllabi registration. College, program, and course type keep each copy separate. It is not a revision.';
             hintEl.style.color = '#16a34a';
             hintEl.dataset.valid = 'stackable';
         }
@@ -2509,17 +2527,25 @@ function applyNewModeLookupResult(data, hintEl, revField) {
         }
         const revHint = document.getElementById('revNoHint');
         if (revHint) {
-            revHint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Always Rev 0. Each school year is a new copy under the same form number.';
+            revHint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Always Rev 0. A new college, program, or course type is another registration, not Rev 1.';
             revHint.style.color = '#16a34a';
             revHint.dataset.valid = 'stackable';
         }
-    } else if (data.exists) {
+        return;
+    }
+    if (data.exists) {
         docNoDuplicate = true;
         setSaveEnabled(false);
+        const revHint = document.getElementById('revNoHint');
+        if (revHint) {
+            revHint.innerHTML = '';
+            revHint.style.color = '';
+            revHint.dataset.valid = '';
+        }
 
         if (hintEl) {
             hintEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> ' +
-                'This document number is already registered. Choose Revise, the next free number, or insert into this group.' +
+                'This document number is already registered. Choose Revise, the next free number, insert into this group, or register another copy.' +
                 '<br><span style="font-weight:400;font-size:11px;">You cannot save until you pick an option or enter a unique number.</span>';
             hintEl.style.color = '#dc2626';
             hintEl.dataset.valid = 'duplicate';
@@ -2583,24 +2609,39 @@ function resolveSelectedDocTypeName() {
 }
 
 const SYLLABI_FORM_DOC_NO = 'CSPC-F-COL-13';
+const TOS_FORM_DOC_NO = 'CSPC-F-COL-16';
+
+function isFixedFormDocNo(value) {
+    const text = String(value || '').trim().toUpperCase();
+    return text === SYLLABI_FORM_DOC_NO || text === TOS_FORM_DOC_NO;
+}
 
 function docNoPrefixForSelection() {
+    const name = resolveSelectedDocTypeName().toLowerCase();
+    if (name.includes('tos') || name.includes('rubric')) return TOS_FORM_DOC_NO;
     const subTypeId = document.getElementById('subType')?.value;
     if (subTypeId && typeof isSyllabiLikeSubType === 'function' && isSyllabiLikeSubType(subTypeId)) {
         return SYLLABI_FORM_DOC_NO;
     }
-    const name = resolveSelectedDocTypeName().toLowerCase();
     if (!name) return null;
-    if (name.includes('syllab') || name.includes('tos') || name.includes('rubric')) {
-        return SYLLABI_FORM_DOC_NO;
-    }
+    if (name.includes('syllab')) return SYLLABI_FORM_DOC_NO;
     return DOC_NO_PREFIX_BY_NAME[name] || null;
+}
+
+function syncDocumentNumberLock() {
+    const input = document.getElementById('masterlistDocNo');
+    if (!input) return;
+    const prefix = typeof docNoPrefixForSelection === 'function' ? docNoPrefixForSelection() : '';
+    const lock = isFixedFormDocNo(prefix) || isFixedFormDocNo(input.value);
+    input.readOnly = lock;
+    input.style.background = lock ? '#f1f5f9' : '';
+    input.style.cursor = lock ? 'default' : '';
 }
 
 function updateDocNoPrefixHint(prefix) {
     const hint = document.getElementById('docNoPrefixHint');
     if (!hint) return;
-    if (prefix && prefix !== SYLLABI_FORM_DOC_NO) {
+    if (prefix && !isFixedFormDocNo(prefix)) {
         hint.textContent = 'Prefix filled — add dept/section code and control # (e.g. ' + prefix + 'YYY-XX).';
         hint.style.display = 'block';
     } else {
@@ -2626,6 +2667,10 @@ function canAutofillDocNo() {
 
 function maybeAutofillDocNo() {
     if (!canAutofillDocNo()) return;
+    const finish = () => {
+        syncDocumentNumberLock();
+        if (typeof window.refreshDocNoSuggestion === 'function') window.refreshDocNoSuggestion();
+    };
     const input = document.getElementById('masterlistDocNo');
     if (!input) return;
 
@@ -2646,20 +2691,26 @@ function maybeAutofillDocNo() {
         } else if (current === '') {
             clearDocNoAvailabilityHint();
         }
+        finish();
         return;
     }
 
-    if (!canOverwrite) return;
+    if (!canOverwrite) {
+        finish();
+        return;
+    }
 
     input.value = prefix;
     input.dataset.autodocno = prefix;
     updateDocNoPrefixHint(prefix);
-    if (prefix === SYLLABI_FORM_DOC_NO) {
+    if (isFixedFormDocNo(prefix)) {
         input.dispatchEvent(new Event('input'));
+        finish();
         return;
     }
     // Incomplete prefix only — clear stale availability; don't run check-docno yet.
     clearDocNoAvailabilityHint();
+    finish();
 }
 
 /** Checklist 4 = Document Retrieval — only for revised documents.
@@ -2978,6 +3029,15 @@ function setSaveEnabled(enabled) {
 // REVISION NO. LIVE DUPLICATE CHECK
 // ══════════════════════════════════════════════
 let revNoTimer = null;
+let revCheckSeq = 0;
+
+window.acceptDuplicateDocNoCopy = function () {
+    revCheckSeq++;
+    clearTimeout(revNoTimer);
+    docNoDuplicate = false;
+    revNoDuplicate = false;
+    setSaveEnabled(true);
+};
 
 function getActiveDocNoForRevCheck() {
     if (window.__isSyllabiMode) {
@@ -3010,6 +3070,7 @@ function initRevNoLookup() {
 
 function scheduleRevNoCheck() {
     clearTimeout(revNoTimer);
+    const seq = ++revCheckSeq;
     const hint = document.getElementById('revNoHint');
     const docNo = getActiveDocNoForRevCheck();
     const revField = document.getElementById('masterlistRevisionNo');
@@ -3026,10 +3087,10 @@ function scheduleRevNoCheck() {
         hint.dataset.valid = '';
     }
 
-    revNoTimer = setTimeout(() => runRevNoCheck(), 400);
+    revNoTimer = setTimeout(() => runRevNoCheck(seq), 400);
 }
 
-async function runRevNoCheck() {
+async function runRevNoCheck(seq) {
     const revField = document.getElementById('masterlistRevisionNo');
     const hint = document.getElementById('revNoHint');
     const docNo = getActiveDocNoForRevCheck();
@@ -3038,7 +3099,8 @@ async function runRevNoCheck() {
         return;
     }
 
-    // Non-revisable / stackable types always use Rev 0 — never block on "rev taken".
+    // Non-revisable types always use Rev 0. An existing number still has to be
+    // resolved in the document-number modal, except the shared syllabi form number.
     if (typeof currentTypeAllowsRevision === 'function' && !currentTypeAllowsRevision()) {
         revNoDuplicate = false;
         revField.value = '0';
@@ -3046,12 +3108,23 @@ async function runRevNoCheck() {
         revField.style.background = '#f1f5f9';
         revField.style.borderColor = '';
         revField.classList.remove('reg-input-invalid');
+        if (docNoDuplicate && !isSharedSyllabiForm()) {
+            if (hint) {
+                hint.innerHTML = '';
+                hint.style.color = '';
+                hint.dataset.valid = '';
+            }
+            setSaveEnabled(false);
+            return;
+        }
         if (hint) {
-            hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> Always Rev 0. Each school year is a new copy under the same form number.';
+            hint.innerHTML = isSharedSyllabiForm()
+                ? '<i class="fa-solid fa-circle-check"></i> Always Rev 0. A new college, program, or course type is another registration, not Rev 1.'
+                : '<i class="fa-solid fa-circle-check"></i> Always Rev 0 for this document type.';
             hint.style.color = '#16a34a';
             hint.dataset.valid = 'stackable';
         }
-        setSaveEnabled(true);
+        if (!docNoDuplicate) setSaveEnabled(true);
         return;
     }
 
@@ -3061,6 +3134,7 @@ async function runRevNoCheck() {
     const excludeRequestId = document.getElementById('requestId')?.value
         || (window.__draftRequestId ? String(window.__draftRequestId) : '');
     const insertShift = document.getElementById('insertShiftConfirmed')?.value === '1' ? '1' : '0';
+    const allowDuplicate = document.getElementById('allowDuplicateDocNo')?.value === '1' ? '1' : '0';
 
     try {
         const url = '/dcs/register/check-revno?doc_no=' + encodeURIComponent(docNo) +
@@ -3068,9 +3142,20 @@ async function runRevNoCheck() {
             (docTypeId ? '&doc_type_id=' + encodeURIComponent(docTypeId) : '') +
             (subTypeId ? '&sub_type_id=' + encodeURIComponent(subTypeId) : '') +
             (excludeRequestId ? '&exclude_request_id=' + encodeURIComponent(excludeRequestId) : '') +
-            '&insert_shift_confirmed=' + encodeURIComponent(insertShift);
+            '&insert_shift_confirmed=' + encodeURIComponent(insertShift) +
+            '&allow_duplicate_doc_no=' + encodeURIComponent(allowDuplicate);
         const res = await fetch(url);
         const data = await res.json();
+        if (seq !== revCheckSeq) return;
+
+        if (document.getElementById('allowDuplicateDocNo')?.value === '1') {
+            docNoDuplicate = false;
+            revNoDuplicate = false;
+            revField.style.borderColor = '';
+            revField.classList.remove('reg-input-invalid');
+            setSaveEnabled(true);
+            return;
+        }
 
         if (data.needs_doc_no || data.needs_doc_type) {
             clearRevNoHint();
@@ -3084,13 +3169,13 @@ async function runRevNoCheck() {
             revField.style.background = '#f1f5f9';
             revField.style.borderColor = '';
             revField.classList.remove('reg-input-invalid');
-            if (hint) {
+            if (hint && !docNoDuplicate) {
                 hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> ' +
                     escapeHtml(data.message || 'Rev 0 is allowed for stacked registrations.');
                 hint.style.color = '#16a34a';
                 hint.dataset.valid = 'stackable';
             }
-            setSaveEnabled(true);
+            if (!docNoDuplicate) setSaveEnabled(true);
             return;
         }
 
@@ -5481,8 +5566,12 @@ window.toggleSection = function (checklistId, show) {
     const sectionId = sectionMap[checklistId];
     if (!sectionId) return;
 
-    // In syllabi mode, only DRF stays hidden — Masterlist now shows in full
-    if (checklistId === 1 && window.__isSyllabiMode) return;
+    // Syllabi DRF lives on each course row, not in the standalone DRF section.
+    if (checklistId === 1 && window.__isSyllabiMode) {
+        const drfSection = document.getElementById("section-1");
+        if (drfSection) drfSection.style.display = "none";
+        return;
+    }
 
     // Retrieval (checklist 4) is only for revised documents
     if (checklistId === 4 && !isRevisedMode()) {
@@ -5851,6 +5940,39 @@ function sectionVisible(id) {
 // ══════════════════════════════════════════════
 // FORM VALIDATION — structural only; content fields are optional
 // ══════════════════════════════════════════════
+function syllabiSelectionErrors() {
+    if (!window.__isSyllabiMode) return [];
+    const required = [
+        ['syllabiCollege', 'College'],
+        ['syllabiProgram', 'Program'],
+        ['syllabiSemester', 'Semester'],
+        ['syllabiCourseType', 'Course type'],
+        ['syllabiSchoolYear', 'School year'],
+    ];
+    return required.flatMap(([id, label]) => {
+        const el = document.getElementById(id);
+        if (el && String(el.value || '').trim() !== '') return [];
+        return [{ field: id, message: label + ' is required before registering.' }];
+    });
+}
+
+function syllabiRegistrationHasCourses() {
+    return [...document.querySelectorAll('#syllabiTableBody .syllabi-merged-course, #syllabiTableBody [name="syllabiCourseName[]"]')]
+        .some((el) => String(el.value || '').trim() !== '');
+}
+
+function syllabiCoursesMissingFromSettings() {
+    const known = new Set(
+        catalogCoursesForContext()
+            .map((c) => String(c.course_name || '').trim().toLowerCase())
+            .filter(Boolean)
+    );
+    return [...document.querySelectorAll('#syllabiTableBody .syllabi-merged-course, #syllabiTableBody [name="syllabiCourseName[]"]')]
+        .map((el) => String(el.value || '').trim())
+        .filter(Boolean)
+        .filter((name) => !known.has(name.toLowerCase()));
+}
+
 function validateForm() {
     clearValidation();
     const errors = [];
@@ -5868,6 +5990,38 @@ function validateForm() {
                 || "This semester and school year are already registered. You cannot save another copy.",
         });
         return errors;
+    }
+
+    if (window.__isSyllabiMode) {
+        const selectionErrors = syllabiSelectionErrors();
+        if (selectionErrors.length) return selectionErrors;
+    }
+
+    if (window.__isSyllabiMode && !catalogCoursesForContext().length) {
+        errors.push({
+            field: "btnAddSyllabiRow",
+            message: "There are no course names in Settings for this program, semester, and course type. Add them in Settings before registering.",
+        });
+        return errors;
+    }
+
+    if (window.__isSyllabiMode && !syllabiRegistrationHasCourses()) {
+        errors.push({
+            field: "btnAddSyllabiRow",
+            message: "Add at least one course from Settings before registering this document.",
+        });
+        return errors;
+    }
+
+    if (window.__isSyllabiMode) {
+        const missingCourses = syllabiCoursesMissingFromSettings();
+        if (missingCourses.length) {
+            errors.push({
+                field: "btnAddSyllabiRow",
+                message: "Course names must come from Settings. These are not in Settings for this selection: " + missingCourses.join(", ") + ".",
+            });
+            return errors;
+        }
     }
 
     if (!document.getElementById("versionType").value) {
@@ -6288,7 +6442,8 @@ function addReviewSection(container, title, fields) {
 
     let html = '<div class="review-section-title">' + escapeHtml(title) + '</div>';
     fields.forEach(f => {
-        const hasValue = f.value && String(f.value).trim() !== "" && f.value !== "N/A";
+        const raw = f.value == null ? "" : String(f.value).trim();
+        const hasValue = raw !== "" && raw !== "N/A";
         html += '<div class="review-row' + (hasValue ? '' : ' review-row-empty') + '">';
         html += '<span class="review-label">' + escapeHtml(f.label) + '</span>';
         if (hasValue) {
@@ -6354,7 +6509,7 @@ window.confirmSave = function () {
         document.getElementById('drfNo')?.focus();
         return;
     }
-    if (docNoDuplicate) {
+    if (docNoDuplicate && document.getElementById('allowDuplicateDocNo')?.value !== '1') {
         const fieldId = 'masterlistDocNo';
         scrollToField(fieldId);
         document.getElementById(fieldId)?.focus();
@@ -6587,7 +6742,7 @@ function buildMasterlistReview(reviewContent) {
         { label: "Registered", value: formatInputDate("masterlistRegisteredDate") + " " + getInputVal("masterlistRegisteredTime") },
         { label: "Time Spent", value: document.getElementById("masterlistTimeSpentDisplay").value || null },
         { label: "Effectivity", value: formatInputDate("masterlistEffectivityDate") },
-        { label: "Revision No.", value: getInputVal("masterlistRevisionNo") },
+        { label: "Revision No.", value: getInputVal("masterlistRevisionNo") || "0" },
         { label: "Pages", value: getInputVal("masterlistNoOfPages") },
         { label: "Originator", value: window.__sourceWidgets.masterlistOriginator?.selected.length > 0 ? window.__sourceWidgets.masterlistOriginator.selected.map(o => o.label).join(', ') : null },
         { label: "Source Unit", value: window.__sourceWidgets.masterlist?.selected.length > 0 ? window.__sourceWidgets.masterlist.selected.map(i => i.label).join(', ') : null },
@@ -6749,9 +6904,18 @@ function prepareDraftSubmitDefaults() {
     }
 }
 
+function syllabiRegistrationHasProgress() {
+    if (!window.__isSyllabiMode) return false;
+    const ids = ['syllabiDocTitle', 'syllabiCollege', 'syllabiProgram', 'syllabiSemester', 'syllabiCourseType', 'syllabiSchoolYear'];
+    if (ids.some((id) => (document.getElementById(id)?.value || '').trim() !== '')) return true;
+    return [...document.querySelectorAll('#syllabiTableBody .syllabi-merged-course, #syllabiTableBody .syllabi-merged-code')]
+        .some((el) => (el.value || '').trim() !== '');
+}
+
 function registrationHasUserProgress() {
     const form = document.getElementById('masterForm');
     if (!form) return false;
+    if (syllabiRegistrationHasProgress()) return true;
 
     // Real form content (masterlist / widgets) counts — shell selectors do not.
     if (typeof masterlistHasData === 'function' && masterlistHasData()) return true;
@@ -6810,6 +6974,8 @@ function registrationHasUserProgress() {
 }
 
 window.__regDraftCanSave = function () {
+    if (typeof syncSyllabiToMasterlistFields === 'function') syncSyllabiToMasterlistFields();
+    if (window.__isSyllabiMode && typeof maybeAutofillDocNo === 'function') maybeAutofillDocNo();
     if (window.__isSyllabiMode && window.syllabiContextTaken) return false;
     const version = document.getElementById('versionType')?.value;
     const docType = document.getElementById('docType')?.value;
@@ -7229,6 +7395,26 @@ function onSyllabiYearLevelToggle() {
     applySyllabiYearLevelFilterToTable();
 }
 
+function lockSyllabiYearFromSettings(sel) {
+    if (!sel) return;
+    const value = String(sel.value || '').trim();
+    if (!value) return;
+    sel.disabled = true;
+    sel.removeAttribute('name');
+    sel.classList.add('is-locked');
+    const cell = sel.parentElement;
+    if (!cell) return;
+    let hidden = cell.querySelector('input.syllabi-year-posted');
+    if (!hidden) {
+        hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = 'syllabiYearLevel[]';
+        hidden.className = 'syllabi-year-posted';
+        cell.appendChild(hidden);
+    }
+    hidden.value = value;
+}
+
 function appendSyllabiCatalogCourseRow(c) {
     const tbody = document.getElementById('syllabiTableBody');
     if (!tbody || !c) return null;
@@ -7255,6 +7441,7 @@ function appendSyllabiCatalogCourseRow(c) {
     const yearSel = newRow.querySelector('.syllabi-merged-year');
     if (yearSel) {
         yearSel.value = c.year_level || '';
+        lockSyllabiYearFromSettings(yearSel);
     }
 
     if (typeof cascadeDrfToNewRow === 'function') cascadeDrfToNewRow(newRow);
@@ -7318,6 +7505,22 @@ function applySyllabiYearLevelFilterToTable() {
 function refreshSyllabiYearLevelsFromRows() {
     // Context year checkboxes are the source of truth — keep them, only refresh table headers.
     syncSyllabiYearLevelHiddens();
+    refreshSyllabiYearSectionHeaders();
+}
+
+function onSyllabiRowYearChanged(selectEl) {
+    if (!selectEl) return;
+    selectEl.disabled = false;
+    const groupId = selectEl.closest('tr')?.dataset.group;
+    if (groupId) syncSyllabiMergedFields(groupId);
+    const year = (selectEl.value || '').trim();
+    if (year) {
+        const box = document.querySelector('#syllabiYearLevelPicker input[type="checkbox"][value="' + CSS.escape(year) + '"]');
+        if (box && !box.checked) {
+            box.checked = true;
+            syncSyllabiYearLevelHiddens();
+        }
+    }
     refreshSyllabiYearSectionHeaders();
 }
 
@@ -8525,7 +8728,7 @@ function buildSyllabiGroupFirstRow(groupId, rowspan) {
         </td>
         <td class="col-pinned col-year" rowspan="${rowspan}">
             <select name="syllabiYearLevel[]" class="syllabi-merged-year"
-                onchange="syncSyllabiMergedFields('${groupId}'); refreshSyllabiYearLevelsFromRows();">
+                onchange="onSyllabiRowYearChanged(this)">
                 ${syllabiYearLevelOptionsHtml('')}
             </select>
         </td>

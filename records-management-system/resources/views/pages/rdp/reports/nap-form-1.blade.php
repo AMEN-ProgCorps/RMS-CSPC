@@ -188,7 +188,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     public function openClusterModal(): void
     {
         if (empty($this->selectedIds)) {
-            $this->errorMessage = 'Please select at least one record to create a cluster.';
+            $this->errorMessage = 'Please select at least one record to create a form.';
             return;
         }
 
@@ -209,7 +209,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         }
 
         $officeDisplay = $userOffice ?: 'OFFICE';
-        $this->clusterName = 'Inventory Cluster — ' . $officeDisplay . ' (' . Carbon::now()->format('Y-m-d') . ')';
+        $this->clusterName = 'Inventory Form — ' . $officeDisplay . ' (' . Carbon::now()->format('Y-m-d') . ')';
         $this->clusterNotes = '';
         $this->showClusterModal = true;
     }
@@ -222,7 +222,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     public function submitClusterCreation(): void
     {
         if (empty($this->selectedIds)) {
-            $this->errorMessage = 'Please select at least one record to create a cluster.';
+            $this->errorMessage = 'Please select at least one record to create a form.';
             return;
         }
 
@@ -255,7 +255,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
             DB::table('rdp_pending_record')->insert([
                 'cluster_id'       => $mainPendingId,
-                'cluster_name'     => trim($this->clusterName) ?: ('Inventory Cluster — ' . ($userOffice ?: 'OFFICE') . ' (' . now()->format('Y-m-d') . ')'),
+                'cluster_name'     => trim($this->clusterName) ?: ('Inventory Form — ' . ($userOffice ?: 'OFFICE') . ' (' . now()->format('Y-m-d') . ')'),
                 'status_id'        => 1, // Pending Verification
                 'office'           => $userOffice,
                 'created_by'       => $user?->id,
@@ -273,7 +273,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 ->all();
 
             if (empty($validRecordIds)) {
-                $this->errorMessage = 'Please select at least one valid record to cluster.';
+                $this->errorMessage = 'Please select at least one valid record to create a form.';
                 DB::rollBack();
                 return;
             }
@@ -290,13 +290,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
             DB::commit();
 
-            $this->successMessage = 'Inventory cluster created successfully! It is now available under Pending / List for submission.';
+            $this->successMessage = 'Inventory form created successfully! It is now available under Pending / List for submission.';
             $this->selectedIds = [];
             $this->selectAll = false;
             $this->closeClusterModal();
         } catch (\Exception $e) {
             DB::rollBack();
-            $this->errorMessage = 'Failed to create cluster: ' . $e->getMessage();
+            $this->errorMessage = 'Failed to create form: ' . $e->getMessage();
         }
     }
 
@@ -1282,7 +1282,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             background: #ffffff;
             text-align: center;
             font-weight: bold;
-            font-size: 8px;
+            font-size: 7px;
             vertical-align: middle;
             color: #000000;
         }
@@ -1294,7 +1294,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             border-bottom: none;
             padding: 3px 4px;
             vertical-align: top;
-            font-size: 8px;
+            font-size: 7px;
             color: #000000;
             background: #ffffff;
         }
@@ -1321,7 +1321,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 Print Preview
             </button>
             <button type="button" wire:click="openClusterModal" class="nap-btn nap-btn-primary" {{ empty($selectedIds) ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : '' }}>
-                Create Cluster ({{ count($selectedIds) }})
+                Create Form ({{ count($selectedIds) }})
             </button>
         </div>
     </div>
@@ -1844,8 +1844,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         $isLastPage = ($pageIndex + 1) === $totalPages;
                         $cellBorder = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;";
                         $computedFiller = $isLastPage 
-                            ? max(40, 290 - (count($pageItems) * 20)) 
-                            : max(60, 480 - (count($pageItems) * 20));
+                            ? max(30, 280 - (count($pageItems) * 20)) 
+                            : max(50, 470 - (count($pageItems) * 20));
                     @endphp
                     <div class="print-sheet">
                         <!-- Top Form Identifier -->
@@ -1904,8 +1904,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         </table>
 
                         <!-- MAIN DATA TABLE (Columns 9 to 20) -->
-                        <table class="print-table" style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 8px; text-align: center; table-layout: fixed;">
-                            <thead>
+                        <table class="print-table" style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 7px; text-align: center; table-layout: fixed;">
+                            <thead style="font-size: 7px;">
                                 <tr style="font-weight: bold;">
                                     <th rowspan="2" style="border: 1px solid #000; width: 17%; padding: 4px 2px; text-align: center;">9. RECORDS SERIES TITLE AND DESCRIPTION</th>
                                     <th rowspan="2" style="border: 1px solid #000; width: 8%; padding: 4px 2px; text-align: center;">10. PERIOD COVERED / INCLUSIVE DATES</th>
@@ -1927,11 +1927,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                 </tr>
                             </thead>
                             <tbody>
+                                <!-- Spacing row below header -->
+                                <tr style="height: 10px; line-height: 10px;">
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                </tr>
                                 @foreach($pageItems as $item)
                                     @if($item['type'] === 'root_standalone')
                                         @php $root = $item['root']; @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 3px 6px; font-weight: bold; font-size: 8.5px;">
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 3px 6px; font-weight: bold; font-size: 7.5px;">
                                                 {{ strtoupper($cleanVal($root->series_title)) }}
                                             </td>
                                             <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center;">{{ $cleanVal($root->compiled_period) }}</td>
@@ -1955,7 +1972,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     @elseif($item['type'] === 'root_header')
                                         @php $root = $item['root']; @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 2px 6px; font-weight: bold; font-size: 8.5px;">
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 2px 6px; font-weight: bold; font-size: 7.5px;">
                                                 {{ strtoupper($cleanVal($root->series_title)) }}
                                             </td>
                                             <td style="{{ $cellBorder }} padding: 2px;"></td>
@@ -1978,7 +1995,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                             $root = $item['root']; 
                                         @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 3px {{ $item['indent'] ?? 16 }}px; font-weight: normal; font-size: 8.5px;">
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 3px {{ $item['indent'] ?? 16 }}px; font-weight: normal; font-size: 7.5px;">
                                                 {{ $cleanVal($sub->series_title) }}
                                             </td>
                                             <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($sub->compiled_period) }}</td>
@@ -2002,7 +2019,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     @elseif($item['type'] === 'record')
                                         @php $rec = $item['rec']; @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 2px {{ $item['indent'] ?? 20 }}px; font-size: 8px;">
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 2px {{ $item['indent'] ?? 20 }}px; font-size: 7px;">
                                                 {{ $cleanVal($rec->description) }}
                                             </td>
                                             <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($rec->date_covered) }}</td>
@@ -2207,28 +2224,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         </div>
     @endif
 
-    <!-- CREATE CLUSTER MODAL -->
+    <!-- CREATE FORM MODAL -->
     @if($showClusterModal)
         <div class="modal-overlay" wire:click.self="closeClusterModal">
             <div class="modal-dialog">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
-                    <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">Create Inventory Submission Cluster</h3>
+                    <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">Create Inventory Submission Form</h3>
                     <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 14px;">
                     <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #1e40af; font-weight: 600;">
-                        📦 Packaging <strong>{{ count($selectedIds) }}</strong> selected inventory records into a submission cluster.
+                        📦 Packaging <strong>{{ count($selectedIds) }}</strong> selected inventory records into a submission form.
                     </div>
 
                     <div>
-                        <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Cluster Name</label>
+                        <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Form Name</label>
                         <input type="text" wire:model="clusterName" class="form-control" style="width: 100%; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;">
                     </div>
 
                     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
                         <button type="button" wire:click="closeClusterModal" class="nap-btn nap-btn-secondary">Cancel</button>
-                        <button type="button" wire:click="submitClusterCreation" class="nap-btn nap-btn-primary">Confirm & Create Cluster</button>
+                        <button type="button" wire:click="submitClusterCreation" class="nap-btn nap-btn-primary">Confirm & Create Form</button>
                     </div>
                 </div>
             </div>

@@ -26,7 +26,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     public function openClusterModal(): void
     {
         if (empty($this->selectedIds)) {
-            $this->errorMessage = 'Please select at least one record series to create an RDS cluster.';
+            $this->errorMessage = 'Please select at least one record series to create an RDS form.';
             return;
         }
 
@@ -43,7 +43,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         }
 
         $officeDisplay = $userOffice ?: 'OFFICE';
-        $this->clusterName = 'RDS Schedule Cluster — ' . $officeDisplay . ' (' . Carbon::now()->format('Y-m-d') . ')';
+        $this->clusterName = 'RDS Schedule Form — ' . $officeDisplay . ' (' . Carbon::now()->format('Y-m-d') . ')';
         $this->clusterNotes = '';
         $this->showClusterModal = true;
     }
@@ -56,7 +56,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     public function submitClusterCreation(): void
     {
         if (empty($this->selectedIds)) {
-            $this->errorMessage = 'Please select at least one record series to create an RDS cluster.';
+            $this->errorMessage = 'Please select at least one record series to create an RDS form.';
             return;
         }
 
@@ -89,7 +89,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
             DB::table('rdp_pending_record_series')->insert([
                 'cluster_id'   => $mainPendingId,
-                'cluster_name' => trim($this->clusterName) ?: ('RDS Schedule Batch — ' . now()->format('Y-m-d')),
+                'cluster_name' => trim($this->clusterName) ?: ('RDS Schedule Form — ' . now()->format('Y-m-d')),
                 'status_id'    => 1, // Pending Verification
                 'office'       => $userOffice,
                 'created_by'   => $user?->id,
@@ -110,13 +110,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
             DB::commit();
 
-            $this->successMessage = 'RDS Schedule cluster created successfully! It is now available under Pending / List for printing and approval.';
+            $this->successMessage = 'RDS Schedule form created successfully! It is now available under Pending / List for printing and approval.';
             $this->selectedIds = [];
             $this->selectAll = false;
             $this->closeClusterModal();
         } catch (\Exception $e) {
             DB::rollBack();
-            $this->errorMessage = 'Failed to create RDS cluster: ' . $e->getMessage();
+            $this->errorMessage = 'Failed to create RDS form: ' . $e->getMessage();
         }
     }
 
@@ -848,7 +848,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 Print Preview @if(count($selectedIds) > 0) ({{ count($selectedIds) }}) @endif
             </button>
             <button type="button" wire:click="openClusterModal" class="nap-btn nap-btn-primary" {{ empty($selectedIds) ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : '' }}>
-                Create RDS Cluster ({{ count($selectedIds) }})
+                Create RDS Form ({{ count($selectedIds) }})
             </button>
         </div>
     </div>
@@ -1212,28 +1212,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         </div>
     @endif
 
-    <!-- CREATE CLUSTER MODAL OVERLAY -->
+    <!-- CREATE FORM MODAL OVERLAY -->
     @if($showClusterModal)
         <div class="modal-overlay" wire:click.self="closeClusterModal">
             <div class="modal-dialog" style="max-width: 550px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
-                    <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #0f172a;">Create RDS Schedule Cluster</h3>
+                    <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #0f172a;">Create RDS Schedule Form</h3>
                     <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #64748b;">✕</button>
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 16px;">
                     <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #1e40af; font-weight: 600;">
-                        📦 Packaging <strong>{{ count($selectedIds) }}</strong> selected custom record series into an RDS schedule submission cluster.
+                        📦 Packaging <strong>{{ count($selectedIds) }}</strong> selected custom record series into an RDS schedule submission form.
                     </div>
 
                     <div>
-                        <label style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">Cluster Title / Name</label>
+                        <label style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">Form Title / Name</label>
                         <input type="text" class="form-control" wire:model="clusterName" placeholder="e.g. RDS Schedule Batch 2026-Q3" style="width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px;">
                     </div>
 
                     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; border-top: 1px solid #e2e8f0; padding-top: 14px;">
                         <button type="button" wire:click="closeClusterModal" class="nap-btn nap-btn-secondary">Cancel</button>
-                        <button type="button" wire:click="submitClusterCreation" class="nap-btn nap-btn-primary">Confirm & Create Cluster</button>
+                        <button type="button" wire:click="submitClusterCreation" class="nap-btn nap-btn-primary">Confirm & Create Form</button>
                     </div>
                 </div>
             </div>
@@ -1266,9 +1266,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                         </div>
                         <div style="color: #cbd5e1; font-size: 12px; margin-top: 2px;">
                             @if($hasSelection)
-                                Showing schedule document preview ({{ count($selectedIds) }} records selected). Official printing is available once clustered in Pending / List.
+                                Showing schedule document preview ({{ count($selectedIds) }} records selected). Official printing is available once created in Pending / List.
                             @else
-                                Official NAP Form 2 Blank Template Preview. Official printing is available once clustered in Pending / List.
+                                Official NAP Form 2 Blank Template Preview. Official printing is available once created in Pending / List.
                             @endif
                         </div>
                     </div>

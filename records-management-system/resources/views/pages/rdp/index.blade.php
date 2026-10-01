@@ -318,7 +318,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             || (bool)($perms?->can_access_rdp_admin ?? false)
             || (bool)($perms?->rdp_view_all_files ?? false);
 
+        $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
         $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        if (empty($userOfficeCode) && !empty($user?->details?->office_id)) {
+            $userOfficeCode = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+        }
+        $userOfficeName = $user?->details?->office?->office_name ?? null;
+        if (empty($userOfficeName) && !empty($user?->details?->office_id)) {
+            $userOfficeName = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_name');
+        }
         $userFirstName = trim($user?->details?->first_name ?? '') ?: ($user?->username ?? 'Officer');
         $userOffice = $user?->details?->office?->office_name ?: 'Records and Freedom of Information Office';
 
@@ -337,14 +345,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             ->where('is_draft', false)
             ->where('is_active', true)
             ->where('transferred_to_nap3', false)
-            ->when(!$isSadm && $userOfficeCode, fn($q) => $q->where('office_own', $userOfficeCode))
+            ->when($userOfficeCode, fn($q) => $q->where('office_own', $userOfficeCode))
             ->count();
 
         // NAP Form 2: Unverified record series created by the user / office (per user request)
         $nap2Count = DB::table('rdp_record_series')
             ->where('is_verified', false)
             ->where('is_active', true)
-            ->when(!$isSadm && $userOfficeCode, fn($q) => $q->where('recorded_at_office', $userOfficeCode))
+            ->when($userOfficeCode, fn($q) => $q->where('recorded_at_office', $userOfficeCode))
             ->count();
 
         // NAP Form 3: Records transferred for disposal authority
@@ -352,7 +360,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             ->where('transferred_to_nap3', true)
             ->where('is_draft', false)
             ->where('is_active', true)
-            ->when(!$isSadm && $userOfficeCode, fn($q) => $q->where('office_own', $userOfficeCode))
+            ->when($userOfficeCode, fn($q) => $q->where('office_own', $userOfficeCode))
             ->count();
 
         // -------------------------------------------------------------
@@ -383,7 +391,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     DB::raw("(SELECT COUNT(*) FROM rdp_grouped_record_series WHERE group_head = rdp_pending_record_series.cluster_id) as total_items")
                 ]);
 
-            if (!$isSadm && $userOfficeCode) {
+            if ($userOfficeCode) {
                 $qSeries->where(function($sub) use ($userOfficeCode) {
                     $sub->where('rdp_pending_record_series.office', $userOfficeCode)
                         ->orWhere('submitter_office.office_code', $userOfficeCode);
@@ -427,7 +435,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     DB::raw("(SELECT COUNT(*) FROM rdp_grouped_record WHERE group_head = rdp_pending_record.cluster_id) as total_items")
                 ]);
 
-            if (!$isSadm && $userOfficeCode) {
+            if ($userOfficeCode) {
                 $qRec->where(function($sub) use ($userOfficeCode) {
                     $sub->where('rdp_pending_record.office', $userOfficeCode)
                         ->orWhere('submitter_office.office_code', $userOfficeCode);
@@ -461,6 +469,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         $recDocsQuery = DB::table('rdp_received_documents')
             ->where('source_subsystem', $this->receivedTab);
 
+        if ($userOfficeCode) {
+            $recDocsQuery->where(function($q) use ($userOfficeCode, $userOfficeName) {
+                $q->where('origin_office', 'ILIKE', "%{$userOfficeCode}%")
+                  ->orWhere('target_office', 'ILIKE', "%{$userOfficeCode}%");
+                if (!empty($userOfficeName) && $userOfficeName !== $userOfficeCode) {
+                    $q->orWhere('origin_office', 'ILIKE', "%{$userOfficeName}%")
+                      ->orWhere('target_office', 'ILIKE', "%{$userOfficeName}%");
+                }
+            });
+        }
+
         if (!empty(trim($this->receivedSearch))) {
             $term = '%' . trim($this->receivedSearch) . '%';
             $recDocsQuery->where(function($q) use ($term) {
@@ -472,8 +491,29 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         }
 
         $receivedDocs = $recDocsQuery->orderBy('id', 'desc')->take(8)->get();
-        $dcsCount = DB::table('rdp_received_documents')->where('source_subsystem', 'DCS')->count();
-        $dtsCount = DB::table('rdp_received_documents')->where('source_subsystem', 'DTS')->count();
+
+        $dcsCountQuery = DB::table('rdp_received_documents')->where('source_subsystem', 'DCS');
+        $dtsCountQuery = DB::table('rdp_received_documents')->where('source_subsystem', 'DTS');
+        if ($userOfficeCode) {
+            $dcsCountQuery->where(function($q) use ($userOfficeCode, $userOfficeName) {
+                $q->where('origin_office', 'ILIKE', "%{$userOfficeCode}%")
+                  ->orWhere('target_office', 'ILIKE', "%{$userOfficeCode}%");
+                if (!empty($userOfficeName) && $userOfficeName !== $userOfficeCode) {
+                    $q->orWhere('origin_office', 'ILIKE', "%{$userOfficeName}%")
+                      ->orWhere('target_office', 'ILIKE', "%{$userOfficeName}%");
+                }
+            });
+            $dtsCountQuery->where(function($q) use ($userOfficeCode, $userOfficeName) {
+                $q->where('origin_office', 'ILIKE', "%{$userOfficeCode}%")
+                  ->orWhere('target_office', 'ILIKE', "%{$userOfficeCode}%");
+                if (!empty($userOfficeName) && $userOfficeName !== $userOfficeCode) {
+                    $q->orWhere('origin_office', 'ILIKE', "%{$userOfficeName}%")
+                      ->orWhere('target_office', 'ILIKE', "%{$userOfficeName}%");
+                }
+            });
+        }
+        $dcsCount = $dcsCountQuery->count();
+        $dtsCount = $dtsCountQuery->count();
 
         // -------------------------------------------------------------
         // 4. LIST NAP FORM 3 (FOR THE NEWLY - HIERARCHICAL LAYOUT)
@@ -494,7 +534,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             ->where('rdp_record.is_draft', false)
             ->where('rdp_record.is_active', true);
 
-        if (!$isSadm && $userOfficeCode) {
+        if ($userOfficeCode) {
             $recordsQuery->where(function($q) use ($userOfficeCode) {
                 $q->where('rdp_record.office_own', $userOfficeCode)
                   ->orWhereExists(function($sub) use ($userOfficeCode) {
@@ -907,7 +947,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             grid-template-columns: 1fr 1fr;
             gap: 14px;
             margin-bottom: 20px;
-            align-items: start;
+            align-items: stretch;
+        }
+
+        .rdp-grid-col {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            min-width: 0;
+            height: 100%;
         }
 
         /* Switch to stacked layout when content area is narrow (sidebar open on small monitor) */
@@ -1012,6 +1060,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.03);
             display: flex;
             flex-direction: column;
+            flex: 1;
+            min-height: 0;
         }
 
         .rdp-card-header {
@@ -1039,7 +1089,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             display: flex;
             justify-content: space-between;
             align-items: flex-end;
-            height: 48px;
+            height: 49px;
             margin-bottom: -1px;
             position: relative;
             z-index: 2;
@@ -1438,7 +1488,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
     <div class="rdp-grid-split">
 
         <!-- LEFT COLUMN: TOTAL NAP FORM STATS + LIST OF CREATED CLUSTERS -->
-        <div>
+        <div class="rdp-grid-col">
             <!-- 3 COMPACT STATS PILLS (NEVER WRAP, EXACTLY FIT ONE ROW) -->
             <div class="nap-stats-row">
                 <a href="{{ route('rdp.reports.nap-form-1') }}" class="nap-stat-pill pill-nap1" title="NAP Form 1: Records Inventory & Appraisal">
@@ -1466,24 +1516,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                 </a>
             </div>
 
-            <!-- LIST OF CREATED CLUSTERS BOX -->
+            <!-- LIST OF CREATED FORMS BOX -->
             <div class="rdp-card-box">
                 <div class="rdp-card-header">
                     <div>
                         <h2 class="rdp-card-title">
                             <i class="fa-solid fa-boxes-stacked" style="color: #2563eb;"></i>
-                            List of Created Clusters
+                            List of Created Forms
                             <span style="font-size: 11px; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 7px; border-radius: 10px; margin-left: 4px;">
                                 {{ number_format($totalClustersCount) }}
                             </span>
                         </h2>
-                        <span style="font-size: 11.5px; color: #64748b;">Clusters queued for verification</span>
+                        <span style="font-size: 11.5px; color: #64748b;">Forms queued for verification</span>
                     </div>
 
                     <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
                         <input type="text"
                                wire:model.live.debounce.300ms="clusterSearch"
-                               placeholder="Search cluster..."
+                               placeholder="Search form..."
                                class="rdp-search-input"
                                style="width: 120px; padding: 5px 8px; font-size: 11.5px;">
                     </div>
@@ -1498,12 +1548,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     <button type="button" wire:click="setClusterFilter('nap3')" class="chip-filter {{ $clusterFilter === 'nap3' ? 'active' : '' }}" style="padding: 2px 7px; font-size: 10.5px;">Form 3</button>
                 </div>
 
-                <!-- Clusters Table -->
+                <!-- Forms Table -->
                 <div style="overflow-x: auto; flex: 1;">
                     <table class="rdp-compact-table">
                         <thead>
                             <tr>
-                                <th style="min-width: 130px;">Cluster Title</th>
+                                <th style="min-width: 130px;">Form Title</th>
                                 <th style="width: 50px; text-align: center;">Form</th>
                                 <th style="width: 55px; text-align: center;">Office</th>
                                 <th style="width: 75px; text-align: center;">Status</th>
@@ -1558,7 +1608,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                                         <button type="button"
                                                 wire:click="inspectCluster({{ (int)$cluster->cluster_id }}, '{{ $formCode }}')"
                                                 class="nap-action-link"
-                                                title="Quick inspect cluster"
+                                                title="Quick inspect form"
                                                 style="padding: 3px 8px; font-size: 11px;">
                                             <i class="fa-regular fa-eye"></i> View
                                         </button>
@@ -1568,8 +1618,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                                 <tr>
                                     <td colspan="5" style="text-align: center; padding: 40px 16px; color: #64748b;">
                                         <div style="font-size: 28px; margin-bottom: 8px;">📦</div>
-                                        <div style="font-weight: 700; font-size: 13.5px; color: #334155;">No Created Clusters Found</div>
-                                        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Clusters created for NAP Forms 1, 2, or 3 will appear here.</div>
+                                        <div style="font-weight: 700; font-size: 13.5px; color: #334155;">No Created Forms Found</div>
+                                        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Forms created for NAP Forms 1, 2, or 3 will appear here.</div>
                                     </td>
                                 </tr>
                             @endforelse
@@ -1577,8 +1627,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     </table>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 10px; border-top: 1px solid #f1f5f9;">
-                    <span style="font-size: 11.5px; color: #64748b;">Showing latest {{ count($createdClusters) }} clusters</span>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 10px; border-top: 1px solid #f1f5f9;">
+                    <span style="font-size: 11.5px; color: #64748b;">Showing latest {{ count($createdClusters) }} forms</span>
                     <a href="{{ route('rdp.pending.list') }}" style="font-size: 12px; font-weight: 700; color: #2563eb; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
                         Open Hub <i class="fa-solid fa-arrow-right"></i>
                     </a>
@@ -1587,7 +1637,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         </div>
 
         <!-- RIGHT COLUMN: RECEIVED DOCUMENT WITH DTS / DCS TABS (DTS DEFAULT) -->
-        <div>
+        <div class="rdp-grid-col">
             <!-- TABS MOUNTED ABOVE THE BOX (MATCHES STATS PILL HEIGHT EXACTLY) -->
             <div class="rdp-tabs-header-wrapper">
                 <div class="rdp-folder-tabs">
@@ -1712,8 +1762,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     </table>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid #f1f5f9;">
-                    <span style="font-size: 12px; color: #64748b;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 10px; border-top: 1px solid #f1f5f9;">
+                    <span style="font-size: 11.5px; color: #64748b;">
                         Showing {{ count($receivedDocs) }} of {{ $receivedTab === 'DTS' ? $dtsCount : $dcsCount }} documents
                     </span>
                     <a href="{{ $receivedTab === 'DTS' ? route('rdp.received-documents.dts') : route('rdp.received-documents.dcs') }}"
@@ -2033,7 +2083,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                             {{ $selectedCluster->cluster_name }}
                         </h3>
                         <div style="font-size: 12px; color: #64748b;">
-                            {{ $selectedCluster->form_label ?? 'NAP Cluster' }} &bull; {{ $selectedCluster->office_name ?: ($selectedCluster->office ?: 'Office') }}
+                            {{ $selectedCluster->form_label ?? 'NAP Form' }} &bull; {{ $selectedCluster->office_name ?: ($selectedCluster->office ?: 'Office') }}
                         </div>
                     </div>
                     <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #64748b;">✕</button>
@@ -2074,7 +2124,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                                 @empty
                                     <tr>
                                         <td colspan="4" style="text-align: center; padding: 20px; color: #64748b;">
-                                            No item details found for this cluster.
+                                            No item details found for this form.
                                         </td>
                                     </tr>
                                 @endforelse

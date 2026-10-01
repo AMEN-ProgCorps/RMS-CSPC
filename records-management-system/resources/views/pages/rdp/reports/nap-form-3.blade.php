@@ -286,12 +286,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     public function openClusterModal(): void
     {
         if (empty($this->selectedIds)) {
-            $this->errorMessage = 'Please select at least one expired record to create a disposal cluster.';
+            $this->errorMessage = 'Please select at least one expired record to create a disposal form.';
             return;
         }
 
         $userOffice = Auth::user()?->details?->office?->office_code ?? Auth::user()?->details?->office_code ?? 'OFFICE';
-        $this->clusterName = 'Disposal Authority Cluster — ' . $userOffice . ' (' . Carbon::now()->format('Y-m-d') . ')';
+        $this->clusterName = 'Disposal Authority Form — ' . $userOffice . ' (' . Carbon::now()->format('Y-m-d') . ')';
         $this->clusterNotes = '';
         $this->showClusterModal = true;
     }
@@ -304,7 +304,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     public function submitClusterCreation(): void
     {
         if (empty($this->selectedIds)) {
-            $this->errorMessage = 'Please select at least one expired record to create a disposal cluster.';
+            $this->errorMessage = 'Please select at least one expired record to create a disposal form.';
             return;
         }
 
@@ -324,7 +324,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
             DB::table('rdp_pending_record')->insert([
                 'cluster_id'       => $mainPendingId,
-                'cluster_name'     => trim($this->clusterName) ?: ('Disposal Authority Batch — ' . ($userOffice ?: 'OFFICE') . ' (' . now()->format('Y-m-d') . ')'),
+                'cluster_name'     => trim($this->clusterName) ?: ('Disposal Authority Form — ' . ($userOffice ?: 'OFFICE') . ' (' . now()->format('Y-m-d') . ')'),
                 'status_id'        => 1, // Pending Verification
                 'office'           => $userOffice,
                 'created_by'       => $user?->id,
@@ -342,7 +342,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 ->all();
 
             if (empty($validRecordIds)) {
-                $this->errorMessage = 'Please select at least one valid record to cluster.';
+                $this->errorMessage = 'Please select at least one valid record to create a form.';
                 DB::rollBack();
                 return;
             }
@@ -359,7 +359,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
             DB::commit();
 
-            $this->successMessage = 'Disposal Authority cluster created successfully! It is now available under Pending / List for disposal verification.';
+            $this->successMessage = 'Disposal Authority form created successfully! It is now available under Pending / List for disposal verification.';
             $this->selectedIds = [];
             $this->seriesSelectionMode = [];
             $this->selectedSubjectIds = [];
@@ -367,7 +367,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             $this->closeClusterModal();
         } catch (\Exception $e) {
             DB::rollBack();
-            $this->errorMessage = 'Failed to create disposal cluster: ' . $e->getMessage();
+            $this->errorMessage = 'Failed to create disposal form: ' . $e->getMessage();
         }
     }
 
@@ -1350,7 +1350,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 Print Preview
             </button>
             <button type="button" wire:click="openClusterModal" class="nap-btn nap-btn-primary" {{ empty($selectedIds) ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : '' }}>
-                Create Disposal Cluster
+                Create Disposal Form
             </button>
         </div>
     </div>
@@ -2115,28 +2115,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         </div>
     @endif
 
-    <!-- CREATE DISPOSAL CLUSTER MODAL -->
+    <!-- CREATE DISPOSAL FORM MODAL -->
     @if($showClusterModal)
         <div class="modal-overlay" wire:click.self="closeClusterModal">
             <div class="modal-dialog">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
-                    <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">Create Request for Disposal Authority Cluster</h3>
+                    <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">Create Request for Disposal Authority Form</h3>
                     <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 14px;">
                     <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #991b1b; font-weight: 600;">
-                        🗑️ Packaging selected expired records into a Request for Disposal Authority submission cluster.
+                        🗑️ Packaging selected expired records into a Request for Disposal Authority submission form.
                     </div>
 
                     <div>
-                        <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Cluster Name</label>
+                        <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Form Name</label>
                         <input type="text" wire:model="clusterName" class="form-control" style="width: 100%; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;">
                     </div>
 
                     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
                         <button type="button" wire:click="closeClusterModal" class="nap-btn nap-btn-secondary">Cancel</button>
-                        <button type="button" wire:click="submitClusterCreation" class="nap-btn nap-btn-primary">Confirm & Create Cluster</button>
+                        <button type="button" wire:click="submitClusterCreation" class="nap-btn nap-btn-primary">Confirm & Create Form</button>
                     </div>
                 </div>
             </div>

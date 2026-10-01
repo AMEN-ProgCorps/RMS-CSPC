@@ -123,6 +123,13 @@
     border: none;
 }
 
+/* While the details pane is open the directory narrows — give the Role Name
+   column minimum breathing room so names don't stack one word per line. */
+.admin-roles-container.has-selection .roles-table-container th:first-child,
+.admin-roles-container.has-selection .roles-table-container td:first-child {
+    min-width: 180px;
+}
+
 /* Left Pane: Roles Directory */
 .directory-panel {
     background: #ffffff;
@@ -409,6 +416,7 @@
 .details-header-avatar {
     width: 64px;
     height: 64px;
+    flex-shrink: 0;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.15);
     border: 2px solid rgba(255, 255, 255, 0.35);

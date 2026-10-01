@@ -8,6 +8,9 @@ use Livewire\WithFileUploads;
 new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class extends Component {
     use WithFileUploads;
 
+    /** @var string Active settings category tab: general | dts | rdp | security */
+    public string $settingsTab = 'general';
+
     public bool $pagePrewarmingEnabled = true;
     public bool $emailAccessRequiredExternal = true;
     public bool $emailAccessRequiredApplication = true;
@@ -19,6 +22,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $rdpIncludeDescriptionOnPrint = false;
     public string $rdpPrintFontFamily = 'Arial, sans-serif';
     public string $rdpPrintFontSize = '8.5pt';
+    /** @var string rdp_record_series id applied to DTS flows at "Server default" ('' = none) */
+    public string $rdpServerDefaultRecordSeries = '';
+    /** @var string Search text for the Server Default Record Series picker */
+    public string $rdpSeriesSearch = '';
+    /** @var string Record series type filter ('' = all types) */
+    public string $rdpSeriesTypeFilter = '';
+    /** @var array<int, array{id:int, type_name:string}> Record series types for the filter */
+    public array $rdpSeriesTypes = [];
     public bool $dtsRequiredUploadFile = false;
     public int $tabCloseIdleTimeoutMinutes = 15;
     public string $dcsRecycleDeleteCode = '';
@@ -339,6 +350,19 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $fontSize = \DB::table($sysTable)->where('key', 'rdp_print_font_size')->value('value');
         $this->rdpPrintFontSize = $fontSize ?: '8.5pt';
 
+        $serverDefaultSeries = \DB::table($sysTable)->where('key', 'rdp_server_default_record_series_id')->value('value');
+        $this->rdpServerDefaultRecordSeries = $serverDefaultSeries !== null ? (string) $serverDefaultSeries : '';
+
+        // Keep the picker's search text in sync with the stored server default.
+        if ($this->rdpServerDefaultRecordSeries !== ''
+            && $this->rdpSeriesTitle((int) $this->rdpServerDefaultRecordSeries) === null) {
+            $this->rdpServerDefaultRecordSeries = ''; // stored series no longer exists
+        }
+        $this->rdpSeriesSearch = $this->rdpServerDefaultRecordSeries !== ''
+            ? (string) $this->rdpSeriesTitle((int) $this->rdpServerDefaultRecordSeries)
+            : '';
+        $this->loadRdpSeriesTypes();
+
         $dtsReq = \DB::table('sys_system_settings')->where('key', 'dts_required_upload_file')->value('value');
         $this->dtsRequiredUploadFile = ($dtsReq === 'true');
 
@@ -369,6 +393,122 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
 
         $rlDcsAction = \DB::table('sys_system_settings')->where('key', 'rate_limit_dcs_action_per_minute')->value('value');
         $this->rateLimitDcsActionPerMinute = ($rlDcsAction !== null && is_numeric($rlDcsAction)) ? (int) $rlDcsAction : 20;
+    }
+
+    // ---- SERVER DEFAULT RECORD SERIES PICKER (DTS CONTINUITY) ----
+
+    /**
+     * Load the record series types available for the type filter dropdown.
+     */
+    public function loadRdpSeriesTypes(): void
+    {
+        $this->rdpSeriesTypes = [];
+
+        if (!\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series_type')) {
+            return;
+        }
+
+        $query = \DB::table('rdp_record_series_type')->where('is_active', true);
+        if (\Illuminate\Support\Facades\Schema::hasColumn('rdp_record_series_type', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        $this->rdpSeriesTypes = $query->orderBy('type_name', 'asc')
+            ->get(['id', 'type_name'])
+            ->map(fn ($type) => ['id' => (int) $type->id, 'type_name' => $type->type_name])
+            ->toArray();
+    }
+
+    /**
+     * Searchable record series choices (search + type filtered) for the picker.
+     * Same source as the RDP Record Series page and the flows details panels.
+     */
+    public function rdpSeriesChoices(string $search, string $typeFilter): \Illuminate\Support\Collection
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series')) {
+            return collect();
+        }
+
+        $query = \DB::table('rdp_record_series')
+            ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+            ->where('rdp_record_series.is_active', true)
+            ->select('rdp_record_series.id', 'rdp_record_series.item_number', 'rdp_record_series.series_title', 'rdp_record_series_type.shorted_type');
+
+        $term = trim($search);
+        if ($term !== '') {
+            // Match on series title or item number (typing digits filters by item no.).
+            $query->where(function ($q) use ($term) {
+                $q->where('rdp_record_series.series_title', 'ilike', '%' . $term . '%')
+                    ->orWhereRaw('CAST(rdp_record_series.item_number AS TEXT) ILIKE ?', ['%' . $term . '%']);
+            });
+        }
+
+        if (trim($typeFilter) !== '') {
+            $query->where('rdp_record_series.series_type', (int) $typeFilter);
+        }
+
+        return $query->orderBy('rdp_record_series.series_title', 'asc')->limit(15)->get();
+    }
+
+    /**
+     * "#12 · Title" label for the currently selected server default record series.
+     */
+    public function rdpSelectedLabel(): string
+    {
+        if ($this->rdpServerDefaultRecordSeries === '' || !\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series')) {
+            return $this->rdpSeriesSearch;
+        }
+
+        $itemNo = \DB::table('rdp_record_series')
+            ->where('id', (int) $this->rdpServerDefaultRecordSeries)
+            ->value('item_number');
+
+        return ($itemNo !== null ? '#' . $itemNo . ' · ' : '') . $this->rdpSeriesSearch;
+    }
+
+    /**
+     * Apply a picked record series as the server default.
+     */
+    public function selectRdpServerDefaultSeries(int $id): void
+    {
+        $title = $this->rdpSeriesTitle($id);
+        if ($title === null) return;
+
+        $this->rdpServerDefaultRecordSeries = (string) $id;
+        $this->rdpSeriesSearch = $title;
+    }
+
+    /**
+     * Revert the server default to "None".
+     */
+    public function clearRdpServerDefaultSeries(): void
+    {
+        $this->rdpServerDefaultRecordSeries = '';
+        $this->rdpSeriesSearch = '';
+    }
+
+    /**
+     * Typing over (or clearing) the selected title reverts to "None".
+     */
+    public function updatedRdpSeriesSearch(string $value): void
+    {
+        if ($this->rdpServerDefaultRecordSeries === '') return;
+
+        $title = $this->rdpSeriesTitle((int) $this->rdpServerDefaultRecordSeries);
+        if ($title === null || trim($value) !== $title) {
+            $this->rdpServerDefaultRecordSeries = '';
+        }
+    }
+
+    private function rdpSeriesTitle(int $id): ?string
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series')) {
+            return null;
+        }
+
+        $title = \DB::table('rdp_record_series')->where('id', $id)->value('series_title');
+
+        return $title === null ? null : trim((string) $title);
     }
 
     public function testDriveConnection(): void
@@ -703,6 +843,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ]
                 );
 
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'rdp_server_default_record_series_id'],
+                    [
+                        'value' => $this->rdpServerDefaultRecordSeries ?: '',
+                        'updated_at' => now(),
+                    ]
+                );
+
                 \DB::table('sys_system_settings')->updateOrInsert(
                     ['key' => 'dts_required_upload_file'],
                     [
@@ -902,6 +1050,111 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
             gap: 20px;
             margin-top: 20px;
+        }
+        /* ---- Settings category tab manager (keeps the boxes below short) ---- */
+        .settings-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 20px;
+            padding: 6px;
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+        }
+        .settings-tab {
+            flex: 1 1 180px;
+            min-width: 160px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 14px;
+            border: 1px solid transparent;
+            border-radius: 9px;
+            background: transparent;
+            color: #475569;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .settings-tab:hover {
+            background: #ffffff;
+            color: #0f172a;
+        }
+        .settings-tab.active {
+            background: #ffffff;
+            color: #1d4ed8;
+            border-color: #bfdbfe;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+        }
+        .settings-tab .tab-count {
+            font-size: 11px;
+            background: #e2e8f0;
+            color: #475569;
+            border-radius: 10px;
+            padding: 1px 7px;
+            font-weight: 700;
+            line-height: 1.5;
+        }
+        .settings-tab.active .tab-count {
+            background: #dbeafe;
+            color: #1d4ed8;
+        }
+        /* ---- Server Default Record Series search picker ---- */
+        .series-search-box {
+            width: 100%;
+            padding: 10px 34px 10px 38px;
+            border-radius: 99px;
+            border: 1.5px solid #e2e8f0;
+            outline: none;
+            font-size: 13.5px;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.2s ease;
+            box-sizing: border-box;
+            color: #334155;
+            background: #ffffff;
+        }
+        .series-search-box:focus {
+            border-color: #003699;
+            box-shadow: 0 0 0 3px rgba(0, 54, 153, 0.08);
+        }
+        .series-search-box::placeholder {
+            color: #94a3b8;
+            font-weight: 500;
+        }
+        .suggestions-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: #ffffff;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            margin-top: 4px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+        .suggestion-item {
+            padding: 10px 14px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            font-family: 'Inter', sans-serif;
+            transition: background 0.15s ease;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .suggestion-item:last-child {
+            border-bottom: none;
+        }
+        .suggestion-item:hover {
+            background-color: #f1f5f9;
         }
         .settings-card {
             background: #ffffff;
@@ -1515,9 +1768,33 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
             @endif
         </div>
 
+        <!-- Settings Category Tab Manager (below Google SSO — keeps each view short) -->
+        @php
+            $settingsTabs = [
+                'general'  => ['icon' => 'fa-solid fa-sliders', 'label' => 'General', 'count' => 2],
+                'dts'      => ['icon' => 'fa-solid fa-qrcode', 'label' => 'Document Tracking (DTS)', 'count' => 1],
+                'rdp'      => ['icon' => 'fa-solid fa-folder-tree', 'label' => 'Records (RDP)', 'count' => 1],
+                'security' => ['icon' => 'fa-solid fa-shield-halved', 'label' => 'Security', 'count' => 3],
+            ];
+        @endphp
+        <div class="settings-tabs" role="tablist" aria-label="Settings categories">
+            @foreach($settingsTabs as $tabKey => $tabMeta)
+                <button type="button"
+                        role="tab"
+                        class="settings-tab {{ $settingsTab === $tabKey ? 'active' : '' }}"
+                        aria-selected="{{ $settingsTab === $tabKey ? 'true' : 'false' }}"
+                        wire:click="$set('settingsTab', '{{ $tabKey }}')">
+                    <i class="{{ $tabMeta['icon'] }}"></i>
+                    <span>{{ $tabMeta['label'] }}</span>
+                    <span class="tab-count" title="{{ $tabMeta['count'] }} box(es) in this category">{{ $tabMeta['count'] }}</span>
+                </button>
+            @endforeach
+        </div>
+
         <!-- 2-Column Responsive Dashboard Grid -->
         <div class="settings-dashboard-grid">
 
+            @if($settingsTab === 'general')
             <!-- Card 1: System Performance & Flow Controls -->
             <div class="settings-card">
                 <div>
@@ -1578,7 +1855,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     </div>
                 </div>
             </div>
+            @endif
 
+            @if($settingsTab === 'dts')
             <!-- Card: Document Tracking System (DTS) Settings -->
             <div class="settings-card">
                 <div>
@@ -1600,7 +1879,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     </div>
                 </div>
             </div>
+            @endif
 
+            @if($settingsTab === 'security')
             <!-- Card: Session & Security Settings -->
             <div class="settings-card">
                 <div>
@@ -1854,7 +2135,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     </div>
                 </div>
             </div>
+            @endif
 
+            @if($settingsTab === 'general')
             <!-- Card 3: Subsystem File Upload Requirements -->
             <div class="settings-card">
                 <div>
@@ -1888,7 +2171,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     </div>
                 </div>
             </div>
+            @endif
 
+            @if($settingsTab === 'rdp')
             <!-- Card 4: Records Disposition Program (RDP) Settings -->
             <div class="settings-card">
                 <div>
@@ -1944,8 +2229,74 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                             </select>
                         </div>
                     </div>
+
+                    <!-- Setting: Server Default Record Series (DTS Continuity) -->
+                    <div class="setting-item" style="flex-direction: column; align-items: stretch; gap: 10px;">
+                        <div class="setting-details">
+                            <span class="setting-title">Server Default Record Series (DTS Continuity)</span>
+                            <span class="setting-desc">Record series applied to DTS transaction flows that are left at "Server default" on the Admin → DTS → Transaction Flows details panel. When a DTS transaction completes, this record series is handed over to RDP intake together with the document. Leave empty ("None") to have Server default flows send no record series.</span>
+                        </div>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1;">
+                                <div style="position: relative;">
+                                    <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 14px; margin: 0; line-height: 1; z-index: 1;"></i>
+                                    <input type="text"
+                                           class="series-search-box"
+                                           style="{{ $rdpServerDefaultRecordSeries !== '' ? 'font-weight: 600; color: #0f172a;' : '' }}"
+                                           placeholder="None (no server default record series)"
+                                           wire:model.live="rdpSeriesSearch"
+                                           @focus="open = true">
+                                    @if($rdpServerDefaultRecordSeries !== '')
+                                        <button type="button"
+                                                wire:click="clearRdpServerDefaultSeries"
+                                                title="Clear (no server default)"
+                                                style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); border: none; background: none; color: #94a3b8; cursor: pointer; font-size: 18px; line-height: 1; padding: 0; z-index: 1;">&times;</button>
+                                    @endif
+                                </div>
+
+                                <div x-show="open" class="suggestions-dropdown" style="display: none;">
+                                    @php
+                                        $serverDefaultSeriesChoices = $this->rdpSeriesChoices($rdpSeriesSearch, $rdpSeriesTypeFilter);
+                                    @endphp
+                                    @forelse($serverDefaultSeriesChoices as $serverSeriesOption)
+                                        <div class="suggestion-item"
+                                             @click="open = false"
+                                             wire:click="selectRdpServerDefaultSeries({{ $serverSeriesOption->id }})">
+                                            <span style="flex-shrink: 0; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700;">{{ $serverSeriesOption->item_number ?? '—' }}</span>
+                                            <span style="font-weight: 500; color: #1e293b; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $serverSeriesOption->series_title }}</span>
+                                            <span style="color: #64748b; font-weight: 600; font-size: 11px; white-space: nowrap;">{{ $serverSeriesOption->shorted_type ?: '—' }}</span>
+                                        </div>
+                                    @empty
+                                        <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No record series found</div>
+                                    @endforelse
+                                </div>
+                            </div>
+
+                            <select wire:model.live="rdpSeriesTypeFilter"
+                                    title="Filter by record series type"
+                                    style="flex-shrink: 0; height: 42px; padding: 0 10px; border: 1.5px solid #cbd5e1; border-radius: 8px; background: #ffffff; font-size: 12px; font-weight: 600; color: #334155; cursor: pointer; max-width: 180px;">
+                                <option value="">All Types</option>
+                                @foreach($rdpSeriesTypes as $rdpSeriesType)
+                                    <option value="{{ $rdpSeriesType['id'] }}">{{ $rdpSeriesType['type_name'] }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+
+                        @if($rdpServerDefaultRecordSeries !== '')
+                            <span style="font-size: 11.5px; color: #059669;">
+                                <i class="fa-solid fa-circle-check"></i>
+                                Selected: {{ $this->rdpSelectedLabel() }} — applied when you click Save All Settings.
+                            </span>
+                        @else
+                            <span style="font-size: 11.5px; color: #64748b;">
+                                <i class="fa-solid fa-ban"></i>
+                                None — flows at "Server default" will send no record series.
+                            </span>
+                        @endif
+                    </div>
                 </div>
             </div>
+            @endif
 
         </div>
     </form>

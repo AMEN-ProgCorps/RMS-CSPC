@@ -80,6 +80,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canViewAllList = false;
     public bool $canViewAllArchive = false;
     public bool $canViewAllCurrentTrans = false;
+    public bool $canViewAllScannerCodes = false;
     public bool $canCreateOwnFlow = false;
     public bool $canDtsUseInternal = false;
     public bool $canDtsUseExternal = false;
@@ -253,6 +254,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canViewAllList = (bool) $perms->can_dts_view_all_list;
                 $this->canViewAllArchive = (bool) $perms->can_dts_view_all_archive;
                 $this->canViewAllCurrentTrans = (bool) $perms->can_dts_view_all_current_trans;
+                $this->canViewAllScannerCodes = (bool) ($perms->can_dts_view_all_scanner_codes ?? false);
                 $this->canCreateOwnFlow = (bool) $perms->can_dts_create_own_flow;
                 $this->canDtsUseInternal = (bool) $perms->can_dts_use_internal;
                 $this->canDtsUseExternal = (bool) $perms->can_dts_use_external;
@@ -495,6 +497,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_dts_view_all_list = $this->canViewAllList;
         $perms->can_dts_view_all_archive = $this->canViewAllArchive;
         $perms->can_dts_view_all_current_trans = $this->canViewAllCurrentTrans;
+        $perms->can_dts_view_all_scanner_codes = $this->canViewAllScannerCodes;
         $perms->can_dts_create_own_flow = $this->canCreateOwnFlow;
         $perms->can_dts_use_internal = $this->canDtsUseInternal;
         $perms->can_dts_use_external = $this->canDtsUseExternal;
@@ -866,7 +869,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                             <tr style="border-bottom: 1px solid #f1f5f9; cursor: pointer; background: {{ $selectedRoleId === $role->id ? '#f0f9ff' : 'transparent' }};" wire:click="selectRole({{ $role->id }})" wire:key="role-tbl-{{ $role->id }}">
                                 <td style="padding: 10px 12px; font-weight: 600; color: #0f172a;">
                                     <div style="display: flex; align-items: center; gap: 8px;">
-                                        <div style="width: 28px; height: 28px; border-radius: 50%; background: #003699; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700;">
+                                        <div style="width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: #003699; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700;">
                                             {{ $roleInitials }}
                                         </div>
                                         <span>{{ $role->key_name }}</span>
@@ -1071,9 +1074,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                 </div>
                             </div>
 
-                            <!-- Category 2: Document Flow Modifiers -->
+                            <!-- Category 2: Document Tracking System Clearances -->
                             <div class="permissions-section-card">
-                                <span class="permissions-section-title"><i class="fa-solid fa-file-signature"></i> Document Flow Modifiers</span>
+                                <span class="permissions-section-title"><i class="fa-solid fa-file-signature"></i> Document Tracking System Clearances</span>
                                 <div class="permissions-grid-layout">
                                     <!-- Modify Docflow -->
                                     <div class="permission-toggle-row">
@@ -1197,13 +1200,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </label>
                                     </div>
                                     <!-- Modify Control Number on Create -->
-                                    <div class="permission-toggle-row">
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
                                         <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">Modify Control Number</span>
                                             <span class="permission-toggle-desc">Allows user to see and manually edit the control number on the create transaction form. When disabled, control numbers are auto-generated.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canDtsModifyControlNo">
+                                            <input type="checkbox" wire:model="canDtsModifyControlNo" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- View All Scanner Codes -->
+                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">View All Scanner Codes</span>
+                                            <span class="permission-toggle-desc">Scanner's Available Codes lists documents from every office instead of only this station's. Without it, only documents targeted to this station's office appear. Requires Super Administrator or Administrator Access.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canViewAllScannerCodes" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
                                     </div>

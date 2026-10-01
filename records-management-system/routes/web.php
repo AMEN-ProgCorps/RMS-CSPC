@@ -385,6 +385,14 @@ Route::middleware(['auth'])
         return response()->json(['status' => 'closed']);
     });
 
+    // Current subsystem activation token — polled by the session guard so every
+    // open tab soft-refreshes shortly after an activate/deactivate action.
+    Route::get('/api/systems/refresh-token', function () {
+        return response()->json([
+            'token' => \App\Helpers\SubsystemHelper::refreshToken(),
+        ]);
+    })->name('systems.refresh-token');
+
 
     Volt::route('/portal', 'pages.portal.access-page')
         ->name('portal');

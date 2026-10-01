@@ -7,6 +7,7 @@
     $rdpActive = in_array('Records Disposition Program', $activeSubsystems);
     $dcsActive = in_array('Document Control System', $activeSubsystems);
     $adminActive = in_array('Admin Console', $activeSubsystems);
+    $chatifyActive = in_array('Chatify', $activeSubsystems);
 @endphp
 <div class="actions-container">
     <button class="action_button" onclick="toggleDropdown()">
@@ -50,6 +51,7 @@
             <img src="{{ asset('icons/profile.svg') }}" alt="Profile Icon">
             <span>Profile</span>
         </button>
+        @if($chatifyActive)
         <button class="subSystem" onclick="window.open('/open-chat', '_blank', 'noopener,noreferrer')" style="position: relative; display: flex; align-items: center; justify-content: space-between;">
             <div style="display: flex; align-items: center; gap: 8px;">
                 <img src="{{ asset('icons/chat.svg') }}" alt="Chat Icon">
@@ -57,6 +59,7 @@
             </div>
             <span id="chatify-dropdown-unread-badge" style="display: none; background: #ef4444; color: #ffffff; font-size: 10px; font-weight: 700; min-width: 18px; height: 18px; border-radius: 9px; padding: 0 5px; align-items: center; justify-content: center;">0</span>
         </button>
+        @endif
 
         <button class="subSystem subSystem--logout" onclick="window.location.href='/logout'">
             <img src="{{ asset('icons/logout.svg') }}" alt="Logout Icon">

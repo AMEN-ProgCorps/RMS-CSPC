@@ -19,6 +19,15 @@ class ChatController extends Controller
             return redirect()->route('login');
         }
 
+        // Chatify subsystem deactivated in Admin > Subsystems: no SSO handoff.
+        $chatifyActive = \Illuminate\Support\Facades\DB::table(
+            \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems'
+        )->where('subsystem_name', 'Chatify')->where('is_active', true)->exists();
+
+        if (!$chatifyActive) {
+            return redirect()->route('portal');
+        }
+
         // Generate expiration timestamp: 60 seconds from now
         $expires = time() + 60;
 

@@ -26,6 +26,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->redirect(route('portal'));
             return;
         }
+
+        $this->loadContinRdpTypes();
     }
 
     // ---- PREDEFINED FLOW EDITOR PROPERTIES ----
@@ -73,6 +75,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
     public string $customHubSearch = '';
     public string $customSelectedHubOffice = '';
     public array $selectedCustomFlowIds = [];
+
+    // ---- RDP CONTINUITY (RECORD SERIES) ----
+    /** @var int|null Selected rdp_record_series id for the predefined flow (null = Server default) */
+    public $continRdpId = null;
+    public string $continRdpSearch = '';
+    public string $continRdpTypeFilter = '';
+    /** @var array<int, array{id:int, type_name:string}> Record series types for the filter dropdown */
+    public array $continRdpTypes = [];
+    /** @var int|null Selected rdp_record_series id for the custom flow (null = Server default) */
+    public $customContinRdpId = null;
+    public string $customContinRdpSearch = '';
+    public string $customContinRdpTypeFilter = '';
     public string $customPurposeFilter = 'all';
 
     // ---- SEARCH FOR CUSTOM FLOWS ----
@@ -133,9 +147,151 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $this->hubOffices = [];
         $this->hubSearch = '';
         $this->selectedHubOffice = '';
+        $this->continRdpId = null;
+        $this->continRdpSearch = '';
+        $this->continRdpTypeFilter = '';
         $this->flowFile = null;
         $this->selectedFlowIds = [];
         $this->clearMessages();
+    }
+
+    // ---- RDP CONTINUITY (RECORD SERIES) HELPERS ----
+
+    /**
+     * Load the record series types available for the type filter dropdown.
+     */
+    public function loadContinRdpTypes(): void
+    {
+        $this->continRdpTypes = [];
+
+        if (!\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series_type')) {
+            return;
+        }
+
+        $query = \DB::table('rdp_record_series_type')->where('is_active', true);
+        if (\Illuminate\Support\Facades\Schema::hasColumn('rdp_record_series_type', 'deleted_at')) {
+            $query->whereNull('deleted_at');
+        }
+
+        $this->continRdpTypes = $query->orderBy('type_name', 'asc')
+            ->get(['id', 'type_name'])
+            ->map(fn ($type) => ['id' => (int) $type->id, 'type_name' => $type->type_name])
+            ->toArray();
+    }
+
+    /**
+     * Record series choices (search + type filtered) for the flow details pickers.
+     * These mirror the entries listed on the RDP Record Series admin page.
+     */
+    public function continRdpChoices(string $search, string $typeFilter): \Illuminate\Support\Collection
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series')) {
+            return collect();
+        }
+
+        $query = \DB::table('rdp_record_series')
+            ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+            ->where('rdp_record_series.is_active', true)
+            ->select('rdp_record_series.id', 'rdp_record_series.item_number', 'rdp_record_series.series_title', 'rdp_record_series_type.shorted_type');
+
+        $term = trim($search);
+        if ($term !== '') {
+            // Match on series title or item number (typing digits filters by item no.).
+            $query->where(function ($q) use ($term) {
+                $q->where('rdp_record_series.series_title', 'ilike', '%' . $term . '%')
+                    ->orWhereRaw('CAST(rdp_record_series.item_number AS TEXT) ILIKE ?', ['%' . $term . '%']);
+            });
+        }
+
+        if (trim($typeFilter) !== '') {
+            $query->where('rdp_record_series.series_type', (int) $typeFilter);
+        }
+
+        return $query->orderBy('rdp_record_series.series_title', 'asc')->limit(15)->get();
+    }
+
+    /**
+     * "#12 · Title" label for the currently selected record series (status line).
+     */
+    public function continRdpSelectedLabel($id, string $search): string
+    {
+        if ($id === null || $id === '' || !\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series')) {
+            return $search;
+        }
+
+        $itemNo = \DB::table('rdp_record_series')->where('id', (int) $id)->value('item_number');
+
+        return ($itemNo !== null ? '#' . $itemNo . ' · ' : '') . $search;
+    }
+
+    /**
+     * Apply a picked record series to the predefined flow form.
+     */
+    public function selectContinRdpSeries(int $id): void
+    {
+        $title = $this->continRdpTitle($id);
+        if ($title === null) return;
+
+        $this->continRdpId = $id;
+        $this->continRdpSearch = $title;
+    }
+
+    public function clearContinRdpSeries(): void
+    {
+        $this->continRdpId = null;
+        $this->continRdpSearch = '';
+    }
+
+    /**
+     * Apply a picked record series to the custom flow form.
+     */
+    public function selectCustomContinRdpSeries(int $id): void
+    {
+        $title = $this->continRdpTitle($id);
+        if ($title === null) return;
+
+        $this->customContinRdpId = $id;
+        $this->customContinRdpSearch = $title;
+    }
+
+    public function clearCustomContinRdpSeries(): void
+    {
+        $this->customContinRdpId = null;
+        $this->customContinRdpSearch = '';
+    }
+
+    /**
+     * Typing over (or clearing) the selected title reverts the flow to Server default.
+     */
+    public function updatedContinRdpSearch(string $value): void
+    {
+        if ($this->continRdpId === null) return;
+
+        $title = $this->continRdpTitle((int) $this->continRdpId);
+        if ($title === null || trim($value) !== $title) {
+            $this->continRdpId = null;
+        }
+    }
+
+    public function updatedCustomContinRdpSearch(string $value): void
+    {
+        if ($this->customContinRdpId === null) return;
+
+        $title = $this->continRdpTitle((int) $this->customContinRdpId);
+        if ($title === null || trim($value) !== $title) {
+            $this->customContinRdpId = null;
+        }
+    }
+
+    private function continRdpTitle(int $id): ?string
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series')) {
+            return null;
+        }
+
+        $title = \DB::table('rdp_record_series')->where('id', $id)->value('series_title');
+
+        return $title === null ? null : trim((string) $title);
     }
 
     public function selectFlow($id): void
@@ -265,6 +421,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->customHubOffices = [];
             $this->customHubSearch = '';
             $this->customSelectedHubOffice = '';
+            $this->customContinRdpId = null;
+            $this->customContinRdpSearch = '';
+            $this->customContinRdpTypeFilter = '';
             return;
         }
 
@@ -275,6 +434,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->customIsActive = (bool) $flow->is_active;
             $this->customFlowUse = $flow->flow_use ?? 'none';
             $this->customFlowFor = $flow->flow_for ?? 'system';
+
+            // Load linked RDP record series (null = Server default)
+            $this->customContinRdpId = (isset($flow->contin_rdp_id) && $flow->contin_rdp_id !== null)
+                ? (int) $flow->contin_rdp_id
+                : null;
+            $this->customContinRdpSearch = $this->customContinRdpId !== null
+                ? (string) ($this->continRdpTitle($this->customContinRdpId) ?? '')
+                : '';
+            $this->customContinRdpTypeFilter = '';
 
             $offices = \DB::table('dts_sequence_list')
                 ->where('control_id', $flow->id)
@@ -472,6 +640,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         'flow_for' => $this->customFlowFor,
                         'added_by' => auth()->id() ?? 1,
                         'date_added' => now(),
+                        'contin_rdp_id' => $this->customContinRdpId,
                     ]);
                 } else {
                     $flowId = (int) $this->selectedCustom;
@@ -482,6 +651,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                             'is_active' => $this->customIsActive,
                             'flow_use' => $this->customFlowUse,
                             'flow_for' => $this->customFlowFor,
+                            'contin_rdp_id' => $this->customContinRdpId,
                         ]);
                 }
 
@@ -641,6 +811,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->hubOffices = [];
             $this->hubSearch = '';
             $this->selectedHubOffice = '';
+            $this->continRdpId = null;
+            $this->continRdpSearch = '';
+            $this->continRdpTypeFilter = '';
             return;
         }
 
@@ -650,6 +823,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             $this->flowCode = $flow->flow_code;
             $this->isActive = (bool) $flow->is_active;
             $this->flowUse = $flow->flow_use ?? 'none';
+
+            // Load linked RDP record series (null = Server default)
+            $this->continRdpId = (isset($flow->contin_rdp_id) && $flow->contin_rdp_id !== null)
+                ? (int) $flow->contin_rdp_id
+                : null;
+            $this->continRdpSearch = $this->continRdpId !== null
+                ? (string) ($this->continRdpTitle($this->continRdpId) ?? '')
+                : '';
+            $this->continRdpTypeFilter = '';
 
             // Load office sequences
             $offices = \DB::table('dts_sequence_list')
@@ -822,6 +1004,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                             'flow_use' => $this->flowUse,
                             'added_by' => auth()->id() ?? 1,
                             'date_added' => now(),
+                            'contin_rdp_id' => $this->continRdpId,
                         ]);
 
                         \DB::table('sys_admin_logs')->insert([
@@ -846,6 +1029,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                             'flow_for' => 'system',
                             'added_by' => auth()->id() ?? 1,
                             'date_added' => now(),
+                            'contin_rdp_id' => $this->continRdpId,
                         ]);
 
                         // Insert admin log
@@ -869,6 +1053,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                         'flow_name' => trim($this->flowName),
                         'is_active' => $this->isActive,
                         'flow_use' => $this->flowUse,
+                        'contin_rdp_id' => $this->continRdpId,
                     ]);
 
                     // Insert admin log
@@ -1618,6 +1803,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
             padding: 10px 14px;
             cursor: pointer;
             display: flex;
+            align-items: center;
+            gap: 8px;
             justify-content: space-between;
             font-size: 13px;
             font-family: 'Inter', sans-serif;
@@ -2029,6 +2216,65 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                     </select>
                                     @error('flowUse') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                                 </div>
+
+                                @if(\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series'))
+                                <!-- RDP Continuity: Record Series -->
+                                <div class="form-group" style="border-top: 1.5px dashed #e2e8f0; padding-top: 20px; margin-top: 10px;">
+                                    <span class="form-label" style="font-size: 13.5px; font-weight: 700; color: #1e3a8a; display: flex; align-items: center; gap: 6px;">
+                                        <i class="fa-solid fa-box-archive"></i> RDP Record Series (Continuity)
+                                    </span>
+                                    <span style="font-size: 11.5px; color: #64748b; margin-bottom: 12px; display: block; line-height: 1.4;">
+                                        Record series applied to documents from this flow when they are handed over to RDP after completion. Leave at <strong>Server default</strong> to follow the record series configured in System Settings.
+                                    </span>
+
+                                    <div style="display: flex; gap: 8px; align-items: center;">
+                                        <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1;">
+                                            <div style="position: relative;">
+                                                <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 14px; margin: 0; line-height: 1; z-index: 1;"></i>
+                                                <input type="text"
+                                                       class="search-box"
+                                                       style="padding-left: 38px; padding-right: 30px; width: 100%; box-sizing: border-box; {{ $continRdpId ? 'font-weight: 600; color: #0f172a;' : '' }}"
+                                                       placeholder="Server default"
+                                                       wire:model.live="continRdpSearch"
+                                                       @focus="open = true">
+                                                @if($continRdpId)
+                                                    <button type="button" wire:click="clearContinRdpSeries" title="Revert to Server default" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: none; background: none; color: #94a3b8; cursor: pointer; font-size: 16px; line-height: 1; padding: 0;">&times;</button>
+                                                @endif
+                                            </div>
+
+                                            <div x-show="open" class="suggestions-dropdown" style="top: 100%; bottom: auto; margin-top: 4px;">
+                                                @php $continSeriesChoices = $this->continRdpChoices($continRdpSearch, $continRdpTypeFilter); @endphp
+                                                @forelse($continSeriesChoices as $series)
+                                                    <div class="suggestion-item" @click="open = false" wire:click="selectContinRdpSeries({{ $series->id }})">
+                                                        <span style="flex-shrink: 0; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700;">{{ $series->item_number ?? '—' }}</span>
+                                                        <span style="font-weight: 500; color: #1e293b; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $series->series_title }}</span>
+                                                        <span style="color: #64748b; font-weight: 600; font-size: 11px; white-space: nowrap;">{{ $series->shorted_type ?: '—' }}</span>
+                                                    </div>
+                                                @empty
+                                                    <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No record series found</div>
+                                                @endforelse
+                                            </div>
+                                        </div>
+
+                                        <select wire:model.live="continRdpTypeFilter" title="Filter by record series type" style="flex-shrink: 0; height: 38px; padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #ffffff; font-size: 12px; font-weight: 600; color: #334155; cursor: pointer; max-width: 175px;">
+                                            <option value="">All Types</option>
+                                            @foreach($continRdpTypes as $rdpSeriesType)
+                                                <option value="{{ $rdpSeriesType['id'] }}">{{ $rdpSeriesType['type_name'] }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+
+                                    @if($continRdpId)
+                                        <span style="font-size: 11.5px; color: #059669; margin-top: 8px; display: block;">
+                                            <i class="fa-solid fa-circle-check"></i> Selected: {{ $this->continRdpSelectedLabel($continRdpId, $continRdpSearch) }} — applied when you click Save Configuration.
+                                        </span>
+                                    @else
+                                        <span style="font-size: 11.5px; color: #64748b; margin-top: 8px; display: block;">
+                                            <i class="fa-solid fa-server"></i> Using <strong>Server default</strong>.
+                                        </span>
+                                    @endif
+                                </div>
+                                @endif
 
                                 <!-- Sequence Builder -->
                                 <div class="form-group">
@@ -2520,6 +2766,65 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
                                 </select>
                                 @error('customFlowUse') <span style="color:#ef4444; font-size:11px; margin-top:2px;">{{ $message }}</span> @enderror
                             </div>
+
+                            @if(\Illuminate\Support\Facades\Schema::hasTable('rdp_record_series'))
+                            <!-- RDP Continuity: Record Series -->
+                            <div class="form-group" style="border-top: 1.5px dashed #e2e8f0; padding-top: 20px; margin-top: 10px;">
+                                <span class="form-label" style="font-size: 13.5px; font-weight: 700; color: #1e3a8a; display: flex; align-items: center; gap: 6px;">
+                                    <i class="fa-solid fa-box-archive"></i> RDP Record Series (Continuity)
+                                </span>
+                                <span style="font-size: 11.5px; color: #64748b; margin-bottom: 12px; display: block; line-height: 1.4;">
+                                    Record series applied to documents from this flow when they are handed over to RDP after completion. Leave at <strong>Server default</strong> to follow the record series configured in System Settings.
+                                </span>
+
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <div x-data="{ open: false }" @click.outside="open = false" style="position: relative; flex: 1;">
+                                        <div style="position: relative;">
+                                            <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 14px; margin: 0; line-height: 1; z-index: 1;"></i>
+                                            <input type="text"
+                                                   class="search-box"
+                                                   style="padding-left: 38px; padding-right: 30px; width: 100%; box-sizing: border-box; {{ $customContinRdpId ? 'font-weight: 600; color: #0f172a;' : '' }}"
+                                                   placeholder="Server default"
+                                                   wire:model.live="customContinRdpSearch"
+                                                   @focus="open = true">
+                                            @if($customContinRdpId)
+                                                <button type="button" wire:click="clearCustomContinRdpSeries" title="Revert to Server default" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: none; background: none; color: #94a3b8; cursor: pointer; font-size: 16px; line-height: 1; padding: 0;">&times;</button>
+                                            @endif
+                                        </div>
+
+                                        <div x-show="open" class="suggestions-dropdown" style="top: 100%; bottom: auto; margin-top: 4px;">
+                                            @php $customContinSeriesChoices = $this->continRdpChoices($customContinRdpSearch, $customContinRdpTypeFilter); @endphp
+                                            @forelse($customContinSeriesChoices as $series)
+                                                <div class="suggestion-item" @click="open = false" wire:click="selectCustomContinRdpSeries({{ $series->id }})">
+                                                    <span style="flex-shrink: 0; background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 6px; padding: 1px 7px; font-size: 11px; font-weight: 700;">{{ $series->item_number ?? '—' }}</span>
+                                                    <span style="font-weight: 500; color: #1e293b; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ $series->series_title }}</span>
+                                                    <span style="color: #64748b; font-weight: 600; font-size: 11px; white-space: nowrap;">{{ $series->shorted_type ?: '—' }}</span>
+                                                </div>
+                                            @empty
+                                                <div style="padding: 10px 14px; color: #94a3b8; font-size: 13px; font-style: italic; text-align: center;">No record series found</div>
+                                            @endforelse
+                                        </div>
+                                    </div>
+
+                                    <select wire:model.live="customContinRdpTypeFilter" title="Filter by record series type" style="flex-shrink: 0; height: 38px; padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 8px; background: #ffffff; font-size: 12px; font-weight: 600; color: #334155; cursor: pointer; max-width: 175px;">
+                                        <option value="">All Types</option>
+                                        @foreach($continRdpTypes as $rdpSeriesType)
+                                            <option value="{{ $rdpSeriesType['id'] }}">{{ $rdpSeriesType['type_name'] }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+
+                                @if($customContinRdpId)
+                                    <span style="font-size: 11.5px; color: #059669; margin-top: 8px; display: block;">
+                                        <i class="fa-solid fa-circle-check"></i> Selected: {{ $this->continRdpSelectedLabel($customContinRdpId, $customContinRdpSearch) }} — applied when you click Save Configuration.
+                                    </span>
+                                @else
+                                    <span style="font-size: 11.5px; color: #64748b; margin-top: 8px; display: block;">
+                                        <i class="fa-solid fa-server"></i> Using <strong>Server default</strong>.
+                                    </span>
+                                @endif
+                            </div>
+                            @endif
 
                             <!-- Flow Visibility / Who Can See This Flow -->
                             <div class="form-group">

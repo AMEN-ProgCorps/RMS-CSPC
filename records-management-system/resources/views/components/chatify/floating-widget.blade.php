@@ -1,4 +1,12 @@
 @auth
+@php
+    // Hide the widget entirely while the Chatify subsystem is deactivated
+    // (Admin > Subsystems > Activate/Deactivate) — same flag the portal uses.
+    $chatifySubsystemActive = \Illuminate\Support\Facades\DB::table(
+        \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems'
+    )->where('subsystem_name', 'Chatify')->where('is_active', true)->exists();
+@endphp
+@if($chatifySubsystemActive)
 @unless(request()->routeIs('login', 'track-document', 'tracked') || request()->is('/', 'track-document', 'tracked'))
 @php
     $user = auth()->user();
@@ -742,4 +750,5 @@
 
 
 @endunless
+@endif
 @endauth

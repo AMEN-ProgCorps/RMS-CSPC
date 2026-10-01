@@ -1323,7 +1323,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                         @error('transaction_flow')
                             <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
                         @enderror
-                        <a href="#" wire:click.prevent="openCustomFlowCreator" style="font-size: 11.5px; color: #2563eb; text-decoration: none; font-weight: 600; margin-top: 4px; display: inline-block;">Flow Can't be found?</a>
+                        @if(empty($transaction_flow))
+                            <a href="#" wire:click.prevent="openCustomFlowCreator" style="font-size: 11.5px; color: #2563eb; text-decoration: none; font-weight: 600; margin-top: 4px; display: inline-block;">Flow Can't be found?</a>
+                        @endif
                     </div>
                 </div>
 

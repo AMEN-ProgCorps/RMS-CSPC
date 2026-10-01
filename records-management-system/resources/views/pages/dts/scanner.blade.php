@@ -140,7 +140,10 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
             ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
 
-        if (!$userOfficeCode && !auth()->user()?->permissions?->is_sadm) {
+        // "View All Scanner Codes" clearance — without it the list is scoped to this station's office
+        $canViewAllCodes = (bool) (auth()->user()?->permissions?->can_dts_view_all_scanner_codes ?? false);
+
+        if (!$userOfficeCode && !$canViewAllCodes && !auth()->user()?->permissions?->is_sadm) {
             return collect();
         }
 
@@ -151,8 +154,19 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office_tb', 'current_office_tb.office_code', '=', 'dt.current_office')
             ->whereNotIn('dt.status', ['completed', 'cancelled']);
 
-        if (!auth()->user()?->permissions?->is_sadm) {
-            $query->where('dt.current_office', $userOfficeCode);
+        // Scope to the user's own station: "Incoming / To Receive" and
+        // "In Custody / To Forward" are both transactions currently sitting at
+        // this office — regardless of role — unless the role holds the
+        // "View All Scanner Codes" clearance.
+        if ($userOfficeCode && !$canViewAllCodes) {
+            $query->where(function ($q) use ($userOfficeCode) {
+                $q->where('dt.current_office', $userOfficeCode)
+                  ->orWhere(function ($sub) use ($userOfficeCode) {
+                      // Legacy rows saved with current_office = 'ORIGIN'
+                      $sub->where('dt.current_office', 'ORIGIN')
+                          ->where('dtd.originated_from', $userOfficeCode);
+                  });
+            });
         }
 
         if (!empty(trim($this->availableSearch))) {
@@ -214,15 +228,25 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         $userOfficeCode = auth()->user()?->details?->office?->office_code 
             ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
 
-        if (!$userOfficeCode && !auth()->user()?->permissions?->is_sadm) {
+        if (!$userOfficeCode && !(auth()->user()?->permissions?->can_dts_view_all_scanner_codes ?? false) && !auth()->user()?->permissions?->is_sadm) {
             return ['all' => 0, 'incoming' => 0, 'received' => 0];
         }
 
         $query = DB::table('dts_transactions as dt')
+            ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->whereNotIn('dt.status', ['completed', 'cancelled']);
 
-        if (!auth()->user()?->permissions?->is_sadm) {
-            $query->where('dt.current_office', $userOfficeCode);
+        // Same station scope as getAvailableTransactionsProperty(), honoring the "View All Scanner Codes" clearance
+        $canViewAllCodes = (bool) (auth()->user()?->permissions?->can_dts_view_all_scanner_codes ?? false);
+        if ($userOfficeCode && !$canViewAllCodes) {
+            $query->where(function ($q) use ($userOfficeCode) {
+                $q->where('dt.current_office', $userOfficeCode)
+                  ->orWhere(function ($sub) use ($userOfficeCode) {
+                      // Legacy rows saved with current_office = 'ORIGIN'
+                      $sub->where('dt.current_office', 'ORIGIN')
+                          ->where('dtd.originated_from', $userOfficeCode);
+                  });
+            });
         }
 
         $allRows = $query->select('dt.transaction_id', 'dt.current_office')->get();
@@ -1425,7 +1449,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
         #console-qr-reader video {
             width: 100% !important;
             height: 100% !important;
-            object-fit: contain !important;
+            object-fit: cover !important;
             background: #0f172a;
             border-radius: 12px;
             max-height: 360px;
@@ -1606,7 +1630,13 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 <script src="{{ asset('vendor/html5-qrcode/html5-qrcode.min.js') }}"></script>
 <script>
 if (typeof Html5Qrcode === 'undefined') {
-    document.write('<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"><\/script>');
+    // Dynamic injection instead of document.write(): document.write() wipes the
+    // whole page when this script runs after initial parse (e.g. SPA navigation).
+    (function () {
+        var s = document.createElement('script');
+        s.src = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+        document.head.appendChild(s);
+    })();
 }
 </script>
 
@@ -1619,11 +1649,187 @@ if (typeof Html5Qrcode === 'undefined') {
     let audioCtx = null;
     let lastScannedText = '';
     let lastScanTime = 0;
+    let cameraWatchdogTimer = null;
+    let autoRestartAttempts = 0;
 
-    // Release all active tracks across the page
+    // ------------------------------------------------------------------
+    // Shared scanner diagnostics: visible toasts for failures that would
+    // otherwise be swallowed silently (html5-qrcode eats callback errors).
+    // ------------------------------------------------------------------
+    if (!window.__scannerToast) {
+        window.__scannerToast = function (message, type) {
+            type = type || 'error';
+            console.warn('[Scanner]', message);
+            try {
+                var wrap = document.getElementById('scanner-toast-wrap');
+                if (!wrap) {
+                    wrap = document.createElement('div');
+                    wrap.id = 'scanner-toast-wrap';
+                    wrap.style.cssText = 'position:fixed;top:16px;right:16px;z-index:99999999;display:flex;flex-direction:column;gap:8px;max-width:380px;font-family:Outfit,"Segoe UI",sans-serif;';
+                    document.body.appendChild(wrap);
+                }
+                var el = document.createElement('div');
+                var bg = type === 'success' ? '#f0fdf4' : (type === 'info' ? '#eff6ff' : '#fef2f2');
+                var bd = type === 'success' ? '#86efac' : (type === 'info' ? '#bfdbfe' : '#fca5a5');
+                var fg = type === 'success' ? '#166534' : (type === 'info' ? '#1e40af' : '#991b1b');
+                el.style.cssText = 'padding:11px 14px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:0 10px 25px rgba(0,0,0,.18);word-break:break-word;transition:opacity .3s;';
+                el.style.background = bg;
+                el.style.border = '1px solid ' + bd;
+                el.style.color = fg;
+                el.textContent = message;
+                wrap.appendChild(el);
+                setTimeout(function () {
+                    el.style.opacity = '0';
+                    setTimeout(function () { el.remove(); }, 350);
+                }, 6000);
+            } catch (e) { /* console warning already emitted */ }
+        };
+    }
+
+    // Surface failed Livewire requests (expired session = 419/401, server
+    // errors, network loss) which otherwise fail completely silently and make
+    // the scanner look "dead" while the camera keeps running.
+    if (!window.__scannerConnectionHooked) {
+        var attachScannerRequestHook = function () {
+            if (window.__scannerConnectionHooked) return;
+            if (!window.Livewire || typeof Livewire.hook !== 'function') return;
+            window.__scannerConnectionHooked = true;
+            try {
+                Livewire.hook('request', function (hooks) {
+                    if (!hooks || typeof hooks.fail !== 'function') return;
+                    hooks.fail(function (res) {
+                        var status = res && res.status;
+                        if (!status || status === 200) return;
+                        window.__scannerToast('Scanner connection problem (HTTP ' + status + '). Your session may have expired — press F5 to refresh and continue scanning.', 'error');
+                    });
+                });
+            } catch (e) { console.warn('Scanner request hook unavailable:', e); }
+        };
+        attachScannerRequestHook();
+        document.addEventListener('livewire:initialized', attachScannerRequestHook);
+    }
+
+    // ------------------------------------------------------------------
+    // Base64 decoding for QR payloads (shared by camera + upload/paste).
+    // Previously scoped inside startScanning(), which made the file-upload
+    // path throw a ReferenceError and fail every time.
+    // ------------------------------------------------------------------
+    const decodeIfBase64 = (raw) => {
+        if (!raw) return raw;
+        const str = raw.trim();
+        // If already matches standard system QR code pattern, don't decode
+        if (/^[A-Z0-9]{4}(-[A-Z0-9]{4}){2,}$/i.test(str)) return str;
+        if (!/^[A-Za-z0-9+/_\-=]+$/.test(str) || str.length < 8) return str;
+        try {
+            const normalized = str.replace(/-/g, '+').replace(/_/g, '/');
+            const padLen = (4 - (normalized.length % 4)) % 4;
+            const padded = normalized + '='.repeat(padLen);
+            const decoded = atob(padded);
+            if (/^[\x20-\x7E]+$/.test(decoded)) {
+                const trimmed = decoded.trim();
+                if (trimmed.length >= 3) return trimmed;
+            }
+        } catch (e) { /* not valid Base64 */ }
+        return str;
+    };
+
+    // ------------------------------------------------------------------
+    // Robust Livewire component resolution at call time. Relying on the
+    // compile-time "@this" ID alone silently breaks (Livewire.find() returns
+    // undefined) and every scan afterwards does nothing with no error shown.
+    // ------------------------------------------------------------------
+    function getScannerComponent() {
+        try {
+            const el = document.getElementById('camera-scanner-section-wrapper')
+                || document.querySelector('.advanced-scanner-wrapper')
+                || document.getElementById('scanner-main-input');
+            const root = el && el.closest ? el.closest('[wire\\:id]') : null;
+            if (root && window.Livewire && typeof Livewire.find === 'function') {
+                const comp = Livewire.find(root.getAttribute('wire:id'));
+                if (comp) return comp;
+            }
+        } catch (e) { console.warn('Scanner component lookup failed:', e); }
+        try { if (typeof @this !== 'undefined' && @this) return @this; } catch (e) {}
+        return null;
+    }
+
+    function callLoadTransaction(code) {
+        let comp = getScannerComponent();
+        if (!comp) {
+            throw new Error('Scanner lost its connection to the page. Refresh the page (F5) and try again.');
+        }
+
+        let result = null;
+        if (typeof comp.call === 'function') {
+            result = comp.call('loadTransaction', code);
+        } else if (typeof comp.loadTransaction === 'function') {
+            result = comp.loadTransaction(code);
+        } else if (comp.$wire && typeof comp.$wire.call === 'function') {
+            result = comp.$wire.call('loadTransaction', code);
+        } else if (comp.$wire && typeof comp.$wire.loadTransaction === 'function') {
+            result = comp.$wire.loadTransaction(code);
+        } else if (typeof comp.$call === 'function') {
+            result = comp.$call('loadTransaction', code);
+        } else {
+            throw new Error('Scanner connection method not found. Refresh the page (F5) and try again.');
+        }
+
+        if (result && typeof result.catch === 'function') {
+            result.catch(function (err) {
+                console.error('Scanner: loadTransaction request failed:', err);
+                window.__scannerToast('The scan could not reach the server. Check your connection or session, then refresh (F5).', 'error');
+            });
+        }
+        return result;
+    }
+
+    // ------------------------------------------------------------------
+    // Camera watchdog: html5-qrcode keeps looping over a dead stream, so the
+    // preview stays alive but QR detection silently stops. Watch the track
+    // and auto-restart when it dies.
+    // ------------------------------------------------------------------
+    function stopCameraWatchdog() {
+        if (cameraWatchdogTimer) {
+            clearInterval(cameraWatchdogTimer);
+            cameraWatchdogTimer = null;
+        }
+    }
+
+    function startCameraWatchdog() {
+        stopCameraWatchdog();
+        cameraWatchdogTimer = setInterval(async () => {
+            if (!isScanning) { stopCameraWatchdog(); return; }
+            try {
+                const container = document.getElementById('console-qr-reader');
+                const video = container ? container.querySelector('video') : null;
+                const track = (video && video.srcObject && typeof video.srcObject.getVideoTracks === 'function')
+                    ? (video.srcObject.getVideoTracks()[0] || null)
+                    : null;
+                if (track && track.readyState === 'ended') {
+                    if (autoRestartAttempts >= 2) {
+                        await stopScanner();
+                        window.__scannerToast('Camera connection was lost. Click "Start Camera" to restart scanning.', 'error');
+                        return;
+                    }
+                    autoRestartAttempts++;
+                    console.warn('Scanner watchdog: camera stream ended — restarting camera (attempt ' + autoRestartAttempts + ')...');
+                    await stopScanner();
+                    await toggleCameraScanner(true);
+                    if (isScanning) {
+                        window.__scannerToast('Camera connection dropped and was restarted automatically.', 'info');
+                    }
+                }
+            } catch (err) { console.warn('Scanner watchdog error:', err); }
+        }, 2500);
+    }
+
+    // Release all active media tracks owned by this scanner viewport
+    // (scoped to this component so it cannot kill the global scanner modal's
+    // camera, which lives on the same DTS pages).
     function releaseAllMediaTracks() {
         try {
-            const videos = document.querySelectorAll('video');
+            const scope = document.getElementById('camera-scanner-section-wrapper');
+            const videos = scope ? scope.querySelectorAll('video') : [];
             videos.forEach(v => {
                 if (v.srcObject && typeof v.srcObject.getTracks === 'function') {
                     v.srcObject.getTracks().forEach(track => track.stop());
@@ -1681,18 +1887,33 @@ if (typeof Html5Qrcode === 'undefined') {
     });
 
     async function stopScanner() {
+        stopCameraWatchdog();
         if (html5QrCode) {
+            const instance = html5QrCode;
+            html5QrCode = null;
             try {
-                if (html5QrCode.isScanning) {
-                    await html5QrCode.stop();
+                if (instance.isScanning) {
+                    // Time-boxed stop: html5-qrcode's stop() can hang forever when the
+                    // stream reports zero video tracks, which used to wedge the
+                    // Start/Stop button completely.
+                    await Promise.race([
+                        instance.stop(),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Scanner stop timed out')), 2500))
+                    ]);
                 }
-                html5QrCode.clear();
             } catch (e) {
                 console.warn('Scanner stop cleanup:', e);
             }
-            html5QrCode = null;
+            try {
+                const clearing = instance.clear();
+                if (clearing && typeof clearing.catch === 'function') clearing.catch(() => {});
+            } catch (e) {
+                console.warn('Scanner clear cleanup:', e);
+            }
         }
         releaseAllMediaTracks();
+        const readerEl = document.getElementById('console-qr-reader');
+        if (readerEl) readerEl.innerHTML = '';
         isScanning = false;
 
         const placeholder = document.getElementById('camera-off-placeholder');
@@ -1707,10 +1928,14 @@ if (typeof Html5Qrcode === 'undefined') {
     }
 
     // Camera Management
-    window.toggleCameraScanner = async function() {
+    window.toggleCameraScanner = async function(fromWatchdog) {
         if (isScanning) {
             await stopScanner();
             return;
+        }
+
+        if (!fromWatchdog) {
+            autoRestartAttempts = 0;
         }
 
         try {
@@ -1723,12 +1948,14 @@ if (typeof Html5Qrcode === 'undefined') {
 
             const container = document.getElementById('console-qr-reader');
             if (!container) return;
+            container.innerHTML = '';
 
             // Instantiate Html5Qrcode with hardware BarcodeDetector and QR_CODE format priority
             html5QrCode = new Html5Qrcode('console-qr-reader', {
                 formatsToSupport: (typeof Html5QrcodeSupportedFormats !== 'undefined') 
                     ? [ Html5QrcodeSupportedFormats.QR_CODE ] 
                     : undefined,
+                useBarCodeDetectorIfSupported: true,
                 experimentalFeatures: {
                     useBarCodeDetectorIfSupported: true
                 },
@@ -1769,6 +1996,7 @@ if (typeof Html5Qrcode === 'undefined') {
             }
 
             isScanning = true;
+            startCameraWatchdog();
             if (placeholder) placeholder.style.display = 'none';
             if (laser) laser.style.display = 'block';
             if (btnText) btnText.textContent = 'Stop Camera';
@@ -1781,70 +2009,65 @@ if (typeof Html5Qrcode === 'undefined') {
 
     async function startScanning(cameraConfig) {
         const calculateQrboxSize = function(viewfinderWidth, viewfinderHeight) {
-            // Generous scanning area (88% of minimum dimension, at least 250px)
-            // Ensures the QR code is read even if held at a natural distance or slightly tilted
-            const minDimension = Math.min(viewfinderWidth, viewfinderHeight);
-            let boxSize = Math.floor(minDimension * 0.88);
-            if (boxSize < 240 && minDimension >= 240) {
-                boxSize = 240;
-            } else if (boxSize < 180) {
-                boxSize = Math.max(180, minDimension - 20);
-            }
+            // Generous rectangular scanning zone (78% width, 75% height)
+            // Ensures QR codes are caught across almost the entire field of view
+            // without requiring users to hold paper in an exact pinpoint square.
+            const w = Math.floor(viewfinderWidth * 0.78);
+            const h = Math.floor(viewfinderHeight * 0.75);
             return {
-                width: boxSize,
-                height: boxSize
+                width: Math.max(220, Math.min(w, viewfinderWidth - 20)),
+                height: Math.max(220, Math.min(h, viewfinderHeight - 20))
             };
         };
 
-        // Use ideal-only constraints (no min/max) — avoids OverconstrainedError on laptops
-        // where the OS/driver can't guarantee a hard minimum resolution.
+        // Use ideal-only constraints with 10 FPS (optimal for ZXing CPU throughput & zero stutter)
+        // continuous autofocus is requested where supported by webcam hardware.
         const hdConfig = {
-            fps: 24,
+            fps: 10,
             qrbox: calculateQrboxSize,
             videoConstraints: {
-                width:  { ideal: 1280 },
-                height: { ideal: 720  }
+                width:  { ideal: 1280, max: 1920 },
+                height: { ideal: 720,  max: 1080 },
+                facingMode: { ideal: "environment" },
+                advanced: [{ focusMode: "continuous" }]
             }
         };
 
         // Bare fallback — no resolution constraints at all
         const bareConfig = {
-            fps: 20,
+            fps: 10,
             qrbox: calculateQrboxSize
-        };
-
-        const decodeIfBase64 = (raw) => {
-            if (!raw) return raw;
-            const str = raw.trim();
-            // Detect Base64: only A-Z a-z 0-9 + / - _ = characters, minimum 8 chars
-            if (!/^[A-Za-z0-9+/_\-=]+$/.test(str) || str.length < 8) return str;
-            try {
-                // Support both standard and URL-safe Base64
-                const normalized = str.replace(/-/g, '+').replace(/_/g, '/');
-                const decoded = atob(normalized);
-                if (/^[\x20-\x7E]+$/.test(decoded)) return decoded.trim();
-            } catch (e) { /* not valid Base64 */ }
-            return str;
         };
 
         const onScanSuccess = (decodedText) => {
             if (!decodedText) return;
-            const now = Date.now();
-            if (decodedText === lastScannedText && (now - lastScanTime) < 1500) {
-                return;
-            }
-            lastScannedText = decodedText;
-            lastScanTime = now;
+            try {
+                const now = Date.now();
+                if (decodedText === lastScannedText && (now - lastScanTime) < 1500) {
+                    return;
+                }
+                lastScannedText = decodedText;
+                lastScanTime = now;
+                autoRestartAttempts = 0;
 
-            // Decode Base64 before displaying and passing to backend
-            const code = decodeIfBase64(decodedText);
+                // A scan is user activity — keep the inactivity guard from
+                // timing the session out while scanning with the camera.
+                window.dispatchEvent(new CustomEvent('scanner-activity'));
 
-            const input = document.getElementById('scanner-main-input');
-            if (input) {
-                input.value = code;
+                // Decode Base64 before displaying and passing to backend
+                const code = decodeIfBase64(decodedText);
+
+                const input = document.getElementById('scanner-main-input');
+                if (input) {
+                    input.value = code;
+                }
+                // Atomically load the scanned code in a single Livewire call
+                callLoadTransaction(code);
+            } catch (err) {
+                // html5-qrcode swallows callback exceptions silently — surface them.
+                console.error('Scanner: failed to process scanned code:', err);
+                window.__scannerToast('QR code detected, but processing failed: ' + ((err && err.message) || err), 'error');
             }
-            // Atomically load the scanned code in a single Livewire call
-            @this.loadTransaction(code);
         };
 
         // Try the requested camera first, then keep looking for the REAR camera
@@ -1871,17 +2094,30 @@ if (typeof Html5Qrcode === 'undefined') {
             } catch (err) {
                 lastError = err;
                 console.warn('Camera start failed (' + key + '):', err);
+                try { if (html5QrCode.isScanning) await html5QrCode.stop(); } catch (e) {}
+                try {
+                    const c = html5QrCode.clear();
+                    if (c && typeof c.catch === 'function') c.catch(() => {});
+                } catch (e) {}
+                html5QrCode = new Html5Qrcode('console-qr-reader', {
+                    formatsToSupport: (typeof Html5QrcodeSupportedFormats !== 'undefined') 
+                        ? [ Html5QrcodeSupportedFormats.QR_CODE ] 
+                        : undefined,
+                    useBarCodeDetectorIfSupported: true,
+                    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+                    verbose: false
+                });
             }
         }
         throw lastError || new Error('Unable to start any camera');
     }
 
     window.switchCamera = async function(cameraId) {
-        if (!isScanning || !html5QrCode) return;
+        if (!isScanning) return;
         try {
-            await html5QrCode.stop();
-            await startScanning(cameraId ? { deviceId: cameraId } : { facingMode: "environment" });
+            await stopScanner();
             activeCameraId = cameraId;
+            await toggleCameraScanner();
         } catch (e) {
             console.error('Failed to switch camera:', e);
         }
@@ -1911,29 +2147,49 @@ if (typeof Html5Qrcode === 'undefined') {
     });
 
     async function decodeQrFromFile(file) {
+        if (typeof Html5Qrcode === 'undefined') {
+            window.__scannerToast('Scanner library is still loading — please try again in a moment.', 'info');
+            return;
+        }
+
+        // Decode on a dedicated offscreen container: running scanFile() on the
+        // live viewport throws "Cannot start file scan - ongoing camera scan"
+        // (or clears the live camera UI), which made uploads/pastes fail with a
+        // misleading "No clear QR code detected" error.
+        const decoderId = 'scanner-offscreen-file-decoder';
+        let host = document.getElementById(decoderId);
+        if (!host) {
+            host = document.createElement('div');
+            host.id = decoderId;
+            host.style.cssText = 'position:fixed;left:-10000px;top:0;width:320px;height:320px;overflow:hidden;pointer-events:none;';
+            document.body.appendChild(host);
+        }
+
+        let decoder = null;
         try {
-            let decoder = html5QrCode;
-            let tempCreated = false;
-            if (!decoder) {
-                decoder = new Html5Qrcode('console-qr-reader', {
-                    formatsToSupport: (typeof Html5QrcodeSupportedFormats !== 'undefined') ? [ Html5QrcodeSupportedFormats.QR_CODE ] : undefined,
-                    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-                    verbose: false
-                });
-                tempCreated = true;
-            }
+            decoder = new Html5Qrcode(decoderId, {
+                formatsToSupport: (typeof Html5QrcodeSupportedFormats !== 'undefined') ? [ Html5QrcodeSupportedFormats.QR_CODE ] : undefined,
+                experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+                verbose: false
+            });
             const decodedText = await decoder.scanFile(file, true);
-            if (decodedText) {
-                const code = decodeIfBase64(decodedText);
-                const input = document.getElementById('scanner-main-input');
-                if (input) input.value = code;
-                @this.loadTransaction(code);
-            }
-            if (tempCreated && !isScanning) {
-                decoder.clear();
-            }
+            if (!decodedText) throw new Error('No QR code found in image');
+
+            const code = decodeIfBase64(decodedText);
+            const input = document.getElementById('scanner-main-input');
+            if (input) input.value = code;
+            callLoadTransaction(code);
+            window.dispatchEvent(new CustomEvent('scanner-activity'));
         } catch (err) {
-            alert('No clear QR code detected in the selected/pasted image. Please ensure the QR code is in focus and well lit.');
+            console.warn('Scanner: image/paste scan failed:', err);
+            window.__scannerToast('No readable QR code found in the image. Make sure the code is sharp, well lit and not cropped.', 'error');
+        } finally {
+            if (decoder) {
+                try {
+                    const clearing = decoder.clear();
+                    if (clearing && typeof clearing.catch === 'function') clearing.catch(() => {});
+                } catch (e) { /* ignore */ }
+            }
         }
     }
 

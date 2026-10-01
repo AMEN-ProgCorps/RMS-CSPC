@@ -130,12 +130,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             }
 
             if (!empty($this->search)) {
-                $s = '%' . trim($this->search) . '%';
-                $query->where(function ($q) use ($s) {
-                    $q->where('rdp_record.description', 'ilike', $s)
-                      ->orWhere('rdp_record.volume', 'ilike', $s)
-                      ->orWhere('rdp_record.records_location', 'ilike', $s);
-                });
+                $this->applySearchFilter($query, [
+                    'rdp_record.description',
+                    'rdp_record.volume',
+                    'rdp_record.records_location',
+                ]);
             }
 
             $allIds = $query->pluck('rdp_record.id')->toArray();
@@ -156,6 +155,33 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         } else {
             // Select all
             $this->selectedIds = array_values(array_unique(array_merge($this->selectedIds, $stringIds)));
+        }
+    }
+
+    /**
+     * Word-level AND search: every typed word must match at least one of the
+     * given columns, in any order — so "Pasay Travel" finds
+     * "Travel Order to Pasay", and swapping a word ("Pasay certificate")
+     * narrows the list to the records containing that word.
+     */
+    private function applySearchFilter($query, array $columns): void
+    {
+        $tokens = preg_split('/\s+/', trim($this->search), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        foreach ($tokens as $token) {
+            $like = '%' . addcslashes($token, '%_\\') . '%';
+
+            $query->where(function ($q) use ($columns, $like) {
+                foreach ($columns as $index => $column) {
+                    $method = $index === 0 ? 'where' : 'orWhere';
+
+                    if (stripos($column, 'CAST(') === 0) {
+                        $q->{$method}(DB::raw($column), 'ilike', $like);
+                    } else {
+                        $q->{$method}($column, 'ilike', $like);
+                    }
+                }
+            });
         }
     }
 
@@ -787,12 +813,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         }
 
         if (!empty($this->search)) {
-            $s = '%' . trim($this->search) . '%';
-            $recordsQuery->where(function($q) use ($s) {
-                $q->where('description', 'ilike', $s)
-                  ->orWhere('volume', 'ilike', $s)
-                  ->orWhere('records_location', 'ilike', $s);
-            });
+            $this->applySearchFilter($recordsQuery, [
+                'description',
+                'volume',
+                'records_location',
+            ]);
         }
 
         // Sorting records chronologically by which one was added first (id ASC)

@@ -695,12 +695,18 @@ new class extends Component {
     <script src="{{ asset('vendor/html5-qrcode/html5-qrcode.min.js') }}"></script>
     <script>
     if (typeof Html5Qrcode === 'undefined') {
-        document.write('<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"><\/script>');
+        // Dynamic injection instead of document.write(): document.write() wipes
+        // the whole page when this runs after the initial page parse.
+        (function () {
+            var s = document.createElement('script');
+            s.src = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+            document.head.appendChild(s);
+        })();
     }
     </script>
 
     @if($isOpen)
-        <div class="global-scanner-backdrop">
+        <div class="global-scanner-backdrop" wire:click.self="closeModal" @keydown.window.escape="$wire.closeModal()">
             <div class="global-scanner-modal">
                 
                 <!-- Modal Header -->
@@ -866,6 +872,7 @@ new class extends Component {
                             overflow: hidden;
                             position: relative;
                             min-height: 280px;
+                            max-height: 360px;
                             width: 100%;
                             display: flex;
                             align-items: center;
@@ -874,14 +881,18 @@ new class extends Component {
                         }
                         #modal-qr-preview {
                             width: 100% !important;
+                            height: 100% !important;
                             border: none !important;
+                            position: relative;
+                            overflow: hidden;
                         }
                         #modal-qr-preview video {
                             width: 100% !important;
                             height: 100% !important;
-                            object-fit: contain !important;
+                            object-fit: cover !important;
                             border-radius: 12px;
-                            max-height: 340px;
+                            max-height: 360px;
+                            display: block;
                         }
                         #modal-qr-preview__scan_region {
                             border: 3px dashed #3b82f6 !important;
@@ -1037,7 +1048,7 @@ new class extends Component {
                     <div style="display: grid; grid-template-columns: 1fr; gap: 14px; margin-bottom: 18px;">
                         
                         <!-- Webcam Viewport -->
-                        <div wire:ignore class="dts-scanner-viewport-container">
+                        <div wire:ignore class="dts-scanner-viewport-container" style="position: relative;">
                             <div id="modal-qr-preview"></div>
                             <div id="camera-loading-placeholder" style="position: absolute; color: #94a3b8; font-size: 13px; font-weight: 500; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 5;">
                                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.85;">
@@ -1046,15 +1057,46 @@ new class extends Component {
                                 </svg>
                                 <span>Initializing Camera Feed...</span>
                             </div>
+
+                            {{-- Floating Flip Camera button on the viewfinder --}}
+                            <button
+                                type="button"
+                                id="modal-flip-camera-btn"
+                                onclick="window.flipModalCamera()"
+                                title="Switch Camera"
+                                style="display: none; position: absolute; top: 12px; right: 12px; z-index: 25; background: rgba(15, 23, 42, 0.75); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 20px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; backdrop-filter: blur(8px); align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: all 0.15s ease;"
+                            >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8c0 1.94.693 3.72 1.85 5.11L4 19l4.5-1.5"></path>
+                                    <path d="M4 14c0 4.418 3.582 8 8 8s8-3.582 8-8c0-1.94-.693-3.72-1.85-5.11L20 5l-4.5 1.5"></path>
+                                </svg>
+                                <span id="modal-flip-camera-label">Flip Camera</span>
+                            </button>
                         </div>
 
-                        {{-- Camera selector (hidden until >1 camera detected) --}}
-                        <div id="modal-camera-select-container" style="display: none; margin-top: 6px;">
-                            <select
-                                id="modal-camera-select"
-                                onchange="window.switchModalCamera(this.value)"
-                                style="width: 100%; padding: 7px 10px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 12.5px; color: #334155; background: #f8fafc; outline: none; cursor: pointer;"
-                            ></select>
+                        {{-- Camera selector row --}}
+                        <div id="modal-camera-select-container" style="display: none; align-items: center; gap: 8px; margin-top: 6px;">
+                            <div style="flex: 1; min-width: 0;">
+                                <select
+                                    id="modal-camera-select"
+                                    onchange="window.switchModalCamera(this.value)"
+                                    style="width: 100%; padding: 8px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 12px; color: #334155; background: #f8fafc; outline: none; cursor: pointer;"
+                                ></select>
+                            </div>
+                            <button
+                                type="button"
+                                onclick="window.flipModalCamera()"
+                                style="padding: 8px 14px; background: #eff6ff; border: 1.5px solid #bfdbfe; border-radius: 8px; font-size: 12px; font-weight: 700; color: #2563eb; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; transition: background 0.15s;"
+                                onmouseover="this.style.background='#dbeafe';"
+                                onmouseout="this.style.background='#eff6ff';"
+                                title="Switch between front and rear camera"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M20 10c0-4.418-3.582-8-8-8s-8 3.582-8 8c0 1.94.693 3.72 1.85 5.11L4 19l4.5-1.5"></path>
+                                    <path d="M4 14c0 4.418 3.582 8 8 8s8-3.582 8-8c0-1.94-.693-3.72-1.85-5.11L20 5l-4.5 1.5"></path>
+                                </svg>
+                                <span>Flip</span>
+                            </button>
                         </div>
 
                         <!-- Manual Code Input Field -->
@@ -1224,242 +1266,645 @@ new class extends Component {
     @endif
 
     <script>
-            window.addEventListener('focus-scanner-input', () => {
-                const input = document.getElementById('global-scanner-code-input');
-                if (input) input.focus();
-            });
+    (function() {
+        // Modal Camera Scanner State
+        let modalHtml5QrCode = null;
+        let modalAvailableCameras = [];
+        let modalActiveCameraId = null;
+        let modalFacingMode = 'environment';
+        let isModalSwitching = false;
+        let lastModalScannedText = '';
+        let lastModalScanTime = 0;
+        let modalWatchdogTimer = null;
+        let modalAutoRestarts = 0;
 
-            document.addEventListener('livewire:initialized', () => {
-                let html5QrCode = null;
+        // ------------------------------------------------------------------
+        // Shared scanner diagnostics: visible toasts for failures that would
+        // otherwise be swallowed silently (html5-qrcode eats callback errors).
+        // ------------------------------------------------------------------
+        if (!window.__scannerToast) {
+            window.__scannerToast = function (message, type) {
+                type = type || 'error';
+                console.warn('[Scanner]', message);
+                try {
+                    var wrap = document.getElementById('scanner-toast-wrap');
+                    if (!wrap) {
+                        wrap = document.createElement('div');
+                        wrap.id = 'scanner-toast-wrap';
+                        wrap.style.cssText = 'position:fixed;top:16px;right:16px;z-index:99999999;display:flex;flex-direction:column;gap:8px;max-width:380px;font-family:Outfit,"Segoe UI",sans-serif;';
+                        document.body.appendChild(wrap);
+                    }
+                    var el = document.createElement('div');
+                    var bg = type === 'success' ? '#f0fdf4' : (type === 'info' ? '#eff6ff' : '#fef2f2');
+                    var bd = type === 'success' ? '#86efac' : (type === 'info' ? '#bfdbfe' : '#fca5a5');
+                    var fg = type === 'success' ? '#166534' : (type === 'info' ? '#1e40af' : '#991b1b');
+                    el.style.cssText = 'padding:11px 14px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:0 10px 25px rgba(0,0,0,.18);word-break:break-word;transition:opacity .3s;';
+                    el.style.background = bg;
+                    el.style.border = '1px solid ' + bd;
+                    el.style.color = fg;
+                    el.textContent = message;
+                    wrap.appendChild(el);
+                    setTimeout(function () {
+                        el.style.opacity = '0';
+                        setTimeout(function () { el.remove(); }, 350);
+                    }, 6000);
+                } catch (e) { /* console warning already emitted */ }
+            };
+        }
 
-                async function stopScanner() {
-                    if (html5QrCode) {
-                        try {
-                            if (html5QrCode.isScanning) {
-                                await html5QrCode.stop();
+        // Surface failed Livewire requests (expired session = 419/401, server
+        // errors, network loss) which otherwise fail completely silently and make
+        // the scanner look "dead" while the camera keeps running.
+        if (!window.__scannerConnectionHooked) {
+            var attachScannerRequestHook = function () {
+                if (window.__scannerConnectionHooked) return;
+                if (!window.Livewire || typeof Livewire.hook !== 'function') return;
+                window.__scannerConnectionHooked = true;
+                try {
+                    Livewire.hook('request', function (hooks) {
+                        if (!hooks || typeof hooks.fail !== 'function') return;
+                        hooks.fail(function (res) {
+                            var status = res && res.status;
+                            if (!status || status === 200) return;
+                            window.__scannerToast('Scanner connection problem (HTTP ' + status + '). Your session may have expired — press F5 to refresh and continue scanning.', 'error');
+                        });
+                    });
+                } catch (e) { console.warn('Scanner request hook unavailable:', e); }
+            };
+            attachScannerRequestHook();
+            document.addEventListener('livewire:initialized', attachScannerRequestHook);
+        }
+
+        window.addEventListener('focus-scanner-input', () => {
+            const input = document.getElementById('global-scanner-code-input');
+            if (input) input.focus();
+        });
+
+        function releaseAllModalMediaTracks() {
+            try {
+                const modal = document.querySelector('.global-scanner-modal');
+                const videos = modal ? modal.querySelectorAll('video') : document.querySelectorAll('#modal-qr-preview video');
+                videos.forEach(v => {
+                    if (v.srcObject && typeof v.srcObject.getTracks === 'function') {
+                        v.srcObject.getTracks().forEach(track => {
+                            try { track.stop(); } catch(e) {}
+                        });
+                        v.srcObject = null;
+                    }
+                });
+            } catch (e) {
+                console.warn('Error releasing modal tracks:', e);
+            }
+        }
+
+        async function stopModalScanner() {
+            stopModalWatchdog();
+            if (modalHtml5QrCode) {
+                const instance = modalHtml5QrCode;
+                modalHtml5QrCode = null;
+                try {
+                    if (instance.isScanning) {
+                        // Time-boxed stop: html5-qrcode's stop() can hang forever when
+                        // the stream reports zero video tracks, which used to leave
+                        // isModalSwitching stuck true and the flip/retry buttons dead.
+                        await Promise.race([
+                            instance.stop(),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('Scanner stop timed out')), 2500))
+                        ]);
+                    }
+                } catch(e) {
+                    console.warn('Scanner stop warning:', e);
+                }
+                try {
+                    const clearing = instance.clear();
+                    if (clearing && typeof clearing.catch === 'function') clearing.catch(() => {});
+                } catch(e) {
+                    console.warn('Scanner clear warning:', e);
+                }
+            }
+            releaseAllModalMediaTracks();
+            const previewEl = document.getElementById('modal-qr-preview');
+            if (previewEl) {
+                previewEl.innerHTML = '';
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Camera watchdog: html5-qrcode keeps looping over a dead stream, so the
+        // preview stays alive but QR detection silently stops. Watch the track
+        // and auto-restart when it dies.
+        // ------------------------------------------------------------------
+        function stopModalWatchdog() {
+            if (modalWatchdogTimer) {
+                clearInterval(modalWatchdogTimer);
+                modalWatchdogTimer = null;
+            }
+        }
+
+        function startModalWatchdog() {
+            stopModalWatchdog();
+            modalWatchdogTimer = setInterval(async () => {
+                if (!modalHtml5QrCode || !modalHtml5QrCode.isScanning) { stopModalWatchdog(); return; }
+                try {
+                    const video = document.querySelector('#modal-qr-preview video');
+                    const track = (video && video.srcObject && typeof video.srcObject.getVideoTracks === 'function')
+                        ? (video.srcObject.getVideoTracks()[0] || null)
+                        : null;
+                    if (track && track.readyState === 'ended') {
+                        if (modalAutoRestarts >= 2) {
+                            await stopModalScanner();
+                            const placeholder = document.getElementById('camera-loading-placeholder');
+                            if (placeholder) {
+                                placeholder.style.display = 'flex';
+                                placeholder.innerHTML = '<div style="color:#ef4444;font-size:13px;text-align:center;padding:10px;">Camera connection was lost.<br><small style="opacity:.85;">Close and reopen the scanner to retry.</small></div>';
                             }
-                            html5QrCode.clear();
-                        } catch(e) {}
-                        html5QrCode = null;
+                            window.__scannerToast('Camera connection was lost. Reopen the scanner to restart it.', 'error');
+                            return;
+                        }
+                        modalAutoRestarts++;
+                        console.warn('Scanner watchdog: modal camera stream ended — restarting (attempt ' + modalAutoRestarts + ')...');
+                        if (isModalSwitching) return;
+                        isModalSwitching = true;
+                        try {
+                            await startModalCamera(modalActiveCameraId || modalFacingMode);
+                            window.__scannerToast('Camera connection dropped and was restarted automatically.', 'info');
+                        } finally {
+                            isModalSwitching = false;
+                        }
+                    }
+                } catch (err) { console.warn('Scanner watchdog error:', err); }
+            }, 2500);
+        }
+
+        const calculateModalQrboxSize = function(viewfinderWidth, viewfinderHeight) {
+            // Generous rectangular scanning zone (78% width, 75% height)
+            // Ensures QR codes are caught across almost the entire field of view
+            // without requiring users to hold paper in an exact pinpoint square.
+            const w = Math.floor(viewfinderWidth * 0.78);
+            const h = Math.floor(viewfinderHeight * 0.75);
+            return {
+                width: Math.max(220, Math.min(w, viewfinderWidth - 20)),
+                height: Math.max(220, Math.min(h, viewfinderHeight - 20))
+            };
+        };
+
+        // Use ideal-only constraints with 10 FPS (optimal for ZXing CPU throughput & zero stutter)
+        // continuous autofocus is requested where supported by webcam hardware.
+        const modalHdConfig = {
+            fps: 10,
+            qrbox: calculateModalQrboxSize,
+            videoConstraints: {
+                width:  { ideal: 1280, max: 1920 },
+                height: { ideal: 720,  max: 1080 },
+                facingMode: { ideal: "environment" },
+                advanced: [{ focusMode: "continuous" }]
+            }
+        };
+
+        const modalBareConfig = {
+            fps: 10,
+            qrbox: calculateModalQrboxSize
+        };
+
+        const decodeIfBase64 = (raw) => {
+            if (!raw) return raw;
+            const str = raw.trim();
+            // If already matches standard system QR code pattern, don't decode
+            if (/^[A-Z0-9]{4}(-[A-Z0-9]{4}){2,}$/i.test(str)) return str;
+            if (!/^[A-Za-z0-9+/_\-=]+$/.test(str) || str.length < 8) return str;
+            try {
+                const normalized = str.replace(/-/g, '+').replace(/_/g, '/');
+                const padLen = (4 - (normalized.length % 4)) % 4;
+                const padded = normalized + '='.repeat(padLen);
+                const decoded = atob(padded);
+                if (/^[\x20-\x7E]+$/.test(decoded)) {
+                    const trimmed = decoded.trim();
+                    if (trimmed.length >= 3) return trimmed;
+                }
+            } catch (e) { /* not valid Base64 */ }
+            return str;
+        };
+
+        // Resolve the scanner component at call time (DOM wire:id first, compiled
+        // "@this" as fallback) so scans never silently no-op when the compile-time
+        // component reference is stale.
+        const resolveModalComponent = () => {
+            try {
+                const modalEl = document.querySelector('.global-scanner-modal')
+                    || document.querySelector('.global-scanner-backdrop')
+                    || document.getElementById('global-scanner-code-input');
+                const root = modalEl && modalEl.closest ? modalEl.closest('[wire\\:id]') : null;
+                if (root && window.Livewire && typeof Livewire.find === 'function') {
+                    const comp = Livewire.find(root.getAttribute('wire:id'));
+                    if (comp) return comp;
+                }
+            } catch (e) { console.warn('Modal component lookup failed:', e); }
+            try { if (typeof @this !== 'undefined' && @this) return @this; } catch (e) { return null; }
+            return null;
+        };
+
+        const callModalLoadTransaction = (code) => {
+            const comp = resolveModalComponent();
+            if (!comp) {
+                throw new Error('Scanner lost its connection to the page. Refresh the page (F5) and try again.');
+            }
+
+            let result = null;
+            if (typeof comp.call === 'function') {
+                result = comp.call('loadTransaction', code);
+            } else if (typeof comp.loadTransaction === 'function') {
+                result = comp.loadTransaction(code);
+            } else if (comp.$wire && typeof comp.$wire.call === 'function') {
+                result = comp.$wire.call('loadTransaction', code);
+            } else if (comp.$wire && typeof comp.$wire.loadTransaction === 'function') {
+                result = comp.$wire.loadTransaction(code);
+            } else if (typeof comp.$call === 'function') {
+                result = comp.$call('loadTransaction', code);
+            } else {
+                throw new Error('Scanner connection method not found. Refresh the page (F5) and try again.');
+            }
+
+            if (result && typeof result.catch === 'function') {
+                result.catch((err) => {
+                    console.error('Scanner modal: loadTransaction request failed:', err);
+                    window.__scannerToast('The scan could not reach the server. Check your connection or session, then refresh (F5).', 'error');
+                });
+            }
+            return result;
+        };
+
+        const onModalScanSuccess = (decodedText) => {
+            if (!decodedText) return;
+            try {
+                const now = Date.now();
+                if (decodedText === lastModalScannedText && (now - lastModalScanTime) < 1500) {
+                    return;
+                }
+                lastModalScannedText = decodedText;
+                lastModalScanTime = now;
+                modalAutoRestarts = 0;
+
+                // A scan is user activity — keep the inactivity guard from timing
+                // the session out while scanning with the camera.
+                window.dispatchEvent(new CustomEvent('scanner-activity'));
+
+                const code = decodeIfBase64(decodedText);
+                const input = document.getElementById('global-scanner-code-input');
+                if (input) {
+                    input.value = code;
+                }
+
+                callModalLoadTransaction(code);
+            } catch (err) {
+                // html5-qrcode swallows callback exceptions silently — surface them.
+                console.error('Scanner modal: failed to process scan:', err);
+                window.__scannerToast('QR code detected, but processing failed: ' + ((err && err.message) || err), 'error');
+            }
+        };
+
+        async function updateModalCameraUI() {
+            try {
+                const cameras = await Html5Qrcode.getCameras();
+                modalAvailableCameras = cameras || [];
+                const selectEl = document.getElementById('modal-camera-select');
+                const selectCtr = document.getElementById('modal-camera-select-container');
+                const flipBtn = document.getElementById('modal-flip-camera-btn');
+                const flipLabel = document.getElementById('modal-flip-camera-label');
+
+                const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+
+                if (flipBtn) {
+                    if (isTouch || modalAvailableCameras.length > 1) {
+                        flipBtn.style.display = 'inline-flex';
+                        if (flipLabel) {
+                            flipLabel.textContent = modalFacingMode === 'user' ? 'Rear Cam' : 'Front Cam';
+                        }
+                    } else {
+                        flipBtn.style.display = 'none';
                     }
                 }
 
-                let lastModalScannedText = '';
-                let lastModalScanTime = 0;
-
-                Livewire.on('init-camera-scanner', async () => {
-                    const codeInput = document.getElementById('global-scanner-code-input');
-                    if (codeInput) {
-                        codeInput.focus();
-                        codeInput.select();
-                    }
-
-                    // Await DOM morph so #modal-qr-preview is present in the DOM
-                    let attempts = 0;
-                    while (!document.getElementById('modal-qr-preview') && attempts < 15) {
-                        await new Promise(r => setTimeout(r, 50));
-                        attempts++;
-                    }
-
-                    const placeholder = document.getElementById('camera-loading-placeholder');
-                    if (!document.getElementById('modal-qr-preview')) return;
-
-                    // If camera is already actively scanning, keep it running smoothly
-                    if (html5QrCode && html5QrCode.isScanning) {
-                        if (placeholder) placeholder.style.display = 'none';
-                        return;
-                    }
-
-                    await stopScanner();
-
-                    try {
-                        const qrFormats = (typeof Html5QrcodeSupportedFormats !== 'undefined')
-                            ? [Html5QrcodeSupportedFormats.QR_CODE]
-                            : [0];
-
-                        html5QrCode = new Html5Qrcode("modal-qr-preview", {
-                            formatsToSupport: qrFormats,
-                            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-                            verbose: false
-                        });
-
-                        const calculateQrboxSize = function(viewfinderWidth, viewfinderHeight) {
-                            const minDimension = Math.min(viewfinderWidth, viewfinderHeight);
-                            // 88% of minimum dimension — generous quiet zone
-                            let boxSize = Math.floor(minDimension * 0.88);
-
-                            if (boxSize < 240 && minDimension >= 240) {
-                                boxSize = 240;
-                            } else if (boxSize < 180) {
-                                boxSize = Math.max(180, minDimension - 20);
-                            }
-
-                            return { width: boxSize, height: boxSize };
-                        };
-
-                        const decodeIfBase64 = (raw) => {
-                            if (!raw) return raw;
-                            const str = raw.trim();
-                            if (!/^[A-Za-z0-9+/_\-=]+$/.test(str) || str.length < 8) return str;
-                            try {
-                                const normalized = str.replace(/-/g, '+').replace(/_/g, '/');
-                                const decoded = atob(normalized);
-                                if (/^[\x20-\x7E]+$/.test(decoded)) return decoded.trim();
-                            } catch (e) { /* not valid Base64 */ }
-                            return str;
-                        };
-
-                        const onScanSuccess = (decodedText) => {
-                            if (!decodedText) return;
-                            const now = Date.now();
-                            if (decodedText === lastModalScannedText && (now - lastModalScanTime) < 1500) {
-                                return;
-                            }
-                            lastModalScannedText = decodedText;
-                            lastModalScanTime = now;
-
-                            // Decode Base64 before displaying and passing to backend
-                            const code = decodeIfBase64(decodedText);
-
-                            const input = document.getElementById('global-scanner-code-input');
-                            if (input) {
-                                input.value = code;
-                            }
-                            @this.loadTransaction(code);
-                        };
-
-                        const hdConfig = {
-                            fps: 20,
-                            qrbox: calculateQrboxSize,
-                            videoConstraints: {
-                                width:  { ideal: 1280 },
-                                height: { ideal: 720  }
-                            }
-                            // No aspectRatio — letting the browser pick natural ratio avoids geometry distortion
-                        };
-
-                        // Bare fallback — no resolution constraints at all
-                        const bareConfig = {
-                            fps: 20,
-                            qrbox: calculateQrboxSize
-                        };
-
-                        // Strategy 1: environment (rear) + HD ideal
-                        try {
-                            await html5QrCode.start({ facingMode: "environment" }, hdConfig, onScanSuccess, () => {});
-                        } catch (e1) {
-                            console.warn('Modal camera env+HD failed, trying env+bare:', e1);
-                            // Strategy 2: rear camera, no resolution constraints
-                            try {
-                                await html5QrCode.start({ facingMode: "environment" }, bareConfig, onScanSuccess, () => {});
-                            } catch (e2) {
-                                console.warn('Modal camera env+bare failed, trying user+HD:', e2);
-                                // Strategy 3: front-facing + HD ideal (last resort)
-                                try {
-                                    await html5QrCode.start({ facingMode: "user" }, hdConfig, onScanSuccess, () => {});
-                                } catch (e3) {
-                                    console.warn('Modal camera user+HD failed, trying user bare:', e3);
-                                    // Strategy 4: front-facing, no resolution constraints (last resort)
-                                    await html5QrCode.start({ facingMode: "user" }, bareConfig, onScanSuccess, () => {});
+                if (selectEl && selectCtr) {
+                    if (modalAvailableCameras.length > 1) {
+                        selectEl.innerHTML = modalAvailableCameras.map((c, i) => {
+                            let label = c.label || '';
+                            if (!label) {
+                                label = (i === 0 ? 'Rear / Back Camera' : 'Front / Selfie Camera');
+                            } else {
+                                if (/back|rear|environment/i.test(label) && !/back/i.test(label)) {
+                                    label += ' (Rear)';
+                                } else if (/front|user|selfie/i.test(label) && !/front/i.test(label)) {
+                                    label += ' (Front)';
                                 }
                             }
-                        }
+                            return `<option value="${c.id}">${label}</option>`;
+                        }).join('');
 
-                        if (placeholder) placeholder.style.display = 'none';
-
-                        // Enumerate cameras and populate switch-camera dropdown
-                        try {
-                            const cameras = await Html5Qrcode.getCameras();
-                            const selectEl  = document.getElementById('modal-camera-select');
-                            const selectCtr = document.getElementById('modal-camera-select-container');
-                            if (cameras && cameras.length > 1 && selectEl && selectCtr) {
-                                selectEl.innerHTML = cameras.map(c =>
-                                    `<option value="${c.id}">${c.label || 'Camera ' + c.id}</option>`
-                                ).join('');
-                                selectCtr.style.display = 'block';
-                                // Store cameras for switch function
-                                window._modalCameras = cameras;
-                                window._modalOnScanSuccess = onScanSuccess;
-                                window._modalHdConfig = hdConfig;
-                                window._modalBareConfig = bareConfig;
-                            } else if (selectCtr) {
-                                selectCtr.style.display = 'none';
-                            }
-                        } catch (camListErr) {
-                            console.warn('Could not list cameras:', camListErr);
+                        if (modalActiveCameraId) {
+                            selectEl.value = modalActiveCameraId;
                         }
-                    } catch (err) {
-                        if (placeholder) {
-                            placeholder.innerHTML = '<svg style="width: 24px; height: 24px; margin-bottom: 8px; stroke: #f59e0b;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg><div>Camera Access Disabled / Unavailable</div>';
-                        }
+                        selectCtr.style.display = 'flex';
+                    } else if (isTouch) {
+                        selectEl.innerHTML = `
+                            <option value="environment" ${modalFacingMode === 'environment' ? 'selected' : ''}>Rear Camera (Back)</option>
+                            <option value="user" ${modalFacingMode === 'user' ? 'selected' : ''}>Front Camera (Selfie)</option>
+                        `;
+                        selectCtr.style.display = 'flex';
+                    } else {
+                        selectCtr.style.display = 'none';
                     }
-                });
+                }
+            } catch (camErr) {
+                console.warn('Could not enumerate cameras in modal:', camErr);
+            }
+        }
 
-                Livewire.on('stop-camera-scanner', async () => {
-                    await stopScanner();
-                });
+        async function startModalCamera(cameraTarget) {
+            const placeholder = document.getElementById('camera-loading-placeholder');
+            if (placeholder) {
+                placeholder.innerHTML = `
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.85;">
+                        <path d="M23 7l-7 5 7 5V7z"></path>
+                        <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                    </svg>
+                    <span>Starting Camera Feed...</span>
+                `;
+                placeholder.style.display = 'flex';
+            }
 
-                Livewire.on('scanner-code-invalid', () => {
-                    const input = document.getElementById('global-scanner-code-input');
-                    if (input) {
-                        input.style.borderColor = '#ef4444';
-                        input.focus();
-                        input.select();
-                        setTimeout(() => { input.style.borderColor = '#cbd5e1'; }, 2000);
-                    }
-                });
-            });
-
-            // Global JS Helper
-            window.openScannerModal = function(code = '') {
-                Livewire.dispatch('open-scanner-modal', { code: code });
-            };
-
-            // Switch camera in the modal scanner
-            window.switchModalCamera = async function(cameraId) {
-                if (!html5QrCode) return;
-                const placeholder = document.getElementById('camera-loading-placeholder');
+            if (modalHtml5QrCode) {
                 try {
-                    if (html5QrCode.isScanning) await html5QrCode.stop();
-                    html5QrCode.clear();
+                    if (modalHtml5QrCode.isScanning) {
+                        await Promise.race([
+                            modalHtml5QrCode.stop(),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('Scanner stop timed out')), 2500))
+                        ]);
+                    }
+                } catch(e) { console.warn('Modal camera stop warning:', e); }
+                try {
+                    const clearing = modalHtml5QrCode.clear();
+                    if (clearing && typeof clearing.catch === 'function') clearing.catch(() => {});
                 } catch(e) {}
+                modalHtml5QrCode = null;
+            }
+            releaseAllModalMediaTracks();
+            const initPreview = document.getElementById('modal-qr-preview');
+            if (initPreview) {
+                initPreview.innerHTML = '';
+            }
+            await new Promise(r => setTimeout(r, 80));
 
-                const onScanSuccess = window._modalOnScanSuccess;
-                const hdConfig      = window._modalHdConfig;
-                const bareConfig    = window._modalBareConfig;
-                if (!onScanSuccess) return;
+            // Enumerate cameras while NO stream is active: calling getCameras()
+            // (which opens a second getUserMedia) alongside a live scanning
+            // stream can interrupt the active feed on some camera drivers.
+            await updateModalCameraUI();
 
+            const qrFormats = (typeof Html5QrcodeSupportedFormats !== 'undefined')
+                ? [Html5QrcodeSupportedFormats.QR_CODE]
+                : undefined;
+            const createFreshModalDecoder = () => {
+                const el = document.getElementById("modal-qr-preview");
+                if (el) {
+                    const strayVideos = el.querySelectorAll('video');
+                    strayVideos.forEach(v => {
+                        if (v.srcObject && typeof v.srcObject.getTracks === 'function') {
+                            v.srcObject.getTracks().forEach(t => { try { t.stop(); } catch(e) {} });
+                            v.srcObject = null;
+                        }
+                    });
+                    el.innerHTML = '';
+                }
+                return new Html5Qrcode("modal-qr-preview", {
+                    formatsToSupport: qrFormats,
+                    useBarCodeDetectorIfSupported: true,
+                    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+                    verbose: false
+                });
+            };
+            modalHtml5QrCode = createFreshModalDecoder();
+
+            const isFacingMode = (cameraTarget === 'environment' || cameraTarget === 'user');
+            let attempts = [];
+
+            if (isFacingMode) {
+                modalFacingMode = cameraTarget;
+                modalActiveCameraId = null;
+                attempts = [
+                    { camera: { facingMode: cameraTarget }, stream: modalHdConfig },
+                    { camera: { facingMode: cameraTarget }, stream: modalBareConfig },
+                    { camera: { facingMode: { exact: cameraTarget } }, stream: modalBareConfig },
+                ];
+            } else if (cameraTarget && typeof cameraTarget === 'object' && cameraTarget.facingMode) {
+                modalFacingMode = cameraTarget.facingMode;
+                modalActiveCameraId = null;
+                attempts = [
+                    { camera: cameraTarget, stream: modalHdConfig },
+                    { camera: cameraTarget, stream: modalBareConfig },
+                ];
+            } else if (cameraTarget && typeof cameraTarget === 'string') {
+                modalActiveCameraId = cameraTarget;
+                const camObj = modalAvailableCameras.find(c => c.id === cameraTarget);
+                if (camObj) {
+                    if (/front|user|selfie/i.test(camObj.label || '')) modalFacingMode = 'user';
+                    else if (/back|rear|environment|main/i.test(camObj.label || '')) modalFacingMode = 'environment';
+                }
+                attempts = [
+                    { camera: { deviceId: cameraTarget }, stream: modalHdConfig },
+                    { camera: { deviceId: cameraTarget }, stream: modalBareConfig },
+                    { camera: { deviceId: { exact: cameraTarget } }, stream: modalBareConfig },
+                    { camera: cameraTarget, stream: modalBareConfig },
+                ];
+            } else {
+                modalFacingMode = 'environment';
+                attempts = [
+                    { camera: { facingMode: "environment" }, stream: modalHdConfig },
+                    { camera: { facingMode: "environment" }, stream: modalBareConfig },
+                    { camera: { facingMode: "user" }, stream: modalHdConfig },
+                    { camera: { facingMode: "user" }, stream: modalBareConfig },
+                ];
+            }
+
+            let started = false;
+            let lastErr = null;
+
+            for (const att of attempts) {
+                try {
+                    await modalHtml5QrCode.start(att.camera, att.stream, onModalScanSuccess, () => {});
+                    started = true;
+                    break;
+                } catch (err) {
+                    lastErr = err;
+                    console.warn('Modal camera start attempt failed:', err);
+                    try { if (modalHtml5QrCode.isScanning) await modalHtml5QrCode.stop(); } catch(e) {}
+                    try {
+                        const clearing = modalHtml5QrCode.clear();
+                        if (clearing && typeof clearing.catch === 'function') clearing.catch(() => {});
+                    } catch(e) {}
+                    releaseAllModalMediaTracks();
+                    modalHtml5QrCode = createFreshModalDecoder();
+                }
+            }
+
+            if (!started) {
+                try {
+                    await modalHtml5QrCode.start({ facingMode: "environment" }, modalBareConfig, onModalScanSuccess, () => {});
+                    started = true;
+                    modalFacingMode = 'environment';
+                } catch(e) {
+                    try {
+                        try { if (modalHtml5QrCode.isScanning) await modalHtml5QrCode.stop(); } catch(e3) {}
+                        modalHtml5QrCode = createFreshModalDecoder();
+                        await modalHtml5QrCode.start({ facingMode: "user" }, modalBareConfig, onModalScanSuccess, () => {});
+                        started = true;
+                        modalFacingMode = 'user';
+                    } catch(e2) {
+                        throw lastErr || e2;
+                    }
+                }
+            }
+
+            if (placeholder) placeholder.style.display = 'none';
+
+            // Refresh camera labels/ids now that permission may have just been
+            // granted (the pre-start enumeration can return empty ids on the
+            // first ever open). If this ever disturbs the live stream, the
+            // watchdog below detects the dead track and restarts the camera.
+            if (!modalAvailableCameras.length || modalAvailableCameras.some(c => !c.id)) {
+                try { await updateModalCameraUI(); } catch (e) { console.warn('Post-start camera refresh failed:', e); }
+            }
+
+            startModalWatchdog();
+        }
+
+        window.switchModalCamera = async function(cameraTarget) {
+            if (isModalSwitching) return;
+            isModalSwitching = true;
+            modalAutoRestarts = 0;
+            try {
+                await startModalCamera(cameraTarget);
+            } catch (err) {
+                console.error('switchModalCamera failed:', err);
+                const placeholder = document.getElementById('camera-loading-placeholder');
                 if (placeholder) {
-                    placeholder.innerHTML = '<span>Switching camera...</span>';
+                    placeholder.innerHTML = `
+                        <div style="color: #ef4444; font-size: 13px; text-align: center; padding: 10px;">
+                            <div>Camera switch failed.</div>
+                            <button type="button" onclick="window.flipModalCamera()" style="margin-top: 6px; padding: 5px 12px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 11px; cursor: pointer;">Retry Switching</button>
+                        </div>
+                    `;
                     placeholder.style.display = 'flex';
                 }
+            } finally {
+                isModalSwitching = false;
+            }
+        };
 
-                try {
-                    const qrFormats = (typeof Html5QrcodeSupportedFormats !== 'undefined')
-                        ? [Html5QrcodeSupportedFormats.QR_CODE] : [0];
-                    html5QrCode = new Html5Qrcode("modal-qr-preview", {
-                        formatsToSupport: qrFormats,
-                        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-                        verbose: false
-                    });
+        window.flipModalCamera = async function() {
+            if (isModalSwitching) return;
 
-                    try {
-                        await html5QrCode.start({ deviceId: { exact: cameraId } }, hdConfig, onScanSuccess, () => {});
-                    } catch (e1) {
-                        try {
-                            await html5QrCode.start({ deviceId: cameraId }, hdConfig, onScanSuccess, () => {});
-                        } catch (e2) {
-                            await html5QrCode.start({ deviceId: cameraId }, bareConfig, onScanSuccess, () => {});
-                        }
-                    }
-
-                    if (placeholder) placeholder.style.display = 'none';
-                } catch (err) {
-                    console.error('switchModalCamera failed:', err);
-                    if (placeholder) {
-                        placeholder.innerHTML = '<div>Camera switch failed</div>';
+            if (modalAvailableCameras && modalAvailableCameras.length > 1) {
+                let currentIndex = modalAvailableCameras.findIndex(c => c.id === modalActiveCameraId);
+                if (currentIndex === -1) {
+                    if (modalFacingMode === 'environment') {
+                        const rearIdx = modalAvailableCameras.findIndex(c => /back|rear|environment|main/i.test(c.label || ''));
+                        currentIndex = rearIdx >= 0 ? rearIdx : 0;
+                    } else {
+                        const frontIdx = modalAvailableCameras.findIndex(c => /front|user|selfie/i.test(c.label || ''));
+                        currentIndex = frontIdx >= 0 ? frontIdx : 1;
                     }
                 }
-            };
-        </script>
+                const nextIndex = (currentIndex + 1) % modalAvailableCameras.length;
+                const nextCam = modalAvailableCameras[nextIndex];
+                await window.switchModalCamera(nextCam.id);
+            } else {
+                const targetMode = (modalFacingMode === 'environment' ? 'user' : 'environment');
+                await window.switchModalCamera(targetMode);
+            }
+        };
+
+        window.openScannerModal = function(code = '') {
+            if (window.Livewire) {
+                Livewire.dispatch('open-scanner-modal', { code: code });
+            }
+        };
+
+        let isModalStarting = false;
+        let lastInitTime = 0;
+
+        const handleInitCameraScanner = async () => {
+            const now = Date.now();
+            if (now - lastInitTime < 500) return; // Prevent concurrent double-fires
+            lastInitTime = now;
+
+            if (isModalStarting) return;
+            isModalStarting = true;
+
+            try {
+                const codeInput = document.getElementById('global-scanner-code-input');
+                if (codeInput) {
+                    codeInput.focus();
+                    codeInput.select();
+                }
+
+                let attempts = 0;
+                while (!document.getElementById('modal-qr-preview') && attempts < 30) {
+                    await new Promise(r => setTimeout(r, 50));
+                    attempts++;
+                }
+
+                if (!document.getElementById('modal-qr-preview')) return;
+
+                if (modalHtml5QrCode && modalHtml5QrCode.isScanning) {
+                    const placeholder = document.getElementById('camera-loading-placeholder');
+                    if (placeholder) placeholder.style.display = 'none';
+                    return;
+                }
+
+                modalAutoRestarts = 0;
+                await startModalCamera({ facingMode: "environment" });
+            } catch (err) {
+                console.error('Camera init error:', err);
+                const placeholder = document.getElementById('camera-loading-placeholder');
+                if (placeholder) {
+                    placeholder.innerHTML = `
+                        <svg style="width: 24px; height: 24px; margin-bottom: 8px; stroke: #f59e0b;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                        <div>Camera Access Disabled / Unavailable</div>
+                        <small style="opacity: 0.8; font-size: 11px;">Please allow camera permission in your browser.</small>
+                    `;
+                }
+            } finally {
+                isModalStarting = false;
+            }
+        };
+
+        const handleStopCameraScanner = async () => {
+            await stopModalScanner();
+        };
+
+        const handleScannerCodeInvalid = () => {
+            const input = document.getElementById('global-scanner-code-input');
+            if (input) {
+                input.style.borderColor = '#ef4444';
+                input.focus();
+                input.select();
+                setTimeout(() => { input.style.borderColor = '#cbd5e1'; }, 2000);
+            }
+        };
+
+        // Livewire 3 dispatches both Livewire events and DOM CustomEvents to window.
+        // We bind only to window once to prevent duplicate concurrent camera starts.
+        if (!window.__scannerModalEventsBound) {
+            window.__scannerModalEventsBound = true;
+            window.addEventListener('init-camera-scanner', handleInitCameraScanner);
+            window.addEventListener('stop-camera-scanner', handleStopCameraScanner);
+            window.addEventListener('scanner-code-invalid', handleScannerCodeInvalid);
+        }
+
+        window.addEventListener('beforeunload', () => {
+            stopModalScanner();
+        });
+    })();
+    </script>
 </div>

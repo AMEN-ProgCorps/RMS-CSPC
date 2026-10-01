@@ -630,11 +630,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(15, 23, 42, 0.6);
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(3px);
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 999;
+            z-index: 99999;
+            padding: 20px;
+            box-sizing: border-box;
         }
         .modal-card {
             background: #ffffff;
@@ -1043,9 +1046,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
 
     {{-- Print Modal --}}
     @if($showPrintModal && $printCluster)
-        <div class="modal-overlay no-print">
-            <div class="modal-card" style="width: 900px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;" class="no-print">
+        <div class="modal-overlay no-print" style="overflow-y: auto; z-index: 99999; padding: 20px; box-sizing: border-box;">
+            <div class="modal-card" style="width: 900px; max-height: 92vh; overflow-y: auto; border-radius: 12px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35); position: relative;">
+                <div style="position: sticky; top: -26px; z-index: 50; background: #ffffff; padding: 14px 26px; margin: -26px -26px 20px -26px; border-bottom: 1px solid #e2e8f0; box-shadow: 0 4px 12px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; border-top-left-radius: 12px; border-top-right-radius: 12px;" class="no-print">
                     <h3 style="font-size: 18px; font-weight: 700; color: #0f172a; margin: 0;">Evaluation Report Preview — {{ $printCluster->cluster_name }}</h3>
                     <div>
                         <button onclick="window.print()" class="btn-print" style="padding: 8px 16px; margin-right: 8px;">Print Now</button>

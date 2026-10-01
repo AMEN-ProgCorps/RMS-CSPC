@@ -1796,11 +1796,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(15, 23, 42, 0.6);
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(3px);
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 999;
+            z-index: 99999;
+            padding: 20px;
+            box-sizing: border-box;
         }
         .modal-card {
             background: #ffffff;
@@ -2220,7 +2223,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
     {{-- Download Format Choice Modal --}}
     @if($showDownloadModal && $downloadCluster)
-        <div class="modal-overlay" style="z-index: 1050;">
+        <div class="modal-overlay" style="z-index: 99999;">
             <div class="modal-card download-modal-card" style="width: 520px; max-width: 94vw; padding: 24px; border-radius: 14px; position: relative;">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
                     <div style="display: flex; align-items: center; gap: 10px;">
@@ -2386,7 +2389,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
     {{-- Cancel Cluster Confirmation Modal --}}
     @if($showCancelConfirmModal)
-        <div class="modal-overlay" style="z-index: 1100;">
+        <div class="modal-overlay" style="z-index: 100000;">
             <div class="modal-card" style="width: 420px; max-width: 94vw; padding: 24px;">
                 <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
                     <div style="width: 40px; height: 40px; border-radius: 50%; background: #fee2e2; display: flex; align-items: center; justify-content: center; color: #dc2626; flex-shrink: 0;">
@@ -2537,9 +2540,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 }
             }
         </style>
-        <div class="modal-overlay" style="overflow-y: auto;">
-            <div class="modal-card" style="width: {{ $isNap1 ? '1280px' : '980px' }}; max-width: 96%; max-height: 94vh; overflow-y: auto; padding: 24px; background: #94a3b8;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;" class="no-print">
+        <div class="modal-overlay" style="overflow-y: auto; z-index: 99999; padding: 20px; box-sizing: border-box;">
+            <div class="modal-card" style="width: {{ $isNap1 ? '1280px' : '980px' }}; max-width: 96%; max-height: 92vh; overflow-y: auto; padding: 24px; background: #94a3b8; border-radius: 12px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35); position: relative;">
+                {{-- Sticky action header so Download, Print Now, and Close stay reachable even when scrolling --}}
+                <div style="position: sticky; top: -24px; z-index: 50; background: #94a3b8; padding: 14px 24px; margin: -24px -24px 20px -24px; border-bottom: 1px solid rgba(255,255,255,0.25); box-shadow: 0 4px 12px rgba(0,0,0,0.08); display: flex; justify-content: space-between; align-items: center; border-top-left-radius: 12px; border-top-right-radius: 12px;" class="no-print">
                     <div>
                         <h3 style="font-size: 18px; font-weight: 800; color: #ffffff; margin: 0;">
                             Print Preview — {{ $printCluster->cluster_name }}

@@ -17,6 +17,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
     public string $receivedSearch = '';
     public string $nap3Search = '';
 
+    // Pagination for Dashboard Boxes (fits current height, max 5 items per page / on stack)
+    public int $clusterPage = 1;
+    public int $clusterPerPage = 5;
+    public int $receivedPage = 1;
+    public int $receivedPerPage = 5;
+
     // Add New Series Modal
     public bool $showAddSeriesModal = false;
     public string $newSeriesTitle = '';
@@ -41,15 +47,65 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         }
     }
 
+    public function updatedClusterSearch(): void
+    {
+        $this->clusterPage = 1;
+    }
+
+    public function updatedReceivedSearch(): void
+    {
+        $this->receivedPage = 1;
+    }
+
     public function setReceivedTab(string $tab): void
     {
         $this->receivedTab = strtoupper($tab) === 'DCS' ? 'DCS' : 'DTS';
         $this->receivedSearch = '';
+        $this->receivedPage = 1;
     }
 
     public function setClusterFilter(string $filter): void
     {
         $this->clusterFilter = in_array($filter, ['all', 'nap1', 'nap2', 'nap3']) ? $filter : 'all';
+        $this->clusterPage = 1;
+    }
+
+    public function previousClusterPage(): void
+    {
+        if ($this->clusterPage > 1) {
+            $this->clusterPage--;
+        }
+    }
+
+    public function nextClusterPage(int $maxPage): void
+    {
+        if ($this->clusterPage < $maxPage) {
+            $this->clusterPage++;
+        }
+    }
+
+    public function gotoClusterPage(int $page): void
+    {
+        $this->clusterPage = max(1, $page);
+    }
+
+    public function previousReceivedPage(): void
+    {
+        if ($this->receivedPage > 1) {
+            $this->receivedPage--;
+        }
+    }
+
+    public function nextReceivedPage(int $maxPage): void
+    {
+        if ($this->receivedPage < $maxPage) {
+            $this->receivedPage++;
+        }
+    }
+
+    public function gotoReceivedPage(int $page): void
+    {
+        $this->receivedPage = max(1, $page);
     }
 
     public function openAddSeriesModal(): void
@@ -191,6 +247,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     'retention_period'              => $isLeaf ? $retentionId : null,
                     'is_retention_period_permanent' => $isLeaf ? $this->newIsPermanent : false,
                     'recorded_at_office'            => $userOfficeCode,
+                    'created_by'                    => auth()->id(),
                     'is_verified'                   => false,
                     'remarks'                       => $isLeaf ? (trim($this->newRemarks) ?: null) : null,
                     'created_at'                    => now(),
@@ -460,8 +517,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             $clustersCollection = $clustersCollection->concat($qRec->get());
         }
 
-        $createdClusters = $clustersCollection->sortByDesc('main_id')->values()->take(8);
         $totalClustersCount = $clustersCollection->count();
+        $clusterMaxPage = max(1, (int) ceil($totalClustersCount / $this->clusterPerPage));
+        if ($this->clusterPage > $clusterMaxPage) {
+            $this->clusterPage = $clusterMaxPage;
+        }
+        $createdClusters = $clustersCollection->sortByDesc('main_id')->values()->forPage($this->clusterPage, $this->clusterPerPage);
 
         // -------------------------------------------------------------
         // 3. RECEIVED DOCUMENTS (DTS / DCS) - DTS is Default
@@ -490,7 +551,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             });
         }
 
-        $receivedDocs = $recDocsQuery->orderBy('id', 'desc')->take(8)->get();
+        $totalReceivedDocs = (clone $recDocsQuery)->count();
+        $receivedMaxPage = max(1, (int) ceil($totalReceivedDocs / $this->receivedPerPage));
+        if ($this->receivedPage > $receivedMaxPage) {
+            $this->receivedPage = $receivedMaxPage;
+        }
+        $receivedDocs = $recDocsQuery->orderBy('id', 'desc')
+            ->offset(($this->receivedPage - 1) * $this->receivedPerPage)
+            ->limit($this->receivedPerPage)
+            ->get();
 
         $dcsCountQuery = DB::table('rdp_received_documents')->where('source_subsystem', 'DCS');
         $dtsCountQuery = DB::table('rdp_received_documents')->where('source_subsystem', 'DTS');
@@ -779,7 +848,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             'nap3Count'          => $nap3Count,
             'createdClusters'    => $createdClusters,
             'totalClustersCount' => $totalClustersCount,
+            'clusterPage'        => $this->clusterPage,
+            'clusterMaxPage'     => $clusterMaxPage,
+            'clusterPerPage'     => $this->clusterPerPage,
             'receivedDocs'       => $receivedDocs,
+            'totalReceivedDocs'  => $totalReceivedDocs,
+            'receivedPage'       => $this->receivedPage,
+            'receivedMaxPage'    => $receivedMaxPage,
+            'receivedPerPage'    => $this->receivedPerPage,
             'dcsCount'           => $dcsCount,
             'dtsCount'           => $dtsCount,
             'nap3Tree'           => $nap3Tree,
@@ -1061,7 +1137,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             display: flex;
             flex-direction: column;
             flex: 1;
-            min-height: 0;
+            min-height: 380px;
         }
 
         .rdp-card-header {
@@ -1071,6 +1147,60 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             margin-bottom: 16px;
             flex-wrap: wrap;
             gap: 10px;
+        }
+
+        .rdp-card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin-top: auto;
+            padding-top: 10px;
+            border-top: 1px solid #f1f5f9;
+            min-height: 36px;
+            flex-wrap: wrap;
+        }
+
+        .rdp-pagination-bar {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .rdp-page-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 26px;
+            height: 24px;
+            padding: 0 6px;
+            font-size: 11px;
+            font-weight: 700;
+            border-radius: 6px;
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            color: #475569;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .rdp-page-btn:hover:not(.disabled):not(.active) {
+            background: #f1f5f9;
+            border-color: #94a3b8;
+            color: #0f172a;
+        }
+
+        .rdp-page-btn.active {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: #ffffff;
+            cursor: default;
+        }
+
+        .rdp-page-btn.disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+            background: #f8fafc;
         }
 
         .rdp-card-title {
@@ -1418,6 +1548,32 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             color: #ffffff !important;
         }
 
+        [data-theme="dark"] .rdp-card-footer {
+            border-top-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .rdp-page-btn {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .rdp-page-btn:hover:not(.disabled):not(.active) {
+            background: #1e293b !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .rdp-page-btn.active {
+            background: #2563eb !important;
+            border-color: #2563eb !important;
+            color: #ffffff !important;
+        }
+
+        [data-theme="dark"] .rdp-page-btn.disabled {
+            opacity: 0.3 !important;
+            background: #0f172a !important;
+        }
+
         [data-theme="dark"] .modal-dialog {
             background: #131c2e !important;
             border: 1px solid #1e293b !important;
@@ -1627,9 +1783,56 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     </table>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 10px; border-top: 1px solid #f1f5f9;">
-                    <span style="font-size: 11.5px; color: #64748b;">Showing latest {{ count($createdClusters) }} forms</span>
-                    <a href="{{ route('rdp.pending.list') }}" style="font-size: 12px; font-weight: 700; color: #2563eb; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                <div class="rdp-card-footer">
+                    <div style="font-size: 11.5px; color: #64748b; white-space: nowrap;">
+                        @if($totalClustersCount > 0)
+                            @php
+                                $cFrom = ($clusterPage - 1) * $clusterPerPage + 1;
+                                $cTo = min($totalClustersCount, $clusterPage * $clusterPerPage);
+                            @endphp
+                            <span>Showing {{ $cFrom }}–{{ $cTo }} of {{ $totalClustersCount }} forms</span>
+                        @else
+                            <span>Showing 0 forms</span>
+                        @endif
+                    </div>
+
+                    @if($clusterMaxPage > 1)
+                        <div class="rdp-pagination-bar">
+                            <button type="button"
+                                    wire:click="previousClusterPage"
+                                    @if($clusterPage <= 1) disabled @endif
+                                    class="rdp-page-btn {{ $clusterPage <= 1 ? 'disabled' : '' }}"
+                                    title="Previous page">
+                                <i class="fa-solid fa-chevron-left"></i>
+                            </button>
+
+                            @for($p = 1; $p <= $clusterMaxPage; $p++)
+                                @if($clusterMaxPage <= 5 || abs($p - $clusterPage) <= 1 || $p == 1 || $p == $clusterMaxPage)
+                                    @if($clusterMaxPage > 5 && $p == $clusterMaxPage && $clusterPage < $clusterMaxPage - 2)
+                                        <span style="font-size: 10px; color: #94a3b8; padding: 0 1px;">...</span>
+                                    @endif
+                                    <button type="button"
+                                            wire:click="gotoClusterPage({{ $p }})"
+                                            class="rdp-page-btn {{ $clusterPage === $p ? 'active' : '' }}">
+                                        {{ $p }}
+                                    </button>
+                                    @if($clusterMaxPage > 5 && $p == 1 && $clusterPage > 3)
+                                        <span style="font-size: 10px; color: #94a3b8; padding: 0 1px;">...</span>
+                                    @endif
+                                @endif
+                            @endfor
+
+                            <button type="button"
+                                    wire:click="nextClusterPage({{ $clusterMaxPage }})"
+                                    @if($clusterPage >= $clusterMaxPage) disabled @endif
+                                    class="rdp-page-btn {{ $clusterPage >= $clusterMaxPage ? 'disabled' : '' }}"
+                                    title="Next page">
+                                <i class="fa-solid fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    @endif
+
+                    <a href="{{ route('rdp.pending.list') }}" style="font-size: 12px; font-weight: 700; color: #2563eb; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;">
                         Open Hub <i class="fa-solid fa-arrow-right"></i>
                     </a>
                 </div>
@@ -1762,12 +1965,57 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     </table>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 10px; border-top: 1px solid #f1f5f9;">
-                    <span style="font-size: 11.5px; color: #64748b;">
-                        Showing {{ count($receivedDocs) }} of {{ $receivedTab === 'DTS' ? $dtsCount : $dcsCount }} documents
-                    </span>
+                <div class="rdp-card-footer">
+                    <div style="font-size: 11.5px; color: #64748b; white-space: nowrap;">
+                        @if($totalReceivedDocs > 0)
+                            @php
+                                $rFrom = ($receivedPage - 1) * $receivedPerPage + 1;
+                                $rTo = min($totalReceivedDocs, $receivedPage * $receivedPerPage);
+                            @endphp
+                            <span>Showing {{ $rFrom }}–{{ $rTo }} of {{ $totalReceivedDocs }} documents</span>
+                        @else
+                            <span>Showing 0 documents</span>
+                        @endif
+                    </div>
+
+                    @if($receivedMaxPage > 1)
+                        <div class="rdp-pagination-bar">
+                            <button type="button"
+                                    wire:click="previousReceivedPage"
+                                    @if($receivedPage <= 1) disabled @endif
+                                    class="rdp-page-btn {{ $receivedPage <= 1 ? 'disabled' : '' }}"
+                                    title="Previous page">
+                                <i class="fa-solid fa-chevron-left"></i>
+                            </button>
+
+                            @for($p = 1; $p <= $receivedMaxPage; $p++)
+                                @if($receivedMaxPage <= 5 || abs($p - $receivedPage) <= 1 || $p == 1 || $p == $receivedMaxPage)
+                                    @if($receivedMaxPage > 5 && $p == $receivedMaxPage && $receivedPage < $receivedMaxPage - 2)
+                                        <span style="font-size: 10px; color: #94a3b8; padding: 0 1px;">...</span>
+                                    @endif
+                                    <button type="button"
+                                            wire:click="gotoReceivedPage({{ $p }})"
+                                            class="rdp-page-btn {{ $receivedPage === $p ? 'active' : '' }}">
+                                        {{ $p }}
+                                    </button>
+                                    @if($receivedMaxPage > 5 && $p == 1 && $receivedPage > 3)
+                                        <span style="font-size: 10px; color: #94a3b8; padding: 0 1px;">...</span>
+                                    @endif
+                                @endif
+                            @endfor
+
+                            <button type="button"
+                                    wire:click="nextReceivedPage({{ $receivedMaxPage }})"
+                                    @if($receivedPage >= $receivedMaxPage) disabled @endif
+                                    class="rdp-page-btn {{ $receivedPage >= $receivedMaxPage ? 'disabled' : '' }}"
+                                    title="Next page">
+                                <i class="fa-solid fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    @endif
+
                     <a href="{{ $receivedTab === 'DTS' ? route('rdp.received-documents.dts') : route('rdp.received-documents.dcs') }}"
-                       style="font-size: 12.5px; font-weight: 700; color: #0284c7; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                       style="font-size: 12px; font-weight: 700; color: #0284c7; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;">
                         Open {{ $receivedTab }} Intake Hub <i class="fa-solid fa-arrow-right"></i>
                     </a>
                 </div>

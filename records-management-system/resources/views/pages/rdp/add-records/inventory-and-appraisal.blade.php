@@ -984,6 +984,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         'parent_id'          => $lastSeriesId,
                         'series_type'        => ($idx === 0) ? $this->selectedSeriesTypeFilter : null,
                         'recorded_at_office' => $userOfficeCode,
+                        'created_by'         => $user?->id,
                         'created_at'         => now(),
                         'updated_at'         => now(),
                     ]);
@@ -1213,6 +1214,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         'parent_id'          => $lastSeriesId,
                         'series_type'        => ($idx === 0) ? $this->selectedSeriesTypeFilter : null,
                         'recorded_at_office' => $userOfficeCode,
+                        'created_by'         => $user?->id,
                         'created_at'         => now(),
                         'updated_at'         => now(),
                     ]);

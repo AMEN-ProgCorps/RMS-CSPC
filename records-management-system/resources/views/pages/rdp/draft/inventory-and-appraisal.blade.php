@@ -30,12 +30,30 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
         }
     }
 
+    protected function getUserContext(): array
+    {
+        $user = Auth::user();
+        $userId = $user?->id;
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        if (empty($userOffice) && !empty($user?->details?->office_id)) {
+            $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+        }
+        return [$userId, $userOffice];
+    }
+
     public function openEditDraftModal(int $recordId): void
     {
+        [$userId, $userOffice] = $this->getUserContext();
+        if (!$userId || !$userOffice) return;
+
         $rec = DB::table('rdp_record')
             ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
             ->leftJoin('rdp_retention_period', 'rdp_record.period_id', '=', 'rdp_retention_period.id')
             ->where('rdp_record.id', $recordId)
+            ->where('rdp_record.user_own', $userId)
+            ->where('rdp_record.office_own', $userOffice)
+            ->where('rdp_record.is_draft', true)
             ->select([
                 'rdp_record.*',
                 'rdp_record_series.series_title',
@@ -67,11 +85,19 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
     public function saveDraftEdits(bool $andSubmit = false): void
     {
         if (!$this->editingDraftId) return;
+        [$userId, $userOffice] = $this->getUserContext();
+        if (!$userId || !$userOffice) return;
 
         try {
             DB::beginTransaction();
 
-            $rec = DB::table('rdp_record')->where('id', $this->editingDraftId)->first();
+            $rec = DB::table('rdp_record')
+                ->where('id', $this->editingDraftId)
+                ->where('user_own', $userId)
+                ->where('office_own', $userOffice)
+                ->where('is_draft', true)
+                ->first();
+
             if ($rec) {
                 DB::table('rdp_record')->where('id', $this->editingDraftId)->update([
                     'description'      => mb_strtoupper($this->editDescription),
@@ -109,8 +135,16 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
 
     public function deleteDraft(int $recordId): void
     {
+        [$userId, $userOffice] = $this->getUserContext();
+        if (!$userId || !$userOffice) return;
+
         try {
-            DB::table('rdp_record')->where('id', $recordId)->where('is_draft', true)->delete();
+            DB::table('rdp_record')
+                ->where('id', $recordId)
+                ->where('is_draft', true)
+                ->where('user_own', $userId)
+                ->where('office_own', $userOffice)
+                ->delete();
             $this->successMessage = 'Draft record deleted successfully.';
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to delete draft: ' . $e->getMessage();
@@ -119,11 +153,19 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
 
     public function submitDraft(int $recordId): void
     {
+        [$userId, $userOffice] = $this->getUserContext();
+        if (!$userId || !$userOffice) return;
+
         try {
-            DB::table('rdp_record')->where('id', $recordId)->update([
-                'is_draft'   => false,
-                'updated_at' => now(),
-            ]);
+            DB::table('rdp_record')
+                ->where('id', $recordId)
+                ->where('user_own', $userId)
+                ->where('office_own', $userOffice)
+                ->where('is_draft', true)
+                ->update([
+                    'is_draft'   => false,
+                    'updated_at' => now(),
+                ]);
             $this->successMessage = 'Draft record submitted successfully!';
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to submit draft: ' . $e->getMessage();
@@ -132,23 +174,19 @@ new #[Layout('layouts.rdp')] #[Title('Draft Inventory and Appraisal')] class ext
 
     public function with(): array
     {
-        $userOffice = Auth::user()?->details?->office_code;
+        [$userId, $userOffice] = $this->getUserContext();
 
         $query = DB::table('rdp_record')
             ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
             ->leftJoin('rdp_retention_period', 'rdp_record.period_id', '=', 'rdp_retention_period.id')
             ->where('rdp_record.is_draft', true);
 
-        if ($userOffice) {
-            $query->where(function($q) use ($userOffice) {
-                $q->where('rdp_record.office_own', $userOffice)
-                  ->orWhereExists(function($sub) use ($userOffice) {
-                      $sub->select(DB::raw(1))
-                          ->from('rdp_duplication_section')
-                          ->whereColumn('rdp_duplication_section.dup_id_manager', 'rdp_record.duplication_id')
-                          ->where('rdp_duplication_section.office_code', $userOffice);
-                  });
-            });
+        // Strict isolation: only drafts created by THIS user AND currently in THIS user's office
+        if (!$userId || !$userOffice) {
+            $query->whereRaw('1 = 0');
+        } else {
+            $query->where('rdp_record.user_own', $userId)
+                  ->where('rdp_record.office_own', $userOffice);
         }
 
         if (!empty(trim($this->search))) {

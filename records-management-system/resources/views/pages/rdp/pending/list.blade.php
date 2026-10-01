@@ -11,6 +11,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
     public string $search = '';
     public string $activeTab = 'all'; // 'all', 'nap1', 'nap2', 'nap3'
     public string $statusFilter = '';
+    public string $dateFilter = 'all'; // 'all', 'today', 'week', 'month', 'year'
+    public string $officeFilter = '';
     public string $layoutMode = 'table'; // 'table' or 'box'
 
     // Detail Modal Properties
@@ -99,12 +101,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $statusId = (int)($this->selectedCluster->status_id ?? 1);
 
         if ($clusterId <= 0) {
-            $this->errorMessage = 'Invalid cluster ID.';
+            $this->errorMessage = 'Invalid form ID.';
             return;
         }
 
         if ($statusId === 2) {
-            $this->errorMessage = 'Approved or verified clusters cannot be cancelled.';
+            $this->errorMessage = 'Approved or verified forms cannot be cancelled.';
             return;
         }
 
@@ -124,12 +126,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
             DB::commit();
 
-            $clusterName = $this->selectedCluster->cluster_name ?? 'Cluster';
+            $clusterName = $this->selectedCluster->cluster_name ?? 'Form';
             $this->closeDetailModal();
-            $this->successMessage = "Cluster '{$clusterName}' was successfully cancelled. Its items have been released.";
+            $this->successMessage = "Form '{$clusterName}' was successfully cancelled. Its items have been released.";
         } catch (\Exception $e) {
             DB::rollBack();
-            $this->errorMessage = 'Failed to cancel cluster: ' . $e->getMessage();
+            $this->errorMessage = 'Failed to cancel form: ' . $e->getMessage();
         }
     }
 
@@ -210,6 +212,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $this->activeTab = $tab;
         $this->search = '';
         $this->statusFilter = '';
+        $this->dateFilter = 'all';
         $this->clearMessages();
     }
 
@@ -474,7 +477,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         }
 
         $meta = [
-            'Cluster Name'     => $cluster->cluster_name ?? 'N/A',
+            'Form Name'        => str_ireplace('cluster', 'form', $cluster->cluster_name ?? 'N/A'),
             'Form Type'        => $cluster->form_label ?? 'NAP Form',
             'Submitting Office'=> $cluster->office_name ?? $cluster->office ?? 'N/A',
             'Submitted By'     => $cluster->submitter_name ?: 'System User',
@@ -514,7 +517,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             }
         }
 
-        $title = ($cluster->form_label ?? 'NAP Form') . ' - ' . ($cluster->cluster_name ?? 'Cluster Records');
+        $title = ($cluster->form_label ?? 'NAP Form') . ' - ' . str_ireplace('cluster', 'form', ($cluster->cluster_name ?? 'Form Records'));
 
         $this->closeDownloadModal();
 
@@ -1378,14 +1381,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $user = Auth::user();
         $perms = $user?->permissions;
         $canViewAll = (bool)($perms?->is_sadm ?? false)
-            || (bool)($perms?->is_rdp_view_all_pending_list ?? false)
-            || (bool)($perms?->can_access_rdp_admin ?? false)
-            || (bool)($perms?->rdp_view_all_files ?? false);
-        $userOffice = $user?->details?->office_code ?? null;
-
+            || (bool)($perms?->is_rdp_view_all_pending_list ?? false);
+        if (!$canViewAll) {
+            $this->officeFilter = '';
+        }
         $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
         $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
         $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+
+        $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        if (empty($userOffice) && !empty($user?->details?->office_id)) {
+            $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+        }
+
+        $officesList = DB::table($officeTbl)
+            ->where('is_active', true)
+            ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
+            ->orderBy('office_name', 'asc')
+            ->get();
 
         // 1. Fetch NAP Form 2 Series Clusters if tab is 'all' or 'nap2'
         if ($this->activeTab === 'all' || $this->activeTab === 'nap2') {
@@ -1417,10 +1430,36 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     $sub->where('rdp_pending_record_series.office', $userOffice)
                         ->orWhere('submitter_office.office_code', $userOffice);
                 });
+            } elseif ($canViewAll && !empty($this->officeFilter)) {
+                $selOff = trim($this->officeFilter);
+                $qSeries->where(function($sub) use ($selOff, $officeTbl) {
+                    $sub->where('rdp_pending_record_series.office', $selOff)
+                        ->orWhere('submitter_office.office_code', $selOff)
+                        ->orWhere("{$officeTbl}.office_name", 'ILIKE', "%{$selOff}%")
+                        ->orWhere("submitter_office.office_name", 'ILIKE', "%{$selOff}%");
+                });
             }
 
-            if (!empty($this->statusFilter)) {
+            if ($this->statusFilter === 'pending') {
+                $qSeries->where('rdp_pending_record_series.is_printed', false)
+                        ->where('rdp_pending_record_series.is_downloaded', false);
+            } elseif ($this->statusFilter === 'submitted') {
+                $qSeries->where(function($sub) {
+                    $sub->where('rdp_pending_record_series.is_printed', true)
+                        ->orWhere('rdp_pending_record_series.is_downloaded', true);
+                });
+            } elseif (!empty($this->statusFilter) && is_numeric($this->statusFilter)) {
                 $qSeries->where('rdp_pending_record_series.status_id', $this->statusFilter);
+            }
+
+            if ($this->dateFilter === 'today') {
+                $qSeries->whereDate('rdp_pending_record_series.created_at', \Carbon\Carbon::today());
+            } elseif ($this->dateFilter === 'week') {
+                $qSeries->where('rdp_pending_record_series.created_at', '>=', \Carbon\Carbon::now()->startOfWeek());
+            } elseif ($this->dateFilter === 'month') {
+                $qSeries->where('rdp_pending_record_series.created_at', '>=', \Carbon\Carbon::now()->startOfMonth());
+            } elseif ($this->dateFilter === 'year') {
+                $qSeries->where('rdp_pending_record_series.created_at', '>=', \Carbon\Carbon::now()->startOfYear());
             }
 
             if (!empty(trim($this->search))) {
@@ -1475,6 +1514,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                 ->where('rdp_duplication_section.office_code', $userOffice);
                         });
                 });
+            } elseif ($canViewAll && !empty($this->officeFilter)) {
+                $selOff = trim($this->officeFilter);
+                $qRec->where(function($sub) use ($selOff, $officeTbl) {
+                    $sub->where('rdp_pending_record.office', $selOff)
+                        ->orWhere('submitter_office.office_code', $selOff)
+                        ->orWhere("{$officeTbl}.office_name", 'ILIKE', "%{$selOff}%")
+                        ->orWhere("submitter_office.office_name", 'ILIKE', "%{$selOff}%");
+                });
             }
 
             if ($this->activeTab === 'nap1') {
@@ -1483,8 +1530,26 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 $qRec->where('rdp_pending_record.is_for_nap_three', true);
             }
 
-            if (!empty($this->statusFilter)) {
+            if ($this->statusFilter === 'pending') {
+                $qRec->where('rdp_pending_record.is_printed', false)
+                     ->where('rdp_pending_record.is_downloaded', false);
+            } elseif ($this->statusFilter === 'submitted') {
+                $qRec->where(function($sub) {
+                    $sub->where('rdp_pending_record.is_printed', true)
+                        ->orWhere('rdp_pending_record.is_downloaded', true);
+                });
+            } elseif (!empty($this->statusFilter) && is_numeric($this->statusFilter)) {
                 $qRec->where('rdp_pending_record.status_id', $this->statusFilter);
+            }
+
+            if ($this->dateFilter === 'today') {
+                $qRec->whereDate('rdp_pending_record.created_at', \Carbon\Carbon::today());
+            } elseif ($this->dateFilter === 'week') {
+                $qRec->where('rdp_pending_record.created_at', '>=', \Carbon\Carbon::now()->startOfWeek());
+            } elseif ($this->dateFilter === 'month') {
+                $qRec->where('rdp_pending_record.created_at', '>=', \Carbon\Carbon::now()->startOfMonth());
+            } elseif ($this->dateFilter === 'year') {
+                $qRec->where('rdp_pending_record.created_at', '>=', \Carbon\Carbon::now()->startOfYear());
             }
 
             if (!empty(trim($this->search))) {
@@ -1503,8 +1568,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         $sortedClusters = $clustersCollection->sortByDesc('main_id')->values();
 
         return [
-            'clusters' => $sortedClusters,
-            'statuses' => $statuses,
+            'clusters'    => $sortedClusters,
+            'statuses'    => $statuses,
+            'officesList' => $officesList,
+            'canViewAll'  => $canViewAll,
+            'userOffice'  => $userOffice,
         ];
     }
 }; ?>
@@ -1796,11 +1864,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(15, 23, 42, 0.6);
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(3px);
             display: flex;
             align-items: center;
             justify-content: center;
-            z-index: 999;
+            z-index: 99999;
+            padding: 20px;
+            box-sizing: border-box;
         }
         .modal-card {
             background: #ffffff;
@@ -2079,8 +2150,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
     <div class="header-card">
         <div class="header-title">
-            <h1>Pending Records & Series List</h1>
-            <p>Track office submissions awaiting evaluation and approval for the Records Disposition Program</p>
+            <h1>Pending Forms & Series List</h1>
+            <p>Track office form submissions awaiting evaluation and approval for the Records Disposition Program</p>
         </div>
         <div class="controls-group">
             <div class="dts-tab-bar">
@@ -2089,6 +2160,32 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 <button wire:click="setTab('nap2')" class="dts-tab-btn {{ $activeTab === 'nap2' ? 'active' : '' }}">NAP Form 2</button>
                 <button wire:click="setTab('nap3')" class="dts-tab-btn {{ $activeTab === 'nap3' ? 'active' : '' }}">NAP Form 3</button>
             </div>
+
+            <!-- Status Filter -->
+            <select wire:model.live="statusFilter" class="select-filter" title="Filter by Status">
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="submitted">Submitted for Approval</option>
+            </select>
+
+            <!-- Date Filter -->
+            <select wire:model.live="dateFilter" class="select-filter" title="Filter by Date">
+                <option value="all">All Dates</option>
+                <option value="today">Today</option>
+                <option value="week">This Week</option>
+                <option value="month">This Month</option>
+                <option value="year">This Year</option>
+            </select>
+
+            <!-- Admin Office Select Filter -->
+            @if($canViewAll)
+                <select wire:model.live="officeFilter" class="select-filter" title="Filter by Office">
+                    <option value="">All Offices (Super Admin)</option>
+                    @foreach($officesList as $off)
+                        <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
+                    @endforeach
+                </select>
+            @endif
 
             <button wire:click="toggleLayout" class="layout-toggle-btn">
                 @if($layoutMode === 'table')
@@ -2100,7 +2197,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 @endif
             </button>
 
-            <input type="text" wire:model.live.debounce.250ms="search" class="search-input" placeholder="Search cluster or office...">
+            <input type="text" wire:model.live.debounce.250ms="search" class="search-input" placeholder="Search forms or office...">
         </div>
     </div>
 
@@ -2123,7 +2220,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 <thead>
                     <tr>
                         <th style="width: 90px;">Main ID</th>
-                        <th>Cluster Name</th>
+                        <th>Form Name</th>
                         <th>Submitted By</th>
                         <th style="width: 110px; text-align: center;">Total Items</th>
                         <th style="width: 140px;">Date Submitted</th>
@@ -2152,7 +2249,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                         </span>
                                     @endif
                                 </div>
-                                <strong>{{ $c->cluster_name }}</strong>
+                                <strong>{{ str_ireplace('cluster', 'form', $c->cluster_name) }}</strong>
                             </td>
                             <td>{{ $c->submitter_name ?: 'System User' }}</td>
                             <td style="text-align: center;"><strong>{{ $c->total_items }}</strong></td>
@@ -2165,7 +2262,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     @empty
                         <tr>
                             <td colspan="6" style="text-align: center; padding: 48px; color: #64748b;">
-                                No pending clusters found matching your query.
+                                No pending forms found matching your query.
                             </td>
                         </tr>
                     @endforelse
@@ -2195,7 +2292,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                 @endif
                             </div>
                         </div>
-                        <h3 class="card-title">{{ $c->cluster_name }}</h3>
+                        <h3 class="card-title">{{ str_ireplace('cluster', 'form', $c->cluster_name) }}</h3>
                         <div class="card-meta">
                             <div><strong>Office:</strong> {{ $c->office_name ?? $c->office ?? 'N/A' }}</div>
                             <div><strong>Submitted by:</strong> {{ $c->submitter_name ?: 'System User' }}</div>
@@ -2212,7 +2309,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 </div>
             @empty
                 <div style="grid-column: 1 / -1; text-align: center; padding: 48px; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; color: #64748b;">
-                    No pending clusters found matching your query.
+                    No pending forms found matching your query.
                 </div>
             @endforelse
         </div>
@@ -2220,7 +2317,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
     {{-- Download Format Choice Modal --}}
     @if($showDownloadModal && $downloadCluster)
-        <div class="modal-overlay" style="z-index: 1050;">
+        <div class="modal-overlay" style="z-index: 99999;">
             <div class="modal-card download-modal-card" style="width: 520px; max-width: 94vw; padding: 24px; border-radius: 14px; position: relative;">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
                     <div style="display: flex; align-items: center; gap: 10px;">
@@ -2233,10 +2330,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         </div>
                         <div>
                             <h3 style="font-size: 17px; font-weight: 700; color: #0f172a; margin: 0;">
-                                Download Cluster Records
+                                Download Form Records
                             </h3>
                             <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">
-                                [{{ $downloadCluster->form_label }}] {{ $downloadCluster->cluster_name }} &bull; {{ $downloadTotalItems }} {{ $downloadTotalItems === 1 ? 'record' : 'records' }}
+                                [{{ $downloadCluster->form_label }}] {{ str_ireplace('cluster', 'form', $downloadCluster->cluster_name) }} &bull; {{ $downloadTotalItems }} {{ $downloadTotalItems === 1 ? 'record' : 'records' }}
                             </p>
                         </div>
                     </div>
@@ -2321,7 +2418,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
                     <div>
                         <h3 style="font-size: 18px; font-weight: 700; color: #0f172a; margin: 0;">
-                            [{{ $selectedCluster->form_label }}] {{ $selectedCluster->cluster_name }}
+                            [{{ $selectedCluster->form_label }}] {{ str_ireplace('cluster', 'form', $selectedCluster->cluster_name) }}
                         </h3>
                         <span style="font-size: 13px; color: #64748b;">Submitted by {{ $selectedCluster->office_name ?? $selectedCluster->office }}</span>
                     </div>
@@ -2373,7 +2470,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             wire:click="openCancelConfirmModal"
                             style="padding: 8px 14px; background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; border-radius: 6px; font-weight: 700; font-size: 12.5px; cursor: pointer;"
                             onmouseover="this.style.background='#fecaca'" onmouseout="this.style.background='#fee2e2'">
-                            Cancel Cluster
+                            Cancel Form
                         </button>
                     @endif
                     <button type="button" wire:click="closeDetailModal" style="padding: 8px 16px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 600; font-size: 12.5px; cursor: pointer;">
@@ -2384,9 +2481,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         </div>
     @endif
 
-    {{-- Cancel Cluster Confirmation Modal --}}
+    {{-- Cancel Form Confirmation Modal --}}
     @if($showCancelConfirmModal)
-        <div class="modal-overlay" style="z-index: 1100;">
+        <div class="modal-overlay" style="z-index: 100000;">
             <div class="modal-card" style="width: 420px; max-width: 94vw; padding: 24px;">
                 <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 14px;">
                     <div style="width: 40px; height: 40px; border-radius: 50%; background: #fee2e2; display: flex; align-items: center; justify-content: center; color: #dc2626; flex-shrink: 0;">
@@ -2397,11 +2494,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         </svg>
                     </div>
                     <h3 style="font-size: 16.5px; font-weight: 700; color: #0f172a; margin: 0;">
-                        Are you sure you want to cancel this cluster?
+                        Are you sure you want to cancel this form?
                     </h3>
                 </div>
                 <p style="font-size: 13.5px; color: #64748b; margin: 0 0 20px 0; line-height: 1.6;">
-                    <strong style="color: #334155;">{{ $selectedCluster->cluster_name ?? 'This cluster' }}</strong> will be removed and its items will be returned to your records/series list. This action cannot be undone.
+                    <strong style="color: #334155;">{{ $selectedCluster->cluster_name ?? 'This form' }}</strong> will be removed and its items will be returned to your records/series list. This action cannot be undone.
                 </p>
                 <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px;">
                     <button type="button" wire:click="closeCancelConfirmModal" style="padding: 8px 16px; background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 600; font-size: 12.5px; cursor: pointer;">
@@ -2409,7 +2506,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     </button>
                     <button type="button" wire:click="cancelCluster" style="padding: 8px 16px; background: #dc2626; color: #ffffff; border: 1px solid #dc2626; border-radius: 6px; font-weight: 700; font-size: 12.5px; cursor: pointer;"
                         onmouseover="this.style.background='#b91c1c'" onmouseout="this.style.background='#dc2626'">
-                        Yes, Cancel Cluster
+                        Yes, Cancel Form
                     </button>
                 </div>
             </div>
@@ -2466,7 +2563,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 background: #ffffff;
                 text-align: center;
                 font-weight: bold;
-                font-size: 12px !important;
+                font-size: {{ $isNap1 ? '7px' : '11px' }} !important;
                 vertical-align: middle;
                 color: #000000;
             }
@@ -2477,7 +2574,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 border-bottom: none;
                 padding: 3px 4px;
                 vertical-align: top;
-                font-size: 12px !important;
+                font-size: {{ $isNap1 ? '7px' : '11px' }} !important;
                 color: #000000;
                 background: #ffffff;
             }
@@ -2537,12 +2634,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 }
             }
         </style>
-        <div class="modal-overlay" style="overflow-y: auto;">
-            <div class="modal-card" style="width: {{ $isNap1 ? '1280px' : '980px' }}; max-width: 96%; max-height: 94vh; overflow-y: auto; padding: 24px; background: #94a3b8;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;" class="no-print">
+        <div class="modal-overlay" style="overflow-y: auto; z-index: 99999; padding: 20px; box-sizing: border-box;">
+            <div class="modal-card" style="width: {{ $isNap1 ? '1280px' : '980px' }}; max-width: 96%; max-height: 92vh; overflow-y: auto; padding: 24px; background: #94a3b8; border-radius: 12px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35); position: relative;">
+                {{-- Sticky action header so Download, Print Now, and Close stay reachable even when scrolling --}}
+                <div style="position: sticky; top: -24px; z-index: 50; background: #94a3b8; padding: 14px 24px; margin: -24px -24px 20px -24px; border-bottom: 1px solid rgba(255,255,255,0.25); box-shadow: 0 4px 12px rgba(0,0,0,0.08); display: flex; justify-content: space-between; align-items: center; border-top-left-radius: 12px; border-top-right-radius: 12px;" class="no-print">
                     <div>
                         <h3 style="font-size: 18px; font-weight: 800; color: #ffffff; margin: 0;">
-                            Print Preview — {{ $printCluster->cluster_name }}
+                            Print Preview — {{ str_ireplace('cluster', 'form', $printCluster->cluster_name) }}
                         </h3>
                         <p style="margin: 2px 0 0 0; font-size: 12px; color: #f1f5f9;">
                             Form: <strong>{{ $printCluster->form_label }}</strong> &bull; Print Font: <strong>{{ $rdpPrintFontFamily }}</strong> (<strong>{{ $rdpPrintFontSize }}</strong>) &bull; Configure details and signatures before printing.
@@ -2818,8 +2916,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             $isLastPage = ($pageIndex + 1) === $totalPages;
                             $cellBorder = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;";
                             $computedFiller = $isLastPage 
-                                ? max(40, 290 - (count($pageItems) * 20)) 
-                                : max(60, 480 - (count($pageItems) * 20));
+                                ? max(30, 280 - (count($pageItems) * 20)) 
+                                : max(50, 470 - (count($pageItems) * 20));
                         @endphp
                         <div class="print-sheet">
                             <!-- Top Form Identifier -->
@@ -2878,8 +2976,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                             </table>
 
                             <!-- MAIN DATA TABLE (Columns 9 to 20) -->
-                            <table class="print-table" style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 8px; text-align: center; table-layout: fixed;">
-                                <thead>
+                            <table class="print-table" style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 7px; text-align: center; table-layout: fixed;">
+                                <thead style="font-size: 7px;">
                                     <tr style="font-weight: bold;">
                                         <th rowspan="2" style="border: 1px solid #000; width: 17%; padding: 4px 2px; text-align: center;">9. RECORDS SERIES TITLE AND DESCRIPTION</th>
                                         <th rowspan="2" style="border: 1px solid #000; width: 8%; padding: 4px 2px; text-align: center;">10. PERIOD COVERED / INCLUSIVE DATES</th>
@@ -2901,11 +2999,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                     </tr>
                                 </thead>
                                 <tbody>
+                                    <!-- Spacing row below header -->
+                                    <tr style="height: 10px; line-height: 10px;">
+                                        <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                        <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                        <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                        <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                        <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                        <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                        <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                        <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                        <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                        <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                        <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                        <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                        <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                        <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    </tr>
                                     @foreach($pageItems as $item)
                                         @if($item['type'] === 'root_standalone')
                                             @php $root = $item['root']; @endphp
                                             <tr style="vertical-align: top;">
-                                                <td style="{{ $cellBorder }} text-align: left; padding: 3px 6px; font-weight: bold; font-size: 8.5px;">
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 3px 6px; font-weight: bold; font-size: 7.5px;">
                                                     {{ strtoupper($cleanVal($root->series_title)) }}
                                                 </td>
                                                 <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center;">{{ $cleanVal($root->compiled_period) }}</td>
@@ -2929,7 +3044,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                         @elseif($item['type'] === 'root_header')
                                             @php $root = $item['root']; @endphp
                                             <tr style="vertical-align: top;">
-                                                <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 2px 6px; font-weight: bold; font-size: 8.5px;">
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 2px 6px; font-weight: bold; font-size: 7.5px;">
                                                     {{ strtoupper($cleanVal($root->series_title)) }}
                                                 </td>
                                                 <td style="{{ $cellBorder }} padding: 2px;"></td>
@@ -2952,7 +3067,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                                 $root = $item['root']; 
                                             @endphp
                                             <tr style="vertical-align: top;">
-                                                <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 3px {{ $item['indent'] ?? 16 }}px; font-weight: normal; font-size: 8.5px;">
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 3px {{ $item['indent'] ?? 16 }}px; font-weight: normal; font-size: 7.5px;">
                                                     {{ $cleanVal($sub->series_title) }}
                                                 </td>
                                                 <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($sub->compiled_period) }}</td>
@@ -2976,7 +3091,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                         @elseif($item['type'] === 'record')
                                             @php $rec = $item['rec']; @endphp
                                             <tr style="vertical-align: top;">
-                                                <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 2px {{ $item['indent'] ?? 20 }}px; font-size: 8px;">
+                                                <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 2px {{ $item['indent'] ?? 20 }}px; font-size: 7px;">
                                                     {{ $cleanVal($rec->description) }}
                                                 </td>
                                                 <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($rec->date_covered) }}</td>

@@ -984,6 +984,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         'parent_id'          => $lastSeriesId,
                         'series_type'        => ($idx === 0) ? $this->selectedSeriesTypeFilter : null,
                         'recorded_at_office' => $userOfficeCode,
+                        'created_by'         => $user?->id,
                         'created_at'         => now(),
                         'updated_at'         => now(),
                     ]);
@@ -992,9 +993,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             $this->record_series_id = $lastSeriesId;
 
+            $documentIdHandler = null;
             if ($this->uploadedFile) {
                 $uploadResult = \App\Services\DocumentStorageService::storeUpload($this->uploadedFile, 'RDP', $user);
                 $documentIdHandler = $uploadResult['document_id'];
+            } elseif (!empty($this->prefill_doc_id)) {
+                $documentIdHandler = $this->prefill_doc_id;
             }
 
             $periodId = null;
@@ -1213,6 +1217,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         'parent_id'          => $lastSeriesId,
                         'series_type'        => ($idx === 0) ? $this->selectedSeriesTypeFilter : null,
                         'recorded_at_office' => $userOfficeCode,
+                        'created_by'         => $user?->id,
                         'created_at'         => now(),
                         'updated_at'         => now(),
                     ]);
@@ -1221,10 +1226,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             $this->record_series_id = $lastSeriesId;
 
+            $documentIdHandler = null;
             if ($this->uploadedFile) {
                 $uploadResult = \App\Services\DocumentStorageService::storeUpload($this->uploadedFile, 'RDP', $user);
                 $documentIdHandler = $uploadResult['document_id'];
-            } elseif ($this->prefill_doc_id) {
+            } elseif (!empty($this->prefill_doc_id)) {
                 $documentIdHandler = $this->prefill_doc_id;
             }
 

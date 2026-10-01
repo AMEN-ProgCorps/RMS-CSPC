@@ -26,7 +26,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     public function openClusterModal(): void
     {
         if (empty($this->selectedIds)) {
-            $this->errorMessage = 'Please select at least one record series to create an RDS cluster.';
+            $this->errorMessage = 'Please select at least one record series to create an RDS form.';
             return;
         }
 
@@ -43,7 +43,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         }
 
         $officeDisplay = $userOffice ?: 'OFFICE';
-        $this->clusterName = 'RDS Schedule Cluster — ' . $officeDisplay . ' (' . Carbon::now()->format('Y-m-d') . ')';
+        $this->clusterName = 'RDS Schedule Form — ' . $officeDisplay . ' (' . Carbon::now()->format('Y-m-d') . ')';
         $this->clusterNotes = '';
         $this->showClusterModal = true;
     }
@@ -56,7 +56,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     public function submitClusterCreation(): void
     {
         if (empty($this->selectedIds)) {
-            $this->errorMessage = 'Please select at least one record series to create an RDS cluster.';
+            $this->errorMessage = 'Please select at least one record series to create an RDS form.';
             return;
         }
 
@@ -89,7 +89,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
             DB::table('rdp_pending_record_series')->insert([
                 'cluster_id'   => $mainPendingId,
-                'cluster_name' => trim($this->clusterName) ?: ('RDS Schedule Batch — ' . now()->format('Y-m-d')),
+                'cluster_name' => trim($this->clusterName) ?: ('RDS Schedule Form — ' . now()->format('Y-m-d')),
                 'status_id'    => 1, // Pending Verification
                 'office'       => $userOffice,
                 'created_by'   => $user?->id,
@@ -110,13 +110,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
             DB::commit();
 
-            $this->successMessage = 'RDS Schedule cluster created successfully! It is now available under Pending / List for printing and approval.';
+            $this->successMessage = 'RDS Schedule form created successfully! It is now available under Pending / List for printing and approval.';
             $this->selectedIds = [];
             $this->selectAll = false;
             $this->closeClusterModal();
         } catch (\Exception $e) {
             DB::rollBack();
-            $this->errorMessage = 'Failed to create RDS cluster: ' . $e->getMessage();
+            $this->errorMessage = 'Failed to create RDS form: ' . $e->getMessage();
         }
     }
 
@@ -135,6 +135,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     public string $editRemarks = '';
     public bool $isRootParentForEdit = false;
     public bool $isSeriesUsedInNap1 = false;
+    public bool $canEditDescription = true;
+    public bool $canCancelRecord = true;
 
     // Preview Header & Signature Fields
     public string $agencyName = 'Camarines Sur Polytechnic Colleges';
@@ -301,25 +303,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
     public function openEditModal(int $id): void
     {
-        $perms = Auth::user()?->permissions;
-        $isSadm = (bool)($perms->is_sadm ?? false);
-        // Modify clearance
-        if (!$isSadm && !(bool)($perms->can_rdp_modify_form_2 ?? true)) {
-            $this->errorMessage = 'You do not have clearance to edit records on NAP Form 2.';
-            return;
-        }
         $record = DB::table('rdp_record_series')->where('id', $id)->first();
         if ($record) {
-            $userOffice = Auth::user()?->details?->office?->office_code ?? Auth::user()?->details?->office_code ?? null;
-            if (empty($userOffice) && !empty(Auth::user()?->details?->office_id)) {
+            $user = Auth::user();
+            $perms = $user?->permissions;
+            $isSadm = (bool)($perms->is_sadm ?? false);
+            $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+            if (empty($userOffice) && !empty($user?->details?->office_id)) {
                 $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
-                $userOffice = DB::table($officeTbl)->where('id', Auth::user()->details->office_id)->value('office_code');
+                $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
             }
-            $isOtherOffice = $userOffice && $record->recorded_at_office && $record->recorded_at_office !== $userOffice;
-            if (!$isSadm && $isOtherOffice && !(bool)($perms->can_rdp_edit_others_form_2 ?? false)) {
-                $this->errorMessage = 'You do not have clearance to edit records from another office on NAP Form 2.';
-                return;
-            }
+            $isOtherOffice = !empty($userOffice) && !empty($record->recorded_at_office) && ($record->recorded_at_office !== $userOffice);
+            $this->canEditDescription = $isSadm || (!$isOtherOffice ? (bool)($perms->can_rdp_modify_form_2 ?? true) : ((bool)($perms->can_rdp_modify_form_2 ?? true) && (bool)($perms->can_rdp_edit_others_form_2 ?? false)));
+            $this->canCancelRecord = $this->canEditDescription;
+
             $this->editingSeriesId = $record->id;
             $this->editSeriesTitle = $record->series_title ?? '';
             $this->editItemNumber = $record->item_number !== null ? (string)$record->item_number : '';
@@ -357,9 +354,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     {
         if (!$this->editingSeriesId) return;
 
-        $perms = Auth::user()?->permissions;
-        $isSadm = (bool)($perms->is_sadm ?? false);
-        if (!$isSadm && !(bool)($perms->can_rdp_modify_form_2 ?? true)) {
+        if (!$this->canCancelRecord) {
             $this->errorMessage = 'You do not have clearance to cancel records on NAP Form 2.';
             return;
         }
@@ -425,13 +420,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     {
         if (!$this->editingSeriesId) return;
 
+        if (!$this->canEditDescription) {
+            $this->errorMessage = 'You do not have clearance to edit this record series.';
+            return;
+        }
+
         $series = DB::table('rdp_record_series')->where('id', $this->editingSeriesId)->first();
         if (!$series) return;
 
+        $cleanTitle = trim($this->editSeriesTitle);
+        if (empty($cleanTitle)) {
+            $this->errorMessage = 'Series title cannot be empty.';
+            return;
+        }
+
         $updateData = [
-            'series_title' => trim($this->editSeriesTitle),
-            'remarks'      => trim($this->editRemarks) ?: null,
+            'remarks' => trim($this->editRemarks) ?: null,
         ];
+
+        if ($this->canEditDescription) {
+            $updateData['series_title'] = $cleanTitle;
+        }
 
         // ONLY root parent record series (parent_id IS NULL) can have an assigned Item No.
         if (empty($series->parent_id)) {
@@ -447,6 +456,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             // Subsections CANNOT have an item number
             $updateData['item_number'] = null;
         }
+
+        $updateData['updated_at'] = Carbon::now();
 
         DB::table('rdp_record_series')->where('id', $this->editingSeriesId)->update($updateData);
 
@@ -736,6 +747,37 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         .nap-search-input { min-width: 280px; }
         .nap-select-input { font-weight: 600; }
 
+        .nap-form-control {
+            width: 100%;
+            height: 40px;
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+            box-sizing: border-box;
+            background: #ffffff;
+            color: #0f172a;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .nap-form-control:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+        .nap-form-control:disabled,
+        .nap-form-control[readonly] {
+            background-color: #f8fafc !important;
+            border-color: #e2e8f0 !important;
+            color: #64748b !important;
+            cursor: not-allowed !important;
+        }
+        textarea.nap-form-control {
+            height: auto;
+            min-height: 70px;
+            resize: vertical;
+        }
+
         .nap-chevron-btn {
             background: transparent;
             border: 1px solid transparent;
@@ -848,7 +890,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 Print Preview @if(count($selectedIds) > 0) ({{ count($selectedIds) }}) @endif
             </button>
             <button type="button" wire:click="openClusterModal" class="nap-btn nap-btn-primary" {{ empty($selectedIds) ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : '' }}>
-                Create RDS Cluster ({{ count($selectedIds) }})
+                Create RDS Form ({{ count($selectedIds) }})
             </button>
         </div>
     </div>
@@ -1164,8 +1206,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
                 <form wire:submit.prevent="saveEditSeries" style="display: flex; flex-direction: column; gap: 16px;">
                     <div>
-                        <label style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">Series Title</label>
-                        <input type="text" wire:model="editSeriesTitle" style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box;" required>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                            <label style="font-size: 13px; font-weight: 700; color: #334155;">Series Title</label>
+                            @if(!$canEditDescription)
+                                <span title="You do not have clearance to edit this series title" style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: #94a3b8; background: #f1f5f9; padding: 2px 8px; border-radius: 9999px; border: 1px solid #cbd5e1;">
+                                    <i class="fa-solid fa-lock" style="font-size: 10px;"></i> Locked
+                                </span>
+                            @endif
+                        </div>
+                        @if($canEditDescription)
+                            <input type="text" wire:model="editSeriesTitle" class="nap-form-control" required>
+                        @else
+                            <input type="text" wire:model="editSeriesTitle" class="nap-form-control" readonly disabled title="Editing series title is locked due to lack of clearance">
+                        @endif
                     </div>
 
                     <div>
@@ -1176,35 +1229,49 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                             @endif
                         </label>
                         @if($isRootParentForEdit)
-                            <input type="number" wire:model="editItemNumber" placeholder="e.g. 1, 2, 15" style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box;">
+                            @if($canEditDescription)
+                                <input type="number" wire:model="editItemNumber" placeholder="e.g. 1, 2, 15" class="nap-form-control">
+                            @else
+                                <input type="number" wire:model="editItemNumber" class="nap-form-control" readonly disabled placeholder="e.g. 1, 2, 15">
+                            @endif
                             <span style="font-size: 11.5px; color: #64748b; margin-top: 4px; display: block;">Item numbers are assigned exclusively to top-level root series.</span>
                         @else
-                            <input type="text" value="— (Subsections/Children cannot have Item No.)" disabled style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; background: #f1f5f9; color: #64748b; cursor: not-allowed; box-sizing: border-box;">
+                            <input type="text" value="— (Subsections/Children cannot have Item No.)" disabled class="nap-form-control" style="background: #f1f5f9; color: #64748b; cursor: not-allowed;">
                         @endif
                     </div>
 
                     <div>
                         <label style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">Remarks</label>
-                        <textarea wire:model="editRemarks" rows="3" placeholder="Additional disposition notes, remarks..." style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box;"></textarea>
+                        @if($canEditDescription)
+                            <textarea wire:model="editRemarks" rows="3" placeholder="Additional disposition notes, remarks..." class="nap-form-control"></textarea>
+                        @else
+                            <textarea wire:model="editRemarks" rows="3" readonly disabled placeholder="Additional disposition notes, remarks..." class="nap-form-control"></textarea>
+                        @endif
                     </div>
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
-                        @if($isSeriesUsedInNap1)
-                            <div style="display: inline-flex; align-items: center; gap: 8px;">
-                                <button type="button" disabled class="nap-btn" style="background: #f1f5f9; color: #94a3b8; border: 1px solid #cbd5e1; cursor: not-allowed; opacity: 0.7;" title="Cannot be canceled: this record series is currently used in NAP Form 1">
-                                    Cancel Series
-                                </button>
-                                <span style="font-size: 11.5px; color: #dc2626; font-weight: 600;">(Cannot cancel: currently used in NAP Form 1)</span>
-                            </div>
-                        @else
-                            <button type="button" wire:click="cancelRecordSeries" wire:confirm="Are you sure you want to cancel this record series? This will remove it from NAP Form 2." class="nap-btn" style="background: #fee2e2; color: #dc2626; border: 1px solid #fecaca;">
-                                Cancel Series
-                            </button>
-                        @endif
+                        <div>
+                            @if($canCancelRecord)
+                                @if($isSeriesUsedInNap1)
+                                    <div style="display: inline-flex; align-items: center; gap: 8px;">
+                                        <button type="button" disabled class="nap-btn" style="background: #f1f5f9; color: #94a3b8; border: 1px solid #cbd5e1; cursor: not-allowed; opacity: 0.7;" title="Cannot be canceled: this record series is currently used in NAP Form 1">
+                                             Cancel Series
+                                        </button>
+                                        <span style="font-size: 11.5px; color: #dc2626; font-weight: 600;">(Cannot cancel: currently used in NAP Form 1)</span>
+                                    </div>
+                                @else
+                                    <button type="button" wire:click="cancelRecordSeries" wire:confirm="Are you sure you want to cancel this record series? This will remove it from NAP Form 2." class="nap-btn" style="background: #fee2e2; color: #dc2626; border: 1px solid #fecaca;">
+                                        Cancel Series
+                                    </button>
+                                @endif
+                            @endif
+                        </div>
 
                         <div style="display: flex; gap: 10px;">
                             <button type="button" wire:click="closeEditModal" class="nap-btn nap-btn-secondary">Close</button>
-                            <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                            @if($canEditDescription)
+                                <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                            @endif
                         </div>
                     </div>
                 </form>
@@ -1212,28 +1279,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         </div>
     @endif
 
-    <!-- CREATE CLUSTER MODAL OVERLAY -->
+    <!-- CREATE FORM MODAL OVERLAY -->
     @if($showClusterModal)
         <div class="modal-overlay" wire:click.self="closeClusterModal">
             <div class="modal-dialog" style="max-width: 550px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
-                    <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #0f172a;">Create RDS Schedule Cluster</h3>
+                    <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #0f172a;">Create RDS Schedule Form</h3>
                     <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #64748b;">✕</button>
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 16px;">
                     <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #1e40af; font-weight: 600;">
-                        📦 Packaging <strong>{{ count($selectedIds) }}</strong> selected custom record series into an RDS schedule submission cluster.
+                        📦 Packaging <strong>{{ count($selectedIds) }}</strong> selected custom record series into an RDS schedule submission form.
                     </div>
 
                     <div>
-                        <label style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">Cluster Title / Name</label>
+                        <label style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">Form Title / Name</label>
                         <input type="text" class="form-control" wire:model="clusterName" placeholder="e.g. RDS Schedule Batch 2026-Q3" style="width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px;">
                     </div>
 
                     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; border-top: 1px solid #e2e8f0; padding-top: 14px;">
                         <button type="button" wire:click="closeClusterModal" class="nap-btn nap-btn-secondary">Cancel</button>
-                        <button type="button" wire:click="submitClusterCreation" class="nap-btn nap-btn-primary">Confirm & Create Cluster</button>
+                        <button type="button" wire:click="submitClusterCreation" class="nap-btn nap-btn-primary">Confirm & Create Form</button>
                     </div>
                 </div>
             </div>
@@ -1266,9 +1333,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                         </div>
                         <div style="color: #cbd5e1; font-size: 12px; margin-top: 2px;">
                             @if($hasSelection)
-                                Showing schedule document preview ({{ count($selectedIds) }} records selected). Official printing is available once clustered in Pending / List.
+                                Showing schedule document preview ({{ count($selectedIds) }} records selected). Official printing is available once created in Pending / List.
                             @else
-                                Official NAP Form 2 Blank Template Preview. Official printing is available once clustered in Pending / List.
+                                Official NAP Form 2 Blank Template Preview. Official printing is available once created in Pending / List.
                             @endif
                         </div>
                     </div>

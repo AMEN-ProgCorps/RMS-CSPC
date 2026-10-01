@@ -1687,14 +1687,14 @@ class RdpExportHelper
         background: #ffffff;
         text-align: center;
         font-weight: bold;
-        font-size: 8px;
+        font-size: 7px;
         vertical-align: middle;
         color: #000000;
     }
     .print-table td {
         padding: 3px 4px;
         vertical-align: top;
-        font-size: 8px;
+        font-size: 7px;
         color: #000000;
         background: #ffffff;
     }
@@ -1707,8 +1707,8 @@ class RdpExportHelper
 
             // When last page has signatures, filler height stretches down to bottom border above Legend.
             $computedFiller = $isLastPage 
-                ? max(40, 290 - (count($pageItems) * 20))
-                : max(60, 480 - (count($pageItems) * 20));
+                ? max(30, 280 - (count($pageItems) * 20))
+                : max(50, 470 - (count($pageItems) * 20));
 
             $html .= '<div class="page-container">';
 
@@ -1769,7 +1769,7 @@ class RdpExportHelper
 
             // Main Data Table (Columns 9 to 20)
             $html .= '<table class="print-table" style="border: 2px solid #000; text-align: center;">
-                <thead>
+                <thead style="font-size: 7px;">
                     <tr style="font-weight: bold;">
                         <th rowspan="2" style="border: 1px solid #000; width: 17%;">9. RECORDS SERIES TITLE AND DESCRIPTION</th>
                         <th rowspan="2" style="border: 1px solid #000; width: 8%;">10. PERIOD COVERED / INCLUSIVE DATES</th>
@@ -1792,13 +1792,31 @@ class RdpExportHelper
                 </thead>
                 <tbody>';
 
+            // Top spacing row between header and records
+            $html .= '<tr style="height: 10px; line-height: 10px;">
+                <td style="' . $cellBorder . ' padding: 0;">&nbsp;</td>
+                <td style="' . $cellBorder . ' padding: 0;">&nbsp;</td>
+                <td style="' . $cellBorder . ' padding: 0;">&nbsp;</td>
+                <td style="' . $cellBorder . ' padding: 0;">&nbsp;</td>
+                <td style="' . $cellBorder . ' padding: 0;">&nbsp;</td>
+                <td style="' . $cellBorder . ' padding: 0;">&nbsp;</td>
+                <td style="' . $cellBorder . ' padding: 0;">&nbsp;</td>
+                <td style="' . $cellBorder . ' padding: 0;">&nbsp;</td>
+                <td style="' . $cellBorder . ' padding: 0;">&nbsp;</td>
+                <td style="' . $cellBorder . ' padding: 0;">&nbsp;</td>
+                <td style="' . $cellBorder . ' padding: 0;">&nbsp;</td>
+                <td style="' . $cellBorder . ' padding: 0;">&nbsp;</td>
+                <td style="' . $cellBorder . ' padding: 0;">&nbsp;</td>
+                <td style="' . $cellBorder . ' padding: 0;">&nbsp;</td>
+            </tr>';
+
             foreach ($pageItems as $item) {
                 if ($item['type'] === 'root_standalone') {
                     $root = $item['root'];
                     $isPerm = (bool)($root->is_permanent ?? false) || strtolower(trim($root->total_period ?? '')) === 'permanent';
 
                     $html .= '<tr style="vertical-align: top;">
-                        <td style="' . $cellBorder . ' text-align: left; padding: 3px 6px; font-weight: bold; font-size: 8.5px;">
+                        <td style="' . $cellBorder . ' text-align: left; padding: 3px 6px; font-weight: bold; font-size: 7.5px;">
                             ' . strtoupper(self::cleanVal($root->series_title)) . '
                         </td>
                         <td style="' . $cellBorder . ' padding: 3px 2px; text-align: center;">' . self::cleanVal($root->compiled_period, true) . '</td>
@@ -1824,7 +1842,7 @@ class RdpExportHelper
                 } elseif ($item['type'] === 'root_header') {
                     $root = $item['root'];
                     $html .= '<tr style="vertical-align: top;">
-                        <td style="' . $cellBorder . ' text-align: left; padding: 4px 6px 2px 6px; font-weight: bold; font-size: 8.5px;">
+                        <td style="' . $cellBorder . ' text-align: left; padding: 4px 6px 2px 6px; font-weight: bold; font-size: 7.5px;">
                             ' . strtoupper(self::cleanVal($root->series_title)) . '
                         </td>
                         <td style="' . $cellBorder . '"></td>
@@ -1848,7 +1866,7 @@ class RdpExportHelper
                     $indent = $item['indent'] ?? 16;
 
                     $html .= '<tr style="vertical-align: top;">
-                        <td style="' . $cellBorder . ' text-align: left; padding: 2px 6px 3px ' . $indent . 'px; font-weight: normal; font-size: 8.5px;">
+                        <td style="' . $cellBorder . ' text-align: left; padding: 2px 6px 3px ' . $indent . 'px; font-weight: normal; font-size: 7.5px;">
                             ' . self::cleanVal($sub->series_title) . '
                         </td>
                         <td style="' . $cellBorder . ' padding: 2px; text-align: center;">' . self::cleanVal($sub->compiled_period, true) . '</td>
@@ -1877,7 +1895,7 @@ class RdpExportHelper
                     $indent = $item['indent'] ?? 20;
 
                     $html .= '<tr style="vertical-align: top;">
-                        <td style="' . $cellBorder . ' text-align: left; padding: 2px 6px 2px ' . $indent . 'px; font-size: 8px;">
+                        <td style="' . $cellBorder . ' text-align: left; padding: 2px 6px 2px ' . $indent . 'px; font-size: 7px;">
                             ' . self::cleanVal($rec->description) . '
                         </td>
                         <td style="' . $cellBorder . ' padding: 2px; text-align: center;">' . self::cleanVal($rec->date_covered, true) . '</td>

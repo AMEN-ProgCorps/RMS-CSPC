@@ -43,6 +43,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     public ?string $editSubjectFrequency = null;
     public string $editSubjectTimeValue = 'T';
     public array $editSubjectUtilities = [];
+    public bool $canEditDescription = true;
+    public bool $canCancelRecord = true;
 
     // Printable Custom Header & Signature Fields
     public string $agencyName = 'Camarines Sur Polytechnic Colleges';
@@ -188,7 +190,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     public function openClusterModal(): void
     {
         if (empty($this->selectedIds)) {
-            $this->errorMessage = 'Please select at least one record to create a cluster.';
+            $this->errorMessage = 'Please select at least one record to create a form.';
             return;
         }
 
@@ -209,7 +211,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         }
 
         $officeDisplay = $userOffice ?: 'OFFICE';
-        $this->clusterName = 'Inventory Cluster — ' . $officeDisplay . ' (' . Carbon::now()->format('Y-m-d') . ')';
+        $this->clusterName = 'Inventory Form — ' . $officeDisplay . ' (' . Carbon::now()->format('Y-m-d') . ')';
         $this->clusterNotes = '';
         $this->showClusterModal = true;
     }
@@ -222,7 +224,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     public function submitClusterCreation(): void
     {
         if (empty($this->selectedIds)) {
-            $this->errorMessage = 'Please select at least one record to create a cluster.';
+            $this->errorMessage = 'Please select at least one record to create a form.';
             return;
         }
 
@@ -255,7 +257,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
             DB::table('rdp_pending_record')->insert([
                 'cluster_id'       => $mainPendingId,
-                'cluster_name'     => trim($this->clusterName) ?: ('Inventory Cluster — ' . ($userOffice ?: 'OFFICE') . ' (' . now()->format('Y-m-d') . ')'),
+                'cluster_name'     => trim($this->clusterName) ?: ('Inventory Form — ' . ($userOffice ?: 'OFFICE') . ' (' . now()->format('Y-m-d') . ')'),
                 'status_id'        => 1, // Pending Verification
                 'office'           => $userOffice,
                 'created_by'       => $user?->id,
@@ -273,7 +275,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 ->all();
 
             if (empty($validRecordIds)) {
-                $this->errorMessage = 'Please select at least one valid record to cluster.';
+                $this->errorMessage = 'Please select at least one valid record to create a form.';
                 DB::rollBack();
                 return;
             }
@@ -290,13 +292,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
             DB::commit();
 
-            $this->successMessage = 'Inventory cluster created successfully! It is now available under Pending / List for submission.';
+            $this->successMessage = 'Inventory form created successfully! It is now available under Pending / List for submission.';
             $this->selectedIds = [];
             $this->selectAll = false;
             $this->closeClusterModal();
         } catch (\Exception $e) {
             DB::rollBack();
-            $this->errorMessage = 'Failed to create cluster: ' . $e->getMessage();
+            $this->errorMessage = 'Failed to create form: ' . $e->getMessage();
         }
     }
 
@@ -355,6 +357,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     {
         $rec = DB::table('rdp_record')->where('id', $id)->first();
         if ($rec) {
+            $user = Auth::user();
+            $perms = $user?->permissions;
+            $isSadm = (bool)($perms->is_sadm ?? false);
+            $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+            if (empty($userOffice) && !empty($user?->details?->office_id)) {
+                $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+                $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+            }
+            $isOtherOffice = !empty($userOffice) && !empty($rec->office_own) && ($rec->office_own !== $userOffice);
+            $this->canEditDescription = $isSadm || (!$isOtherOffice ? (bool)($perms->can_rdp_modify_form_1 ?? true) : ((bool)($perms->can_rdp_modify_form_1 ?? true) && (bool)($perms->can_rdp_edit_others_form_1 ?? false)));
+            $this->canCancelRecord = $this->canEditDescription;
+
             $this->editingSubjectId = $rec->id;
             $this->editSubjectDescription = $rec->description ?? '';
             $this->editSubjectVolume = $rec->volume ?? '';
@@ -390,6 +404,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     {
         if (!$this->editingSubjectId) return;
 
+        if (!$this->canEditDescription) {
+            $this->errorMessage = 'You do not have clearance to edit this record.';
+            return;
+        }
+
         $cleanDesc = trim($this->editSubjectDescription);
         if (empty($cleanDesc)) {
             $this->errorMessage = 'Subject description cannot be empty.';
@@ -399,18 +418,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         try {
             DB::beginTransaction();
 
+            $updatePayload = [
+                'volume'           => mb_strtoupper(trim($this->editSubjectVolume)),
+                'records_location' => mb_strtoupper(trim($this->editSubjectLocation)),
+                'records_medium'   => $this->editSubjectMedium ?: null,
+                'restriction'      => $this->editSubjectRestriction ?: null,
+                'frequence_use'    => $this->editSubjectFrequency ?: null,
+                'time_value'       => $this->editSubjectTimeValue ?: 'T',
+                'updated_at'       => Carbon::now(),
+            ];
+
+            if ($this->canEditDescription) {
+                $updatePayload['description'] = mb_strtoupper($cleanDesc);
+            }
+
             DB::table('rdp_record')
                 ->where('id', $this->editingSubjectId)
-                ->update([
-                    'description'      => mb_strtoupper($cleanDesc),
-                    'volume'           => mb_strtoupper(trim($this->editSubjectVolume)),
-                    'records_location' => mb_strtoupper(trim($this->editSubjectLocation)),
-                    'records_medium'   => $this->editSubjectMedium ?: null,
-                    'restriction'      => $this->editSubjectRestriction ?: null,
-                    'frequence_use'    => $this->editSubjectFrequency ?: null,
-                    'time_value'       => $this->editSubjectTimeValue ?: 'T',
-                    'updated_at'       => Carbon::now(),
-                ]);
+                ->update($updatePayload);
 
             // Update or insert period covered
             $existingPeriod = DB::table('rdp_period_covered')->where('period_owner', $this->editingSubjectId)->orderBy('id', 'desc')->first();
@@ -457,9 +481,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     {
         if (!$this->editingSubjectId) return;
 
-        $perms = Auth::user()?->permissions;
-        $isSadm = (bool)($perms->is_sadm ?? false);
-        if (!$isSadm && !(bool)($perms->can_rdp_modify_form_1 ?? true)) {
+        if (!$this->canCancelRecord) {
             $this->errorMessage = 'You do not have clearance to cancel records on NAP Form 1.';
             return;
         }
@@ -1222,6 +1244,45 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         .nap-search-input { min-width: 280px; }
         .nap-select-input { font-weight: 600; }
 
+        .nap-form-control {
+            width: 100%;
+            height: 40px;
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+            box-sizing: border-box;
+            background: #ffffff;
+            color: #0f172a;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .nap-form-control:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+        .nap-form-control:disabled,
+        .nap-form-control[readonly] {
+            background-color: #f8fafc !important;
+            border-color: #e2e8f0 !important;
+            color: #64748b !important;
+            cursor: not-allowed !important;
+        }
+        textarea.nap-form-control {
+            height: auto;
+            min-height: 60px;
+            resize: vertical;
+        }
+        select.nap-form-control {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+            background-position: right 0.6rem center;
+            background-repeat: no-repeat;
+            background-size: 1.5em 1.5em;
+            padding-right: 2.2rem;
+        }
+
         /* Row styles */
         .root-series-row { background: #f8fafc; font-weight: 800; border-top: 2px solid #cbd5e1 !important; border-bottom: 2px solid #cbd5e1 !important; }
         .sub-series-row { background: #ffffff; font-weight: 700; border-bottom: 1px solid #cbd5e1; }
@@ -1282,7 +1343,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             background: #ffffff;
             text-align: center;
             font-weight: bold;
-            font-size: 8px;
+            font-size: 7px;
             vertical-align: middle;
             color: #000000;
         }
@@ -1294,7 +1355,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             border-bottom: none;
             padding: 3px 4px;
             vertical-align: top;
-            font-size: 8px;
+            font-size: 7px;
             color: #000000;
             background: #ffffff;
         }
@@ -1321,7 +1382,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 Print Preview
             </button>
             <button type="button" wire:click="openClusterModal" class="nap-btn nap-btn-primary" {{ empty($selectedIds) ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : '' }}>
-                Create Cluster ({{ count($selectedIds) }})
+                Create Form ({{ count($selectedIds) }})
             </button>
         </div>
     </div>
@@ -1844,8 +1905,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         $isLastPage = ($pageIndex + 1) === $totalPages;
                         $cellBorder = "border-left: 1px solid #000; border-right: 1px solid #000; border-top: none; border-bottom: none;";
                         $computedFiller = $isLastPage 
-                            ? max(40, 290 - (count($pageItems) * 20)) 
-                            : max(60, 480 - (count($pageItems) * 20));
+                            ? max(30, 280 - (count($pageItems) * 20)) 
+                            : max(50, 470 - (count($pageItems) * 20));
                     @endphp
                     <div class="print-sheet">
                         <!-- Top Form Identifier -->
@@ -1904,8 +1965,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         </table>
 
                         <!-- MAIN DATA TABLE (Columns 9 to 20) -->
-                        <table class="print-table" style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 8px; text-align: center; table-layout: fixed;">
-                            <thead>
+                        <table class="print-table" style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 7px; text-align: center; table-layout: fixed;">
+                            <thead style="font-size: 7px;">
                                 <tr style="font-weight: bold;">
                                     <th rowspan="2" style="border: 1px solid #000; width: 17%; padding: 4px 2px; text-align: center;">9. RECORDS SERIES TITLE AND DESCRIPTION</th>
                                     <th rowspan="2" style="border: 1px solid #000; width: 8%; padding: 4px 2px; text-align: center;">10. PERIOD COVERED / INCLUSIVE DATES</th>
@@ -1927,11 +1988,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                 </tr>
                             </thead>
                             <tbody>
+                                <!-- Spacing row below header -->
+                                <tr style="height: 10px; line-height: 10px;">
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                    <td style="{{ $cellBorder }} padding: 0;">&nbsp;</td>
+                                </tr>
                                 @foreach($pageItems as $item)
                                     @if($item['type'] === 'root_standalone')
                                         @php $root = $item['root']; @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 3px 6px; font-weight: bold; font-size: 8.5px;">
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 3px 6px; font-weight: bold; font-size: 7.5px;">
                                                 {{ strtoupper($cleanVal($root->series_title)) }}
                                             </td>
                                             <td style="{{ $cellBorder }} padding: 3px 2px; text-align: center;">{{ $cleanVal($root->compiled_period) }}</td>
@@ -1955,7 +2033,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     @elseif($item['type'] === 'root_header')
                                         @php $root = $item['root']; @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 2px 6px; font-weight: bold; font-size: 8.5px;">
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px 2px 6px; font-weight: bold; font-size: 7.5px;">
                                                 {{ strtoupper($cleanVal($root->series_title)) }}
                                             </td>
                                             <td style="{{ $cellBorder }} padding: 2px;"></td>
@@ -1978,7 +2056,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                             $root = $item['root']; 
                                         @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 3px {{ $item['indent'] ?? 16 }}px; font-weight: normal; font-size: 8.5px;">
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 3px {{ $item['indent'] ?? 16 }}px; font-weight: normal; font-size: 7.5px;">
                                                 {{ $cleanVal($sub->series_title) }}
                                             </td>
                                             <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($sub->compiled_period) }}</td>
@@ -2002,7 +2080,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     @elseif($item['type'] === 'record')
                                         @php $rec = $item['rec']; @endphp
                                         <tr style="vertical-align: top;">
-                                            <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 2px {{ $item['indent'] ?? 20 }}px; font-size: 8px;">
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 2px {{ $item['indent'] ?? 20 }}px; font-size: 7px;">
                                                 {{ $cleanVal($rec->description) }}
                                             </td>
                                             <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($rec->date_covered) }}</td>
@@ -2115,19 +2193,30 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 <form wire:submit.prevent="saveEditSubject" style="display: flex; flex-direction: column; gap: 14px;">
                     <!-- Subject Description -->
                     <div>
-                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Subject / Description</label>
-                        <textarea wire:model="editSubjectDescription" rows="2" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;" placeholder="Enter record subject title or description" required></textarea>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                            <label style="font-size: 12px; font-weight: 700; color: #334155;">Subject / Description</label>
+                            @if(!$canEditDescription)
+                                <span title="You do not have clearance to edit this record's description" style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: #94a3b8; background: #f1f5f9; padding: 2px 8px; border-radius: 9999px; border: 1px solid #cbd5e1;">
+                                    <i class="fa-solid fa-lock" style="font-size: 10px;"></i> Locked
+                                </span>
+                            @endif
+                        </div>
+                        @if($canEditDescription)
+                            <textarea wire:model="editSubjectDescription" rows="2" class="nap-form-control" placeholder="Enter record subject title or description" required></textarea>
+                        @else
+                            <textarea wire:model="editSubjectDescription" rows="2" class="nap-form-control" readonly disabled title="Editing description is locked due to lack of clearance"></textarea>
+                        @endif
                     </div>
 
                     <!-- Row 1: Period Covered & Volume -->
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Period Covered / Inclusive Dates</label>
-                            <input type="text" wire:model="editSubjectDateCovered" placeholder="e.g. 2020-2024 or 2023" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;">
+                            <input type="text" wire:model="editSubjectDateCovered" class="nap-form-control" placeholder="e.g. 2020-2024 or 2023" {{ !$canEditDescription ? 'readonly disabled' : '' }}>
                         </div>
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Volume Amount & Unit</label>
-                            <input type="text" wire:model="editSubjectVolume" placeholder="e.g. 2 papers, 1 box, 2 bundles" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;">
+                            <input type="text" wire:model="editSubjectVolume" class="nap-form-control" placeholder="e.g. 2 papers, 1 box, 2 bundles" {{ !$canEditDescription ? 'readonly disabled' : '' }}>
                         </div>
                     </div>
 
@@ -2135,11 +2224,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Location of Records</label>
-                            <input type="text" wire:model="editSubjectLocation" placeholder="e.g. Cabinet 2L, Shelf 3" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;">
+                            <input type="text" wire:model="editSubjectLocation" class="nap-form-control" placeholder="e.g. Cabinet 2L, Shelf 3" {{ !$canEditDescription ? 'readonly disabled' : '' }}>
                         </div>
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Medium</label>
-                            <select wire:model="editSubjectMedium" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                            <select wire:model="editSubjectMedium" class="nap-form-control" {{ !$canEditDescription ? 'disabled' : '' }}>
                                 <option value="" {{ empty($editSubjectMedium) ? 'selected' : '' }}>Select Medium...</option>
                                 @foreach($mediaList as $med)
                                     <option value="{{ $med->id }}" {{ (string)$editSubjectMedium === (string)$med->id ? 'selected' : '' }}>{{ $med->medium_name }}</option>
@@ -2152,7 +2241,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Restriction / Access</label>
-                            <select wire:model="editSubjectRestriction" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                            <select wire:model="editSubjectRestriction" class="nap-form-control" {{ !$canEditDescription ? 'disabled' : '' }}>
                                 <option value="" {{ empty($editSubjectRestriction) ? 'selected' : '' }}>Select Restriction...</option>
                                 @foreach($restrictionsList as $rest)
                                     <option value="{{ $rest->restriction_value }}" {{ $editSubjectRestriction === $rest->restriction_value ? 'selected' : '' }}>{{ $rest->restriction_value }}</option>
@@ -2161,7 +2250,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         </div>
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Frequency of Use</label>
-                            <select wire:model="editSubjectFrequency" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                            <select wire:model="editSubjectFrequency" class="nap-form-control" {{ !$canEditDescription ? 'disabled' : '' }}>
                                 <option value="" {{ empty($editSubjectFrequency) ? 'selected' : '' }}>Select Frequency...</option>
                                 @foreach($frequenciesList as $freq)
                                     <option value="{{ $freq->freq_type }}" {{ $editSubjectFrequency === $freq->freq_type ? 'selected' : '' }}>{{ $freq->freq_type }}</option>
@@ -2171,10 +2260,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     </div>
 
                     <!-- Row 4: Time Value & Utility Value -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start;">
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Time Value (T/P)</label>
-                            <select wire:model="editSubjectTimeValue" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                            <select wire:model="editSubjectTimeValue" class="nap-form-control" {{ !$canEditDescription ? 'disabled' : '' }}>
                                 @foreach($timeValuesList as $tv)
                                     <option value="{{ $tv->char_value }}" {{ $editSubjectTimeValue === $tv->char_value ? 'selected' : '' }}>{{ $tv->char_value }} — {{ $tv->description }}</option>
                                 @endforeach
@@ -2182,11 +2271,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         </div>
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Utility Value</label>
-                            <div style="display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
                                 @foreach($utilityValuesList as $uv)
-                                    <label style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: #334155; background: #f8fafc; border: 1px solid #cbd5e1; padding: 4px 8px; border-radius: 6px; cursor: pointer;">
-                                        <input type="checkbox" wire:model="editSubjectUtilities" value="{{ $uv->id }}" style="accent-color: #2563eb;">
-                                        <span>{{ $uv->utility_name }}</span>
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 7px 10px; border-radius: 8px; border: 1px solid {{ !$canEditDescription ? '#e2e8f0' : '#cbd5e1' }}; background: {{ !$canEditDescription ? '#f8fafc' : '#ffffff' }}; color: {{ !$canEditDescription ? '#64748b' : '#334155' }}; cursor: {{ !$canEditDescription ? 'not-allowed' : 'pointer' }}; box-sizing: border-box;">
+                                        <input type="checkbox" wire:model="editSubjectUtilities" value="{{ $uv->id }}" {{ !$canEditDescription ? 'disabled' : '' }} style="accent-color: #2563eb; width: 14px; height: 14px; cursor: {{ !$canEditDescription ? 'not-allowed' : 'pointer' }}; margin: 0;">
+                                        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $uv->utility_name }}</span>
                                     </label>
                                 @endforeach
                             </div>
@@ -2194,12 +2283,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     </div>
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
-                        <button type="button" wire:click="cancelRecord" wire:confirm="Are you sure you want to cancel this record? This will remove it from NAP Form 1." class="nap-btn" style="background: #fee2e2; color: #dc2626; border: 1px solid #fecaca;">
-                            Cancel Record
-                        </button>
+                        <div>
+                            @if($canCancelRecord)
+                                <button type="button" wire:click="cancelRecord" wire:confirm="Are you sure you want to cancel this record? This will remove it from NAP Form 1." class="nap-btn" style="background: #fee2e2; color: #dc2626; border: 1px solid #fecaca;">
+                                    Cancel Record
+                                </button>
+                            @endif
+                        </div>
                         <div style="display: flex; gap: 10px;">
                             <button type="button" wire:click="closeEditSubjectModal" class="nap-btn nap-btn-secondary">Close</button>
-                            <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                            @if($canEditDescription)
+                                <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                            @endif
                         </div>
                     </div>
                 </form>
@@ -2207,28 +2302,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         </div>
     @endif
 
-    <!-- CREATE CLUSTER MODAL -->
+    <!-- CREATE FORM MODAL -->
     @if($showClusterModal)
         <div class="modal-overlay" wire:click.self="closeClusterModal">
             <div class="modal-dialog">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
-                    <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">Create Inventory Submission Cluster</h3>
+                    <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">Create Inventory Submission Form</h3>
                     <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 14px;">
                     <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #1e40af; font-weight: 600;">
-                        📦 Packaging <strong>{{ count($selectedIds) }}</strong> selected inventory records into a submission cluster.
+                        📦 Packaging <strong>{{ count($selectedIds) }}</strong> selected inventory records into a submission form.
                     </div>
 
                     <div>
-                        <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Cluster Name</label>
+                        <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Form Name</label>
                         <input type="text" wire:model="clusterName" class="form-control" style="width: 100%; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;">
                     </div>
 
                     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
                         <button type="button" wire:click="closeClusterModal" class="nap-btn nap-btn-secondary">Cancel</button>
-                        <button type="button" wire:click="submitClusterCreation" class="nap-btn nap-btn-primary">Confirm & Create Cluster</button>
+                        <button type="button" wire:click="submitClusterCreation" class="nap-btn nap-btn-primary">Confirm & Create Form</button>
                     </div>
                 </div>
             </div>

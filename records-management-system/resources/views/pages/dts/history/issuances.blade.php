@@ -224,7 +224,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances History')] class extends C
             </div>
 
             <div class="rms-actions" style="display: flex; align-items: center; gap: 12px;">
-                <button type="button" wire:click="toggleLayout" class="rms-select" style="background: white; padding-right: 12px; display: inline-flex; align-items: center; gap: 6px; height: 34px;">
+                <button type="button" wire:click="toggleLayout" class="rms-select" style="background: white; background-image: none; padding-right: 12px; display: inline-flex; align-items: center; gap: 6px; height: 34px;">
                     @if ($layoutMode === 'table')
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
                         Grid

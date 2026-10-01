@@ -28,11 +28,29 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
         }
     }
 
+    protected function getUserContext(): array
+    {
+        $user = Auth::user();
+        $userId = $user?->id;
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        if (empty($userOffice) && !empty($user?->details?->office_id)) {
+            $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+        }
+        return [$userId, $userOffice];
+    }
+
     public function openEditSeriesModal(int $seriesId): void
     {
+        [$userId, $userOffice] = $this->getUserContext();
+        if (!$userId || !$userOffice) return;
+
         $series = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->where('rdp_record_series.id', $seriesId)
+            ->where('rdp_record_series.created_by', $userId)
+            ->where('rdp_record_series.recorded_at_office', $userOffice)
+            ->where('rdp_record_series.is_verified', false)
             ->select([
                 'rdp_record_series.*',
                 'rdp_retention_period.active_period',
@@ -61,11 +79,19 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
     public function saveSeriesDraftEdits(bool $andSubmit = false): void
     {
         if (!$this->editingSeriesId) return;
+        [$userId, $userOffice] = $this->getUserContext();
+        if (!$userId || !$userOffice) return;
 
         try {
             DB::beginTransaction();
 
-            $series = DB::table('rdp_record_series')->where('id', $this->editingSeriesId)->first();
+            $series = DB::table('rdp_record_series')
+                ->where('id', $this->editingSeriesId)
+                ->where('created_by', $userId)
+                ->where('recorded_at_office', $userOffice)
+                ->where('is_verified', false)
+                ->first();
+
             if ($series) {
                 $retentionId = $series->retention_period;
 
@@ -117,8 +143,16 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
 
     public function deleteDraftSeries(int $seriesId): void
     {
+        [$userId, $userOffice] = $this->getUserContext();
+        if (!$userId || !$userOffice) return;
+
         try {
-            DB::table('rdp_record_series')->where('id', $seriesId)->where('is_verified', false)->delete();
+            DB::table('rdp_record_series')
+                ->where('id', $seriesId)
+                ->where('is_verified', false)
+                ->where('created_by', $userId)
+                ->where('recorded_at_office', $userOffice)
+                ->delete();
             $this->successMessage = 'Draft schedule entry deleted successfully.';
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to delete draft: ' . $e->getMessage();
@@ -127,16 +161,18 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
 
     public function submitForApproval(int $seriesId): void
     {
-        try {
-            $user = Auth::user();
-            $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
-            if (empty($userOffice) && !empty($user?->details?->office_id)) {
-                $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
-                $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
-            }
+        [$userId, $userOffice] = $this->getUserContext();
+        if (!$userId || !$userOffice) return;
 
+        try {
             // Create a pending cluster in rdp_pending_record_series
-            $series = DB::table('rdp_record_series')->where('id', $seriesId)->first();
+            $series = DB::table('rdp_record_series')
+                ->where('id', $seriesId)
+                ->where('created_by', $userId)
+                ->where('recorded_at_office', $userOffice)
+                ->where('is_verified', false)
+                ->first();
+
             if (!$series) return;
 
             $mainPendingTbl = \Illuminate\Support\Facades\Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
@@ -152,7 +188,7 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
                 'cluster_name' => 'Schedule Submission — ' . ($series->series_title ?? 'Series Cluster'),
                 'status_id'    => 1, // Pending Verification
                 'office'       => $userOffice,
-                'created_by'   => $user->id,
+                'created_by'   => $userId,
                 'is_active'    => true,
                 'created_at'   => now(),
                 'updated_at'   => now(),
@@ -174,15 +210,19 @@ new #[Layout('layouts.rdp')] #[Title('Draft Records and Disposition Schedule')] 
 
     public function with(): array
     {
-        $userOffice = Auth::user()?->details?->office_code;
+        [$userId, $userOffice] = $this->getUserContext();
 
         $query = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->where('rdp_record_series.is_verified', false);
 
-        if ($userOffice) {
-            $query->where('rdp_record_series.recorded_at_office', $userOffice);
+        // Strict isolation: only drafts created by THIS user AND currently in THIS user's office
+        if (!$userId || !$userOffice) {
+            $query->whereRaw('1 = 0');
+        } else {
+            $query->where('rdp_record_series.created_by', $userId)
+                  ->where('rdp_record_series.recorded_at_office', $userOffice);
         }
 
         if (!empty(trim($this->search))) {

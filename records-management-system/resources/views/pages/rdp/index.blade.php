@@ -17,6 +17,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
     public string $receivedSearch = '';
     public string $nap3Search = '';
 
+    // Pagination for Dashboard Boxes (fits current height, max 5 items per page / on stack)
+    public int $clusterPage = 1;
+    public int $clusterPerPage = 5;
+    public int $receivedPage = 1;
+    public int $receivedPerPage = 5;
+
     // Add New Series Modal
     public bool $showAddSeriesModal = false;
     public string $newSeriesTitle = '';
@@ -41,15 +47,65 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         }
     }
 
+    public function updatedClusterSearch(): void
+    {
+        $this->clusterPage = 1;
+    }
+
+    public function updatedReceivedSearch(): void
+    {
+        $this->receivedPage = 1;
+    }
+
     public function setReceivedTab(string $tab): void
     {
         $this->receivedTab = strtoupper($tab) === 'DCS' ? 'DCS' : 'DTS';
         $this->receivedSearch = '';
+        $this->receivedPage = 1;
     }
 
     public function setClusterFilter(string $filter): void
     {
         $this->clusterFilter = in_array($filter, ['all', 'nap1', 'nap2', 'nap3']) ? $filter : 'all';
+        $this->clusterPage = 1;
+    }
+
+    public function previousClusterPage(): void
+    {
+        if ($this->clusterPage > 1) {
+            $this->clusterPage--;
+        }
+    }
+
+    public function nextClusterPage(int $maxPage): void
+    {
+        if ($this->clusterPage < $maxPage) {
+            $this->clusterPage++;
+        }
+    }
+
+    public function gotoClusterPage(int $page): void
+    {
+        $this->clusterPage = max(1, $page);
+    }
+
+    public function previousReceivedPage(): void
+    {
+        if ($this->receivedPage > 1) {
+            $this->receivedPage--;
+        }
+    }
+
+    public function nextReceivedPage(int $maxPage): void
+    {
+        if ($this->receivedPage < $maxPage) {
+            $this->receivedPage++;
+        }
+    }
+
+    public function gotoReceivedPage(int $page): void
+    {
+        $this->receivedPage = max(1, $page);
     }
 
     public function openAddSeriesModal(): void
@@ -191,6 +247,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     'retention_period'              => $isLeaf ? $retentionId : null,
                     'is_retention_period_permanent' => $isLeaf ? $this->newIsPermanent : false,
                     'recorded_at_office'            => $userOfficeCode,
+                    'created_by'                    => auth()->id(),
                     'is_verified'                   => false,
                     'remarks'                       => $isLeaf ? (trim($this->newRemarks) ?: null) : null,
                     'created_at'                    => now(),
@@ -313,12 +370,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
     {
         $user = Auth::user();
         $perms = $user?->permissions;
-        $isSadm = (bool)($perms?->is_sadm ?? false)
-            || (bool)($perms?->is_rdp_view_all_pending_list ?? false)
-            || (bool)($perms?->can_access_rdp_admin ?? false)
-            || (bool)($perms?->rdp_view_all_files ?? false);
+        $isSadm = (bool)($perms?->is_sadm ?? false);
 
+        $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
         $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        if (empty($userOfficeCode) && !empty($user?->details?->office_id)) {
+            $userOfficeCode = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+        }
+        $userOfficeName = $user?->details?->office?->office_name ?? null;
+        if (empty($userOfficeName) && !empty($user?->details?->office_id)) {
+            $userOfficeName = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_name');
+        }
         $userFirstName = trim($user?->details?->first_name ?? '') ?: ($user?->username ?? 'Officer');
         $userOffice = $user?->details?->office?->office_name ?: 'Records and Freedom of Information Office';
 
@@ -337,14 +399,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             ->where('is_draft', false)
             ->where('is_active', true)
             ->where('transferred_to_nap3', false)
-            ->when(!$isSadm && $userOfficeCode, fn($q) => $q->where('office_own', $userOfficeCode))
+            ->when($userOfficeCode, fn($q) => $q->where('office_own', $userOfficeCode))
             ->count();
 
         // NAP Form 2: Unverified record series created by the user / office (per user request)
         $nap2Count = DB::table('rdp_record_series')
             ->where('is_verified', false)
             ->where('is_active', true)
-            ->when(!$isSadm && $userOfficeCode, fn($q) => $q->where('recorded_at_office', $userOfficeCode))
+            ->when($userOfficeCode, fn($q) => $q->where('recorded_at_office', $userOfficeCode))
             ->count();
 
         // NAP Form 3: Records transferred for disposal authority
@@ -352,7 +414,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             ->where('transferred_to_nap3', true)
             ->where('is_draft', false)
             ->where('is_active', true)
-            ->when(!$isSadm && $userOfficeCode, fn($q) => $q->where('office_own', $userOfficeCode))
+            ->when($userOfficeCode, fn($q) => $q->where('office_own', $userOfficeCode))
             ->count();
 
         // -------------------------------------------------------------
@@ -383,7 +445,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     DB::raw("(SELECT COUNT(*) FROM rdp_grouped_record_series WHERE group_head = rdp_pending_record_series.cluster_id) as total_items")
                 ]);
 
-            if (!$isSadm && $userOfficeCode) {
+            if ($userOfficeCode) {
                 $qSeries->where(function($sub) use ($userOfficeCode) {
                     $sub->where('rdp_pending_record_series.office', $userOfficeCode)
                         ->orWhere('submitter_office.office_code', $userOfficeCode);
@@ -427,7 +489,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     DB::raw("(SELECT COUNT(*) FROM rdp_grouped_record WHERE group_head = rdp_pending_record.cluster_id) as total_items")
                 ]);
 
-            if (!$isSadm && $userOfficeCode) {
+            if ($userOfficeCode) {
                 $qRec->where(function($sub) use ($userOfficeCode) {
                     $sub->where('rdp_pending_record.office', $userOfficeCode)
                         ->orWhere('submitter_office.office_code', $userOfficeCode);
@@ -452,14 +514,29 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             $clustersCollection = $clustersCollection->concat($qRec->get());
         }
 
-        $createdClusters = $clustersCollection->sortByDesc('main_id')->values()->take(8);
         $totalClustersCount = $clustersCollection->count();
+        $clusterMaxPage = max(1, (int) ceil($totalClustersCount / $this->clusterPerPage));
+        if ($this->clusterPage > $clusterMaxPage) {
+            $this->clusterPage = $clusterMaxPage;
+        }
+        $createdClusters = $clustersCollection->sortByDesc('main_id')->values()->forPage($this->clusterPage, $this->clusterPerPage);
 
         // -------------------------------------------------------------
         // 3. RECEIVED DOCUMENTS (DTS / DCS) - DTS is Default
         // -------------------------------------------------------------
         $recDocsQuery = DB::table('rdp_received_documents')
             ->where('source_subsystem', $this->receivedTab);
+
+        if ($userOfficeCode) {
+            $recDocsQuery->where(function($q) use ($userOfficeCode, $userOfficeName) {
+                $q->where('origin_office', 'ILIKE', "%{$userOfficeCode}%")
+                  ->orWhere('target_office', 'ILIKE', "%{$userOfficeCode}%");
+                if (!empty($userOfficeName) && $userOfficeName !== $userOfficeCode) {
+                    $q->orWhere('origin_office', 'ILIKE', "%{$userOfficeName}%")
+                      ->orWhere('target_office', 'ILIKE', "%{$userOfficeName}%");
+                }
+            });
+        }
 
         if (!empty(trim($this->receivedSearch))) {
             $term = '%' . trim($this->receivedSearch) . '%';
@@ -471,9 +548,38 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             });
         }
 
-        $receivedDocs = $recDocsQuery->orderBy('id', 'desc')->take(8)->get();
-        $dcsCount = DB::table('rdp_received_documents')->where('source_subsystem', 'DCS')->count();
-        $dtsCount = DB::table('rdp_received_documents')->where('source_subsystem', 'DTS')->count();
+        $totalReceivedDocs = (clone $recDocsQuery)->count();
+        $receivedMaxPage = max(1, (int) ceil($totalReceivedDocs / $this->receivedPerPage));
+        if ($this->receivedPage > $receivedMaxPage) {
+            $this->receivedPage = $receivedMaxPage;
+        }
+        $receivedDocs = $recDocsQuery->orderBy('id', 'desc')
+            ->offset(($this->receivedPage - 1) * $this->receivedPerPage)
+            ->limit($this->receivedPerPage)
+            ->get();
+
+        $dcsCountQuery = DB::table('rdp_received_documents')->where('source_subsystem', 'DCS');
+        $dtsCountQuery = DB::table('rdp_received_documents')->where('source_subsystem', 'DTS');
+        if ($userOfficeCode) {
+            $dcsCountQuery->where(function($q) use ($userOfficeCode, $userOfficeName) {
+                $q->where('origin_office', 'ILIKE', "%{$userOfficeCode}%")
+                  ->orWhere('target_office', 'ILIKE', "%{$userOfficeCode}%");
+                if (!empty($userOfficeName) && $userOfficeName !== $userOfficeCode) {
+                    $q->orWhere('origin_office', 'ILIKE', "%{$userOfficeName}%")
+                      ->orWhere('target_office', 'ILIKE', "%{$userOfficeName}%");
+                }
+            });
+            $dtsCountQuery->where(function($q) use ($userOfficeCode, $userOfficeName) {
+                $q->where('origin_office', 'ILIKE', "%{$userOfficeCode}%")
+                  ->orWhere('target_office', 'ILIKE', "%{$userOfficeCode}%");
+                if (!empty($userOfficeName) && $userOfficeName !== $userOfficeCode) {
+                    $q->orWhere('origin_office', 'ILIKE', "%{$userOfficeName}%")
+                      ->orWhere('target_office', 'ILIKE', "%{$userOfficeName}%");
+                }
+            });
+        }
+        $dcsCount = $dcsCountQuery->count();
+        $dtsCount = $dtsCountQuery->count();
 
         // -------------------------------------------------------------
         // 4. LIST NAP FORM 3 (FOR THE NEWLY - HIERARCHICAL LAYOUT)
@@ -494,7 +600,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             ->where('rdp_record.is_draft', false)
             ->where('rdp_record.is_active', true);
 
-        if (!$isSadm && $userOfficeCode) {
+        if ($userOfficeCode) {
             $recordsQuery->where(function($q) use ($userOfficeCode) {
                 $q->where('rdp_record.office_own', $userOfficeCode)
                   ->orWhereExists(function($sub) use ($userOfficeCode) {
@@ -739,7 +845,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             'nap3Count'          => $nap3Count,
             'createdClusters'    => $createdClusters,
             'totalClustersCount' => $totalClustersCount,
+            'clusterPage'        => $this->clusterPage,
+            'clusterMaxPage'     => $clusterMaxPage,
+            'clusterPerPage'     => $this->clusterPerPage,
             'receivedDocs'       => $receivedDocs,
+            'totalReceivedDocs'  => $totalReceivedDocs,
+            'receivedPage'       => $this->receivedPage,
+            'receivedMaxPage'    => $receivedMaxPage,
+            'receivedPerPage'    => $this->receivedPerPage,
             'dcsCount'           => $dcsCount,
             'dtsCount'           => $dtsCount,
             'nap3Tree'           => $nap3Tree,
@@ -907,7 +1020,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             grid-template-columns: 1fr 1fr;
             gap: 14px;
             margin-bottom: 20px;
-            align-items: start;
+            align-items: stretch;
+        }
+
+        .rdp-grid-col {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            min-width: 0;
+            height: 100%;
         }
 
         /* Switch to stacked layout when content area is narrow (sidebar open on small monitor) */
@@ -1012,6 +1133,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.03);
             display: flex;
             flex-direction: column;
+            flex: 1;
+            min-height: 380px;
         }
 
         .rdp-card-header {
@@ -1021,6 +1144,60 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             margin-bottom: 16px;
             flex-wrap: wrap;
             gap: 10px;
+        }
+
+        .rdp-card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin-top: auto;
+            padding-top: 10px;
+            border-top: 1px solid #f1f5f9;
+            min-height: 36px;
+            flex-wrap: wrap;
+        }
+
+        .rdp-pagination-bar {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .rdp-page-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 26px;
+            height: 24px;
+            padding: 0 6px;
+            font-size: 11px;
+            font-weight: 700;
+            border-radius: 6px;
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            color: #475569;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .rdp-page-btn:hover:not(.disabled):not(.active) {
+            background: #f1f5f9;
+            border-color: #94a3b8;
+            color: #0f172a;
+        }
+
+        .rdp-page-btn.active {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: #ffffff;
+            cursor: default;
+        }
+
+        .rdp-page-btn.disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+            background: #f8fafc;
         }
 
         .rdp-card-title {
@@ -1039,7 +1216,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             display: flex;
             justify-content: space-between;
             align-items: flex-end;
-            height: 48px;
+            height: 49px;
             margin-bottom: -1px;
             position: relative;
             z-index: 2;
@@ -1368,6 +1545,32 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             color: #ffffff !important;
         }
 
+        [data-theme="dark"] .rdp-card-footer {
+            border-top-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .rdp-page-btn {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .rdp-page-btn:hover:not(.disabled):not(.active) {
+            background: #1e293b !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .rdp-page-btn.active {
+            background: #2563eb !important;
+            border-color: #2563eb !important;
+            color: #ffffff !important;
+        }
+
+        [data-theme="dark"] .rdp-page-btn.disabled {
+            opacity: 0.3 !important;
+            background: #0f172a !important;
+        }
+
         [data-theme="dark"] .modal-dialog {
             background: #131c2e !important;
             border: 1px solid #1e293b !important;
@@ -1438,7 +1641,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
     <div class="rdp-grid-split">
 
         <!-- LEFT COLUMN: TOTAL NAP FORM STATS + LIST OF CREATED CLUSTERS -->
-        <div>
+        <div class="rdp-grid-col">
             <!-- 3 COMPACT STATS PILLS (NEVER WRAP, EXACTLY FIT ONE ROW) -->
             <div class="nap-stats-row">
                 <a href="{{ route('rdp.reports.nap-form-1') }}" class="nap-stat-pill pill-nap1" title="NAP Form 1: Records Inventory & Appraisal">
@@ -1466,24 +1669,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                 </a>
             </div>
 
-            <!-- LIST OF CREATED CLUSTERS BOX -->
+            <!-- LIST OF CREATED FORMS BOX -->
             <div class="rdp-card-box">
                 <div class="rdp-card-header">
                     <div>
                         <h2 class="rdp-card-title">
                             <i class="fa-solid fa-boxes-stacked" style="color: #2563eb;"></i>
-                            List of Created Clusters
+                            List of Created Forms
                             <span style="font-size: 11px; font-weight: 700; color: #64748b; background: #f1f5f9; padding: 2px 7px; border-radius: 10px; margin-left: 4px;">
                                 {{ number_format($totalClustersCount) }}
                             </span>
                         </h2>
-                        <span style="font-size: 11.5px; color: #64748b;">Clusters queued for verification</span>
+                        <span style="font-size: 11.5px; color: #64748b;">Forms queued for verification</span>
                     </div>
 
                     <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
                         <input type="text"
                                wire:model.live.debounce.300ms="clusterSearch"
-                               placeholder="Search cluster..."
+                               placeholder="Search form..."
                                class="rdp-search-input"
                                style="width: 120px; padding: 5px 8px; font-size: 11.5px;">
                     </div>
@@ -1498,12 +1701,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     <button type="button" wire:click="setClusterFilter('nap3')" class="chip-filter {{ $clusterFilter === 'nap3' ? 'active' : '' }}" style="padding: 2px 7px; font-size: 10.5px;">Form 3</button>
                 </div>
 
-                <!-- Clusters Table -->
+                <!-- Forms Table -->
                 <div style="overflow-x: auto; flex: 1;">
                     <table class="rdp-compact-table">
                         <thead>
                             <tr>
-                                <th style="min-width: 130px;">Cluster Title</th>
+                                <th style="min-width: 130px;">Form Title</th>
                                 <th style="width: 50px; text-align: center;">Form</th>
                                 <th style="width: 55px; text-align: center;">Office</th>
                                 <th style="width: 75px; text-align: center;">Status</th>
@@ -1558,7 +1761,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                                         <button type="button"
                                                 wire:click="inspectCluster({{ (int)$cluster->cluster_id }}, '{{ $formCode }}')"
                                                 class="nap-action-link"
-                                                title="Quick inspect cluster"
+                                                title="Quick inspect form"
                                                 style="padding: 3px 8px; font-size: 11px;">
                                             <i class="fa-regular fa-eye"></i> View
                                         </button>
@@ -1568,8 +1771,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                                 <tr>
                                     <td colspan="5" style="text-align: center; padding: 40px 16px; color: #64748b;">
                                         <div style="font-size: 28px; margin-bottom: 8px;">📦</div>
-                                        <div style="font-weight: 700; font-size: 13.5px; color: #334155;">No Created Clusters Found</div>
-                                        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Clusters created for NAP Forms 1, 2, or 3 will appear here.</div>
+                                        <div style="font-weight: 700; font-size: 13.5px; color: #334155;">No Created Forms Found</div>
+                                        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Forms created for NAP Forms 1, 2, or 3 will appear here.</div>
                                     </td>
                                 </tr>
                             @endforelse
@@ -1577,9 +1780,56 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     </table>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 10px; border-top: 1px solid #f1f5f9;">
-                    <span style="font-size: 11.5px; color: #64748b;">Showing latest {{ count($createdClusters) }} clusters</span>
-                    <a href="{{ route('rdp.pending.list') }}" style="font-size: 12px; font-weight: 700; color: #2563eb; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                <div class="rdp-card-footer">
+                    <div style="font-size: 11.5px; color: #64748b; white-space: nowrap;">
+                        @if($totalClustersCount > 0)
+                            @php
+                                $cFrom = ($clusterPage - 1) * $clusterPerPage + 1;
+                                $cTo = min($totalClustersCount, $clusterPage * $clusterPerPage);
+                            @endphp
+                            <span>Showing {{ $cFrom }}–{{ $cTo }} of {{ $totalClustersCount }} forms</span>
+                        @else
+                            <span>Showing 0 forms</span>
+                        @endif
+                    </div>
+
+                    @if($clusterMaxPage > 1)
+                        <div class="rdp-pagination-bar">
+                            <button type="button"
+                                    wire:click="previousClusterPage"
+                                    @if($clusterPage <= 1) disabled @endif
+                                    class="rdp-page-btn {{ $clusterPage <= 1 ? 'disabled' : '' }}"
+                                    title="Previous page">
+                                <i class="fa-solid fa-chevron-left"></i>
+                            </button>
+
+                            @for($p = 1; $p <= $clusterMaxPage; $p++)
+                                @if($clusterMaxPage <= 5 || abs($p - $clusterPage) <= 1 || $p == 1 || $p == $clusterMaxPage)
+                                    @if($clusterMaxPage > 5 && $p == $clusterMaxPage && $clusterPage < $clusterMaxPage - 2)
+                                        <span style="font-size: 10px; color: #94a3b8; padding: 0 1px;">...</span>
+                                    @endif
+                                    <button type="button"
+                                            wire:click="gotoClusterPage({{ $p }})"
+                                            class="rdp-page-btn {{ $clusterPage === $p ? 'active' : '' }}">
+                                        {{ $p }}
+                                    </button>
+                                    @if($clusterMaxPage > 5 && $p == 1 && $clusterPage > 3)
+                                        <span style="font-size: 10px; color: #94a3b8; padding: 0 1px;">...</span>
+                                    @endif
+                                @endif
+                            @endfor
+
+                            <button type="button"
+                                    wire:click="nextClusterPage({{ $clusterMaxPage }})"
+                                    @if($clusterPage >= $clusterMaxPage) disabled @endif
+                                    class="rdp-page-btn {{ $clusterPage >= $clusterMaxPage ? 'disabled' : '' }}"
+                                    title="Next page">
+                                <i class="fa-solid fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    @endif
+
+                    <a href="{{ route('rdp.pending.list') }}" style="font-size: 12px; font-weight: 700; color: #2563eb; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;">
                         Open Hub <i class="fa-solid fa-arrow-right"></i>
                     </a>
                 </div>
@@ -1587,7 +1837,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         </div>
 
         <!-- RIGHT COLUMN: RECEIVED DOCUMENT WITH DTS / DCS TABS (DTS DEFAULT) -->
-        <div>
+        <div class="rdp-grid-col">
             <!-- TABS MOUNTED ABOVE THE BOX (MATCHES STATS PILL HEIGHT EXACTLY) -->
             <div class="rdp-tabs-header-wrapper">
                 <div class="rdp-folder-tabs">
@@ -1712,12 +1962,57 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     </table>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid #f1f5f9;">
-                    <span style="font-size: 12px; color: #64748b;">
-                        Showing {{ count($receivedDocs) }} of {{ $receivedTab === 'DTS' ? $dtsCount : $dcsCount }} documents
-                    </span>
+                <div class="rdp-card-footer">
+                    <div style="font-size: 11.5px; color: #64748b; white-space: nowrap;">
+                        @if($totalReceivedDocs > 0)
+                            @php
+                                $rFrom = ($receivedPage - 1) * $receivedPerPage + 1;
+                                $rTo = min($totalReceivedDocs, $receivedPage * $receivedPerPage);
+                            @endphp
+                            <span>Showing {{ $rFrom }}–{{ $rTo }} of {{ $totalReceivedDocs }} documents</span>
+                        @else
+                            <span>Showing 0 documents</span>
+                        @endif
+                    </div>
+
+                    @if($receivedMaxPage > 1)
+                        <div class="rdp-pagination-bar">
+                            <button type="button"
+                                    wire:click="previousReceivedPage"
+                                    @if($receivedPage <= 1) disabled @endif
+                                    class="rdp-page-btn {{ $receivedPage <= 1 ? 'disabled' : '' }}"
+                                    title="Previous page">
+                                <i class="fa-solid fa-chevron-left"></i>
+                            </button>
+
+                            @for($p = 1; $p <= $receivedMaxPage; $p++)
+                                @if($receivedMaxPage <= 5 || abs($p - $receivedPage) <= 1 || $p == 1 || $p == $receivedMaxPage)
+                                    @if($receivedMaxPage > 5 && $p == $receivedMaxPage && $receivedPage < $receivedMaxPage - 2)
+                                        <span style="font-size: 10px; color: #94a3b8; padding: 0 1px;">...</span>
+                                    @endif
+                                    <button type="button"
+                                            wire:click="gotoReceivedPage({{ $p }})"
+                                            class="rdp-page-btn {{ $receivedPage === $p ? 'active' : '' }}">
+                                        {{ $p }}
+                                    </button>
+                                    @if($receivedMaxPage > 5 && $p == 1 && $receivedPage > 3)
+                                        <span style="font-size: 10px; color: #94a3b8; padding: 0 1px;">...</span>
+                                    @endif
+                                @endif
+                            @endfor
+
+                            <button type="button"
+                                    wire:click="nextReceivedPage({{ $receivedMaxPage }})"
+                                    @if($receivedPage >= $receivedMaxPage) disabled @endif
+                                    class="rdp-page-btn {{ $receivedPage >= $receivedMaxPage ? 'disabled' : '' }}"
+                                    title="Next page">
+                                <i class="fa-solid fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    @endif
+
                     <a href="{{ $receivedTab === 'DTS' ? route('rdp.received-documents.dts') : route('rdp.received-documents.dcs') }}"
-                       style="font-size: 12.5px; font-weight: 700; color: #0284c7; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                       style="font-size: 12px; font-weight: 700; color: #0284c7; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;">
                         Open {{ $receivedTab }} Intake Hub <i class="fa-solid fa-arrow-right"></i>
                     </a>
                 </div>
@@ -2033,7 +2328,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                             {{ $selectedCluster->cluster_name }}
                         </h3>
                         <div style="font-size: 12px; color: #64748b;">
-                            {{ $selectedCluster->form_label ?? 'NAP Cluster' }} &bull; {{ $selectedCluster->office_name ?: ($selectedCluster->office ?: 'Office') }}
+                            {{ $selectedCluster->form_label ?? 'NAP Form' }} &bull; {{ $selectedCluster->office_name ?: ($selectedCluster->office ?: 'Office') }}
                         </div>
                     </div>
                     <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #64748b;">✕</button>
@@ -2074,7 +2369,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                                 @empty
                                     <tr>
                                         <td colspan="4" style="text-align: center; padding: 20px; color: #64748b;">
-                                            No item details found for this cluster.
+                                            No item details found for this form.
                                         </td>
                                     </tr>
                                 @endforelse

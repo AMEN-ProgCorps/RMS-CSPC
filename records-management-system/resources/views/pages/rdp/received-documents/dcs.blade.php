@@ -13,6 +13,8 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
 
     public string $search = '';
     public string $statusFilter = 'all'; // 'all', 'pending', 'appraised', 'dismissed'
+    public string $dateFilter = 'all'; // 'all', 'today', 'week', 'month', 'year'
+    public string $officeFilter = '';
     public string $layoutMode = 'table'; // 'table' or 'box'
     public int $perPage = 15;
 
@@ -47,6 +49,16 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
     }
 
     public function updatingStatusFilter(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatingDateFilter(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatingOfficeFilter(): void
     {
         $this->resetPage();
     }
@@ -186,11 +198,53 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
 
     public function with(): array
     {
+        $user = Auth::user();
+        $perms = $user?->permissions;
+        $canViewAll = (bool)($perms?->is_sadm ?? false)
+            || (bool)($perms?->is_rdp_view_all_received_docs ?? false);
+        if (!$canViewAll) {
+            $this->officeFilter = '';
+        }
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        if (empty($userOffice) && !empty($user?->details?->office_id)) {
+            $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
+        }
+
+        $officesList = DB::table($officeTbl)
+            ->where('is_active', true)
+            ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
+            ->orderBy('office_name', 'asc')
+            ->get();
+
         $query = DB::table('rdp_received_documents')
             ->where('source_subsystem', 'DCS');
 
+        if (!$canViewAll && $userOffice) {
+            $query->where(function($q) use ($userOffice) {
+                $q->where('origin_office', 'ilike', "%{$userOffice}%")
+                  ->orWhere('target_office', 'ilike', "%{$userOffice}%");
+            });
+        } elseif ($canViewAll && !empty($this->officeFilter)) {
+            $off = trim($this->officeFilter);
+            $query->where(function($q) use ($off) {
+                $q->where('origin_office', 'ilike', "%{$off}%")
+                  ->orWhere('target_office', 'ilike', "%{$off}%");
+            });
+        }
+
         if ($this->statusFilter !== 'all') {
             $query->where('status', $this->statusFilter);
+        }
+
+        if ($this->dateFilter === 'today') {
+            $query->whereDate('date_received', Carbon::today());
+        } elseif ($this->dateFilter === 'week') {
+            $query->where('date_received', '>=', Carbon::now()->startOfWeek()->toDateString());
+        } elseif ($this->dateFilter === 'month') {
+            $query->where('date_received', '>=', Carbon::now()->startOfMonth()->toDateString());
+        } elseif ($this->dateFilter === 'year') {
+            $query->where('date_received', '>=', Carbon::now()->startOfYear()->toDateString());
         }
 
         if (!empty($this->search)) {
@@ -205,11 +259,25 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
 
         $documents = $query->orderBy('created_at', 'desc')->paginate($this->perPage);
 
-        // Counters
-        $totalAll = DB::table('rdp_received_documents')->where('source_subsystem', 'DCS')->count();
-        $totalPending = DB::table('rdp_received_documents')->where('source_subsystem', 'DCS')->where('status', 'pending')->count();
-        $totalAppraised = DB::table('rdp_received_documents')->where('source_subsystem', 'DCS')->where('status', 'appraised')->count();
-        $totalDismissed = DB::table('rdp_received_documents')->where('source_subsystem', 'DCS')->where('status', 'dismissed')->count();
+        // Counters respecting office scope
+        $counterQuery = DB::table('rdp_received_documents')->where('source_subsystem', 'DCS');
+        if (!$canViewAll && $userOffice) {
+            $counterQuery->where(function($q) use ($userOffice) {
+                $q->where('origin_office', 'ilike', "%{$userOffice}%")
+                  ->orWhere('target_office', 'ilike', "%{$userOffice}%");
+            });
+        } elseif ($canViewAll && !empty($this->officeFilter)) {
+            $off = trim($this->officeFilter);
+            $counterQuery->where(function($q) use ($off) {
+                $q->where('origin_office', 'ilike', "%{$off}%")
+                  ->orWhere('target_office', 'ilike', "%{$off}%");
+            });
+        }
+
+        $totalAll = (clone $counterQuery)->count();
+        $totalPending = (clone $counterQuery)->where('status', 'pending')->count();
+        $totalAppraised = (clone $counterQuery)->where('status', 'appraised')->count();
+        $totalDismissed = (clone $counterQuery)->where('status', 'dismissed')->count();
 
         // Sample / recent DCS documents for quick import modal
         $availableDcs = collect();
@@ -236,6 +304,9 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
             'totalAppraised' => $totalAppraised,
             'totalDismissed' => $totalDismissed,
             'availableDcs'   => $availableDcs,
+            'officesList'    => $officesList,
+            'canViewAll'     => $canViewAll,
+            'userOffice'     => $userOffice,
         ];
     }
 };
@@ -800,6 +871,25 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
                 </svg>
                 <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search doc no, title...">
             </div>
+
+            <!-- Date Filter -->
+            <select wire:model.live="dateFilter" title="Filter by Date" style="padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 600; color: #334155; background: #ffffff; outline: none; cursor: pointer;">
+                <option value="all">All Dates</option>
+                <option value="today">Today</option>
+                <option value="week">This Week</option>
+                <option value="month">This Month</option>
+                <option value="year">This Year</option>
+            </select>
+
+            <!-- Admin Office Select Filter -->
+            @if($canViewAll)
+                <select wire:model.live="officeFilter" title="Filter by Office" style="padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 600; color: #334155; background: #ffffff; outline: none; cursor: pointer;">
+                    <option value="">All Offices (Super Admin)</option>
+                    @foreach($officesList as $off)
+                        <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
+                    @endforeach
+                </select>
+            @endif
 
             <!-- Layout Toggle -->
             <button type="button" wire:click="toggleLayout" class="btn-toggle-view" title="Toggle Layout View">

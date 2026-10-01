@@ -61,6 +61,7 @@ class role_permission extends Model
         'can_access_recycle_bin',
         'rdp_view_all_files',
         'is_rdp_view_all_pending_list',
+        'is_rdp_view_all_received_docs',
         'can_rdp_modify_series',
         'can_rdp_generate_reports',
         // Per-form clearances
@@ -128,6 +129,7 @@ class role_permission extends Model
         'can_access_recycle_bin' => 'boolean',
         'rdp_view_all_files'               => 'boolean',
         'is_rdp_view_all_pending_list'     => 'boolean',
+        'is_rdp_view_all_received_docs'     => 'boolean',
         'can_rdp_modify_series'             => 'boolean',
         'can_rdp_generate_reports'          => 'boolean',
         // Per-form clearances

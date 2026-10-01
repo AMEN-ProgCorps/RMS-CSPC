@@ -993,9 +993,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             $this->record_series_id = $lastSeriesId;
 
+            $documentIdHandler = null;
             if ($this->uploadedFile) {
                 $uploadResult = \App\Services\DocumentStorageService::storeUpload($this->uploadedFile, 'RDP', $user);
                 $documentIdHandler = $uploadResult['document_id'];
+            } elseif (!empty($this->prefill_doc_id)) {
+                $documentIdHandler = $this->prefill_doc_id;
             }
 
             $periodId = null;
@@ -1223,10 +1226,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             $this->record_series_id = $lastSeriesId;
 
+            $documentIdHandler = null;
             if ($this->uploadedFile) {
                 $uploadResult = \App\Services\DocumentStorageService::storeUpload($this->uploadedFile, 'RDP', $user);
                 $documentIdHandler = $uploadResult['document_id'];
-            } elseif ($this->prefill_doc_id) {
+            } elseif (!empty($this->prefill_doc_id)) {
                 $documentIdHandler = $this->prefill_doc_id;
             }
 

@@ -420,11 +420,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     {
         if (!$this->editingSeriesId) return;
 
+        if (!$this->canEditDescription) {
+            $this->errorMessage = 'You do not have clearance to edit this record series.';
+            return;
+        }
+
         $series = DB::table('rdp_record_series')->where('id', $this->editingSeriesId)->first();
         if (!$series) return;
 
         $cleanTitle = trim($this->editSeriesTitle);
-        if ($this->canEditDescription && empty($cleanTitle)) {
+        if (empty($cleanTitle)) {
             $this->errorMessage = 'Series title cannot be empty.';
             return;
         }
@@ -741,6 +746,37 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         .nap-input { padding: 9px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; background: #ffffff; color: #0f172a; }
         .nap-search-input { min-width: 280px; }
         .nap-select-input { font-weight: 600; }
+
+        .nap-form-control {
+            width: 100%;
+            height: 40px;
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+            box-sizing: border-box;
+            background: #ffffff;
+            color: #0f172a;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .nap-form-control:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+        .nap-form-control:disabled,
+        .nap-form-control[readonly] {
+            background-color: #f8fafc !important;
+            border-color: #e2e8f0 !important;
+            color: #64748b !important;
+            cursor: not-allowed !important;
+        }
+        textarea.nap-form-control {
+            height: auto;
+            min-height: 70px;
+            resize: vertical;
+        }
 
         .nap-chevron-btn {
             background: transparent;
@@ -1179,9 +1215,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                             @endif
                         </div>
                         @if($canEditDescription)
-                            <input type="text" wire:model="editSeriesTitle" style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box;" required>
+                            <input type="text" wire:model="editSeriesTitle" class="nap-form-control" required>
                         @else
-                            <input type="text" wire:model="editSeriesTitle" readonly disabled style="width: 100%; padding: 10px 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box; background: #f8fafc; color: #64748b; cursor: not-allowed;" title="Editing series title is locked due to lack of clearance">
+                            <input type="text" wire:model="editSeriesTitle" class="nap-form-control" readonly disabled title="Editing series title is locked due to lack of clearance">
                         @endif
                     </div>
 
@@ -1193,16 +1229,24 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                             @endif
                         </label>
                         @if($isRootParentForEdit)
-                            <input type="number" wire:model="editItemNumber" placeholder="e.g. 1, 2, 15" style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box;">
+                            @if($canEditDescription)
+                                <input type="number" wire:model="editItemNumber" placeholder="e.g. 1, 2, 15" class="nap-form-control">
+                            @else
+                                <input type="number" wire:model="editItemNumber" class="nap-form-control" readonly disabled placeholder="e.g. 1, 2, 15">
+                            @endif
                             <span style="font-size: 11.5px; color: #64748b; margin-top: 4px; display: block;">Item numbers are assigned exclusively to top-level root series.</span>
                         @else
-                            <input type="text" value="— (Subsections/Children cannot have Item No.)" disabled style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; background: #f1f5f9; color: #64748b; cursor: not-allowed; box-sizing: border-box;">
+                            <input type="text" value="— (Subsections/Children cannot have Item No.)" disabled class="nap-form-control" style="background: #f1f5f9; color: #64748b; cursor: not-allowed;">
                         @endif
                     </div>
 
                     <div>
                         <label style="font-size: 13px; font-weight: 700; color: #334155; display: block; margin-bottom: 6px;">Remarks</label>
-                        <textarea wire:model="editRemarks" rows="3" placeholder="Additional disposition notes, remarks..." style="width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13.5px; outline: none; box-sizing: border-box;"></textarea>
+                        @if($canEditDescription)
+                            <textarea wire:model="editRemarks" rows="3" placeholder="Additional disposition notes, remarks..." class="nap-form-control"></textarea>
+                        @else
+                            <textarea wire:model="editRemarks" rows="3" readonly disabled placeholder="Additional disposition notes, remarks..." class="nap-form-control"></textarea>
+                        @endif
                     </div>
 
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
@@ -1211,7 +1255,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                                 @if($isSeriesUsedInNap1)
                                     <div style="display: inline-flex; align-items: center; gap: 8px;">
                                         <button type="button" disabled class="nap-btn" style="background: #f1f5f9; color: #94a3b8; border: 1px solid #cbd5e1; cursor: not-allowed; opacity: 0.7;" title="Cannot be canceled: this record series is currently used in NAP Form 1">
-                                            Cancel Series
+                                             Cancel Series
                                         </button>
                                         <span style="font-size: 11.5px; color: #dc2626; font-weight: 600;">(Cannot cancel: currently used in NAP Form 1)</span>
                                     </div>
@@ -1225,7 +1269,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
                         <div style="display: flex; gap: 10px;">
                             <button type="button" wire:click="closeEditModal" class="nap-btn nap-btn-secondary">Close</button>
-                            <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                            @if($canEditDescription)
+                                <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                            @endif
                         </div>
                     </div>
                 </form>

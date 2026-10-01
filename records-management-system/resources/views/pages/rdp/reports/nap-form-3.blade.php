@@ -485,8 +485,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     {
         if (!$this->editingSubjectId) return;
 
+        if (!$this->canEditDescription) {
+            $this->errorMessage = 'You do not have clearance to edit this record.';
+            return;
+        }
+
         $cleanDesc = trim($this->editSubjectDescription);
-        if ($this->canEditDescription && empty($cleanDesc)) {
+        if (empty($cleanDesc)) {
             $this->errorMessage = 'Subject description cannot be empty.';
             return;
         }
@@ -1313,6 +1318,45 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         .nap-search-input { min-width: 280px; }
         .nap-select-input { font-weight: 600; }
 
+        .nap-form-control {
+            width: 100%;
+            height: 40px;
+            padding: 8px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+            box-sizing: border-box;
+            background: #ffffff;
+            color: #0f172a;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .nap-form-control:focus {
+            border-color: #dc2626;
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+        }
+        .nap-form-control:disabled,
+        .nap-form-control[readonly] {
+            background-color: #f8fafc !important;
+            border-color: #e2e8f0 !important;
+            color: #64748b !important;
+            cursor: not-allowed !important;
+        }
+        textarea.nap-form-control {
+            height: auto;
+            min-height: 60px;
+            resize: vertical;
+        }
+        select.nap-form-control {
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+            background-position: right 0.6rem center;
+            background-repeat: no-repeat;
+            background-size: 1.5em 1.5em;
+            padding-right: 2.2rem;
+        }
+
         /* Row styles strictly matching Mockup */
         .root-series-row { background: #f8fafc; font-weight: 800; border-top: 2px solid #cbd5e1 !important; border-bottom: 2px solid #cbd5e1 !important; }
         .sub-series-row { background: #ffffff; font-weight: 700; border-bottom: 1px solid #cbd5e1; }
@@ -2098,9 +2142,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             @endif
                         </div>
                         @if($canEditDescription)
-                            <textarea wire:model="editSubjectDescription" rows="2" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;" placeholder="Enter record subject title or description" required></textarea>
+                            <textarea wire:model="editSubjectDescription" rows="2" class="nap-form-control" placeholder="Enter record subject title or description" required></textarea>
                         @else
-                            <textarea wire:model="editSubjectDescription" rows="2" readonly disabled style="width: 100%; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #f8fafc; color: #64748b; cursor: not-allowed;" title="Editing description is locked due to lack of clearance"></textarea>
+                            <textarea wire:model="editSubjectDescription" rows="2" class="nap-form-control" readonly disabled title="Editing description is locked due to lack of clearance"></textarea>
                         @endif
                     </div>
 
@@ -2108,11 +2152,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Period Covered / Inclusive Dates</label>
-                            <input type="text" wire:model="editSubjectDateCovered" placeholder="e.g. 2020-2024 or 2023" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;">
+                            <input type="text" wire:model="editSubjectDateCovered" class="nap-form-control" placeholder="e.g. 2020-2024 or 2023" {{ !$canEditDescription ? 'readonly disabled' : '' }}>
                         </div>
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Volume Amount & Unit</label>
-                            <input type="text" wire:model="editSubjectVolume" placeholder="e.g. 2 papers, 1 box, 2 bundles" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;">
+                            <input type="text" wire:model="editSubjectVolume" class="nap-form-control" placeholder="e.g. 2 papers, 1 box, 2 bundles" {{ !$canEditDescription ? 'readonly disabled' : '' }}>
                         </div>
                     </div>
 
@@ -2120,11 +2164,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Location of Records</label>
-                            <input type="text" wire:model="editSubjectLocation" placeholder="e.g. Cabinet 2L, Shelf 3" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box;">
+                            <input type="text" wire:model="editSubjectLocation" class="nap-form-control" placeholder="e.g. Cabinet 2L, Shelf 3" {{ !$canEditDescription ? 'readonly disabled' : '' }}>
                         </div>
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Medium</label>
-                            <select wire:model="editSubjectMedium" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                            <select wire:model="editSubjectMedium" class="nap-form-control" {{ !$canEditDescription ? 'disabled' : '' }}>
                                 <option value="" {{ empty($editSubjectMedium) ? 'selected' : '' }}>Select Medium...</option>
                                 @foreach($mediaList as $med)
                                     <option value="{{ $med->id }}" {{ (string)$editSubjectMedium === (string)$med->id ? 'selected' : '' }}>{{ $med->medium_name }}</option>
@@ -2137,7 +2181,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Restriction / Access</label>
-                            <select wire:model="editSubjectRestriction" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                            <select wire:model="editSubjectRestriction" class="nap-form-control" {{ !$canEditDescription ? 'disabled' : '' }}>
                                 <option value="" {{ empty($editSubjectRestriction) ? 'selected' : '' }}>Select Restriction...</option>
                                 @foreach($restrictionsList as $rest)
                                     <option value="{{ $rest->restriction_value }}" {{ $editSubjectRestriction === $rest->restriction_value ? 'selected' : '' }}>{{ $rest->restriction_value }}</option>
@@ -2146,7 +2190,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         </div>
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Frequency of Use</label>
-                            <select wire:model="editSubjectFrequency" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                            <select wire:model="editSubjectFrequency" class="nap-form-control" {{ !$canEditDescription ? 'disabled' : '' }}>
                                 <option value="" {{ empty($editSubjectFrequency) ? 'selected' : '' }}>Select Frequency...</option>
                                 @foreach($frequenciesList as $freq)
                                     <option value="{{ $freq->freq_type }}" {{ $editSubjectFrequency === $freq->freq_type ? 'selected' : '' }}>{{ $freq->freq_type }}</option>
@@ -2156,10 +2200,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     </div>
 
                     <!-- Row 4: Time Value & Utility Value -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start;">
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Time Value (T/P)</label>
-                            <select wire:model="editSubjectTimeValue" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; box-sizing: border-box; background: #fff;">
+                            <select wire:model="editSubjectTimeValue" class="nap-form-control" {{ !$canEditDescription ? 'disabled' : '' }}>
                                 @foreach($timeValuesList as $tv)
                                     <option value="{{ $tv->char_value }}" {{ $editSubjectTimeValue === $tv->char_value ? 'selected' : '' }}>{{ $tv->char_value }} — {{ $tv->description }}</option>
                                 @endforeach
@@ -2167,11 +2211,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         </div>
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Utility Value</label>
-                            <div style="display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
                                 @foreach($utilityValuesList as $uv)
-                                    <label style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: #334155; background: #f8fafc; border: 1px solid #cbd5e1; padding: 4px 8px; border-radius: 6px; cursor: pointer;">
-                                        <input type="checkbox" wire:model="editSubjectUtilities" value="{{ $uv->id }}" style="accent-color: #dc2626;">
-                                        <span>{{ $uv->utility_name }}</span>
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 7px 10px; border-radius: 8px; border: 1px solid {{ !$canEditDescription ? '#e2e8f0' : '#cbd5e1' }}; background: {{ !$canEditDescription ? '#f8fafc' : '#ffffff' }}; color: {{ !$canEditDescription ? '#64748b' : '#334155' }}; cursor: {{ !$canEditDescription ? 'not-allowed' : 'pointer' }}; box-sizing: border-box;">
+                                        <input type="checkbox" wire:model="editSubjectUtilities" value="{{ $uv->id }}" {{ !$canEditDescription ? 'disabled' : '' }} style="accent-color: #dc2626; width: 14px; height: 14px; cursor: {{ !$canEditDescription ? 'not-allowed' : 'pointer' }}; margin: 0;">
+                                        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $uv->utility_name }}</span>
                                     </label>
                                 @endforeach
                             </div>
@@ -2188,7 +2232,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         </div>
                         <div style="display: flex; gap: 10px;">
                             <button type="button" wire:click="closeEditSubjectModal" class="nap-btn nap-btn-secondary">Close</button>
-                            <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                            @if($canEditDescription)
+                                <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                            @endif
                         </div>
                     </div>
                 </form>

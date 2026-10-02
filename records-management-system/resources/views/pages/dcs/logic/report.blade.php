@@ -148,6 +148,46 @@ class ReportHelper
         return (int) $year;
     }
 
+    /** Print the same HTML the preview uses, so the downloaded PDF matches print. */
+    private function renderPreviewPdf(string $html): ?string
+    {
+        $binary = null;
+        foreach (['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable'] as $path) {
+            if (is_executable($path)) {
+                $binary = $path;
+                break;
+            }
+        }
+        if ($binary === null) {
+            return null;
+        }
+
+        $dir = sys_get_temp_dir();
+        $id = bin2hex(random_bytes(8));
+        $htmlFile = $dir.'/ml-'.$id.'.html';
+        $pdfFile = $dir.'/ml-'.$id.'.pdf';
+        file_put_contents($htmlFile, $html);
+
+        $cmd = 'HOME='.escapeshellarg($dir).' '.implode(' ', [
+            escapeshellarg($binary),
+            '--headless=new',
+            '--disable-gpu',
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            '--no-pdf-header-footer',
+            '--print-to-pdf-no-header',
+            '--print-to-pdf='.escapeshellarg($pdfFile),
+            escapeshellarg($htmlFile),
+        ]);
+
+        exec($cmd.' 2>/dev/null', $unused, $code);
+        $pdf = ($code === 0 && is_file($pdfFile)) ? file_get_contents($pdfFile) : false;
+        @unlink($htmlFile);
+        @unlink($pdfFile);
+
+        return is_string($pdf) && $pdf !== '' ? $pdf : null;
+    }
+
     /** CSPC form code shown on the report letterhead (right of blue rule). */
     private function letterNumberForReport(?string $category, ?string $sub): string
     {
@@ -520,9 +560,8 @@ class ReportHelper
     }
 
     /**
-     * Keep each document's revisions together. Date sorts use the earliest
-     * (ASC) or latest (DESC) effectivity in the family so years run in order
-     * instead of following the newest revision.
+     * Keep each document's revisions together. Date sorts use only the latest
+     * document in the family, so an older revision does not move the group.
      */
     private function sortRevisionFamilies($rows, array $filters, callable $masterlistOf)
     {
@@ -536,6 +575,13 @@ class ReportHelper
                     $this->familyDateSortValue($a, $sort, $masterlistOf, $descending),
                     $this->familyDateSortValue($b, $sort, $masterlistOf, $descending),
                     $descending
+                );
+                if ($cmp !== 0) {
+                    return $cmp;
+                }
+                $cmp = strnatcasecmp(
+                    (string) ($masterlistOf($this->latestInFamily($a, $masterlistOf))?->doc_no ?? ''),
+                    (string) ($masterlistOf($this->latestInFamily($b, $masterlistOf))?->doc_no ?? '')
                 );
                 if ($cmp !== 0) {
                     return $cmp;
@@ -620,8 +666,14 @@ class ReportHelper
 
         return $pool->sortByDesc(function ($row) use ($masterlistOf) {
             $ml = $masterlistOf($row);
+            $stamp = $this->sortDateStamp($ml?->effectivity_date ?? null);
 
-            return sprintf('%010d-%010d', (int) ($ml?->revise_no ?? 0), (int) ($ml?->id ?? 0));
+            return sprintf(
+                '%010d-%s-%010d',
+                (int) ($ml?->revise_no ?? 0),
+                $stamp !== '' ? $stamp : '0000-00-00',
+                (int) ($ml?->id ?? 0)
+            );
         })->first();
     }
 
@@ -632,22 +684,16 @@ class ReportHelper
 
     private function familyDateSortValue(array $family, string $sort, callable $masterlistOf, bool $descending): string
     {
-        $stamps = collect($family)
-            ->map(fn ($row) => (string) $this->familySortValue($row, $sort, $masterlistOf))
-            ->filter(fn ($value) => $value !== '')
-            ->values();
+        $latest = $this->latestInFamily($family, $masterlistOf);
 
-        if ($stamps->isEmpty()) {
-            return '';
-        }
-
-        return $descending ? (string) $stamps->max() : (string) $stamps->min();
+        return (string) $this->familySortValue($latest, $sort, $masterlistOf);
     }
 
     private function orderFamilyMembers(array $family, callable $masterlistOf, string $sort = 'effectivity_date', bool $descending = false)
     {
         if ($this->isDateSort($sort)) {
-            return collect($family)->sort(function ($a, $b) use ($masterlistOf, $sort, $descending) {
+            $reference = $this->latestInFamily($family, $masterlistOf);
+            $rest = collect($family)->reject(fn ($row) => $row === $reference)->sort(function ($a, $b) use ($masterlistOf, $sort, $descending) {
                 $cmp = $this->compareSortValues(
                     $this->familySortValue($a, $sort, $masterlistOf),
                     $this->familySortValue($b, $sort, $masterlistOf),
@@ -666,6 +712,8 @@ class ReportHelper
 
                 return $descending ? -$id : $id;
             })->values();
+
+            return $reference === null ? $rest : collect([$reference])->merge($rest)->values();
         }
 
         return collect($family)->sort(function ($a, $b) use ($masterlistOf) {
@@ -811,6 +859,7 @@ class ReportHelper
             $doc = $ml->request;
 
             return [
+                'ml_id'            => (int) ($ml->id ?? 0),
                 'item_no'          => $this->masterlistItemNumber($ml, $counter, $filters),
                 'doc_no'           => $ml->doc_no,
                 'rev_no'           => (int) ($ml->revise_no ?? 0),
@@ -1981,6 +2030,19 @@ class ReportHelper
         $rows = $allRows;
         $isFiltered = false;
 
+        $selectedMlIds = collect(explode(',', (string) $request->get('ml_ids', '')))
+            ->map(fn ($v) => (int) trim($v))
+            ->filter(fn ($v) => $v > 0)
+            ->values();
+        if ($selectedMlIds->isNotEmpty()) {
+            $rows = $allRows->filter(function ($row) use ($selectedMlIds) {
+                $id = (int) (is_array($row) ? ($row['ml_id'] ?? 0) : ($row->ml_id ?? 0));
+
+                return $selectedMlIds->contains($id);
+            })->values();
+            $isFiltered = true;
+        }
+
         if ($request->has('rows') && $request->get('rows') !== 'none' && $request->get('rows') !== '') {
             $selectedIndices = collect(explode(',', $request->get('rows')))
                 ->map(fn($v) => trim($v))
@@ -2072,8 +2134,19 @@ class ReportHelper
         }
 
  
-        // ── PDF via Dompdf ──
+        // ── PDF ──
         if ($format === 'pdf') {
+            $output = null;
+            if ($isMlPrint) {
+                $previewData = $viewData;
+                $previewData['isPdf'] = false;
+                $previewData['embed'] = true;
+                $output = $this->renderPreviewPdf(
+                    view('pages.dcs.reports.export-masterlist-internal', $previewData)->render()
+                );
+            }
+
+            if ($output === null) {
             $viewData['isPdf'] = true;
 
             $html = view($isMlPrint ? 'pages.dcs.reports.export-masterlist-internal' : 'pages.dcs.reports.export', $viewData)->render();
@@ -2109,6 +2182,7 @@ class ReportHelper
                 $canvas->page_text($w - 130, $footerY, 'Page {PAGE_NUM} of {PAGE_COUNT}', $font, 9, [0, 0, 0], 0, 1, '');
             }
             $output = $dompdf->output();
+            }
             $this->archiveGeneratedReport(
                 $output,
                 'pdf',
@@ -2347,6 +2421,7 @@ HTML;
 
     private function buildCsvContent(array $columns, $rows, array $groupHeaders = []): string
     {
+        unset($columns['pdf_path']);
         $colKeys = array_keys($columns);
 
         if ($rows instanceof \Illuminate\Support\Collection) {
@@ -2397,9 +2472,6 @@ HTML;
             $line = [];
             foreach ($colKeys as $key) {
                 $val = is_array($row) ? ($row[$key] ?? '') : ($row->$key ?? '');
-                if ($key === 'pdf_path' && $val) {
-                    $val = 'View File';
-                }
                 if ($key === 'forwarded_drr') {
                     $val = !empty($val) ? 'Yes' : 'No';
                 }
@@ -2420,6 +2492,7 @@ HTML;
 
     private function generateCsv(array $columns, $rows, string $filename, array $groupHeaders = []): \Symfony\Component\HttpFoundation\StreamedResponse
     {
+        unset($columns['pdf_path']);
         $colKeys = array_keys($columns);
 
         if ($rows instanceof \Illuminate\Support\Collection) {
@@ -2473,9 +2546,6 @@ HTML;
                 $line = [];
                 foreach ($colKeys as $key) {
                     $val = is_array($row) ? ($row[$key] ?? '') : ($row->$key ?? '');
-                    if ($key === 'pdf_path' && $val) {
-                        $val = 'View File';
-                    }
                     if ($key === 'forwarded_drr') {
                         $val = !empty($val) ? 'Yes' : 'No';
                     }

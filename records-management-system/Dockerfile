@@ -11,6 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ghostscript \
         imagemagick \
         poppler-utils \
+        chromium \
+        fonts-liberation \
+        fonts-liberation2 \
         python3 \
         python3-pip \
         python3-venv \

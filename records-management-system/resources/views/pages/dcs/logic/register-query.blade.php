@@ -255,6 +255,11 @@ class RegisterQueryHelper
      */
     public static function inventoryStackKey(array $row): string
     {
+        $stackGroup = trim((string) ($row['stack_group'] ?? ''));
+        if ($stackGroup !== '') {
+            return 'rel||' . $stackGroup;
+        }
+
         $type = (int) ($row['doc_type_id'] ?? 0) . '||' . (int) ($row['sub_type_id'] ?? 0);
         $syllabi = trim((string) ($row['syllabi_stack'] ?? ''));
         if ($syllabi !== '') {
@@ -2622,6 +2627,9 @@ class RegisterQueryHelper
         if (self::supportsAllowsRevisionColumn()) {
             $select[] = 'ml.allows_revision';
         }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            $select[] = 'ml.stack_group';
+        }
         if (self::supportsDrafts()) {
             $select[] = 'dr.is_draft';
         }
@@ -2693,6 +2701,7 @@ class RegisterQueryHelper
                 'rev_no' => (int) ($doc->revise_no ?? 0),
                 'doc_type' => $doc->doc_type_name ?? 'N/A',
                 'revision_status' => $status,
+                'stack_group' => trim((string) ($doc->stack_group ?? '')),
                 'allows_revision' => $allowsRevision,
                 'is_draft' => $isDraft,
                 'is_latest' => $status !== 'obsolete' && $status !== 'draft',
@@ -4572,6 +4581,13 @@ class RegisterQueryHelper
             self::applyLatestRevisionStatus($query, 'ml');
         }
 
+        $revisionPick = $request->boolean('for_revision') || in_array($field, ['no', 'title'], true);
+        if ($revisionPick && self::supportsDrafts()) {
+            $query->where(function ($draft) {
+                $draft->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
+        }
+
         if ($docTypeId) {
             $query->where('dr.doc_type_id', $docTypeId);
             if ($subTypeId) {
@@ -4758,6 +4774,11 @@ class RegisterQueryHelper
 
         self::applyNotDeleted($query, 'dr');
         self::applyExcludeOfficeIntakeRequests($query, 'dr');
+        if (self::supportsDrafts()) {
+            $query->where(function ($draft) {
+                $draft->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
+        }
 
         if ($excludeRequestId > 0) {
             $query->where('ml.request_id', '!=', $excludeRequestId);
@@ -5780,6 +5801,11 @@ class RegisterQueryHelper
         } else {
             $query->whereNull('dr.sub_type_id');
         }
+        if (self::supportsDrafts()) {
+            $query->where(function ($draft) {
+                $draft->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
+        }
 
         return $query
             ->orderByDesc('ml.revise_no')
@@ -6348,6 +6374,29 @@ class RegisterQueryHelper
                     'latest_scanned_copy_url' => $latest->scanned_masterlist
                         ? self::scanUrl($latest->scanned_masterlist)
                         : null,
+                    'existing_request_id' => (int) $latest->request_id,
+                    'copies' => (function () use ($registrations) {
+                        $live = $registrations->filter(function ($row) {
+                            $status = strtolower(trim((string) ($row->revision_status ?? 'latest')));
+
+                            return ! in_array($status, ['obsolete', 'archived', 'draft'], true);
+                        });
+                        $pool = $live->isNotEmpty() ? $live : $registrations;
+
+                        return $pool->map(function ($row) {
+                            $date = $row->effectivity_date ?? null;
+
+                            return [
+                                'request_id' => (int) $row->request_id,
+                                'doc_title' => $row->doc_title,
+                                'revise_no' => (int) ($row->revise_no ?? 0),
+                                'originator_name' => $row->originator_name ?? null,
+                                'revision_status' => strtolower(trim((string) ($row->revision_status ?? 'latest'))),
+                                'effectivity_date' => $date ? Carbon::parse($date)->format('M j, Y') : null,
+                            ];
+                        })->values();
+                    })(),
+                    'revision_status' => strtolower(trim((string) ($latest->revision_status ?? 'latest'))),
                     'latest_title' => $latest->doc_title,
                     'latest_originator' => $latest->originator_name,
                     'revision_count' => $registrations->count(),

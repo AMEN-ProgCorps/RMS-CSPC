@@ -425,17 +425,182 @@
         .ml-sheet.is-internal-forms .ml-ft-rev { margin-left: 1.95in; }
         .ml-sheet.is-internal-forms .ml-ft-page { margin-left: 2.87in; }
 
+        body.is-pdf { background: #fff !important; }
+        body.is-pdf .print-toolbar { display: none !important; }
+        body.is-pdf .ml-sheet {
+            margin: 0 !important;
+            box-shadow: none !important;
+            width: 8.5in !important;
+            height: 10.55in !important;
+            min-height: 0 !important;
+            max-height: 10.55in !important;
+            overflow: hidden !important;
+            page-break-before: avoid !important;
+            page-break-after: avoid !important;
+            page-break-inside: auto !important;
+            break-before: avoid !important;
+            break-after: avoid !important;
+            break-inside: auto !important;
+        }
+        body.is-pdf .ml-sheet:not(.is-last) {
+            page-break-after: always !important;
+            break-after: page !important;
+        }
+        body.is-pdf .pdf-hdr,
+        body.is-pdf .pdf-rule,
+        body.is-pdf .pdf-filters,
+        body.is-pdf .pdf-table,
+        body.is-pdf .pdf-ft {
+            border-collapse: collapse;
+            border-spacing: 0;
+        }
+        body.is-pdf .pdf-hdr {
+            width: 7.42in;
+            margin: 0.22in 0.54in 0;
+        }
+        body.is-pdf .pdf-logo {
+            width: 0.78in;
+            vertical-align: middle;
+        }
+        body.is-pdf .pdf-logo img {
+            width: 0.63in;
+            height: 0.65in;
+        }
+        body.is-pdf .pdf-org {
+            vertical-align: middle;
+            font-family: Verdana, Geneva, sans-serif;
+            font-size: 10pt;
+            line-height: 1.25;
+            color: #000;
+        }
+        body.is-pdf .pdf-org b {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 10pt;
+        }
+        body.is-pdf .pdf-rule {
+            width: 7.42in;
+            margin: 0.04in 0.54in 0;
+        }
+        body.is-pdf .pdf-line {
+            border-bottom: 1.5pt solid #0070C0;
+            height: 8px;
+        }
+        body.is-pdf .pdf-code {
+            width: 1.2in;
+            text-align: right;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 9pt;
+            font-weight: 700;
+            white-space: nowrap;
+            vertical-align: bottom;
+            padding-left: 8px;
+        }
+        body.is-pdf .pdf-title {
+            margin: 0.12in 0.56in 0;
+            text-align: center;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 16pt;
+            font-weight: 700;
+            line-height: 1.1;
+        }
+        body.is-pdf .pdf-asof {
+            margin: 0.05in 0.56in 0;
+            text-align: center;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 11pt;
+            font-weight: 700;
+            font-style: italic;
+            line-height: 1.1;
+        }
+        body.is-pdf .pdf-filters {
+            width: 7.36in;
+            margin: 0.1in 0.56in 0.1in;
+        }
+        body.is-pdf .pdf-filters td {
+            width: 25%;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 10pt;
+            font-weight: 700;
+            line-height: 1;
+            vertical-align: middle;
+        }
+        body.is-pdf .pdf-cb {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border: 1px solid #000;
+            text-align: center;
+            font-size: 8pt;
+            line-height: 9px;
+            margin-right: 4px;
+            font-weight: 700;
+        }
+        body.is-pdf .pdf-table {
+            width: 7.36in;
+            margin: 0 0.56in;
+            border: 0.5pt solid #000;
+            table-layout: fixed;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 10pt;
+            line-height: 1.05;
+        }
+        body.is-pdf .pdf-table th {
+            background: #8DB4E2;
+            border: 0.5pt solid #000;
+            font-size: 10pt;
+            font-weight: 700;
+            text-align: center;
+            vertical-align: middle;
+            height: 0.42in;
+            padding: 2px;
+        }
+        body.is-pdf .pdf-table td {
+            border: 0.5pt solid #000;
+            text-align: center;
+            vertical-align: middle;
+            padding: 3px 3px;
+            font-size: 10pt;
+        }
+        body.is-pdf .pdf-table td.is-title { text-align: left; }
+        body.is-pdf .pdf-table td.is-doc-no { font-weight: 700; }
+        body.is-pdf .pdf-ft {
+            position: absolute;
+            left: 0.55in;
+            bottom: 0.32in;
+            width: 7.4in;
+        }
+        body.is-pdf .pdf-ft td {
+            border-top: 1.5pt solid #0070C0;
+            padding-top: 4px;
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 9pt;
+            line-height: 1;
+            vertical-align: top;
+        }
+        body.is-pdf .pdf-ft .c { text-align: center; }
+        body.is-pdf .pdf-ft .r { text-align: right; }
+
         @media print {
-            body { background: #fff !important; }
+            html, body {
+                background: #fff !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
             .print-toolbar { display: none !important; }
             .ml-sheet {
-                margin: 0;
-                box-shadow: none;
+                margin: 0 !important;
+                box-shadow: none !important;
+                page-break-after: auto !important;
+                break-after: auto !important;
+            }
+            .ml-sheet:not(.is-last) {
+                page-break-after: always !important;
+                break-after: page !important;
             }
         }
     </style>
 </head>
-<body>
+<body class="{{ !empty($isPdf) ? 'is-pdf' : '' }}">
     @if(empty($embed))
     <div class="print-toolbar" id="toolbar">
         <button class="btn-pdf" type="button" id="btnPdf">Save as PDF</button>
@@ -469,7 +634,90 @@
         @php
             $pageNo = $pageIndex + 1;
         @endphp
-        <div class="ml-sheet {{ $activeSub === 'internal_forms' ? 'is-internal-forms' : '' }}">
+        <div class="ml-sheet {{ $loop->last ? 'is-last' : '' }} {{ $activeSub === 'internal_forms' ? 'is-internal-forms' : '' }}">
+            @if(!empty($isPdf))
+                <table class="pdf-hdr">
+                    <tr>
+                        <td class="pdf-logo">
+                            @if($logoSrc)
+                                <img src="{{ $logoSrc }}" alt="">
+                            @endif
+                        </td>
+                        <td class="pdf-org">
+                            {{ $republic ?? 'Republic of the Philippines' }}<br>
+                            <b>{{ $institutionName ?? 'CAMARINES SUR POLYTECHNIC COLLEGES' }}</b><br>
+                            {{ $institutionAddress ?? 'Nabua, Camarines Sur' }}
+                        </td>
+                    </tr>
+                </table>
+                <table class="pdf-rule">
+                    <tr>
+                        <td class="pdf-line"></td>
+                        <td class="pdf-code">{{ $letterNumber }}</td>
+                    </tr>
+                </table>
+                <div class="pdf-title">DOCUMENT MASTERLIST</div>
+                @if($showAsOf)
+                    <div class="pdf-asof">As of {{ $asOfLabel }}</div>
+                @endif
+                <table class="pdf-filters">
+                    <tr>
+                        <td><span class="pdf-cb">{{ $checkedType === 'internal' ? '/' : '' }}</span>Internal</td>
+                        <td><span class="pdf-cb">{{ $checkedType === 'external' ? '/' : '' }}</span>External</td>
+                        <td><span class="pdf-cb">{{ $checkedType === 'forms' ? '/' : '' }}</span>Forms</td>
+                        <td><span class="pdf-cb">{{ $checkedType === 'logbooks' ? '/' : '' }}</span>Logbooks</td>
+                    </tr>
+                </table>
+                <table class="pdf-table">
+                    <colgroup>
+                        <col style="width:0.44in">
+                        <col style="width:1.38in">
+                        <col style="width:0.39in">
+                        <col style="width:2.3in">
+                        <col style="width:1.13in">
+                        <col style="width:1.17in">
+                        <col style="width:0.55in">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Item<br>No.</th>
+                            <th>Doc. No.</th>
+                            <th>Rev<br>No.</th>
+                            <th>Document Title</th>
+                            <th>Effectivity<br>Date</th>
+                            <th>Originator</th>
+                            <th>No.<br>of pages</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($pageRows as $row)
+                            @php
+                                $item = is_array($row) ? ($row['item_no'] ?? '') : ($row->item_no ?? '');
+                            @endphp
+                            <tr>
+                                <td>{{ $item !== '' && $item !== null ? $item : '' }}</td>
+                                <td class="is-doc-no">{{ is_array($row) ? ($row['doc_no'] ?? '—') : ($row->doc_no ?? '—') }}</td>
+                                <td>{{ is_array($row) ? ($row['rev_no'] ?? '—') : ($row->rev_no ?? '—') }}</td>
+                                <td class="is-title">{{ is_array($row) ? ($row['doc_title'] ?? '—') : ($row->doc_title ?? '—') }}</td>
+                                <td>{{ is_array($row) ? ($row['effectivity_date'] ?? '—') : ($row->effectivity_date ?? '—') }}</td>
+                                <td>{{ is_array($row) ? ($row['originator'] ?? '—') : ($row->originator ?? '—') }}</td>
+                                <td>{{ is_array($row) ? ($row['no_pages'] ?? '—') : ($row->no_pages ?? '—') }}</td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="7" class="ml-empty">No records found for the selected filters.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+                <table class="pdf-ft">
+                    <tr>
+                        <td>Effectivity Date: <b>{{ $footerEffectivity }}</b></td>
+                        <td class="c">Rev. <b>{{ $footerRev }}</b></td>
+                        <td class="r">Page <b>{{ $pageNo }}</b> of <b>{{ $totalPages }}</b></td>
+                    </tr>
+                </table>
+            @else
             <div class="ml-hdr">
                 @if($logoSrc)
                     <span class="ml-logo-cell">
@@ -550,6 +798,7 @@
                     <span class="ml-ft-page">Page <b>{{ $pageNo }}</b> of <b>{{ $totalPages }}</b></span>
                 </div>
             </div>
+            @endif
         </div>
         @php $startNo += count($pageRows); @endphp
     @endforeach

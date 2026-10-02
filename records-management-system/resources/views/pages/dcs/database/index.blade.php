@@ -453,7 +453,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     'revision_count' => $rows->count(),
                     'obsolete_count' => $children->count(),
                     'allows_revision' => $allowsRevision,
-                    'stack_label' => $allowsRevision ? 'older revisions' : 'more registrations',
+                    'stack_label' => trim((string) ($parent['stack_group'] ?? '')) !== '' && ! $allowsRevision
+                        ? 'related registrations'
+                        : ($allowsRevision ? 'older revisions' : 'more registrations'),
                 ]);
             }
 
@@ -662,6 +664,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if ($hasAllows) {
             $select[] = 'ml.allows_revision';
         }
+        $hasStack = Schema::hasColumn('dcs_masterlist_registration', 'stack_group');
+        if ($hasStack) {
+            $select[] = 'ml.stack_group';
+        }
 
         $docs = (clone $query)
             ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
@@ -676,7 +682,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $docs->pluck('request_id')->map(fn ($id) => (int) $id)->all()
         );
 
-        return $docs->map(function ($doc) use ($stacks, $hasAllows) {
+        return $docs->map(function ($doc) use ($stacks, $hasAllows, $hasStack) {
             $status = strtolower(trim((string) ($doc->revision_status ?? '')));
             if ($status === '') {
                 $status = 'latest';
@@ -690,6 +696,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 'doc_no' => trim((string) ($doc->doc_no ?? '')) !== '' ? trim((string) $doc->doc_no) : 'N/A',
                 'rev_no' => (int) ($doc->revise_no ?? 0),
                 'status' => $status,
+                'stack_group' => $hasStack ? trim((string) ($doc->stack_group ?? '')) : '',
                 'allows_revision' => $hasAllows
                     ? (bool) ($doc->allows_revision ?? true)
                     : RegisterQueryHelper::effectiveTypeAllowsRevision($doc->doc_type_id ?? null, $doc->sub_type_id ?? null),

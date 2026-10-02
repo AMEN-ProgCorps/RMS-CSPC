@@ -5,6 +5,7 @@ namespace App\Helpers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Carbon\Carbon;
 
 class DocumentNumberSeriesHelper
@@ -308,6 +309,7 @@ class DocumentNumberSeriesHelper
             'next_free' => $plan['next_free'],
             'allows_revision' => $plan['allows_revision'],
             'shifts' => $plan['shifts'],
+            'date_warning' => self::insertDateWarning($request, (string) ($plan['insert'] ?? '')),
         ];
     }
 
@@ -334,6 +336,7 @@ class DocumentNumberSeriesHelper
             return ((int) ($pb['number'] ?? 0)) <=> ((int) ($pa['number'] ?? 0));
         });
 
+        $movedIds = [];
         foreach ($mappings as $map) {
             $from = (string) $map['from'];
             $to = (string) $map['to'];
@@ -368,7 +371,12 @@ class DocumentNumberSeriesHelper
                     'doc_no' => $to,
                     'updated_at' => now(),
                 ]);
+            foreach ($ids as $id) {
+                $movedIds[] = (int) $id;
+            }
         }
+
+        self::separateShiftedDocuments($mappings, $movedIds);
 
         self::ensureShiftTable();
         if (Schema::hasTable('dcs_doc_no_shifts')) {
@@ -392,6 +400,112 @@ class DocumentNumberSeriesHelper
     }
 
     /**
+     * A shifted registration is a different document from whatever now holds its old number.
+     * Move its revision references with it, and give it a stack of its own when the old
+     * stack is still used by a row that stayed behind.
+     *
+     * @param  list<array{from?: string, to?: string}>  $mappings
+     * @param  list<int>  $movedIds
+     */
+    private static function separateShiftedDocuments(array $mappings, array $movedIds): void
+    {
+        $movedIds = array_values(array_unique(array_filter(array_map('intval', $movedIds))));
+        if ($movedIds === [] || $mappings === []) {
+            return;
+        }
+
+        $fromTo = [];
+        foreach ($mappings as $map) {
+            $from = mb_strtolower(trim((string) ($map['from'] ?? '')));
+            $to = trim((string) ($map['to'] ?? ''));
+            if ($from !== '' && $to !== '') {
+                $fromTo[$from] = $to;
+            }
+        }
+        if ($fromTo === []) {
+            return;
+        }
+
+        $moved = DB::table('dcs_masterlist_registration')
+            ->whereIn('id', $movedIds)
+            ->get(['id', 'request_id', 'doc_no', 'stack_group', 'revised_from_doc_no']);
+
+        if (Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
+            foreach ($moved as $row) {
+                $from = mb_strtolower(trim((string) ($row->revised_from_doc_no ?? '')));
+                if ($from === '' || ! isset($fromTo[$from])) {
+                    continue;
+                }
+                DB::table('dcs_masterlist_registration')
+                    ->where('id', $row->id)
+                    ->update([
+                        'revised_from_doc_no' => $fromTo[$from],
+                        'updated_at' => now(),
+                    ]);
+            }
+        }
+
+        $requestIds = $moved->pluck('request_id')->map(fn ($id) => (int) $id)->filter()->unique()->values()->all();
+        if ($requestIds !== []
+            && Schema::hasTable('dcs_doc_revision')
+            && Schema::hasTable('dcs_document_change_notice')) {
+            $revisions = DB::table('dcs_doc_revision as r')
+                ->join('dcs_document_change_notice as n', 'n.id', '=', 'r.dcn_id')
+                ->whereIn('n.request_id', $requestIds)
+                ->get(['r.id', 'r.document_no']);
+            foreach ($revisions as $revision) {
+                $from = mb_strtolower(trim((string) ($revision->document_no ?? '')));
+                if ($from === '' || ! isset($fromTo[$from])) {
+                    continue;
+                }
+                DB::table('dcs_doc_revision')
+                    ->where('id', $revision->id)
+                    ->update(['document_no' => $fromTo[$from]]);
+            }
+        }
+
+        if (! Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            return;
+        }
+
+        $byGroup = [];
+        foreach ($moved as $row) {
+            $group = trim((string) ($row->stack_group ?? ''));
+            if ($group === '') {
+                continue;
+            }
+            $byGroup[$group][] = $row;
+        }
+
+        foreach ($byGroup as $group => $rows) {
+            $stillShared = DB::table('dcs_masterlist_registration')
+                ->where('stack_group', $group)
+                ->whereNotIn('id', $movedIds)
+                ->exists();
+            $destinations = [];
+            foreach ($rows as $row) {
+                $destinations[mb_strtolower(trim((string) $row->doc_no))] = true;
+            }
+            if (! $stillShared && count($destinations) < 2) {
+                continue;
+            }
+
+            $buckets = [];
+            foreach ($rows as $row) {
+                $buckets[mb_strtolower(trim((string) $row->doc_no))][] = (int) $row->id;
+            }
+            foreach ($buckets as $ids) {
+                DB::table('dcs_masterlist_registration')
+                    ->whereIn('id', $ids)
+                    ->update([
+                        'stack_group' => (string) Str::uuid(),
+                        'updated_at' => now(),
+                    ]);
+            }
+        }
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private static function buildShiftPlan(Request $request): array
@@ -407,14 +521,10 @@ class DocumentNumberSeriesHelper
         $excludeRequestId = (int) $request->input('exclude_request_id', 0);
         $renameLetters = $request->boolean('rename_letters') || $request->boolean('insert_shift_rename_letters');
 
-        $allowsRevision = RegisterQueryHelper::effectiveTypeAllowsRevision($docTypeId, $subTypeId);
         $nextFree = $docNo !== '' && $docTypeId > 0
             ? self::nextInSeries($docNo, $docTypeId, $subTypeId, $excludeRequestId)
             : null;
 
-        if (! $allowsRevision) {
-            return ['error' => 'This document type stacks the same number. Insert-and-shift is not used.', 'next_free' => $nextFree];
-        }
         if ($docNo === '' || $docTypeId < 1) {
             return ['error' => 'Enter a document number and type first.', 'next_free' => $nextFree];
         }
@@ -520,8 +630,9 @@ class DocumentNumberSeriesHelper
         $map = [];
         foreach ($rows as $row) {
             $key = mb_strtolower(trim((string) $row->doc_no));
-            if (! isset($map[$key])) {
-                $map[$key] = (string) ($row->doc_title ?? '');
+            $title = trim((string) ($row->doc_title ?? ''));
+            if (! isset($map[$key]) || ($map[$key] === '' && $title !== '')) {
+                $map[$key] = $title;
             }
         }
 
@@ -658,5 +769,58 @@ class DocumentNumberSeriesHelper
             'number' => (int) $m[2],
             'width' => strlen($m[2]),
         ];
+    }
+
+    /**
+     * Warn when the new document's effectivity date is not earlier than the
+     * row currently sitting on the number being inserted. The date does not
+     * choose the slot; the user can still confirm.
+     */
+    private static function insertDateWarning(Request $request, string $insertDocNo): ?string
+    {
+        $newDate = trim((string) $request->query('effectivity_date', ''));
+        $insertDocNo = trim($insertDocNo);
+        if ($newDate === '' || $insertDocNo === '' || ! Schema::hasTable('dcs_masterlist_registration')) {
+            return null;
+        }
+
+        try {
+            $new = Carbon::parse($newDate)->startOfDay();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $query = DB::table('dcs_masterlist_registration')
+            ->where('doc_no', $insertDocNo)
+            ->whereNotNull('effectivity_date')
+            ->orderByDesc('revise_no')
+            ->orderByDesc('id');
+        if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
+            $query->where(function ($q) {
+                $q->where('revision_status', 'latest')->orWhereNull('revision_status')->orWhere('revision_status', '');
+            });
+        }
+        $exclude = (int) $request->query('exclude_request_id', 0);
+        if ($exclude > 0) {
+            $query->where('request_id', '!=', $exclude);
+        }
+        $current = $query->value('effectivity_date');
+        if (! $current) {
+            return null;
+        }
+
+        try {
+            $slot = Carbon::parse($current)->startOfDay();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($new->lt($slot)) {
+            return null;
+        }
+
+        return 'The effectivity date is not earlier than the document currently at this number ('
+            . $slot->format('M j, Y')
+            . '). You can still confirm. The date does not choose the number.';
     }
 }

@@ -188,6 +188,11 @@
         if (docNo) docNo.value = '';
         if (letters) letters.value = '0';
         if (allowDup) allowDup.value = '0';
+        const stackWith = document.getElementById('stackWithRequestId');
+        const stacked = String(window.__stackedDocNo || '');
+        if (stackWith && (!stacked || currentDocNo().toLowerCase() !== stacked.toLowerCase())) {
+            stackWith.value = '';
+        }
     }
 
     function currentDocNo() {
@@ -218,7 +223,8 @@
         modal.setAttribute('aria-hidden', 'false');
     }
 
-    window.openDocNoInsertModal = function () {
+    window.openDocNoInsertModal = function (data) {
+        window.__docNoInsertLookup = data || {};
         const docNo = currentDocNo();
         const lead = document.getElementById('docNoInsertLead');
         if (lead) {
@@ -230,11 +236,117 @@
                 ? 'Use ' + window.__suggestedDocNo + '.'
                 : 'Use the next number in this group.';
         }
-        const preview = document.getElementById('docNoInsertPreview');
-        if (preview) preview.hidden = true;
+        showInsertPanel('choices');
         void suggestDocNo();
         openInsertModal();
     };
+
+    function showInsertPanel(which) {
+        const choices = document.getElementById('docNoInsertChoices');
+        const stackPick = document.getElementById('docNoInsertStackPick');
+        const preview = document.getElementById('docNoInsertPreview');
+        const letters = document.getElementById('docNoInsertLettersWrap');
+        if (choices) choices.hidden = which !== 'choices';
+        if (stackPick) stackPick.hidden = which !== 'stack';
+        if (preview) preview.hidden = which !== 'shift';
+        if (letters) letters.hidden = which !== 'shift';
+    }
+
+    function checkedChecklistIds() {
+        return [...document.querySelectorAll('#dynamicCheckboxes input[name="checklists[]"]')]
+            .filter(function (el) { return el.checked || el.dataset.lastChecked === 'true'; })
+            .map(function (el) { return String(el.value); });
+    }
+
+    function restoreChecklistIds(ids) {
+        (ids || []).forEach(function (id) {
+            const cb = document.querySelector('#dynamicCheckboxes input[name="checklists[]"][value="' + id + '"]');
+            if (!cb) return;
+            cb.checked = true;
+            cb.dataset.lastChecked = 'true';
+            if (typeof window.toggleSection === 'function') {
+                window.toggleSection(parseInt(id, 10), true);
+            }
+        });
+        if (typeof window.lockMasterlistChecklistOn === 'function') {
+            window.lockMasterlistChecklistOn();
+        }
+    }
+
+    function switchToNewRegistration() {
+        const sel = document.getElementById('versionType');
+        const currentText = String(sel && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '').trim();
+        const fromInput = document.getElementById('revisedFromDocNo');
+        if (fromInput) fromInput.value = '';
+        window.__revisedFromDocNo = null;
+        const modeEl = document.getElementById('registrationMode');
+        if (modeEl) modeEl.value = 'new';
+        if (/^new\b/i.test(currentText)) {
+            return;
+        }
+        const kept = checkedChecklistIds();
+        const match = [...(sel ? sel.options : [])].find(function (o) {
+            const text = String(o.text || '').trim();
+            return /^new\b/i.test(text);
+        });
+        if (sel && match && match.value) {
+            sel.value = match.value;
+            sel.dataset.lastValid = match.value;
+            document.querySelectorAll('input[type="hidden"][name="version_id"]').forEach(function (el) {
+                el.value = match.value;
+            });
+        }
+        if (typeof window.updateRegistrationMode === 'function') {
+            window.updateRegistrationMode();
+        }
+        const versionId = sel && sel.value;
+        const byVersion = (window.__registerCatalog && window.__registerCatalog.checklistsByVersion) || {};
+        if (typeof window.renderChecklists === 'function' && versionId) {
+            window.renderChecklists(byVersion[String(versionId)] || [], false);
+        }
+        restoreChecklistIds(kept);
+    }
+
+    function stackMeta(copy) {
+        const status = String(copy.revision_status || 'latest');
+        return [
+            'Rev ' + (copy.revise_no || 0),
+            status.charAt(0).toUpperCase() + status.slice(1),
+            String(copy.effectivity_date || '').trim(),
+            String(copy.originator_name || '').trim(),
+        ].filter(Boolean);
+    }
+
+    function showStackPicker() {
+        const lookup = window.__docNoInsertLookup || {};
+        const copies = Array.isArray(lookup.copies) && lookup.copies.length
+            ? lookup.copies
+            : (lookup.existing_request_id ? [{
+                request_id: lookup.existing_request_id,
+                doc_title: lookup.latest_title || 'Existing registration',
+                revise_no: lookup.latest_rev || 0,
+                originator_name: lookup.latest_originator || '',
+                revision_status: lookup.revision_status || 'latest',
+                effectivity_date: lookup.latest_effectivity_date || '',
+            }] : []);
+        const list = document.getElementById('docNoInsertStackList');
+        if (!list || !copies.length) {
+            confirmStackWithExisting(lookup.existing_request_id || 0);
+            return;
+        }
+        list.innerHTML = copies.map(function (copy) {
+            const id = Number(copy.request_id || 0);
+            const title = String(copy.doc_title || 'Untitled').replace(/[<>]/g, '');
+            const chips = stackMeta(copy).map(function (bit) {
+                return '<span>' + String(bit).replace(/[<>]/g, '') + '</span>';
+            }).join('');
+            return '<button type="button" class="reg-stack-card" data-stack-request="' + id + '">'
+                + '<strong>' + title + '</strong>'
+                + '<span class="reg-stack-meta">' + chips + '</span>'
+                + '</button>';
+        }).join('');
+        showInsertPanel('stack');
+    }
 
     function switchToRevised() {
         const sel = document.getElementById('versionType');
@@ -275,7 +387,7 @@
         const body = document.getElementById('docNoInsertPreviewBody');
         const err = document.getElementById('docNoInsertPreviewError');
         if (!preview || !body) return;
-        preview.hidden = false;
+        showInsertPanel('shift');
         body.innerHTML = '<tr><td colspan="3">Loading…</td></tr>';
         if (err) {
             err.hidden = true;
@@ -285,10 +397,12 @@
         const docTypeId = document.getElementById('docType')?.value || '';
         const subTypeId = document.getElementById('subType')?.value || '';
         const rename = document.getElementById('docNoInsertRenameLetters')?.checked ? '1' : '0';
+        const effectivity = document.getElementById('masterlistEffectivityDate')?.value || '';
         const url = '/dcs/register/preview-docno-shift?doc_no=' + encodeURIComponent(docNo)
             + '&doc_type_id=' + encodeURIComponent(docTypeId)
             + (subTypeId ? '&sub_type_id=' + encodeURIComponent(subTypeId) : '')
             + '&rename_letters=' + rename
+            + '&effectivity_date=' + encodeURIComponent(effectivity)
             + '&exclude_request_id=' + encodeURIComponent(String(excludeRequestId()));
         try {
             const data = await fetchJson(url);
@@ -304,6 +418,11 @@
                 return '<tr><td>' + escapeHtml(row.from) + '</td><td>' + escapeHtml(row.to)
                     + '</td><td>' + escapeHtml(row.title || '') + '</td></tr>';
             }).join('') || '<tr><td colspan="3">No rows to rename.</td></tr>';
+            const dateWarn = document.getElementById('docNoInsertDateWarning');
+            if (dateWarn) {
+                dateWarn.hidden = !data.date_warning;
+                dateWarn.textContent = data.date_warning || '';
+            }
         } catch (_) {
             body.innerHTML = '';
             if (err) {
@@ -390,6 +509,21 @@
         closeInsertModal();
     }
 
+    function confirmStackWithExisting(requestId) {
+        switchToNewRegistration();
+        confirmKeepDuplicate();
+        const id = Number(requestId || 0);
+        const stackWith = document.getElementById('stackWithRequestId');
+        if (stackWith) stackWith.value = id > 0 ? String(id) : '';
+        window.__stackedDocNo = currentDocNo();
+        const hint = document.getElementById('docNoHint');
+        if (hint) {
+            hint.innerHTML = '<i class="fa-solid fa-circle-check"></i> This copy stays a New document (Rev 0) and will stack with the registration you chose.';
+            hint.style.color = '#16a34a';
+            hint.dataset.valid = 'duplicate-copy';
+        }
+    }
+
     function bindInsertModal() {
         mountInsertModal();
         document.addEventListener('click', function (e) {
@@ -419,9 +553,11 @@
                 return;
             }
             if (e.target.closest('#docNoInsertShift')) {
-                const lettersWrap = document.getElementById('docNoInsertLettersWrap');
-                if (lettersWrap) lettersWrap.hidden = false;
                 void loadShiftPreview();
+                return;
+            }
+            if (e.target.closest('#docNoInsertStackBack') || e.target.closest('#docNoInsertShiftBack')) {
+                showInsertPanel('choices');
                 return;
             }
             if (e.target.closest('#docNoInsertConfirmShift')) {
@@ -429,7 +565,18 @@
                 return;
             }
             if (e.target.closest('#docNoInsertKeep')) {
+                const stackWith = document.getElementById('stackWithRequestId');
+                if (stackWith) stackWith.value = '';
                 confirmKeepDuplicate();
+                return;
+            }
+            if (e.target.closest('#docNoInsertStack')) {
+                showStackPicker();
+                return;
+            }
+            const stackChoice = e.target.closest('[data-stack-request]');
+            if (stackChoice) {
+                confirmStackWithExisting(stackChoice.getAttribute('data-stack-request'));
             }
         });
         document.addEventListener('change', function (e) {
@@ -443,7 +590,11 @@
         const input = document.getElementById('masterlistDocNo');
         if (!input) return;
         input.addEventListener('input', function () {
-            clearInsertShift();
+            const stacked = String(window.__stackedDocNo || '');
+            if (!stacked || currentDocNo().toLowerCase() !== stacked.toLowerCase()) {
+                clearInsertShift();
+                window.__stackedDocNo = '';
+            }
             syncFormSuggestVisibility(input, document.getElementById('docNoSuggestHint'));
             scheduleDocNoSuggest();
         });

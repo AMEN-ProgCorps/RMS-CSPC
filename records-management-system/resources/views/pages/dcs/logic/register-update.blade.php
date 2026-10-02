@@ -718,6 +718,11 @@ class RegisterUpdateHelper
                 } else {
                     RegisterPersistHelper::syncRevisionStatusForMasterlist((int) $savedMl->id);
                 }
+                RegisterPersistHelper::obsoleteSelectedRevisionSources(
+                    $request,
+                    (int) $requestId,
+                    trim((string) ($savedMl->doc_no ?? ''))
+                );
             }
 
             DB::commit();

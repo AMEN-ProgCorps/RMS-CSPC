@@ -109,6 +109,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
             <input type="hidden" id="registrationMode" name="registration_mode" value="new">
             <input type="hidden" id="insertShiftConfirmed" name="insert_shift_confirmed" value="0">
             <input type="hidden" id="allowDuplicateDocNo" name="allow_duplicate_doc_no" value="0">
+            <input type="hidden" id="stackWithRequestId" name="stack_with_request_id" value="">
             <input type="hidden" id="insertShiftDocNo" name="insert_shift_doc_no" value="">
             <input type="hidden" id="insertShiftRenameLetters" name="insert_shift_rename_letters" value="0">
             <input type="hidden" id="saveAsDraft" name="save_as_draft" value="0">
@@ -1057,7 +1058,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
             </div>
             <div class="reg-modal-body">
                 <p id="docNoInsertLead" class="reg-insert-lead"></p>
-                <div class="reg-insert-choices">
+                <div class="reg-insert-choices" id="docNoInsertChoices">
                     <button type="button" class="reg-insert-choice" id="docNoInsertRevise">
                         <strong>Revise this document</strong>
                         <span>Keep this number and create the next revision (DCN).</span>
@@ -1074,12 +1075,22 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                         <strong>Register another copy with this number</strong>
                         <span>Keep this number as its own registration. It will not become a revision, and other numbers stay where they are.</span>
                     </button>
+                    <button type="button" class="reg-insert-choice" id="docNoInsertStack">
+                        <strong>Stack with the existing registration</strong>
+                        <span>Related copy. Both stay Latest and appear together. Neither becomes Obsolete.</span>
+                    </button>
+                </div>
+                <div id="docNoInsertStackPick" class="reg-insert-preview" hidden>
+                    <button type="button" class="reg-insert-back" id="docNoInsertStackBack">Back to choices</button>
+                    <p class="reg-insert-lead">Choose one registration to stack with. This copy stays New, Rev 0.</p>
+                    <div id="docNoInsertStackList" class="reg-stack-list"></div>
                 </div>
                 <label class="reg-insert-letters" id="docNoInsertLettersWrap" hidden>
                     <input type="checkbox" id="docNoInsertRenameLetters">
                     Also rename letter variants in this group (e.g. 11A → 12A)
                 </label>
                 <div id="docNoInsertPreview" class="reg-insert-preview" hidden>
+                    <button type="button" class="reg-insert-back" id="docNoInsertShiftBack">Back to choices</button>
                     <p>These latest/obsolete rows will be renamed:</p>
                     <div class="reg-insert-preview-table-wrap">
                         <table>
@@ -1087,6 +1098,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                             <tbody id="docNoInsertPreviewBody"></tbody>
                         </table>
                     </div>
+                    <p id="docNoInsertDateWarning" class="reg-insert-error" hidden></p>
                     <p id="docNoInsertPreviewError" class="reg-insert-error" hidden></p>
                     <button type="button" class="reg-btn reg-btn-save" id="docNoInsertConfirmShift">Confirm shift</button>
                 </div>
@@ -1831,6 +1843,19 @@ document.addEventListener("DOMContentLoaded", async function () {
 
         // ── Wire initial DCN revision row search ──
         document.querySelectorAll('#revisionTableBody tr').forEach(tr => bindRevisionRowSearch(tr));
+        const savedRevGroups = {};
+        document.querySelectorAll('#revisionTableBody tr').forEach(tr => {
+            const no = (tr.querySelector('input[name="documentNo[]"]')?.value || '').trim().toLowerCase();
+            if (!no) return;
+            tr.dataset.linked = 'true';
+            tr.dataset.linkedDocNo = no;
+            const rev = parseInt(tr.querySelector('input[name="revisionNo[]"]')?.value || '0', 10) || 0;
+            if (!savedRevGroups[no] || rev >= savedRevGroups[no].rev) savedRevGroups[no] = { rev, tr };
+        });
+        document.querySelectorAll('#revisionTableBody tr').forEach(tr => {
+            const no = tr.dataset.linkedDocNo || '';
+            if (no && savedRevGroups[no] && savedRevGroups[no].tr !== tr) lockRevisionHistoryRow(tr);
+        });
 
         // ── Version type change → apply revision mode ──
         const versionTypeEl = document.getElementById("versionType");
@@ -2782,7 +2807,7 @@ async function bridgeDcnPickToMasterlist(docNo, options = {}) {
                     '&include_drafts=1';
         const res = await fetch(url);
         const data = await res.json();
-        if (data.exists) {
+        if (data.exists && !otherLinkedRevisionDocuments(docNo)) {
             applyRevisedDocumentContext(data, { docNo, hintEl, revField, forceNextRev: true });
         }
         return data;
@@ -2843,16 +2868,11 @@ function docNoPrefixForSelection() {
     return DOC_NO_PREFIX_BY_NAME[name] || null;
 }
 
-function updateDocNoPrefixHint(prefix) {
+function updateDocNoPrefixHint() {
     const hint = document.getElementById('docNoPrefixHint');
     if (!hint) return;
-    if (prefix && !isFixedFormDocNo(prefix)) {
-        hint.textContent = 'Prefix filled — add dept/section code and control # (e.g. ' + prefix + 'YYY-XX).';
-        hint.style.display = 'block';
-    } else {
-        hint.textContent = '';
-        hint.style.display = 'none';
-    }
+    hint.textContent = '';
+    hint.style.display = 'none';
 }
 
 function clearDocNoAvailabilityHint() {
@@ -2976,6 +2996,16 @@ function removeRevSearchDropdown(key) {
     if (dd) dd.remove();
 }
 
+function takenRevisionDocNos(exceptInput) {
+    const taken = new Set();
+    document.querySelectorAll('input[name="documentNo[]"]').forEach(function (el) {
+        if (el === exceptInput) return;
+        const value = String(el.value || '').trim().toLowerCase();
+        if (value) taken.add(value);
+    });
+    return taken;
+}
+
 function handleRevisionSearchInput(input, key, field) {
     if (input.readOnly) return;
     clearTimeout(revSearchTimers[key]);
@@ -3000,6 +3030,10 @@ function handleRevisionSearchInput(input, key, field) {
         return;
     }
 
+    dd.innerHTML = '<div class="reg-reldocs-noresult">Searching…</div>';
+    positionFixedDropdown(dd, input);
+    dd.style.display = 'block';
+
     revSearchTimers[key] = setTimeout(async () => {
         try {
             const params = new URLSearchParams({
@@ -3012,11 +3046,17 @@ function handleRevisionSearchInput(input, key, field) {
             const excludeId = document.getElementById('requestId')?.value;
             if (excludeId) params.set('exclude_request_id', excludeId);
 
-            const data = await fetch('/dcs/api/documents/search?' + params.toString()).then(r => r.json());
+            const raw = await fetch('/dcs/api/documents/search?' + params.toString()).then(r => r.json());
+            const taken = takenRevisionDocNos(input);
+            const data = (Array.isArray(raw) ? raw : []).filter(function (doc) {
+                return !taken.has(String(doc.doc_no || '').trim().toLowerCase());
+            });
             revSearchCache[key] = data;
 
             dd.innerHTML = data.length === 0
-                ? '<div class="reg-reldocs-noresult">No matching documents. Save the New registration first, then search the full Document No.</div>'
+                ? '<div class="reg-reldocs-noresult">' + (taken.size && Array.isArray(raw) && raw.length
+                    ? 'That document is already in Documents for Revision.'
+                    : 'No matching documents. Save the New registration first, then search the full Document No.') + '</div>'
                 : data.map((d, idx) => `<div onmousedown="pickRevisionDocument('${key}', ${idx})">${escapeHtml(d.label)}</div>`).join('');
 
             positionFixedDropdown(dd, input);
@@ -3037,6 +3077,7 @@ function populateRevisionRowFromDoc(row, doc) {
 
     if (titleInput) titleInput.value = doc.doc_title || '';
     if (noInput) noInput.value = doc.doc_no || '';
+    row.dataset.revisionStatus = String(doc.revision_status || '').toLowerCase();
     if (effField) effField.value = doc.effectivity_date || '';
     if (revField) revField.value = (doc.revise_no !== null && doc.revise_no !== undefined) ? doc.revise_no : '';
     if (pathInput) pathInput.value = doc.scanned_copy_path || '';
@@ -3064,15 +3105,31 @@ function getRevisedFromDocNo() {
     return (window.__revisedFromDocNo || '').trim();
 }
 
-function clearAllLinkedRevisionRows(tbody, exceptRow) {
-    if (!tbody) return;
+function clearLinkedRowsForDocument(tbody, docNo, exceptRow) {
+    if (!tbody || !docNo) return;
     [...tbody.querySelectorAll('tr')].forEach(tr => {
         if (tr === exceptRow) return;
-        if (tr.dataset.linked === 'true') {
-            removeRevisionRowDropdowns(tr);
-            tr.remove();
-        }
+        if ((tr.dataset.linkedDocNo || '') !== docNo) return;
+        removeRevisionRowDropdowns(tr);
+        tr.remove();
     });
+}
+
+function lockRevisionHistoryRow(tr) {
+    if (!tr) return;
+    tr.dataset.historyLocked = 'true';
+    const btn = tr.querySelector('.reg-row-del');
+    if (btn) btn.remove();
+}
+
+function otherLinkedRevisionDocuments(exceptDocNo) {
+    const except = String(exceptDocNo || '').trim().toLowerCase();
+    let found = false;
+    document.querySelectorAll('#revisionTableBody tr').forEach(tr => {
+        const no = (tr.dataset.linkedDocNo || '').trim().toLowerCase();
+        if (no && no !== except) found = true;
+    });
+    return found;
 }
 
 function revisionHistoryRowsForDcn(docs, latestRev) {
@@ -3097,7 +3154,7 @@ async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {
 
     const pickedDocNo = String((options.docNo || docs[0].doc_no) || '').trim().toLowerCase();
 
-    clearAllLinkedRevisionRows(tbody, anchorRow);
+    clearLinkedRowsForDocument(tbody, pickedDocNo, anchorRow);
 
     const rowsToFill = revisionHistoryRowsForDcn(docs, options.latestRev);
 
@@ -3112,9 +3169,12 @@ async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {
         insertAfter.after(tr);
         bindRevisionRowSearch(tr);
         populateRevisionRowFromDoc(tr, rowsToFill[i]);
+        tr.dataset.linked = 'true';
         tr.dataset.linkedDocNo = pickedDocNo;
+        lockRevisionHistoryRow(tr);
         insertAfter = tr;
     }
+    if (typeof suggestRevisionForSources === 'function') suggestRevisionForSources();
 }
 
 window.pickRevisionDocument = async function (key, idx) {
@@ -3269,9 +3329,39 @@ function removeRevisionRowDropdowns(tr) {
     removeRevSearchDropdown(tr.dataset.uid + '_no');
 }
 
+function suggestRevisionForSources() {
+    const revField = document.getElementById('masterlistRevisionNo');
+    const master = (document.getElementById('masterlistDocNo')?.value || '').trim().toLowerCase();
+    if (!revField || !master || !isRevisedMode()) return;
+    const byDoc = {};
+    document.querySelectorAll('#revisionTableBody tr').forEach(tr => {
+        const no = (tr.querySelector('input[name="documentNo[]"]')?.value || '').trim();
+        if (!no) return;
+        const rev = parseInt(tr.querySelector('input[name="revisionNo[]"]')?.value || '0', 10) || 0;
+        const key = no.toLowerCase();
+        if (!Object.prototype.hasOwnProperty.call(byDoc, key) || rev > byDoc[key]) byDoc[key] = rev;
+    });
+    const userPinned = revField.dataset.userEdited === 'true' && String(revField.value || '').trim() !== '';
+    if (!userPinned) {
+        revField.value = Object.prototype.hasOwnProperty.call(byDoc, master) ? String(byDoc[master] + 1) : '0';
+    }
+}
+
 window.removeRevisionRow = function (btn) {
     const tr = btn.closest('tr');
-    if (tr) { removeRevisionRowDropdowns(tr); tr.remove(); }
+    if (!tr || tr.dataset.historyLocked === 'true') return;
+    const docNo = tr.dataset.linkedDocNo || '';
+    const tbody = tr.parentElement;
+    if (docNo && tbody) {
+        [...tbody.querySelectorAll('tr')].forEach(row => {
+            if ((row.dataset.linkedDocNo || '') !== docNo) return;
+            removeRevisionRowDropdowns(row);
+            row.remove();
+        });
+        return;
+    }
+    removeRevisionRowDropdowns(tr);
+    tr.remove();
 };
 
 document.addEventListener('click', function (e) {

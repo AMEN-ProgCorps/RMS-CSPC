@@ -29,6 +29,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public bool $filterOpen = false;
     public bool $columnsOpen = false;
     public array $exportColumns = [];
+    public array $selectedMlIds = [];
     public string $error = '';
     public array $result = [];
 
@@ -145,6 +146,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function selectSub(string $sub): void
     {
         $this->exportColumns = [];
+        $this->selectedMlIds = [];
         $this->sub = $sub;
         $parentId = RegisterQueryHelper::parentTypeIdMap()[$sub] ?? null;
         $childIds = $parentId
@@ -414,6 +416,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $this->result['rows'] = $rows;
     }
 
+    public function toggleMasterlistSelection(array $ids): void
+    {
+        $ids = array_values(array_filter(array_map('strval', $ids), fn ($id) => $id !== '' && $id !== '0'));
+        $current = array_map('strval', $this->selectedMlIds);
+        $allOn = $ids !== [] && array_diff($ids, $current) === [];
+        $this->selectedMlIds = $allOn
+            ? array_values(array_diff($current, $ids))
+            : array_values(array_unique(array_merge($current, $ids)));
+    }
+
     public function exportUrl(string $format): string
     {
         $query = $this->queryInput(forExport: true);
@@ -450,6 +462,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if ($this->period === 'custom') {
             $input['date_from'] = $this->dateFrom;
             $input['date_to'] = $this->dateTo;
+        }
+        if ($this->category === 'masterlist' && $this->selectedMlIds !== []) {
+            $input['ml_ids'] = implode(',', array_map('intval', $this->selectedMlIds));
         }
         if ($forExport && $this->category === 'monitoring' && $this->exportColumns !== []) {
             $input['columns'] = implode(',', $this->exportColumns);
@@ -780,7 +795,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </div>
             </div>
 
-            <div class="rpt-preview-shell {{ ($isOpcr || $isMonitoring || $isOthers) ? 'rpt-preview-shell--table' : 'rpt-preview-shell--frame' }}">
+            <div class="rpt-preview-shell {{ ($isOpcr || $isMonitoring || $isOthers || $category === 'masterlist') ? 'rpt-preview-shell--table' : 'rpt-preview-shell--frame' }}">
                 @if($error)
                     <div class="rpt-state">
                         <div class="rpt-state-icon state-error"><i class="fa-solid fa-circle-exclamation"></i></div>
@@ -1026,12 +1041,54 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     </div>
                 @else
                     @php
+                        $cols = collect($result['columns'] ?? [])->except(['pdf_path'])->all();
+                        $rows = $result['rows'] ?? [];
+                        $keys = array_keys($cols);
                         $previewKey = 'preview-'.$category.'-'.$sub.'-'.$period.'-'.$asOf.'-'.$dateFrom.'-'.$dateTo.'-'.$sortBy.'-'.$sortDir.'-'.md5(json_encode([$originator, $sourceUnit, $revisionStatus, $revNo, $subTypeIds, $monitoringDocType, $monitoringSubTypeIds]));
                     @endphp
+                    @php
+                        $mlIdsOnPage = collect($rows)->pluck('ml_id')->filter()->map(fn ($id) => (string) $id)->values()->all();
+                        $allMlSelected = $mlIdsOnPage !== [] && count(array_intersect($mlIdsOnPage, array_map('strval', $selectedMlIds))) === count($mlIdsOnPage);
+                    @endphp
+                    @if($selectedMlIds !== [])
+                        <p class="rpt-select-note">
+                            {{ count($selectedMlIds) }} selected. Preview, print, PDF, and CSV use only these rows.
+                        </p>
+                    @endif
+                    <div class="rpt-table-scroll">
+                        <table class="rpt-table rpt-ml-table">
+                            <thead>
+                                <tr>
+                                    <th class="rpt-select-col">
+                                        <input type="checkbox" aria-label="Select all documents" @checked($allMlSelected) wire:click="toggleMasterlistSelection(@js($mlIdsOnPage))">
+                                    </th>
+                                    @foreach($keys as $key)
+                                        <th>{!! $cols[$key] !!}</th>
+                                    @endforeach
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse($rows as $row)
+                                    <tr>
+                                        <td class="rpt-select-col">
+                                            @if(!empty($row['ml_id']))
+                                                <input type="checkbox" aria-label="Include {{ $row['doc_no'] ?? 'document' }}" value="{{ $row['ml_id'] }}" wire:model.live="selectedMlIds">
+                                            @endif
+                                        </td>
+                                        @foreach($keys as $key)
+                                            <td>{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '—' }}</td>
+                                        @endforeach
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="{{ max(count($keys), 1) + 1 }}"><div class="rpt-state"><h4>No records found</h4></div></td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
                     <div
-                        class="rpt-preview-frame-wrap"
-                        wire:key="{{ $previewKey }}"
+                        class="rpt-print-preview"
                         x-data="{
+                            open: false,
                             loading: true,
                             fitFrame() {
                                 const frame = this.$refs.previewFrame;
@@ -1043,26 +1100,43 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         doc.documentElement.scrollHeight,
                                         doc.body ? doc.body.scrollHeight : 0
                                     );
-                                    frame.style.height = Math.max(h, Math.round(297 * 96 / 25.4)) + 'px';
+                                    frame.style.height = Math.max(h, 640) + 'px';
                                 } catch (e) {}
                             }
                         }"
                     >
-                        <div class="rpt-preview-loading" x-show="loading" x-cloak>
-                            <div class="rpt-loading-card">
-                                <div class="rpt-loading-spinner" aria-hidden="true"></div>
-                                <h4>Loading print preview</h4>
-                                <p>Preparing the page as it will look when printed.</p>
+                        <button type="button" class="rpt-btn rpt-btn-outline" style="margin: 16px 0;" @click="open = true; loading = true">
+                            <i class="fa-solid fa-print"></i>
+                            <span>Show print preview</span>
+                        </button>
+                        <template x-teleport="body">
+                            <div class="rpt-preview-modal" x-show="open" x-cloak @keydown.escape.window="open = false">
+                                <div class="rpt-preview-modal-backdrop" @click="open = false"></div>
+                                <div class="rpt-preview-dialog" role="dialog" aria-modal="true" aria-label="Print preview">
+                                    <div class="rpt-preview-dialog-head">
+                                        <h3>Print preview</h3>
+                                        <button type="button" class="rpt-preview-dialog-close" @click="open = false" aria-label="Close preview">&times;</button>
+                                    </div>
+                                    <div class="rpt-preview-frame-wrap" wire:key="{{ $previewKey }}">
+                                        <div class="rpt-preview-loading" x-show="loading" x-cloak>
+                                            <div class="rpt-loading-card">
+                                                <div class="rpt-loading-spinner" aria-hidden="true"></div>
+                                                <h4>Loading print preview</h4>
+                                                <p>Preparing the page as it will look when printed.</p>
+                                            </div>
+                                        </div>
+                                        <iframe
+                                            class="rpt-preview-frame"
+                                            title="Print preview"
+                                            :src="open ? @js($this->previewUrl()) : ''"
+                                            x-ref="previewFrame"
+                                            :class="{ 'is-loading': loading }"
+                                            @load="loading = false; fitFrame()"
+                                        ></iframe>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                        <iframe
-                            class="rpt-preview-frame"
-                            title="Print preview"
-                            src="{{ $this->previewUrl() }}"
-                            x-ref="previewFrame"
-                            :class="{ 'is-loading': loading }"
-                            @load="loading = false; fitFrame()"
-                        ></iframe>
+                        </template>
                     </div>
                 @endif
             </div>

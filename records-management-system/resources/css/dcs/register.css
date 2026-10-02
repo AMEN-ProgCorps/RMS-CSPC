@@ -4014,10 +4014,69 @@ select.reg-field-locked:disabled {
     font-size: 0.9rem;
 }
 
+.reg-modal--insert [hidden] {
+    display: none !important;
+}
+
 .reg-insert-choices {
     display: flex;
     flex-direction: column;
     gap: 8px;
+}
+
+.reg-insert-back {
+    display: inline-flex;
+    margin: 0 0 10px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: #1d4ed8;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.reg-stack-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 280px;
+    overflow: auto;
+}
+
+.reg-stack-card {
+    text-align: left;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    border-radius: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+}
+
+.reg-stack-card:hover {
+    border-color: #2563eb;
+    background: #f8fafc;
+}
+
+.reg-stack-card strong {
+    display: block;
+    margin-bottom: 6px;
+    color: #0f172a;
+}
+
+.reg-stack-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.reg-stack-meta span {
+    background: #eff6ff;
+    color: #1e3a8a;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
 }
 
 .reg-insert-choice {

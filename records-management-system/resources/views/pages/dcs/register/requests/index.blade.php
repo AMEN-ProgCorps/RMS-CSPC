@@ -97,9 +97,9 @@ new #[Layout('layouts.dcs')] #[Title('Request — CSPC DCS')] class extends Comp
                 <thead>
                     <tr>
                         <th>Type</th>
+                        <th>Requestor</th>
                         <th>Title</th>
-                        <th>Office</th>
-                        <th>Submitted by</th>
+                        <th>Form Date</th>
                         <th>Status</th>
                         <th>Submitted</th>
                         <th style="width:130px;">Actions</th>
@@ -111,13 +111,16 @@ new #[Layout('layouts.dcs')] #[Title('Request — CSPC DCS')] class extends Comp
                             <td>
                                 <span class="ofi-type-pill is-{{ $row->type }}">{{ strtoupper($row->type) }}</span>
                             </td>
+                            <td class="ofi-requestor">
+                                <div class="ofi-requestor-name">{{ $row->submitter_name }}</div>
+                                <div class="ofi-requestor-unit">{{ $row->submitting_office }}</div>
+                            </td>
                             <td class="upd-doc-title">
                                 <a class="ofi-request-title-link" href="{{ route('dcs.requests.show', [$row->type, $row->id], absolute: false) }}">
                                     {{ $row->title }}
                                 </a>
                             </td>
-                            <td>{{ $row->submitting_office }}</td>
-                            <td>{{ $row->submitter_name }}</td>
+                            <td>{{ !empty($row->form_date) ? \Carbon\Carbon::parse($row->form_date)->format('M d, Y') : '—' }}</td>
                             <td>
                                 @if(!empty($row->received))
                                     <span class="ofi-status-pill is-received">Received</span>

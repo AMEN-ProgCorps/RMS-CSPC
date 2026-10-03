@@ -31,14 +31,16 @@
             <div id="dcnDocNoResults" class="reg-reldocs-dropdown ofi-docno-results" style="display:none;" role="listbox"></div>
         </div>
         <input type="hidden" id="dcnDocNoConfirmed" name="documentNoConfirmed" value="{{ $hasInitialSelection ? '1' : '' }}">
-        <div id="dcnDocNoChip" class="ofi-docno-chip-row" @if(! $hasInitialSelection) hidden @endif>
-            <span class="ofi-chip" id="dcnDocNoChipLabel">
-                Selected registered document
-                @if($hasInitialSelection)
-                    — {{ $initialDocNo }}@if($initialDocTitle !== '') · {{ $initialDocTitle }}@endif@if($initialReviseNo !== null) (Rev {{ $initialReviseNo }})@endif
-                @endif
-            </span>
-            <button type="button" class="ofi-chip-x" id="dcnDocNoClear" title="Clear selection" aria-label="Clear selected document">&times;</button>
+        <div id="dcnDocNoChip" class="ofi-docno-selected" data-revise="{{ $initialReviseNo !== null ? $initialReviseNo : '' }}" @if(! $hasInitialSelection) hidden @endif>
+            <div class="ofi-docno-selected-head">
+                <span class="ofi-docno-selected-kicker">Selected document</span>
+                <button type="button" class="ofi-docno-selected-clear" id="dcnDocNoClear">Clear</button>
+            </div>
+            <div class="ofi-docno-selected-no-row">
+                <strong id="dcnDocNoChipNo">{{ $hasInitialSelection ? $initialDocNo : '' }}</strong>
+                <span class="ofi-docno-selected-rev" id="dcnDocNoChipRev" @if($initialReviseNo === null) hidden @endif>@if($initialReviseNo !== null)Rev {{ $initialReviseNo }}@endif</span>
+            </div>
+            <p class="ofi-docno-selected-title" id="dcnDocNoChipTitle">{{ $hasInitialSelection ? $initialDocTitle : '' }}</p>
         </div>
         <p class="ofi-hint">Search and confirm an existing registered <strong>Internal</strong> or <strong>External</strong> Document No. that allows revision. Forms, Internal Forms, and Logbooks are not listed here.</p>
     </div>

@@ -425,6 +425,11 @@
                     'active' => request()->routeIs('dcs.reports.monitoring'),
                 ],
                 [
+                    'label' => 'Distribution & Retrieval',
+                    'url' => route('dcs.reports.distributionRetrieval'),
+                    'active' => request()->routeIs('dcs.reports.distributionRetrieval'),
+                ],
+                [
                     'label' => 'Syllabi & TOS/Rubrics',
                     'url' => route('dcs.reports.syllabiTos'),
                     'active' => request()->routeIs('dcs.reports.syllabiTos'),

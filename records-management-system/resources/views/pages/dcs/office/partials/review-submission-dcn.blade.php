@@ -68,7 +68,7 @@
         <h4 class="ofi-review-section-title">Signatures &amp; dates</h4>
         <dl class="ofi-review-fields">
             <div class="ofi-review-field">
-                <dt>Originator/ Signature</dt>
+                <dt>Originator</dt>
                 <dd>{{ $dcn->originator_name ?: '—' }}</dd>
             </div>
             <div class="ofi-review-field">

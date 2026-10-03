@@ -163,6 +163,7 @@ class RegisterPersistHelper
             'dcs.office.dcn.print' => 'Printed Office DCN',
             'dcs.reports.masterlist' => 'Opened Masterlist Report',
             'dcs.reports.monitoring' => 'Opened Monitoring Report',
+            'dcs.reports.distributionRetrieval' => 'Opened Distribution and Retrieval monitor',
             'dcs.reports.opcr' => 'Opened OPCR Report',
             'dcs.reports.others' => 'Opened Other Reports',
             'dcs.reports.syllabiTos' => 'Opened Syllabi/TOS Report',

@@ -432,22 +432,19 @@ class OfficeIntakeHelper
             $select[] = 'ml.allows_revision';
         }
 
-        $row = $query->orderByDesc('ml.id')->first($select);
-        if (! $row) {
-            return null;
+        $rows = $query->orderByDesc('ml.revise_no')->orderByDesc('ml.id')->limit(20)->get($select);
+        foreach ($rows as $row) {
+            $allows = RegisterQueryHelper::supportsAllowsRevisionColumn()
+                && property_exists($row, 'allows_revision')
+                && $row->allows_revision !== null
+                ? (bool) $row->allows_revision
+                : RegisterQueryHelper::effectiveTypeAllowsRevision($row->doc_type_id ?? null, $row->sub_type_id ?? null);
+            if ($allows) {
+                return $row;
+            }
         }
 
-        $allows = RegisterQueryHelper::supportsAllowsRevisionColumn()
-            && property_exists($row, 'allows_revision')
-            && $row->allows_revision !== null
-            ? (bool) $row->allows_revision
-            : RegisterQueryHelper::effectiveTypeAllowsRevision($row->doc_type_id ?? null, $row->sub_type_id ?? null);
-
-        if (! $allows) {
-            return null;
-        }
-
-        return $row;
+        return null;
     }
 
     /**
@@ -493,6 +490,7 @@ class OfficeIntakeHelper
         self::applyDcnDocumentTypeFilter($query);
 
         $select = [
+            'ml.id as ml_id',
             'ml.doc_no',
             'ml.doc_title',
             'ml.revise_no',
@@ -506,8 +504,9 @@ class OfficeIntakeHelper
         }
 
         $rows = $query
-            ->orderBy('ml.doc_no')
-            ->limit(80)
+            ->orderByDesc('ml.revise_no')
+            ->orderByDesc('ml.id')
+            ->limit(200)
             ->get($select);
 
         $out = [];
@@ -526,12 +525,15 @@ class OfficeIntakeHelper
                 : trim((string) ($row->doc_type_name ?? 'Document'));
 
             $out[] = [
+                'ml_id' => (int) ($row->ml_id ?? 0),
                 'doc_no' => trim((string) ($row->doc_no ?? '')),
                 'doc_title' => trim((string) ($row->doc_title ?? '')),
                 'revise_no' => (int) ($row->revise_no ?? 0),
                 'doc_type' => $typeLabel !== '' ? $typeLabel : 'Document',
             ];
         }
+
+        $out = self::keepLatestDocumentPerNumber($out);
 
         usort($out, function ($a, $b) use ($q) {
             $score = fn ($row) => RegisterQueryHelper::looseSearchScore(
@@ -543,6 +545,73 @@ class OfficeIntakeHelper
         });
 
         return array_slice($out, 0, 15);
+    }
+
+    /**
+     * One row per document number: the highest revision, then the newest registration.
+     *
+     * @param  list<array{ml_id?: int, doc_no: string, doc_title: string, revise_no: int, doc_type: string}>  $rows
+     * @return list<array{doc_no: string, doc_title: string, revise_no: int, doc_type: string}>
+     */
+    private static function keepLatestDocumentPerNumber(array $rows): array
+    {
+        $best = [];
+        foreach ($rows as $row) {
+            $key = mb_strtolower(trim((string) ($row['doc_no'] ?? '')));
+            if ($key === '') {
+                continue;
+            }
+            $current = $best[$key] ?? null;
+            if ($current === null
+                || (int) ($row['revise_no'] ?? 0) > (int) ($current['revise_no'] ?? 0)
+                || (
+                    (int) ($row['revise_no'] ?? 0) === (int) ($current['revise_no'] ?? 0)
+                    && (int) ($row['ml_id'] ?? 0) > (int) ($current['ml_id'] ?? 0)
+                )) {
+                $best[$key] = $row;
+            }
+        }
+
+        return array_map(function (array $row) {
+            unset($row['ml_id']);
+
+            return $row;
+        }, array_values($best));
+    }
+
+    /**
+     * Office DRF and DCN still waiting in the Request queue.
+     *
+     * @return array{drf: int, dcn: int}
+     */
+    public static function pendingOfficeRequestCounts(): array
+    {
+        return [
+            'drf' => self::countOpenIntake('dcs_office_intake_drf'),
+            'dcn' => self::countOpenIntake('dcs_office_intake_dcn'),
+        ];
+    }
+
+    private static function countOpenIntake(string $table): int
+    {
+        if (! Schema::hasTable($table)) {
+            return 0;
+        }
+
+        $query = DB::table($table);
+        if (Schema::hasColumn($table, 'rfio_registered_at')) {
+            $query->whereNull('rfio_registered_at');
+        }
+        if (Schema::hasColumn($table, 'registered_request_id')) {
+            $query->where(function ($sub) {
+                $sub->whereNull('registered_request_id')->orWhere('registered_request_id', 0);
+            });
+        }
+        if (Schema::hasColumn($table, 'rfio_claimed_at')) {
+            $query->whereNull('rfio_claimed_at');
+        }
+
+        return (int) $query->count();
     }
 
     /**
@@ -842,15 +911,18 @@ class OfficeIntakeHelper
             'originatorName' => 'required|string|max:255',
             'departmentDate' => 'required|date',
             'reviewedByName' => 'required|array|min:1|max:9',
-            'reviewedByName.0' => 'required|string|max:255',
-            'reviewedByName.*' => 'nullable|string|max:255',
+            'reviewedByName.*' => 'required|string|max:255',
             'approvalPosition' => 'nullable|array|max:9',
             'approvalPosition.*' => 'nullable|string|max:255',
             'approvalName' => 'nullable|array|max:9',
             'approvalName.*' => 'nullable|string|max:255',
             'alsoCreateDrf' => 'nullable|boolean',
             'confirmDataCorrect' => 'accepted',
+        ], [
+            'reviewedByName.*.required' => 'Each reviewer needs a name. Remove a reviewer you are not using.',
         ]);
+
+        self::assertApprovalRowsComplete($request);
 
         $docNo = trim((string) ($data['documentNo'] ?? ''));
         $matched = self::assertRegisteredRevisableDocNo($docNo);
@@ -1074,14 +1146,17 @@ class OfficeIntakeHelper
             'originatorName' => 'required|string|max:255',
             'departmentDate' => 'required|date',
             'reviewedByName' => 'required|array|min:1|max:9',
-            'reviewedByName.0' => 'required|string|max:255',
-            'reviewedByName.*' => 'nullable|string|max:255',
+            'reviewedByName.*' => 'required|string|max:255',
             'approvalPosition' => 'nullable|array|max:9',
             'approvalPosition.*' => 'nullable|string|max:255',
             'approvalName' => 'nullable|array|max:9',
             'approvalName.*' => 'nullable|string|max:255',
             'confirmDataCorrect' => 'accepted',
+        ], [
+            'reviewedByName.*.required' => 'Each reviewer needs a name. Remove a reviewer you are not using.',
         ]);
+
+        self::assertApprovalRowsComplete($request);
 
         $docNo = trim((string) ($data['documentNo'] ?? ''));
         $matched = self::assertRegisteredRevisableDocNo($docNo);
@@ -1538,6 +1613,42 @@ class OfficeIntakeHelper
         }
 
         return $rows;
+    }
+
+    /**
+     * An added approval card must have both a position and a name.
+     * The first card may stay blank when no approval is used.
+     */
+    private static function assertApprovalRowsComplete(Request $request): void
+    {
+        $positions = $request->input('approvalPosition', []);
+        $names = $request->input('approvalName', []);
+        if (! is_array($positions)) {
+            $positions = [];
+        }
+        if (! is_array($names)) {
+            $names = [];
+        }
+
+        $count = max(count($positions), count($names));
+        $errors = [];
+        for ($i = 0; $i < $count; $i++) {
+            $position = trim((string) ($positions[$i] ?? ''));
+            $name = trim((string) ($names[$i] ?? ''));
+            if ($i === 0 && $position === '' && $name === '') {
+                continue;
+            }
+            if ($position === '') {
+                $errors['approvalPosition.'.$i] = 'Approval '.($i + 1).' needs a position. Remove an approval you are not using.';
+            }
+            if ($name === '') {
+                $errors['approvalName.'.$i] = 'Approval '.($i + 1).' needs a name. Remove an approval you are not using.';
+            }
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
     }
 
     /** Prefer office code on print when a stored department label matches an office name/code. */

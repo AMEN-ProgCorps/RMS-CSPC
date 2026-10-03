@@ -105,12 +105,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         $year = (int) now('Asia/Manila')->year;
         $holidays = \App\Helpers\CalendarHelper::philippineHolidays($year, $year + 1);
+        $requestCounts = RegisterQueryHelper::canBrowseAllOfficeIntake()
+            ? OfficeIntakeHelper::pendingOfficeRequestCounts()
+            : null;
 
         return [
             'isDcsPathPending' => false,
             'isLimitedDcs' => false,
             'officeDrfCount' => 0,
             'officeDcnCount' => 0,
+            'requestCounts' => $requestCounts,
             'stats' => $stats,
             'typeIds' => $typeIds,
             'userDisplayName' => $userDisplayName,
@@ -459,6 +463,14 @@ document.addEventListener('alpine:init', () => {
                     <div class="dash-queue-chip"><span>Total</span><strong>{{ number_format((int) $stats['totalDocuments']) }}</strong></div>
                     <div class="dash-queue-chip is-latest"><span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong></div>
                     <div class="dash-queue-chip is-obsolete"><span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong></div>
+                @endif
+                @if(!empty($requestCounts))
+                    <a href="{{ route('dcs.requests.index', ['filter' => 'drf'], absolute: false) }}" class="dash-queue-chip is-request-drf">
+                        <span>DRF requests</span><strong>{{ number_format((int) ($requestCounts['drf'] ?? 0)) }}</strong>
+                    </a>
+                    <a href="{{ route('dcs.requests.index', ['filter' => 'dcn'], absolute: false) }}" class="dash-queue-chip is-request-dcn">
+                        <span>DCN requests</span><strong>{{ number_format((int) ($requestCounts['dcn'] ?? 0)) }}</strong>
+                    </a>
                 @endif
             </section>
 

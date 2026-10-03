@@ -57,13 +57,14 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                 <thead>
                     <tr>
                         <th>Title</th>
+                        <th>Originator</th>
                         @if($isReviewer ?? false)
                             <th>Office</th>
                             <th>Submitted by</th>
                         @endif
                         <th>Status</th>
-                        <th>Date</th>
-                        <th>Date Created</th>
+                        <th class="ofi-nowrap">Date</th>
+                        <th class="ofi-nowrap">Date Created</th>
                         <th style="width:160px;">Actions</th>
                     </tr>
                 </thead>
@@ -71,6 +72,7 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                     @forelse($rows as $row)
                         <tr>
                             <td>{{ $row->doc_title ?: '—' }}</td>
+                            <td class="ofi-nowrap">{{ $row->originator_name ?: '—' }}</td>
                             @if($isReviewer ?? false)
                                 <td>{{ $row->submitting_office ?? '—' }}</td>
                                 <td>{{ $row->submitter_name ?? '—' }}</td>
@@ -82,8 +84,8 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                                     <span class="ofi-status-pill is-pending">Submitted</span>
                                 @endif
                             </td>
-                            <td>{{ $row->drf_date ? \Carbon\Carbon::parse($row->drf_date)->format('M d, Y') : '—' }}</td>
-                            <td>{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->timezone('Asia/Manila')->format('M d, Y g:i A') : '—' }}</td>
+                            <td class="ofi-nowrap">{{ $row->drf_date ? \Carbon\Carbon::parse($row->drf_date)->format('M d, Y') : '—' }}</td>
+                            <td class="ofi-nowrap">{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->timezone('Asia/Manila')->format('M d, Y g:i A') : '—' }}</td>
                             <td class="ofi-actions">
                                 <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}" title="View"><i class="fa-solid fa-eye"></i></a>
                                 <a href="{{ route('dcs.office.drf.print', $row->id, absolute: false) }}" target="_blank" title="{{ ($isReviewer ?? false) ? 'Open print form' : 'Print' }}"><i class="fa-solid fa-print"></i></a>
@@ -91,7 +93,7 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="{{ ($isReviewer ?? false) ? 7 : 5 }}" class="ofi-empty">
+                            <td colspan="{{ ($isReviewer ?? false) ? 8 : 6 }}" class="ofi-empty">
                                 {{ ($isReviewer ?? false) ? 'No office DRF submissions yet.' : 'No Document Request Forms yet.' }}
                             </td>
                         </tr>

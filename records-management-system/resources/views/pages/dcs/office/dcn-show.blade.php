@@ -144,7 +144,7 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
 
                     <div class="ofi-dcn-box-section">
                         <div class="reg-field">
-                            <label>Originator/ Signature</label>
+                            <label>Originator</label>
                             <div class="ofi-show-value">{{ $dcn->originator_name ?: '—' }}</div>
                         </div>
                         <div class="reg-grid-2-1">

@@ -966,6 +966,7 @@ Route::middleware(['auth'])
                 Route::middleware(['dcs.module:reports'])->group(function () {
                     Volt::route('/reports/masterlist', 'pages.dcs.reports.show')->name('reports.masterlist');
                     Volt::route('/reports/monitoring', 'pages.dcs.reports.show')->name('reports.monitoring');
+                    Volt::route('/reports/distribution-retrieval', 'pages.dcs.reports.distribution-retrieval')->name('reports.distributionRetrieval');
                     Volt::route('/reports/opcr', 'pages.dcs.reports.show')->name('reports.opcr');
                     Volt::route('/reports/others', 'pages.dcs.reports.show')->name('reports.others');
                     Volt::route('/reports/syllabi-tos', 'pages.dcs.reports.syllabi-tos')->name('reports.syllabiTos');

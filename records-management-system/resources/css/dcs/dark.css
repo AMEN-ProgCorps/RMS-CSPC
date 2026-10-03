@@ -2467,6 +2467,26 @@
     color: #fecaca !important;
 }
 
+[data-theme="dark"] .dash-queue-chip.is-request-drf {
+    background: rgba(37, 99, 235, 0.16) !important;
+    border-color: rgba(59, 130, 246, 0.4) !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .dash-queue-chip.is-request-drf strong {
+    color: #bfdbfe !important;
+}
+
+[data-theme="dark"] .dash-queue-chip.is-request-dcn {
+    background: rgba(109, 40, 217, 0.18) !important;
+    border-color: rgba(167, 139, 250, 0.4) !important;
+    color: #c4b5fd !important;
+}
+
+[data-theme="dark"] .dash-queue-chip.is-request-dcn strong {
+    color: #ddd6fe !important;
+}
+
 /* ── Request (RFIO) + office intake shell ── */
 [data-theme="dark"] .ofi-request-page.upd-container,
 [data-theme="dark"] .ofi-request-review-page {
@@ -2487,6 +2507,7 @@
 [data-theme="dark"] .ofi-request-actions-head p,
 [data-theme="dark"] .ofi-request-step-hint,
 [data-theme="dark"] .ofi-request-preview-hint,
+[data-theme="dark"] .ofi-requestor-unit,
 [data-theme="dark"] .ofi-request-empty {
     color: #94a3b8 !important;
 }
@@ -2495,6 +2516,7 @@
 [data-theme="dark"] .ofi-request-review-heading h1,
 [data-theme="dark"] .ofi-request-step-label,
 [data-theme="dark"] .ofi-request-stat strong,
+[data-theme="dark"] .ofi-requestor-name,
 [data-theme="dark"] .ofi-request-title-link,
 [data-theme="dark"] .ofi-request-actions-head h2 {
     color: #f8fafc !important;

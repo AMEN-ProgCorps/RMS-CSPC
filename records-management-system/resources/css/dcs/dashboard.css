@@ -1068,6 +1068,18 @@ body.dash-cl-open {
     border-color: var(--dcs-red-border, #fecaca);
 }
 .dash-queue-chip.is-obsolete strong { color: #b91c1c; }
+.dash-queue-chip.is-request-drf {
+    color: #1d4ed8;
+    background: #eff6ff;
+    border-color: #bfdbfe;
+}
+.dash-queue-chip.is-request-drf strong { color: #1e3a8a; }
+.dash-queue-chip.is-request-dcn {
+    color: #6d28d9;
+    background: #f5f3ff;
+    border-color: #ddd6fe;
+}
+.dash-queue-chip.is-request-dcn strong { color: #5b21b6; }
 .dash-search-actions {
     display: flex;
     gap: 10px;

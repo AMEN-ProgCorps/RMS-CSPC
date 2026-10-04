@@ -202,7 +202,15 @@ class RegisterPersistHelper
 
     public static function scanFileRules(): array
     {
-        $rule = 'nullable|file|mimes:pdf|max:' . self::SCAN_MAX_KB;
+        $rule = ['nullable', 'file', 'max:'.self::SCAN_MAX_KB, function (string $attribute, mixed $value, \Closure $fail): void {
+            if (! $value instanceof \Illuminate\Http\UploadedFile) {
+                return;
+            }
+            $problem = \App\Support\DcsUploadGuard::pdfProblem($value, self::SCAN_MAX_KB);
+            if ($problem !== null) {
+                $fail($problem);
+            }
+        }];
 
         return [
             'drfFile' => $rule,
@@ -218,12 +226,8 @@ class RegisterPersistHelper
     public static function masterlistOriginalNameFromRequest(Request $request): ?string
     {
         $convention = self::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate'));
-        $ext = 'pdf';
-        if ($request->hasFile('uploadScannedCopy')) {
-            $ext = $request->file('uploadScannedCopy')->getClientOriginalExtension() ?: 'pdf';
-        }
 
-        return DocumentStorageService::sanitizeDcsScanBasename($convention) . '.' . $ext;
+        return DocumentStorageService::sanitizeDcsScanBasename($convention) . '.pdf';
     }
 
     public static function applyMasterlistOriginalName(array &$row, Request $request, bool $onlyIfUploaded = true): void
@@ -871,9 +875,6 @@ class RegisterPersistHelper
         $useConvention = false;
         if ($conventionBase !== null && trim($conventionBase) !== '') {
             $ext = 'pdf';
-            if ($file instanceof \Illuminate\Http\UploadedFile) {
-                $ext = $file->getClientOriginalExtension() ?: 'pdf';
-            }
             $base = pathinfo($conventionBase, PATHINFO_FILENAME) ?: $conventionBase;
             $original = DocumentStorageService::sanitizeDcsScanBasename($base) . '.' . $ext;
             $useConvention = true;
@@ -2771,8 +2772,7 @@ class RegisterPersistHelper
         $original = null;
         $useConvention = false;
         if ($convention) {
-            $ext = $file->getClientOriginalExtension() ?: 'pdf';
-            $original = DocumentStorageService::sanitizeDcsScanBasename($convention) . '.' . $ext;
+            $original = DocumentStorageService::sanitizeDcsScanBasename($convention) . '.pdf';
             $useConvention = true;
         }
 

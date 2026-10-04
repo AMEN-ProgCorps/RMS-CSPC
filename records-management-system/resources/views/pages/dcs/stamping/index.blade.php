@@ -10,11 +10,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public string $search = '';
     public string $typeId = 'all';
     public int $page = 1;
+    public int $perPage = 15;
 
     public function updated($name): void
     {
         if ($name !== 'page') {
             $this->page = 1;
+        }
+    }
+
+    public function updatedPerPage(): void
+    {
+        $allowed = [10, 15, 25, 50, 100];
+        if (! in_array($this->perPage, $allowed, true)) {
+            $this->perPage = 15;
         }
     }
 
@@ -39,10 +48,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public function with(): array
     {
-        $visibleIds = RegisterQueryHelper::visibleRequestIds();
-        $query = DB::table('dcs_document_requests as dr')
-            ->whereIn('dr.id', $visibleIds ?: [0])
-            ->whereExists(fn ($q2) =>
+        $query = DB::table('dcs_document_requests as dr');
+        RegisterQueryHelper::applyNotDeleted($query, 'dr');
+        RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
+        $query->whereExists(fn ($q2) =>
                 $q2->select(DB::raw(1))->from('dcs_masterlist_registration as ml')
                     ->whereColumn('ml.request_id', 'dr.id')
                     ->whereNotNull('ml.scanned_masterlist')
@@ -100,47 +109,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             });
         }
 
-        $search = trim($this->search);
-        if ($search !== '') {
-            $matchedIds = (clone $query)->pluck('dr.id')->map(fn ($id) => (int) $id)->all();
-            $scored = [];
-            if ($matchedIds !== []) {
-                $meta = DB::table('dcs_document_requests as dr')
-                    ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
-                    ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
-                    ->whereIn('dr.id', $matchedIds)
-                    ->get(['dr.id', 'ml.doc_no', 'ml.doc_title', 'dt.doc_type_name']);
-                foreach ($meta as $row) {
-                    $id = (int) $row->id;
-                    $score = RegisterQueryHelper::looseSearchScore(
-                        $search,
-                        trim(($row->doc_no ?? '') . ' ' . ($row->doc_title ?? '') . ' ' . ($row->doc_type_name ?? ''))
-                    );
-                    $scored[$id] = max($scored[$id] ?? 0, $score);
-                }
-            }
-            usort($matchedIds, fn ($a, $b) => ($scored[$b] ?? 0) <=> ($scored[$a] ?? 0));
-            $total = count($matchedIds);
-            $perPage = 15;
-            $lastPage = max(1, (int) ceil($total / $perPage));
-            $page = min(max(1, $this->page), $lastPage);
-            $pageIds = array_slice($matchedIds, ($page - 1) * $perPage, $perPage);
-            $rows = $pageIds === []
-                ? collect()
-                : RegisterQueryHelper::hydrateRequests(
-                    DB::table('dcs_document_requests as dr')->whereIn('dr.id', $pageIds)->get()
-                );
-            $order = array_flip($pageIds);
-            $rows = $rows->sortBy(fn ($doc) => $order[(int) $doc->id] ?? PHP_INT_MAX)->values();
-        } else {
-            $total = (clone $query)->count();
-            $perPage = 15;
-            $lastPage = max(1, (int) ceil($total / $perPage));
-            $page = min(max(1, $this->page), $lastPage);
-            $rows = RegisterQueryHelper::hydrateRequests(
-                (clone $query)->offset(($page - 1) * $perPage)->limit($perPage)->get()
-            );
-        }
+        $total = (clone $query)->count();
+        $perPage = $this->pageSize();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min(max(1, $this->page), $lastPage);
+        $rows = RegisterQueryHelper::hydrateRequests(
+            (clone $query)->offset(($page - 1) * $perPage)->limit($perPage)->get()
+        );
         $documents = new \Illuminate\Pagination\LengthAwarePaginator(
             $rows,
             $total,
@@ -152,6 +127,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $docTypes = DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('doc_type_name')->get();
 
         return compact('documents', 'docTypes');
+    }
+
+    private function pageSize(): int
+    {
+        return in_array($this->perPage, [10, 15, 25, 50, 100], true) ? $this->perPage : 15;
     }
 }; ?>
 
@@ -324,10 +304,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </table>
             </div>
 
-            @if($documents->hasPages())
+            @if($documents->total() > 0)
             <div class="st-pagination">
                 <div class="st-page-info">
                     Showing <strong>{{ $documents->firstItem() }}&ndash;{{ $documents->lastItem() }}</strong> of <strong>{{ $documents->total() }}</strong>
+                </div>
+                <div class="st-page-tools">
+                <div class="st-page-size">
+                    <label for="stPerPage">Show</label>
+                    <select id="stPerPage" wire:model.live="perPage">
+                        @foreach([10, 15, 25, 50, 100] as $size)
+                            <option value="{{ $size }}">{{ $size }}</option>
+                        @endforeach
+                    </select>
                 </div>
                 <div class="st-page-links">
                     @if($documents->onFirstPage())
@@ -336,8 +325,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <button type="button" class="st-pg" wire:click="goToPage({{ $documents->currentPage() - 1 }})"><i class="fa-solid fa-chevron-left"></i></button>
                     @endif
 
-                    @foreach(range(1, $documents->lastPage()) as $page)
-                        @if($page === $documents->currentPage())
+                    @php
+                        $stampPages = [];
+                        $stampLast = $documents->lastPage();
+                        $stampCurrent = $documents->currentPage();
+                        for ($stampPage = 1; $stampPage <= $stampLast; $stampPage++) {
+                            if ($stampPage === 1 || $stampPage === $stampLast || abs($stampPage - $stampCurrent) <= 1) {
+                                $stampPages[] = $stampPage;
+                            }
+                        }
+                    @endphp
+                    @foreach($stampPages as $index => $page)
+                        @if($index > 0 && $page - $stampPages[$index - 1] > 1)
+                            <span class="st-pg disabled">…</span>
+                        @endif
+                        @if($page === $stampCurrent)
                             <span class="st-pg st-pg-active">{{ $page }}</span>
                         @else
                             <button type="button" class="st-pg" wire:click="goToPage({{ $page }})">{{ $page }}</button>
@@ -349,6 +351,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     @else
                         <span class="st-pg disabled"><i class="fa-solid fa-chevron-right"></i></span>
                     @endif
+                </div>
                 </div>
             </div>
             @endif

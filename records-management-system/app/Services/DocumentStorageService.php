@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Models\User;
+use App\Support\DcsUploadGuard;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -981,17 +983,31 @@ class DocumentStorageService
         }
 
         $category = self::normalizeDcsCategory($category);
+        $extension = 'pdf';
+
+        if (! app()->runningInConsole()) {
+            if (! auth()->check()) {
+                abort(401, 'You must be signed in to upload a document.');
+            }
+            \App\Helpers\RegisterQueryHelper::assertFullDcsUser('register');
+        }
 
         if ($file instanceof UploadedFile) {
-            $originalName = $originalFilename ?: $file->getClientOriginalName();
+            $problem = DcsUploadGuard::pdfProblem($file, DcsUploadGuard::PDF_MAX_KB);
+            if ($problem !== null) {
+                throw ValidationException::withMessages(['file' => $problem]);
+            }
+            $originalName = $originalFilename ?: 'document.pdf';
             $fileContent = file_get_contents($file->getRealPath());
-            $fileSize = $file->getSize() ?: strlen($fileContent);
-            $extension = $file->getClientOriginalExtension() ?: 'pdf';
+            $fileSize = filesize($file->getRealPath()) ?: strlen((string) $fileContent);
         } else {
             $fileContent = is_resource($file) ? stream_get_contents($file) : (string) $file;
+            $problem = DcsUploadGuard::pdfContentsProblem($fileContent, DcsUploadGuard::PDF_MAX_KB);
+            if ($problem !== null) {
+                throw ValidationException::withMessages(['file' => $problem]);
+            }
             $originalName = $originalFilename ?: ('document_' . time() . '.pdf');
             $fileSize = strlen($fileContent);
-            $extension = pathinfo($originalName, PATHINFO_EXTENSION) ?: 'pdf';
         }
 
         if ($useProvidedBasename && $originalFilename) {
@@ -2031,9 +2047,15 @@ class DocumentStorageService
             $candidate = basename(str_replace('\\', '/', $path)) ?: 'document.pdf';
         }
 
-        $candidate = str_replace(["\r", "\n", '"'], '', $candidate);
+        $candidate = str_replace(["\r", "\n", '"', "\0"], '', $candidate);
+        if ($candidate === '') {
+            $candidate = 'document.pdf';
+        }
+        if (! str_ends_with(strtolower($candidate), '.pdf')) {
+            $candidate .= '.pdf';
+        }
 
-        return $candidate !== '' ? $candidate : 'document.pdf';
+        return $candidate;
     }
 
     public static function dcsInlineDisposition(string $filename): string

@@ -751,23 +751,22 @@ Route::middleware(['auth'])
 
                 if (\App\Services\DocumentStorageService::isLegacyPublicScanPath($path)) {
                     abort_unless(\Illuminate\Support\Facades\Storage::disk('public')->exists($path), 404);
+                    $legacyContent = \Illuminate\Support\Facades\Storage::disk('public')->get($path);
+                    abort_unless(is_string($legacyContent) && str_starts_with($legacyContent, '%PDF-'), 415, 'Only a PDF document can be opened.');
 
-                    return response()->file(
-                        \Illuminate\Support\Facades\Storage::disk('public')->path($path),
-                        [
-                            'Content-Type' => 'application/pdf',
-                            'Content-Disposition' => $disposition,
-                        ]
-                    );
+                    return response($legacyContent, 200)
+                        ->header('Content-Type', 'application/pdf')
+                        ->header('X-Content-Type-Options', 'nosniff')
+                        ->header('Content-Disposition', $disposition);
                 }
 
                 $content = \App\Services\DocumentStorageService::getDcsScanContent($path);
                 abort_unless($content, 404, 'Document file not found.');
-
-                $mime = \App\Services\DocumentStorageService::dcsFileMimeType($path);
+                abort_unless(str_starts_with($content, '%PDF-'), 415, 'Only a PDF document can be opened.');
 
                 return response($content, 200)
-                    ->header('Content-Type', $mime)
+                    ->header('Content-Type', 'application/pdf')
+                    ->header('X-Content-Type-Options', 'nosniff')
                     ->header('Content-Disposition', $disposition);
             })->where('downloadAs', '[^/]+')->name('view-document');
 

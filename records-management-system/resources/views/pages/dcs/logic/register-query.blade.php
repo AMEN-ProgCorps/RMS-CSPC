@@ -267,6 +267,12 @@ class RegisterQueryHelper
         }
 
         if (empty($row['allows_revision'])) {
+            $title = mb_strtolower(trim((string) ($row['title'] ?? '')));
+            $docNo = strtolower(trim((string) ($row['doc_no'] ?? '')));
+            if ($title !== '' && $title !== 'n/a' && $docNo !== '' && $docNo !== 'n/a') {
+                return 'copy||' . $docNo . '||' . $title . '||' . $type;
+            }
+
             return 'solo||' . (int) ($row['request_id'] ?? 0);
         }
 
@@ -1829,6 +1835,18 @@ class RegisterQueryHelper
             return [];
         }
 
+        $needsLineage = false;
+        foreach ($groupTips as $meta) {
+            $from = trim((string) ($meta['revised_from'] ?? ''));
+            if ((int) ($meta['rev_no'] ?? 0) > 0 || ($from !== '' && strcasecmp($from, (string) ($meta['doc_no'] ?? '')) !== 0)) {
+                $needsLineage = true;
+                break;
+            }
+        }
+        if (! $needsLineage) {
+            return [];
+        }
+
         $pickWinner = static function (array $candidates) use ($groupTips): ?string {
             $active = [];
             foreach ($candidates as $key => $score) {
@@ -1929,8 +1947,18 @@ class RegisterQueryHelper
         }
 
         if ($visibleIds !== []) {
-            self::applyDcnLineageMergeEdges($groupTips, $edges);
-            self::applyRevisionFamilyMergeEdges($groupTips, $edges, $visibleIds);
+            $linked = [];
+            foreach ($groupTips as $key => $meta) {
+                $from = trim((string) ($meta['revised_from'] ?? ''));
+                $rev = (int) ($meta['rev_no'] ?? 0);
+                if ($rev > 0 || ($from !== '' && strcasecmp($from, (string) ($meta['doc_no'] ?? '')) !== 0)) {
+                    $linked[$key] = $meta;
+                }
+            }
+            if ($linked !== []) {
+                self::applyDcnLineageMergeEdges($linked, $edges);
+                self::applyRevisionFamilyMergeEdges($linked, $edges, $visibleIds);
+            }
         }
 
         return $edges;
@@ -2630,6 +2658,9 @@ class RegisterQueryHelper
         if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
             $select[] = 'ml.stack_group';
         }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'effectivity_date')) {
+            $select[] = 'ml.effectivity_date';
+        }
         if (self::supportsDrafts()) {
             $select[] = 'dr.is_draft';
         }
@@ -2702,6 +2733,9 @@ class RegisterQueryHelper
                 'doc_type' => $doc->doc_type_name ?? 'N/A',
                 'revision_status' => $status,
                 'stack_group' => trim((string) ($doc->stack_group ?? '')),
+                'effectivity_sort' => ! empty($doc->effectivity_date)
+                    ? \Carbon\Carbon::parse($doc->effectivity_date)->format('Y-m-d')
+                    : '',
                 'allows_revision' => $allowsRevision,
                 'is_draft' => $isDraft,
                 'is_latest' => $status !== 'obsolete' && $status !== 'draft',
@@ -2725,10 +2759,10 @@ class RegisterQueryHelper
         $groups = collect();
         foreach ($grouped as $family) {
             $allowsRevision = (bool) ($family->first()['allows_revision'] ?? true);
-            // Non-revisable stacks: tip = newest request_id (all stay Latest Rev 0).
+            // Non-revisable stacks: tip = latest effectivity (a newer year stays above the earlier one).
             $sorted = $allowsRevision
                 ? $family->sortByDesc('rev_no')->sortByDesc('request_id')->values()
-                : $family->sortByDesc('request_id')->values();
+                : $family->sortByDesc(fn ($r) => sprintf('%s|%010d', (string) ($r['effectivity_sort'] ?? ''), (int) ($r['request_id'] ?? 0)))->values();
 
             // Heal: tip must be the highest revise_no (e.g. Rev 10 beats Rev 7).
             // Never rewrite draft rows into latest/obsolete.
@@ -3079,18 +3113,13 @@ class RegisterQueryHelper
             'filtered' => trim($search) !== '' || ($docTypeId !== '' && $docTypeId !== 'all'),
         ];
 
-        $visibleIds = self::visibleRequestIds();
-        if ($visibleIds === []) {
-            return $empty;
-        }
-
-        // Prefer rows marked latest; fall back to highest revise_no / id per doc_no family.
+        // Latest row per document number, scoped in SQL so the page does not load every id first.
         $latestMl = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->whereIn('ml.request_id', $visibleIds)
             ->whereNotNull('ml.doc_no')
             ->where('ml.doc_no', '!=', '');
         self::applyNotDeleted($latestMl, 'dr');
+        self::applyRegisteredDocumentScope($latestMl, 'dr');
         self::applyLatestRevisionStatus($latestMl, 'ml');
         $latestMl = $latestMl
             ->select('ml.doc_no', DB::raw('MAX(ml.id) as ml_id'))
@@ -3098,10 +3127,10 @@ class RegisterQueryHelper
 
         $revCounts = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->whereIn('ml.request_id', $visibleIds)
             ->whereNotNull('ml.doc_no')
             ->where('ml.doc_no', '!=', '');
         self::applyNotDeleted($revCounts, 'dr');
+        self::applyRegisteredDocumentScope($revCounts, 'dr');
         $revCounts = $revCounts
             ->select('ml.doc_no', DB::raw('COUNT(*) as rev_count'))
             ->groupBy('ml.doc_no');
@@ -3114,13 +3143,9 @@ class RegisterQueryHelper
                 $join->on('rc.doc_no', '=', 'ml.doc_no');
             })
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
-            ->leftJoin('dcs_document_request_form as drf', 'drf.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_change_notice as dcn', 'dcn.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_retrieval as ret', 'ret.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_distribution as dist', 'dist.request_id', '=', 'dr.id')
-            ->whereIn('dr.id', $visibleIds);
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id');
         self::applyNotDeleted($query, 'dr');
+        self::applyRegisteredDocumentScope($query, 'dr');
         $query->orderByDesc('ml.revise_no')
             ->orderByDesc('ml.id')
             ->select([
@@ -3132,11 +3157,10 @@ class RegisterQueryHelper
                 'dr.sub_type_id',
                 'dt.doc_type_name',
                 'rc.rev_count',
-                'drf.id as drf_id',
-                'dcn.id as dcn_id',
-                'ml.id as ml_id',
-                'ret.id as ret_id',
-                'dist.id as dist_id',
+                DB::raw('(select id from dcs_document_request_form where request_id = dr.id limit 1) as drf_id'),
+                DB::raw('(select id from dcs_document_change_notice where request_id = dr.id limit 1) as dcn_id'),
+                DB::raw('(select id from dcs_document_retrieval where request_id = dr.id limit 1) as ret_id'),
+                DB::raw('(select id from dcs_document_distribution where request_id = dr.id limit 1) as dist_id'),
             ]);
 
         if ($docTypeId !== '' && $docTypeId !== 'all') {
@@ -3151,70 +3175,11 @@ class RegisterQueryHelper
             ]);
         }
 
-        // Resolve renumber lineage tips so prior numbers don't appear as separate review rows.
-        $candidates = $query->limit(400)->get();
-        $hasKeywords = Schema::hasColumn('dcs_masterlist_registration', 'keywords');
-        $tipRows = collect();
-        $seenTipKeys = [];
-        foreach ($candidates as $hit) {
-            $tip = self::resolveLineageTipMasterlist($hit, $visibleIds);
-            if (!$tip) {
-                continue;
-            }
-            $key = strtolower(trim((string) ($tip->doc_no ?? ''))) . '|'
-                . (int) ($tip->doc_type_id ?? 0) . '|'
-                . (int) ($tip->sub_type_id ?? 0);
-            if (isset($seenTipKeys[$key])) {
-                continue;
-            }
-            $seenTipKeys[$key] = true;
-            $enriched = self::loadSearchDocumentRow((int) $tip->id, $hasKeywords);
-            if ($enriched) {
-                $enriched->rev_count = (int) ($hit->rev_count ?? 0);
-                $enriched->drf_id = $hit->drf_id ?? null;
-                $enriched->dcn_id = $hit->dcn_id ?? null;
-                $enriched->ret_id = $hit->ret_id ?? null;
-                $enriched->dist_id = $hit->dist_id ?? null;
-                $tipRows->push($enriched);
-            }
-        }
-
-        // Recount revisions across the full renumber chain for each tip.
-        $tipRows = $tipRows->map(function ($doc) use ($visibleIds) {
-            $docTypeId = (int) ($doc->doc_type_id ?? 0);
-            $subTypeId = !empty($doc->sub_type_id) ? (int) $doc->sub_type_id : null;
-            $chain = RegisterQueryHelper::docNosForRevisionLookup(
-                (string) $doc->doc_no,
-                $docTypeId,
-                $subTypeId,
-                $visibleIds
-            );
-            $count = 0;
-            foreach ($chain as $chainDocNo) {
-                $count += count(self::masterlistRevisionsForDocNo($chainDocNo, $docTypeId, $subTypeId, $visibleIds));
-            }
-            $doc->rev_count = max($count, (int) ($doc->rev_count ?? 0));
-
-            return $doc;
-        })->values();
-
-        if (trim($search) !== '') {
-            $tipRows = $tipRows->sortByDesc(fn ($doc) => self::looseSearchScore(
-                $search,
-                trim(($doc->doc_no ?? '') . ' ' . ($doc->doc_title ?? '') . ' ' . ($doc->type_name ?? ''))
-            ))->values();
-        }
-
-        $total = $tipRows->count();
+        $perPage = max(1, $perPage);
+        $total = (clone $query)->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
         $page = min(max(1, $page), $lastPage);
-        $documents = $tipRows->slice(($page - 1) * $perPage, $perPage)->values();
-
-        $requestIds = $documents->pluck('request_id')->all();
-        $drfIds = $requestIds ? DB::table('dcs_document_request_form')->whereIn('request_id', $requestIds)->pluck('request_id')->flip() : collect();
-        $dcnIds = $requestIds ? DB::table('dcs_document_change_notice')->whereIn('request_id', $requestIds)->pluck('request_id')->flip() : collect();
-        $distIds = $requestIds ? DB::table('dcs_document_distribution')->whereIn('request_id', $requestIds)->pluck('request_id')->flip() : collect();
-        $retIds = $requestIds ? DB::table('dcs_document_retrieval')->whereIn('request_id', $requestIds)->pluck('request_id')->flip() : collect();
+        $documents = (clone $query)->offset(($page - 1) * $perPage)->limit($perPage)->get();
 
         $checklistNames = [
             1 => 'Document Request Form',
@@ -3227,21 +3192,21 @@ class RegisterQueryHelper
             $checklistNames[$row->id] = $row->checklist_name;
         }
 
-        $rows = $documents->map(function ($doc) use ($checklistNames, $drfIds, $dcnIds, $distIds, $retIds) {
+        $rows = $documents->map(function ($doc) use ($checklistNames) {
             $revCount = (int) ($doc->rev_count ?? 0);
             $canCompare = $revCount >= 2;
             $checklists = [];
-            if (isset($drfIds[$doc->request_id])) {
+            if (!empty($doc->drf_id)) {
                 $checklists[] = $checklistNames[1] ?? 'DRF';
             }
-            if (isset($dcnIds[$doc->request_id])) {
+            if (!empty($doc->dcn_id)) {
                 $checklists[] = $checklistNames[2] ?? 'DCN';
             }
             $checklists[] = $checklistNames[3] ?? 'Masterlist';
-            if (isset($retIds[$doc->request_id])) {
+            if (!empty($doc->ret_id)) {
                 $checklists[] = $checklistNames[4] ?? 'Retrieval';
             }
-            if (isset($distIds[$doc->request_id])) {
+            if (!empty($doc->dist_id)) {
                 $checklists[] = $checklistNames[5] ?? 'Distribution';
             }
 
@@ -3253,7 +3218,7 @@ class RegisterQueryHelper
                 'rev_count' => $revCount,
                 'can_compare' => $canCompare,
                 'reason' => null,
-                'doc_type' => $doc->type_name ?? 'N/A',
+                'doc_type' => $doc->doc_type_name ?? 'N/A',
                 'checklists' => $checklists,
             ];
         })->all();

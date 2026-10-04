@@ -480,6 +480,29 @@
     gap: 10px;
 }
 
+.mf-page-size {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--db-text-muted);
+}
+
+.mf-pg {
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--db-border);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--db-text);
+    cursor: pointer;
+}
+
+.mf-pg:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
 .mf-pagination nav[role="navigation"] {
     display: flex;
     gap: 4px;
@@ -1790,6 +1813,10 @@
 .mf-stage {
     position: relative;
     min-height: 280px;
+}
+
+.mf-stage-reports {
+    min-height: 0;
 }
 
 .mf-loading {

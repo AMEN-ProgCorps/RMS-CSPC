@@ -79,10 +79,24 @@ class RandomCheckHelper
                 ->pluck('check_year')
                 ->map(fn ($y) => (int) $y)
                 ->all();
+            $dateColumns = ['checked_at', 'created_at'];
+            if (Schema::hasColumn('dcs_random_checks', 'check_date')) {
+                $dateColumns[] = 'check_date';
+            }
+            $fromDates = DB::table('dcs_random_checks')
+                ->whereNull('check_year')
+                ->get($dateColumns)
+                ->map(function ($row) {
+                    $stamp = $row->check_date ?: $row->checked_at ?: $row->created_at;
+
+                    return $stamp ? (int) date('Y', strtotime((string) $stamp)) : 0;
+                })
+                ->filter(fn ($y) => $y > 0)
+                ->all();
             $fromSched = Schema::hasTable('dcs_random_check_schedules')
                 ? DB::table('dcs_random_check_schedules')->distinct()->pluck('check_year')->map(fn ($y) => (int) $y)->all()
                 : [];
-            $years = array_values(array_unique(array_merge($years, $fromDb, $fromSched)));
+            $years = array_values(array_unique(array_merge($years, $fromDb, $fromDates, $fromSched)));
         }
         rsort($years);
 
@@ -124,10 +138,35 @@ class RandomCheckHelper
 
         if (self::hasYearColumn()) {
             $checks = DB::table('dcs_random_checks')
-                ->where('check_year', $year)
-                ->where('cycle', $cycle)
-                ->get(['office_id', 'is_draft', 'finalized_at']);
+                ->where(function ($q) use ($year) {
+                    $q->where('check_year', $year);
+                    $q->orWhere(function ($legacy) use ($year) {
+                        $legacy->whereNull('check_year')->whereYear('checked_at', $year);
+                    });
+                    if (Schema::hasColumn('dcs_random_checks', 'check_date')) {
+                        $q->orWhere(function ($legacy) use ($year) {
+                            $legacy->whereNull('check_year')->whereYear('check_date', $year);
+                        });
+                    }
+                })
+                ->get(array_values(array_filter([
+                    'office_id',
+                    'is_draft',
+                    'finalized_at',
+                    Schema::hasColumn('dcs_random_checks', 'cycle') ? 'cycle' : null,
+                    Schema::hasColumn('dcs_random_checks', 'check_date') ? 'check_date' : null,
+                    'checked_at',
+                ])));
             foreach ($checks as $row) {
+                $rowCycle = trim((string) ($row->cycle ?? ''));
+                if ($rowCycle === '') {
+                    $stamp = $row->check_date ?: $row->checked_at;
+                    $month = $stamp ? (int) date('n', strtotime((string) $stamp)) : 1;
+                    $rowCycle = $month <= 6 ? self::CYCLE_JUNE : self::CYCLE_DECEMBER;
+                }
+                if (self::normalizeCycle($rowCycle) !== $cycle) {
+                    continue;
+                }
                 $officeIds[(int) $row->office_id] = true;
                 if (self::rowIsDraft($row)) {
                     $drafts++;

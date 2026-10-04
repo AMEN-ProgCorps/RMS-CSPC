@@ -1097,6 +1097,124 @@ a.rc-year-card { text-decoration: none; display: block; }
 
 .rc-summary { background: #fff; border: 1px solid var(--db-border); border-radius: var(--dcs-radius-lg); }
 
+.rc-home {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.rc-current-year {
+    background: #fff;
+    border: 1px solid var(--db-border);
+    border-radius: var(--dcs-radius-lg);
+    padding: 18px 20px 20px;
+}
+
+.rc-current-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.rc-kicker {
+    margin: 0 0 4px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--db-primary);
+}
+
+.rc-current-head h2 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+
+.rc-cycle-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.rc-stat {
+    text-align: left;
+    border: 1.5px solid #cbd5e1;
+    background: #f8fafc;
+    border-radius: var(--dcs-radius-lg);
+    padding: 14px 16px;
+    cursor: pointer;
+    color: #0f172a;
+}
+
+.rc-stat:hover {
+    border-color: var(--db-primary);
+    background: var(--db-accent-light);
+}
+
+.rc-stat strong {
+    display: block;
+    font-size: 13px;
+    color: #475569;
+}
+
+.rc-stat-num {
+    display: block;
+    margin: 4px 0 0;
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: #0f172a;
+    line-height: 1.1;
+}
+
+.rc-stat span {
+    display: block;
+    font-size: 12px;
+    color: #64748b;
+}
+
+.rc-history-grid {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 12px;
+    overflow-x: auto;
+}
+
+.rc-year-box {
+    display: flex;
+    flex-direction: row;
+    flex: 1 0 auto;
+    align-items: center;
+    gap: 16px;
+    text-align: left;
+    padding: 16px 18px;
+    border: 1px solid var(--db-border);
+    border-radius: var(--dcs-radius-lg);
+    background: #fff;
+    cursor: pointer;
+    color: #0f172a;
+    white-space: nowrap;
+}
+
+.rc-year-box:hover {
+    border-color: var(--db-primary);
+    background: #f8fafc;
+}
+
+.rc-year-box strong {
+    font-size: 1rem;
+}
+
+.rc-year-box span {
+    font-size: 13px;
+    color: #475569;
+}
+
+.rc-empty-compact {
+    padding: 28px 18px 32px;
+}
+
 body:has(.rc-modal.is-open) {
     overflow: hidden;
 }
@@ -1117,6 +1235,7 @@ body:has(.rc-modal.is-open) {
 
 @media (max-width: 900px) {
     .rc-cycle-row,
+    .rc-cycle-stats,
     .rc-modal-grid {
         grid-template-columns: 1fr;
     }

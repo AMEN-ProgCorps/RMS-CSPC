@@ -4083,15 +4083,16 @@ function processUploadAreaFile(input, container, icon, label, originalText) {
     label.style.fontWeight = '600';
     attachUploadFieldActions(container, input, file, icon, label, originalText);
 
-    if (input.id === 'drfFile' && check.ext === 'pdf' && file.size <= OCR_MAX_FILE_SIZE) {
-        triggerScanExtraction(input, file);
+    if (check.ext === 'pdf' && file.size <= OCR_MAX_FILE_SIZE && (input.id === 'drfFile' || input.id === 'scanneddist')) {
+        triggerScanExtraction(input, file, input.id === 'scanneddist' ? 'distribution' : 'drf');
     }
 }
 
-function triggerScanExtraction(input, file) {
+function triggerScanExtraction(input, file, section) {
+    section = section || 'drf';
     const formData = new FormData();
     formData.append('scan', file);
-    formData.append('section', 'drf');
+    formData.append('section', section);
     formData.append('_token', document.querySelector('meta[name="csrf-token"]')?.content
         || document.querySelector('input[name="_token"]')?.value);
 
@@ -4108,13 +4109,17 @@ function triggerScanExtraction(input, file) {
             container?.classList.add('reg-upload-success');
 
             if (data.extracted) {
-                const filled = autofillDrfFields(data.fields || {});
+                const fields = data.fields || {};
+                const filled = section === 'distribution'
+                    ? applyDistributionOffices(fields)
+                    : (autofillDrfFields(fields) || applyDistributionOffices(fields));
                 if (filled) {
                     removeExistingError(container);
                     return;
                 }
-                if (data.fields && (data.fields.drfNo || data.fields.drfTitle || data.fields.drfDate
-                    || (data.fields.sourceOffices || []).length)) {
+                if (fields.drfNo || fields.drfTitle || fields.drfDate
+                    || (fields.distributionOffices || []).length
+                    || (fields.sourceOffices || []).length) {
                     removeExistingError(container);
                     return;
                 }
@@ -4170,6 +4175,33 @@ function autofillDrfFields(fields) {
     }
     window.DCSScanNamePreview?.update();
     return filled;
+}
+
+function revealDistributionSection() {
+    const cb = document.querySelector('#dynamicCheckboxes input[name="checklists[]"][value="5"]');
+    if (cb && !cb.checked) {
+        cb.checked = true;
+        cb.dataset.lastChecked = 'true';
+    }
+    if (typeof toggleSection === 'function') toggleSection(5, true);
+    const section = document.getElementById('section-5');
+    if (section) section.style.display = 'block';
+}
+
+function applyDistributionOffices(fields) {
+    const offices = Array.isArray(fields?.distributionOffices) ? fields.distributionOffices : [];
+    if (!offices.length || typeof addOffice !== 'function') return false;
+    revealDistributionSection();
+    let added = false;
+    offices.forEach((office) => {
+        const id = office?.id ?? office?.office_id;
+        const name = office?.office_name || office?.office_code;
+        if (!id || !name) return;
+        addOffice(id, name, 'distBody', 'distTotal', 'distResults');
+        added = true;
+    });
+    if (typeof syncDistClusterChipState === 'function') syncDistClusterChipState();
+    return added;
 }
 
 /** Map OCR office payload → active catalog offices only (no free-text / inactive). */
@@ -6714,7 +6746,7 @@ function renderDistClusterChips() {
     if (!wrap) return;
     const clusters = (window.__registerCatalog || {}).clusters || [];
     wrap.innerHTML = clusters.map((c) => (
-        '<button type="button" class="reg-cluster-chip" data-cluster="' + escapeHtml(c.cluster_code) + '">' +
+        '<button type="button" class="reg-cluster-chip" data-cluster="' + escapeHtml(c.cluster_code) + '" data-cluster-name="' + escapeHtml(c.cluster_name) + '">' +
         'Select all ' + escapeHtml(c.cluster_name) + '</button>'
     )).join('');
     wrap.querySelectorAll('.reg-cluster-chip').forEach((btn) => {
@@ -6785,9 +6817,15 @@ function toggleOfficesByCluster(clusterCode) {
 }
 
 function syncDistClusterChipState() {
+    const selected = new Set(getSelectedOfficeIds('distBody'));
     document.querySelectorAll('#distClusterChips .reg-cluster-chip').forEach((btn) => {
-        const code = btn.getAttribute('data-cluster');
-        btn.classList.toggle('is-active', isClusterFullySelected(code));
+        const offices = clusterOffices(btn.getAttribute('data-cluster'));
+        const hits = offices.filter((office) => selected.has(String(office.office_id))).length;
+        const complete = offices.length > 0 && hits === offices.length;
+        const name = btn.getAttribute('data-cluster-name') || 'cluster';
+        btn.classList.toggle('is-active', complete);
+        btn.classList.remove('is-partial');
+        btn.textContent = (complete ? 'Remove ' : 'Select all ') + name;
     });
 }
 

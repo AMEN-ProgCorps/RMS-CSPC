@@ -130,6 +130,10 @@
 }
 
 /* Top tabs */
+[data-theme="dark"] .dcs-top-tabs-host {
+    background-color: #0b0f19 !important;
+}
+
 [data-theme="dark"] .dcs-top-tabs-host .top-nav-tabs-wrapper {
     background-color: #131c2e !important;
     border-color: #1e293b !important;

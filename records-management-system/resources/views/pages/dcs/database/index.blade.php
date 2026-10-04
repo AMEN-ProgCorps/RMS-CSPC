@@ -434,7 +434,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 $allowsRevision = (bool) ($rows->first()['allows_revision'] ?? true);
                 $sorted = $allowsRevision
                     ? $rows->sortByDesc('rev_no')->values()
-                    : $rows->sortByDesc('request_id')->values();
+                    : $rows->sortByDesc(fn ($r) => sprintf('%s|%010d', (string) ($r['effectivity_sort'] ?? ''), (int) ($r['request_id'] ?? 0)))->values();
                 $parent = $allowsRevision
                     ? ($rows->first(fn ($r) => strtolower((string) $r['status']) === 'latest') ?? $sorted->first())
                     : $sorted->first();
@@ -654,9 +654,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'dr.sub_type_id',
             'dt.doc_type_name',
             'ml.doc_no',
+            'ml.doc_title',
             'ml.revise_no',
             'ml.revision_status',
         ];
+        if (Schema::hasColumn('dcs_masterlist_registration', 'effectivity_date')) {
+            $select[] = 'ml.effectivity_date';
+        }
         if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
             $select[] = 'dr.deleted_at';
         }
@@ -668,6 +672,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         if ($hasStack) {
             $select[] = 'ml.stack_group';
         }
+        $hasRevisedFrom = Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no');
+        if ($hasRevisedFrom) {
+            $select[] = 'ml.revised_from_doc_no';
+        }
 
         $docs = (clone $query)
             ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
@@ -678,11 +686,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ->unique('request_id')
             ->values();
 
-        $stacks = RegisterQueryHelper::syllabiStackByRequest(
-            $docs->pluck('request_id')->map(fn ($id) => (int) $id)->all()
-        );
+        $syllabiIds = $docs
+            ->filter(function ($doc) {
+                $name = mb_strtolower((string) ($doc->doc_type_name ?? ''));
 
-        return $docs->map(function ($doc) use ($stacks, $hasAllows, $hasStack) {
+                return str_contains($name, 'syllab') || str_contains($name, 'rubric') || str_contains($name, 'tos');
+            })
+            ->pluck('request_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+        $stacks = RegisterQueryHelper::syllabiStackByRequest($syllabiIds);
+
+        return $docs->map(function ($doc) use ($stacks, $hasAllows, $hasStack, $hasRevisedFrom) {
             $status = strtolower(trim((string) ($doc->revision_status ?? '')));
             if ($status === '') {
                 $status = 'latest';
@@ -694,9 +709,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 'sub_type_id' => (int) ($doc->sub_type_id ?? 0),
                 'doc_type_name' => $doc->doc_type_name ?? 'Uncategorized',
                 'doc_no' => trim((string) ($doc->doc_no ?? '')) !== '' ? trim((string) $doc->doc_no) : 'N/A',
+                'title' => trim((string) ($doc->doc_title ?? '')),
+                'effectivity_sort' => ! empty($doc->effectivity_date)
+                    ? \Carbon\Carbon::parse($doc->effectivity_date)->format('Y-m-d')
+                    : '',
                 'rev_no' => (int) ($doc->revise_no ?? 0),
                 'status' => $status,
                 'stack_group' => $hasStack ? trim((string) ($doc->stack_group ?? '')) : '',
+                'revised_from_doc_no' => $hasRevisedFrom ? trim((string) ($doc->revised_from_doc_no ?? '')) : '',
                 'allows_revision' => $hasAllows
                     ? (bool) ($doc->allows_revision ?? true)
                     : RegisterQueryHelper::effectiveTypeAllowsRevision($doc->doc_type_id ?? null, $doc->sub_type_id ?? null),
@@ -1131,7 +1151,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     foreach (($list['data'] ?? []) as $group) {
         $name = $group['parent']['doc_type_name'] ?? 'Uncategorized';
         $slug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $name));
-        $categoryState[$slug] = true;
+        $categoryState[$slug] = false;
     }
     $visibleGroups = $visibleGroups ?? \App\Helpers\DcsDatabaseColumns::defaultVisibleGroups();
     $groupColspans = $groupColspans ?? \App\Helpers\DcsDatabaseColumns::BUILTIN_COUNTS;
@@ -1166,9 +1186,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     init() {
         try {
             const saved = JSON.parse(sessionStorage.getItem('dcs-db-expand') || '{}');
-            if (saved.categories && typeof saved.categories === 'object') {
-                this.categories = Object.assign({}, this.categories, saved.categories);
-            }
+            // Each visit starts with category rows collapsed. Expansion is only for this page view.
             if (saved.expandedRevs && typeof saved.expandedRevs === 'object') {
                 this.expandedRevs = saved.expandedRevs;
             }

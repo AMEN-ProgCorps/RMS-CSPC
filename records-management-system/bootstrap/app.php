@@ -90,4 +90,33 @@ return Application::configure(basePath: dirname(__DIR__))
 
             return null;
         });
+
+        $exceptions->render(function (\Throwable $e, \Illuminate\Http\Request $request) {
+            if (app()->runningInConsole() || app()->environment('testing') || app()->runningUnitTests()) {
+                return null;
+            }
+            if ($e instanceof \Illuminate\Validation\ValidationException
+                || $e instanceof \Illuminate\Auth\AuthenticationException
+                || $e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException
+                || $e instanceof \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException
+                || $e instanceof \Illuminate\Auth\Access\AuthorizationException) {
+                return null;
+            }
+            if ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpException && in_array($e->getStatusCode(), [403, 404], true)) {
+                return null;
+            }
+
+            $livewire = $request->headers->has('X-Livewire') || $request->is('livewire/*');
+            $wantsJson = $livewire || $request->expectsJson() || $request->ajax() || $request->wantsJson();
+            if (! $wantsJson && ! $request->is('dcs/*')) {
+                return null;
+            }
+
+            $diagnosed = \App\Support\ErrorDiagnosis::from($e);
+            if ($wantsJson) {
+                return response()->json($diagnosed->toArray(), $diagnosed->status);
+            }
+
+            return response()->view('errors.diagnosed', ['error' => $diagnosed], $diagnosed->status);
+        });
     })->create();

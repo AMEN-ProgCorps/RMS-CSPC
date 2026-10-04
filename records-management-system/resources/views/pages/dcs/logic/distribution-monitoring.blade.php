@@ -60,6 +60,8 @@ class DistributionRetrievalMonitorHelper
         $hasRevStatus = Schema::hasColumn('dcs_masterlist_registration', 'revision_status');
         $hasEffectivity = Schema::hasColumn('dcs_masterlist_registration', 'effectivity_date');
         $hasDistDate = Schema::hasColumn('dcs_distribution_offices', 'distribution_date');
+        $hasStack = Schema::hasColumn('dcs_masterlist_registration', 'stack_group');
+        $hasAllows = Schema::hasColumn('dcs_masterlist_registration', 'allows_revision');
 
         $select = [
             'ml.request_id',
@@ -72,8 +74,20 @@ class DistributionRetrievalMonitorHelper
             'o.office_code',
             'o.office_name',
         ];
+        $hasTypes = Schema::hasTable('dcs_doc_types');
+        if ($hasTypes) {
+            $select[] = 'dt.doc_type_name';
+            $select[] = 'rdt.doc_type_name as req_type_name';
+            $select[] = 'st.doc_type_name as sub_type_name';
+        }
         if ($hasRevStatus) {
             $select[] = 'ml.revision_status';
+        }
+        if ($hasStack) {
+            $select[] = 'ml.stack_group';
+        }
+        if ($hasAllows) {
+            $select[] = 'ml.allows_revision';
         }
         if ($hasEffectivity) {
             $select[] = 'ml.effectivity_date';
@@ -99,6 +113,12 @@ class DistributionRetrievalMonitorHelper
             ->join('dcs_document_distribution as dist', 'dist.request_id', '=', 'ml.request_id')
             ->join('dcs_distribution_offices as doff', 'doff.distribution_id', '=', 'dist.id')
             ->leftJoin($officeTbl . ' as o', 'o.id', '=', 'doff.office_id');
+
+        if ($hasTypes) {
+            $query->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'ml.doc_type_id')
+                ->leftJoin('dcs_doc_types as rdt', 'rdt.id', '=', 'dr.doc_type_id')
+                ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id');
+        }
 
         if ($hasRet) {
             $query->leftJoin('dcs_document_retrieval as dret', 'dret.request_id', '=', 'ml.request_id')
@@ -132,7 +152,16 @@ class DistributionRetrievalMonitorHelper
             }
 
             $docNo = trim((string) ($row->doc_no ?? ''));
-            $familyKey = $docNo !== '' ? mb_strtolower($docNo) : 'request:' . $requestId;
+            $title = trim((string) ($row->doc_title ?? ''));
+            $stackGroup = property_exists($row, 'stack_group') ? trim((string) $row->stack_group) : '';
+            $allowsRevision = ! property_exists($row, 'allows_revision') || self::isEnabled($row->allows_revision);
+            if ($stackGroup !== '') {
+                $familyKey = 'stack:' . mb_strtolower($stackGroup);
+            } elseif (! $allowsRevision && $title !== '' && $docNo !== '') {
+                $familyKey = 'copy:' . mb_strtolower($docNo) . '|' . mb_strtolower($title);
+            } else {
+                $familyKey = $docNo !== '' ? mb_strtolower($docNo) : 'request:' . $requestId;
+            }
             $revKey = $familyKey . '|' . $requestId;
 
             if (! isset($revisions[$revKey])) {
@@ -144,7 +173,11 @@ class DistributionRetrievalMonitorHelper
                     'revise_no' => (int) ($row->revise_no ?? 0),
                     'revision_status' => strtolower(trim((string) ($row->revision_status ?? 'latest'))) ?: 'latest',
                     'effectivity' => self::formatDate(property_exists($row, 'effectivity_date') ? $row->effectivity_date : null),
+                    'effectivity_sort' => self::sortDate(property_exists($row, 'effectivity_date') ? $row->effectivity_date : null),
                     'distributed_on' => self::formatDate($row->doc_distribution_date_actual ?? ($row->distribution_date ?? null)),
+                    'doc_type_name' => self::typeName($row),
+                    'sub_type_name' => trim((string) ($row->sub_type_name ?? '')),
+                    'stack_group' => $stackGroup,
                     'offices' => [],
                 ];
             } elseif ($revisions[$revKey]['distributed_on'] === '' && ! empty($row->distribution_date ?? null)) {
@@ -195,11 +228,16 @@ class DistributionRetrievalMonitorHelper
         foreach ($byFamily as $familyRevs) {
             usort($familyRevs, function ($a, $b) {
                 $rev = ((int) $b['revise_no']) <=> ((int) $a['revise_no']);
+                if ($rev !== 0) {
+                    return $rev;
+                }
+                $date = strcmp((string) ($b['effectivity_sort'] ?? ''), (string) ($a['effectivity_sort'] ?? ''));
 
-                return $rev !== 0 ? $rev : ((int) $b['request_id']) <=> ((int) $a['request_id']);
+                return $date !== 0 ? $date : ((int) $b['request_id']) <=> ((int) $a['request_id']);
             });
 
             $officeRevs = [];
+            $maxRev = (int) ($familyRevs[0]['revise_no'] ?? 0);
             foreach ($familyRevs as $revision) {
                 foreach ($revision['offices'] as $officeId => $office) {
                     $officeRevs[$officeId][] = [
@@ -213,21 +251,18 @@ class DistributionRetrievalMonitorHelper
             foreach ($familyRevs as &$revision) {
                 foreach ($revision['offices'] as $officeId => &$office) {
                     $peers = $officeRevs[$officeId] ?? [];
-                    $newerOut = false;
+                    $newerOut = (int) $revision['revise_no'] < $maxRev;
                     $hasOlder = false;
                     $olderStillOut = false;
                     foreach ($peers as $peer) {
                         if ((int) $peer['request_id'] === (int) $revision['request_id']) {
                             continue;
                         }
-                        if ((int) $peer['revise_no'] > (int) $revision['revise_no']) {
-                            $newerOut = true;
-                        }
-                        if ((int) $peer['revise_no'] < (int) $revision['revise_no']) {
+                        if ((int) $peer['revise_no'] < (int) $revision['revise_no'] && empty($peer['retrieved'])) {
                             $hasOlder = true;
-                            if (empty($peer['retrieved'])) {
-                                $olderStillOut = true;
-                            }
+                            $olderStillOut = true;
+                        } elseif ((int) $peer['revise_no'] < (int) $revision['revise_no']) {
+                            $hasOlder = true;
                         }
                     }
                     $office['old_copy'] = ! $hasOlder ? 'none' : ($olderStillOut ? 'pending' : 'retrieved');
@@ -275,7 +310,7 @@ class DistributionRetrievalMonitorHelper
     {
         return match ($status) {
             'retrieved' => 'Retrieved',
-            'still_out' => 'Newer copy out',
+            'still_out' => 'Pending return',
             'received_previous_out', 'awaiting_previous_out' => 'Previous still out',
             'received' => 'Received',
             default => 'Awaiting',
@@ -286,7 +321,7 @@ class DistributionRetrievalMonitorHelper
     {
         return match ($status) {
             'retrieved' => 'Retrieved',
-            'still_out' => 'Not retrieved — newer copy already distributed',
+            'still_out' => 'Pending return — not yet returned to Admin DCS',
             'received_previous_out' => 'Received — previous copy not retrieved',
             'awaiting_previous_out' => 'Not yet received — previous copy not retrieved',
             'received' => 'Received',
@@ -312,6 +347,10 @@ class DistributionRetrievalMonitorHelper
                 return true;
             }
             foreach ($family['revisions'] as $revision) {
+                $typeHay = mb_strtolower(trim((string) ($revision['doc_type_name'] ?? '')) . ' ' . trim((string) ($revision['sub_type_name'] ?? '')));
+                if ($typeHay !== ' ' && str_contains($typeHay, $needle)) {
+                    return true;
+                }
                 foreach ($revision['offices'] as $office) {
                     $officeHay = mb_strtolower($office['office_code'] . ' ' . $office['office_name']);
                     if (str_contains($officeHay, $needle)) {
@@ -428,6 +467,38 @@ class DistributionRetrievalMonitorHelper
         }
 
         return $names;
+    }
+
+    private static function typeName(object $row): string
+    {
+        $name = trim((string) ($row->doc_type_name ?? ''));
+        if ($name === '') {
+            $name = trim((string) ($row->req_type_name ?? ''));
+        }
+
+        return $name !== '' ? $name : 'Unclassified';
+    }
+
+    private static function isEnabled(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return ! in_array(strtolower(trim((string) $value)), ['', '0', 'f', 'false', 'no'], true);
+    }
+
+    private static function sortDate(mixed $value): string
+    {
+        $value = trim((string) $value);
+        if ($value === '') {
+            return '';
+        }
+        try {
+            return \Carbon\Carbon::parse($value)->format('Y-m-d');
+        } catch (\Throwable) {
+            return '';
+        }
     }
 
     private static function formatDate(mixed $value): string

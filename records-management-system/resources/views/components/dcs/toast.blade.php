@@ -75,12 +75,13 @@ window.closeToast = function () {
     toastNodes().forEach(dismissToast);
 };
 
-window.dcsShowToast = function (message, type) {
+window.dcsShowToast = function (message, type, title) {
     if (!message) {
         return;
     }
     window.closeToast();
-    const isError = type === 'error';
+    const isError = type === 'error' || type === 'client' || type === 'server';
+    const toastTitle = title || (type === 'client' ? 'Client error' : (type === 'server' ? 'Server error' : (isError ? 'Error' : 'Success')));
     const toast = document.createElement('div');
     toast.className = 'dcs-toast ' + (isError ? 'dcs-toast-error' : 'dcs-toast-success');
     toast.id = isError ? 'errorToast' : 'successToast';
@@ -89,7 +90,7 @@ window.dcsShowToast = function (message, type) {
     toast.innerHTML =
         '<div class="dcs-toast-icon"><i class="fa-solid ' + (isError ? 'fa-circle-exclamation' : 'fa-circle-check') + '"></i></div>' +
         '<div class="dcs-toast-content">' +
-            '<span class="dcs-toast-title">' + (isError ? 'Error' : 'Success') + '</span>' +
+            '<span class="dcs-toast-title">' + escapeToastHtml(toastTitle) + '</span>' +
             '<span class="dcs-toast-message">' + escapeToastHtml(message) + '</span>' +
         '</div>' +
         '<button type="button" class="dcs-toast-close" onclick="closeToast()"><i class="fa-solid fa-xmark"></i></button>' +
@@ -97,6 +98,34 @@ window.dcsShowToast = function (message, type) {
     document.body.appendChild(toast);
     bindToast(toast);
 };
+
+function diagnosedRequestFailure(status, content) {
+    let body = null;
+    if (content && typeof content === 'object') {
+        body = content;
+    } else if (typeof content === 'string' && content.trim().charAt(0) === '{') {
+        try { body = JSON.parse(content); } catch (e) { body = null; }
+    }
+    const offline = !status || status === 0;
+    const client = !offline && (body?.error_kind === 'client' || (status >= 400 && status < 500));
+    const title = client ? 'Client error' : 'Server error';
+    let message = body?.message || '';
+    if (!message && (offline || (status === 503 && !body))) {
+        message = 'Cannot connect to the server.';
+    }
+    if (!message && status === 419) {
+        message = 'Your session expired. Refresh the page and try again.';
+    }
+    if (!message) {
+        message = client
+            ? 'This request could not be completed.'
+            : 'The server could not finish this request.';
+    }
+    if (body?.reference) {
+        message += ' Reference ' + body.reference + '.';
+    }
+    return { title: title, message: message, skipDefault: status !== 422 };
+}
 
 document.addEventListener('DOMContentLoaded', scanToasts);
 document.addEventListener('livewire:navigated', scanToasts);
@@ -128,6 +157,15 @@ document.addEventListener('livewire:init', () => {
     });
     Livewire.hook('commit', ({ succeed }) => {
         succeed(() => queueMicrotask(scanToasts));
+    });
+    Livewire.hook('request', ({ fail }) => {
+        fail(({ status, content, preventDefault }) => {
+            const diagnosed = diagnosedRequestFailure(status, content);
+            window.dcsShowToast(diagnosed.message, 'error', diagnosed.title);
+            if (diagnosed.skipDefault) {
+                preventDefault();
+            }
+        });
     });
 });
 </script>

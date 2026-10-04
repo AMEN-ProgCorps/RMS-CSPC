@@ -78,11 +78,13 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
         $this->checkDate = now()->format('Y-m-d');
     }
 
-    public function openYear(int $year): void
+    public function openYear(int $year, string $cycle = ''): void
     {
         RandomCheckHelper::assertCanAccess();
         $this->selectedYear = $year;
-        $this->selectedCycle = RandomCheckHelper::defaultCycle($year);
+        $this->selectedCycle = $cycle !== ''
+            ? RandomCheckHelper::normalizeCycle($cycle)
+            : RandomCheckHelper::defaultCycle($year);
         $this->screen = 'year';
         $this->resetWork();
         $this->notice = '';
@@ -536,10 +538,10 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
                     @if($screen === 'year' || $screen === 'work')
                         /
                         @if($screen === 'work')
-                            <button type="button" class="rc-crumb-link" wire:click="backYear">{{ $selectedYear }} Random Check</button>
+                            <button type="button" class="rc-crumb-link" wire:click="backYear">{{ $selectedYear }} Random Checking</button>
                             / <span>{{ $selectedOfficeLabel }}</span>
                         @else
-                            <span>{{ $selectedYear }} Random Check</span>
+                            <span>{{ $selectedYear }} Random Checking</span>
                         @endif
                     @endif
                 @endif
@@ -548,14 +550,14 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
                 @if($screen === 'home')
                     Random Check
                 @elseif($screen === 'year')
-                    {{ $selectedYear }} Random Check
+                    {{ $selectedYear }} Random Checking
                 @else
                     {{ $cycleLabel }} · {{ $selectedOfficeLabel }}
                 @endif
             </h1>
             <p class="rc-subtitle">
                 @if($screen === 'home')
-                    Two cycles a year (June and December). Schedule an office one week ahead, check every distributed copy, then send a letter excerpt.
+                    Open this year, or a previous year below, to see the June and December office visits.
                 @elseif($screen === 'year')
                     {{ $cycleWindow }}
                 @elseif($locked)
@@ -566,12 +568,24 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
             </p>
         </div>
         <div class="rc-header-right">
+            @if($screen === 'year')
+                <button type="button" class="rc-btn-ghost" wire:click="backHome">
+                    <i class="fa-solid fa-arrow-left"></i>
+                    Back
+                </button>
+            @elseif($screen === 'work')
+                <button type="button" class="rc-btn-ghost" wire:click="backYear">
+                    <i class="fa-solid fa-arrow-left"></i>
+                    Back
+                </button>
+            @endif
             @if($screen === 'work')
                 <span class="rc-count-badge">{{ count($rows) }} document{{ count($rows) === 1 ? '' : 's' }}</span>
                 @if($locked)
                     <span class="rc-lock-badge"><i class="fa-solid fa-lock"></i> Locked</span>
                 @endif
             @endif
+            @if($screen !== 'home')
             <button
                 type="button"
                 class="rc-btn-secondary"
@@ -583,6 +597,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
                 <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="openSchedule"></i>
                 Schedule Random Check
             </button>
+            @endif
             @if($screen === 'work' && ! $locked)
                 <button type="button" class="rc-btn-ghost" wire:click="saveDraft" wire:loading.attr="disabled">
                     <i class="fa-regular fa-floppy-disk"></i>
@@ -601,32 +616,56 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Random Check')] 
     @endif
 
     @if($screen === 'home')
-        <section class="rc-summary">
-            <div class="rc-panel-head">
-                <h2><i class="fa-solid fa-clock-rotate-left"></i> Summary of Random Checks</h2>
-            </div>
-            <div class="rc-year-grid">
-                @forelse($yearSummaries as $year)
-                    <button
-                        type="button"
-                        class="rc-year-card {{ $selectedYear === $year['year'] ? 'is-current' : '' }}"
-                        wire:click="openYear({{ $year['year'] }})"
-                    >
-                        <strong>{{ $year['label'] }}</strong>
-                        <span>{{ $year['june']['offices'] + $year['december']['offices'] }} office visit{{ ($year['june']['offices'] + $year['december']['offices']) === 1 ? '' : 's' }}</span>
-                        <span class="rc-year-meta">
-                            June {{ $year['june']['finalized'] }} done
-                            · December {{ $year['december']['finalized'] }} done
-                        </span>
-                    </button>
-                @empty
-                    <div class="rc-empty">
-                        <i class="fa-regular fa-calendar"></i>
-                        <h3>No years yet</h3>
-                        <p>Schedule the first office visit to start {{ now()->format('Y') }} Random Check.</p>
+        @php
+            $homeCurrentYear = (int) now()->format('Y');
+            $homeCurrent = collect($yearSummaries)->firstWhere('year', $homeCurrentYear);
+            $homePrevious = collect($yearSummaries)->filter(fn ($year) => (int) $year['year'] < $homeCurrentYear)->values();
+        @endphp
+        <section class="rc-home">
+            @if($homeCurrent)
+                <article class="rc-current-year">
+                    <div class="rc-current-head">
+                        <div>
+                            <p class="rc-kicker">This year</p>
+                            <h2>{{ $homeCurrent['label'] }}</h2>
+                        </div>
+                        <button type="button" class="rc-btn-primary" wire:click="openYear({{ $homeCurrent['year'] }})">
+                            Open year
+                        </button>
                     </div>
-                @endforelse
-            </div>
+                    <div class="rc-cycle-stats">
+                        @foreach(['june' => 'June', 'december' => 'December'] as $cycleKey => $cycleName)
+                            @php $sum = $homeCurrent[$cycleKey]; @endphp
+                            <button type="button" class="rc-stat" wire:click="openYear({{ $homeCurrent['year'] }}, '{{ $cycleKey }}')">
+                                <strong>{{ $cycleName }}</strong>
+                                <span class="rc-stat-num">{{ (int) $sum['offices'] }}</span>
+                                <span>office visit{{ (int) $sum['offices'] === 1 ? '' : 's' }}</span>
+                                <span class="rc-year-meta">{{ (int) $sum['finalized'] }} finalized · {{ (int) $sum['drafts'] }} draft{{ (int) $sum['drafts'] === 1 ? '' : 's' }}</span>
+                            </button>
+                        @endforeach
+                    </div>
+                </article>
+            @endif
+
+            @if($homePrevious->isEmpty())
+                <section class="rc-summary">
+                    <div class="rc-empty rc-empty-compact">
+                        <i class="fa-regular fa-calendar"></i>
+                        <h3>No previous years yet</h3>
+                        <p>When a year before {{ $homeCurrentYear }} has a recorded visit, it appears here as its own year.</p>
+                    </div>
+                </section>
+            @else
+                <div class="rc-history-grid">
+                    @foreach($homePrevious as $year)
+                        <button type="button" class="rc-year-box" wire:click="openYear({{ $year['year'] }})">
+                            <strong>{{ $year['year'] }} Random Checking</strong>
+                            <span>June · {{ (int) $year['june']['offices'] }} office{{ (int) $year['june']['offices'] === 1 ? '' : 's' }} · {{ (int) $year['june']['finalized'] }} done</span>
+                            <span>December · {{ (int) $year['december']['offices'] }} office{{ (int) $year['december']['offices'] === 1 ? '' : 's' }} · {{ (int) $year['december']['finalized'] }} done</span>
+                        </button>
+                    @endforeach
+                </div>
+            @endif
         </section>
     @endif
 

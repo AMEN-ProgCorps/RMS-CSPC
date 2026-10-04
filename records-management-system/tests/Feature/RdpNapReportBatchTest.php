@@ -304,4 +304,220 @@ class RdpNapReportBatchTest extends TestCase
             DB::rollBack();
         }
     }
+
+    public function test_batch_record_degraded_transfer_between_form_1_and_form_3_yearly(): void
+    {
+        Carbon::setTestNow(Carbon::create(2025, 6, 1));
+        DB::beginTransaction();
+        try {
+            $retentionId = DB::table('rdp_retention_period')->insertGetId([
+                'active_period'  => '6 months',
+                'storage_period' => '6 months',
+                'total_period'   => '1 year',
+                'created_at'     => now(),
+                'updated_at'     => now(),
+            ]);
+
+            $seriesId = DB::table('rdp_record_series')->insertGetId([
+                'series_title'     => 'DEGRADED YEARLY BATCH SERIES',
+                'retention_period' => $retentionId,
+                'is_active'        => true,
+                'created_at'       => now(),
+                'updated_at'       => now(),
+            ]);
+
+            $recordId = DB::table('rdp_record')->insertGetId([
+                'record_series_id'    => $seriesId,
+                'description'         => 'BATCH #1',
+                'volume'              => '10 BOXES',
+                'ispartof_batch'      => true,
+                'is_draft'            => false,
+                'is_active'           => true,
+                'transferred_to_nap3' => false,
+                'created_at'          => now(),
+                'updated_at'          => now(),
+            ]);
+
+            // 5 yearly periods: 2022, 2023, 2024, 2025, 2026
+            for ($year = 2022; $year <= 2026; $year++) {
+                DB::table('rdp_period_covered')->insert([
+                    'period_owner'     => $recordId,
+                    'date_covered'     => "{$year}",
+                    'date_covered_end' => "{$year}-12-31",
+                    'volume'           => '2 Boxes',
+                    'created_at'       => now(),
+                    'modified_at'      => now(),
+                ]);
+            }
+
+            // Sync retention with test time
+            \App\Services\RdpRetentionService::syncTransferredRecords(now: Carbon::now());
+
+            // 1. NAP Form 1 (Active periods: 2024, 2025, 2026)
+            $f1Component = Volt::test('pages.rdp.reports.nap-form-1');
+            $f1Data = $f1Component->viewData('hierarchyTree');
+            $f1Series = collect($f1Data)->firstWhere('id', $seriesId);
+            $this->assertNotNull($f1Series, 'Series should appear in Form 1');
+            $this->assertEquals('2024 - Present', $f1Series->compiled_period);
+
+            $this->assertNotEmpty($f1Series->direct_records);
+            $f1Rec = $f1Series->direct_records[0];
+            $this->assertEquals('2024 - Present', $f1Rec->date_covered);
+            $this->assertEquals('6 boxes', $f1Rec->volume);
+            $this->assertCount(3, $f1Rec->sub_periods);
+
+            $this->assertEquals('BATCH #1 3', $f1Rec->sub_periods[0]->description); // 2024 is 3rd item
+            $this->assertEquals('2024', $f1Rec->sub_periods[0]->date_covered);
+            $this->assertEquals('BATCH #1 4', $f1Rec->sub_periods[1]->description); // 2025 is 4th item
+            $this->assertEquals('2025', $f1Rec->sub_periods[1]->date_covered);
+            $this->assertEquals('BATCH #1 5', $f1Rec->sub_periods[2]->description); // 2026 is 5th item
+            $this->assertEquals('2026', $f1Rec->sub_periods[2]->date_covered);
+
+            $f1Component->assertDontSee('BATCH #1 1');
+            $f1Component->assertDontSee('BATCH #1 2');
+            $f1Component->assertSee('BATCH #1 3');
+            $f1Component->assertSee('BATCH #1 4');
+            $f1Component->assertSee('BATCH #1 5');
+
+            // 2. NAP Form 3 (Expired periods: 2022, 2023)
+            $f3Component = Volt::test('pages.rdp.reports.nap-form-3');
+            $f3Data = $f3Component->viewData('hierarchyTree');
+            $f3Series = collect($f3Data)->firstWhere('id', $seriesId);
+            $this->assertNotNull($f3Series, 'Series should appear in Form 3');
+            $this->assertEquals('2022-2023', $f3Series->compiled_period);
+
+            $this->assertNotEmpty($f3Series->direct_records);
+            $f3Rec = $f3Series->direct_records[0];
+            $this->assertEquals('2022 - 2023', $f3Rec->date_covered);
+            $this->assertEquals('4 boxes', $f3Rec->volume);
+            $this->assertCount(2, $f3Rec->sub_periods);
+
+            $this->assertEquals('BATCH #1 1', $f3Rec->sub_periods[0]->description);
+            $this->assertEquals('2022', $f3Rec->sub_periods[0]->date_covered);
+            $this->assertEquals('BATCH #1 2', $f3Rec->sub_periods[1]->description);
+            $this->assertEquals('2023', $f3Rec->sub_periods[1]->date_covered);
+
+            $f3Component->assertSee('BATCH #1 1');
+            $f3Component->assertSee('BATCH #1 2');
+            $f3Component->assertDontSee('BATCH #1 3');
+            $f3Component->assertDontSee('BATCH #1 4');
+            $f3Component->assertDontSee('BATCH #1 5');
+        } finally {
+            Carbon::setTestNow(null);
+            DB::rollBack();
+        }
+    }
+
+    public function test_batch_record_degraded_transfer_with_month_granularity(): void
+    {
+        Carbon::setTestNow(Carbon::create(2025, 6, 1));
+        DB::beginTransaction();
+        try {
+            $retentionId = DB::table('rdp_retention_period')->insertGetId([
+                'active_period'  => '6 months',
+                'storage_period' => '6 months',
+                'total_period'   => '1 year',
+                'created_at'     => now(),
+                'updated_at'     => now(),
+            ]);
+
+            $seriesId = DB::table('rdp_record_series')->insertGetId([
+                'series_title'     => 'DEGRADED MONTH BATCH SERIES',
+                'retention_period' => $retentionId,
+                'is_active'        => true,
+                'created_at'       => now(),
+                'updated_at'       => now(),
+            ]);
+
+            $recordId = DB::table('rdp_record')->insertGetId([
+                'record_series_id'    => $seriesId,
+                'description'         => 'Batch #1',
+                'volume'              => '12 BOXES',
+                'ispartof_batch'      => true,
+                'is_draft'            => false,
+                'is_active'           => true,
+                'transferred_to_nap3' => false,
+                'created_at'          => now(),
+                'updated_at'          => now(),
+            ]);
+
+            $subDefs = [
+                ['start' => '2022-01-01', 'end' => '2022-12-31', 'vol' => '2 Boxes'], // 1: Expired (Dec 2023)
+                ['start' => '2023-01-01', 'end' => '2023-12-31', 'vol' => '2 Boxes'], // 2: Expired (Dec 2024)
+                ['start' => '2024-01-01', 'end' => '2024-05-31', 'vol' => '2 Boxes'], // 3: Expired (May 2025)
+                ['start' => '2024-06-01', 'end' => '2024-12-31', 'vol' => '2 Boxes'], // 4: Active (Dec 2025)
+                ['start' => '2025-01-01', 'end' => '2025-12-31', 'vol' => '2 Boxes'], // 5: Active (Dec 2026)
+                ['start' => '2026-01-01', 'end' => '2026-12-31', 'vol' => '2 Boxes'], // 6: Active (Dec 2027)
+            ];
+
+            foreach ($subDefs as $sd) {
+                DB::table('rdp_period_covered')->insert([
+                    'period_owner'     => $recordId,
+                    'date_covered'     => $sd['start'],
+                    'date_covered_end' => $sd['end'],
+                    'volume'           => $sd['vol'],
+                    'created_at'       => now(),
+                    'modified_at'      => now(),
+                ]);
+            }
+
+            // Sync retention with test time
+            \App\Services\RdpRetentionService::syncTransferredRecords(now: Carbon::now());
+
+            // 1. NAP Form 1 (Items 4, 5, 6)
+            $f1Component = Volt::test('pages.rdp.reports.nap-form-1');
+            $f1Data = $f1Component->viewData('hierarchyTree');
+            $f1Series = collect($f1Data)->firstWhere('id', $seriesId);
+            $this->assertNotNull($f1Series);
+            $this->assertEquals('2024 - Present', $f1Series->compiled_period);
+
+            $f1Rec = $f1Series->direct_records[0];
+            $this->assertEquals('June 2024 - Present', $f1Rec->date_covered);
+            $this->assertEquals('6 boxes', $f1Rec->volume);
+            $this->assertCount(3, $f1Rec->sub_periods);
+
+            $this->assertEquals('Batch #1 4', $f1Rec->sub_periods[0]->description);
+            $this->assertEquals('June 2024 - Dec 2024', $f1Rec->sub_periods[0]->date_covered);
+            $this->assertEquals('Batch #1 5', $f1Rec->sub_periods[1]->description);
+            $this->assertEquals('Jan 2025 - Dec 2025', $f1Rec->sub_periods[1]->date_covered);
+            $this->assertEquals('Batch #1 6', $f1Rec->sub_periods[2]->description);
+            $this->assertEquals('Jan 2026 - Dec 2026', $f1Rec->sub_periods[2]->date_covered);
+
+            $f1Component->assertDontSee('Batch #1 1');
+            $f1Component->assertDontSee('Batch #1 2');
+            $f1Component->assertDontSee('Batch #1 3');
+            $f1Component->assertSee('Batch #1 4');
+            $f1Component->assertSee('Batch #1 5');
+            $f1Component->assertSee('Batch #1 6');
+
+            // 2. NAP Form 3 (Items 1, 2, 3)
+            $f3Component = Volt::test('pages.rdp.reports.nap-form-3');
+            $f3Data = $f3Component->viewData('hierarchyTree');
+            $f3Series = collect($f3Data)->firstWhere('id', $seriesId);
+            $this->assertNotNull($f3Series);
+            $this->assertEquals('2022-2024', $f3Series->compiled_period);
+
+            $f3Rec = $f3Series->direct_records[0];
+            $this->assertEquals('Jan 2022 - May 2024', $f3Rec->date_covered);
+            $this->assertEquals('6 boxes', $f3Rec->volume);
+            $this->assertCount(3, $f3Rec->sub_periods);
+
+            $this->assertEquals('Batch #1 1', $f3Rec->sub_periods[0]->description);
+            $this->assertEquals('Jan 2022 - Dec 2022', $f3Rec->sub_periods[0]->date_covered);
+            $this->assertEquals('Batch #1 2', $f3Rec->sub_periods[1]->description);
+            $this->assertEquals('Jan 2023 - Dec 2023', $f3Rec->sub_periods[1]->date_covered);
+            $this->assertEquals('Batch #1 3', $f3Rec->sub_periods[2]->description);
+            $this->assertEquals('Jan 2024 - May 2024', $f3Rec->sub_periods[2]->date_covered);
+
+            $f3Component->assertSee('Batch #1 1');
+            $f3Component->assertSee('Batch #1 2');
+            $f3Component->assertSee('Batch #1 3');
+            $f3Component->assertDontSee('Batch #1 4');
+            $f3Component->assertDontSee('Batch #1 5');
+            $f3Component->assertDontSee('Batch #1 6');
+        } finally {
+            Carbon::setTestNow(null);
+            DB::rollBack();
+        }
+    }
 }

@@ -767,29 +767,84 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return $res;
     }
 
-    private function formatDateRange(?string $startDate, ?string $endDate = null): string
+    private function formatBatchDateRange(?string $startDate, ?string $endDate = null, bool $isHeader = false): string
     {
         $startDate = trim((string)$startDate);
         $endDate = trim((string)$endDate);
 
         if (empty($startDate) && empty($endDate)) return '—';
 
-        if (empty($endDate)) {
+        if (empty($endDate) && preg_match('/^(.*?)\s+(?:-|to)\s+(.*)$/i', $startDate, $m)) {
+            $startDate = trim($m[1]);
+            $endDate = trim($m[2]);
+        }
+
+        $formatToken = function(string $token): array {
+            $token = trim($token);
+            if (empty($token) || $token === '—') return ['text' => '—', 'year' => null, 'carbon' => null, 'has_month' => false];
+
+            if (preg_match('/^(19\d\d|20\d\d)$/', $token, $m)) {
+                $y = (int)$m[1];
+                return ['text' => (string)$y, 'year' => $y, 'carbon' => Carbon::createFromDate($y, 1, 1), 'has_month' => false];
+            }
+
+            if (preg_match('/^([a-zA-Z]+)\s+(\d{4})$/', $token, $m)) {
+                try {
+                    $c = Carbon::parse("1 {$m[1]} {$m[2]}");
+                    $text = in_array(strtolower($m[1]), ['june', 'july']) ? $c->format('F Y') : $c->format('M Y');
+                    return ['text' => $text, 'year' => (int)$m[2], 'carbon' => $c, 'has_month' => true];
+                } catch (\Throwable) {}
+            }
+
             try {
-                $s = Carbon::parse($startDate);
-                return $s->format('M Y');
+                $c = Carbon::parse($token);
+                $text = (in_array($c->month, [6, 7])) ? $c->format('F Y') : $c->format('M Y');
+                return ['text' => $text, 'year' => $c->year, 'carbon' => $c, 'has_month' => true];
             } catch (\Throwable) {
-                return $startDate;
+                return ['text' => $token, 'year' => null, 'carbon' => null, 'has_month' => false];
+            }
+        };
+
+        $sInfo = $formatToken($startDate);
+        $eInfo = !empty($endDate) ? $formatToken($endDate) : null;
+
+        if ($isHeader) {
+            $now = Carbon::now();
+            $isFutureOrPresent = false;
+            if ($eInfo && $eInfo['carbon']) {
+                $isFutureOrPresent = $eInfo['carbon']->year > $now->year;
+            } elseif ($sInfo && $sInfo['carbon']) {
+                $isFutureOrPresent = $sInfo['carbon']->year > $now->year;
+            }
+
+            if ($isFutureOrPresent) {
+                $headerStart = ($sInfo['has_month'] ? $sInfo['text'] : (string)$sInfo['year']);
+                return $headerStart . ' - Present';
             }
         }
 
-        try {
-            $s = Carbon::parse($startDate);
-            $e = Carbon::parse($endDate);
-            return $s->format('M Y') . ' - ' . $e->format('M Y');
-        } catch (\Throwable) {
-            return trim($startDate . ' - ' . $endDate, ' -');
+        if (!$eInfo || empty($endDate)) {
+            return $sInfo['text'];
         }
+
+        // If start date had no month (year-only)
+        if (!$sInfo['has_month']) {
+            if ($sInfo['year'] === $eInfo['year']) {
+                return (string)$sInfo['year'];
+            }
+            return (string)$sInfo['year'] . ' - ' . (string)$eInfo['year'];
+        }
+
+        if ($sInfo['text'] === $eInfo['text']) {
+            return $sInfo['text'];
+        }
+
+        return $sInfo['text'] . ' - ' . $eInfo['text'];
+    }
+
+    private function formatDateRange(?string $startDate, ?string $endDate = null): string
+    {
+        return $this->formatBatchDateRange($startDate, $endDate, false);
     }
 
     private function compileVolume(array $volumes): string
@@ -1019,7 +1074,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         // Effective office: locks strictly to user's office if not sadm; if sadm, respects officeFilter
         $effectiveOffice = ($isSadm && !empty($this->officeFilter)) ? $this->officeFilter : $userOfficeCode;
 
-        // 1. Fetch ONLY records that are transferred to NAP Form 3 (transferred_to_nap3 = true)
+        // 1. Fetch records that are transferred to NAP Form 3 or part of a batch
         $recordsQuery = DB::table('rdp_record')
             ->select([
                 'rdp_record.id',
@@ -1033,10 +1088,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 'rdp_record.duplication_id',
                 'rdp_record.time_value',
                 'rdp_record.ispartof_batch',
+                'rdp_record.transferred_to_nap3',
             ])
             ->where('rdp_record.is_draft', false)
             ->where('rdp_record.is_active', true)
-            ->where('rdp_record.transferred_to_nap3', true);
+            ->where(function($q) {
+                $q->where('rdp_record.transferred_to_nap3', true)
+                  ->orWhere('rdp_record.ispartof_batch', true);
+            });
 
         if ($effectiveOffice) {
             $recordsQuery->where(function($q) use ($effectiveOffice) {
@@ -1208,6 +1267,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     $subRecs = $recordsBySeries[$sub->id] ?? collect();
                     if ($subRecs->isEmpty()) continue; // Only show if used in Form 3!
 
+                    $isPerm = (bool)($sub->is_retention_period_permanent ?? false) 
+                              || strtolower(trim($sub->total_period ?? '')) === 'permanent'
+                              || (empty($sub->total_period) && ((bool)($root->is_retention_period_permanent ?? false) || strtolower(trim($root->total_period ?? '')) === 'permanent'));
+                    $effActive = $sub->active_period ?: ($root->active_period ?: '');
+                    $effStorage = $sub->storage_period ?: ($root->storage_period ?: '');
+                    $effTotal = $sub->total_period ?: ($root->total_period ?: '');
+
                     $compiledDates = [];
                     $compiledVols = [];
                     $compiledMediums = [];
@@ -1221,6 +1287,30 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
                     foreach ($subRecs as $rec) {
                         $recPeriods = $periods[$rec->id] ?? collect();
+                        $isBatch = (bool)($rec->ispartof_batch ?? false) || $recPeriods->count() > 1;
+
+                        if ($isBatch) {
+                            $expiredPeriods = $recPeriods->filter(function($p) use ($effTotal, $effActive, $effStorage, $isPerm) {
+                                return \App\Services\RdpRetentionService::isPeriodExpired(
+                                    $p->date_covered,
+                                    $p->date_covered_end ?? null,
+                                    $effTotal,
+                                    $effActive,
+                                    $effStorage,
+                                    $isPerm
+                                );
+                            });
+
+                            if ($expiredPeriods->isEmpty()) {
+                                continue;
+                            }
+                        } else {
+                            if (!(bool)($rec->transferred_to_nap3 ?? false)) {
+                                continue;
+                            }
+                            $expiredPeriods = $recPeriods;
+                        }
+
                         $uRows = ($utilities[$rec->id] ?? collect())->pluck('utility_name')->all();
 
                         $recMedium = '';
@@ -1237,21 +1327,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             $recDup = !empty($dupCodes) ? implode(', ', $dupCodes) : '';
                         }
 
-                        $isBatch = (bool)($rec->ispartof_batch ?? false) || $recPeriods->count() > 1;
                         $subPeriodItems = [];
 
-                        if ($isBatch && $recPeriods->isNotEmpty()) {
-                            $batchStart = $recPeriods->whereNotNull('date_covered')->min('date_covered');
-                            $batchEnd = $recPeriods->whereNotNull('date_covered_end')->max('date_covered_end')
-                                        ?: $recPeriods->whereNotNull('date_covered')->max('date_covered');
-                            $formattedDate = $this->formatDateRange($batchStart, $batchEnd);
+                        if ($isBatch && $expiredPeriods->isNotEmpty()) {
+                            $batchStart = $expiredPeriods->whereNotNull('date_covered')->min('date_covered');
+                            $batchEnd = $expiredPeriods->whereNotNull('date_covered_end')->max('date_covered_end')
+                                        ?: $expiredPeriods->whereNotNull('date_covered')->max('date_covered');
+                            $formattedDate = $this->formatBatchDateRange($batchStart, $batchEnd, false);
 
                             if (!empty($batchStart) && !empty($batchEnd)) {
                                 $compiledDates[] = $batchStart . ' - ' . $batchEnd;
                                 $rootDates[] = $batchStart . ' - ' . $batchEnd;
                             }
 
-                            foreach ($recPeriods as $p) {
+                            foreach ($expiredPeriods as $p) {
                                 if (!empty($p->date_covered) && !empty($p->date_covered_end)) {
                                     $compiledDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
                                     $rootDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
@@ -1264,13 +1353,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                 }
                             }
 
-                            foreach ($recPeriods as $pIdx => $p) {
+                            foreach ($expiredPeriods as $p) {
+                                $originalIndex = $recPeriods->values()->search(fn($item) => $item->id == $p->id) + 1;
                                 $subPeriodItems[] = (object)[
                                     'id'            => $rec->id . '-sub-' . $p->id,
                                     'parent_rec_id' => $rec->id,
                                     'period_id'     => $p->id,
-                                    'description'   => $rec->description . ' ' . ($pIdx + 1),
-                                    'date_covered'  => $this->formatDateRange($p->date_covered, $p->date_covered_end ?? null),
+                                    'description'   => $rec->description . ' ' . $originalIndex,
+                                    'date_covered'  => $this->formatBatchDateRange($p->date_covered, $p->date_covered_end ?? null, false),
                                     'volume'        => !empty($p->volume) ? $p->volume : '',
                                     'medium'        => $recMedium,
                                     'restriction'   => $recRestriction,
@@ -1281,9 +1371,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                     'utility'       => $this->formatItemUtility($uRows),
                                     'utility_abbr'  => $this->compileUtility($uRows),
                                     'is_sub_period' => true,
-                                    'sub_index'     => $pIdx + 1,
+                                    'sub_index'     => $originalIndex,
                                 ];
                             }
+
+                            $batchExpiredVol = $this->compileVolume($expiredPeriods->pluck('volume')->all());
+                            $recVolume = $batchExpiredVol ?: '';
                         } else {
                             $pRow = $recPeriods->first() ?? null;
                             $rawDate = $pRow->date_covered ?? '';
@@ -1299,10 +1392,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                 $rootDates[] = $rawDateEnd;
                             }
                             $formattedDate = !empty($rawDateEnd) ? $this->formatDateRange($rawDate, $rawDateEnd) : $this->formatItemDate($rawDate);
+                            $recVolume = $rec->volume ?: '';
                         }
 
-                        $compiledVols[] = $rec->volume;
-                        $rootVols[] = $rec->volume;
+                        $compiledVols[] = $recVolume;
+                        $rootVols[] = $recVolume;
                         $compiledMediums[] = $recMedium;
                         $rootMediums[] = $recMedium;
                         $compiledRestrictions[] = $recRestriction;
@@ -1319,14 +1413,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         $rootUtils = array_merge($rootUtils, $uRows);
 
                         $allLocs[] = $rec->records_location;
-                        $allVols[] = $rec->volume;
+                        $allVols[] = $recVolume;
 
                         $childItems[] = (object)[
                             'id'           => $rec->id,
                             'series_id'    => $sub->id,
                             'description'  => $rec->description,
                             'date_covered' => $formattedDate,
-                            'volume'       => $rec->volume ?: '',
+                            'volume'       => $recVolume,
                             'medium'       => $recMedium,
                             'restriction'  => $recRestriction,
                             'location'     => $rec->records_location ?: '',
@@ -1341,11 +1435,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         $totalItemsCount++;
                     }
 
-                    // Effective retention
-                    $isPerm = (bool)($sub->is_retention_period_permanent ?? false) || strtolower(trim($sub->total_period ?? '')) === 'permanent';
-                    $effActive = $sub->active_period ?: ($root->active_period ?: '');
-                    $effStorage = $sub->storage_period ?: ($root->storage_period ?: '');
-                    $effTotal = $sub->total_period ?: ($root->total_period ?: '');
+                    if (empty($childItems)) continue;
 
                     $rootNode->sub_series[] = (object)[
                         'id'                  => $sub->id,
@@ -1403,6 +1493,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 $directRecs = $recordsBySeries[$root->id] ?? collect();
                 if ($directRecs->isEmpty()) continue;
 
+                $isPerm = (bool)($root->is_retention_period_permanent ?? false) || strtolower(trim($root->total_period ?? '')) === 'permanent';
+                $effActive = $root->active_period ?: '';
+                $effStorage = $root->storage_period ?: '';
+                $effTotal = $root->total_period ?: '';
+
                 $compiledDates = [];
                 $compiledVols = [];
                 $compiledMediums = [];
@@ -1416,6 +1511,30 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
                 foreach ($directRecs as $rec) {
                     $recPeriods = $periods[$rec->id] ?? collect();
+                    $isBatch = (bool)($rec->ispartof_batch ?? false) || $recPeriods->count() > 1;
+
+                    if ($isBatch) {
+                        $expiredPeriods = $recPeriods->filter(function($p) use ($effTotal, $effActive, $effStorage, $isPerm) {
+                            return \App\Services\RdpRetentionService::isPeriodExpired(
+                                $p->date_covered,
+                                $p->date_covered_end ?? null,
+                                $effTotal,
+                                $effActive,
+                                $effStorage,
+                                $isPerm
+                            );
+                        });
+
+                        if ($expiredPeriods->isEmpty()) {
+                            continue;
+                        }
+                    } else {
+                        if (!(bool)($rec->transferred_to_nap3 ?? false)) {
+                            continue;
+                        }
+                        $expiredPeriods = $recPeriods;
+                    }
+
                     $uRows = ($utilities[$rec->id] ?? collect())->pluck('utility_name')->all();
 
                     $recMedium = '';
@@ -1432,20 +1551,19 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         $recDup = !empty($dupCodes) ? implode(', ', $dupCodes) : '';
                     }
 
-                    $isBatch = (bool)($rec->ispartof_batch ?? false) || $recPeriods->count() > 1;
                     $subPeriodItems = [];
 
-                    if ($isBatch && $recPeriods->isNotEmpty()) {
-                        $batchStart = $recPeriods->whereNotNull('date_covered')->min('date_covered');
-                        $batchEnd = $recPeriods->whereNotNull('date_covered_end')->max('date_covered_end')
-                                    ?: $recPeriods->whereNotNull('date_covered')->max('date_covered');
-                        $formattedDate = $this->formatDateRange($batchStart, $batchEnd);
+                    if ($isBatch && $expiredPeriods->isNotEmpty()) {
+                        $batchStart = $expiredPeriods->whereNotNull('date_covered')->min('date_covered');
+                        $batchEnd = $expiredPeriods->whereNotNull('date_covered_end')->max('date_covered_end')
+                                    ?: $expiredPeriods->whereNotNull('date_covered')->max('date_covered');
+                        $formattedDate = $this->formatBatchDateRange($batchStart, $batchEnd, false);
 
                         if (!empty($batchStart) && !empty($batchEnd)) {
                             $compiledDates[] = $batchStart . ' - ' . $batchEnd;
                         }
 
-                        foreach ($recPeriods as $p) {
+                        foreach ($expiredPeriods as $p) {
                             if (!empty($p->date_covered) && !empty($p->date_covered_end)) {
                                 $compiledDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
                             } elseif (!empty($p->date_covered)) {
@@ -1455,13 +1573,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             }
                         }
 
-                        foreach ($recPeriods as $pIdx => $p) {
+                        foreach ($expiredPeriods as $p) {
+                            $originalIndex = $recPeriods->values()->search(fn($item) => $item->id == $p->id) + 1;
                             $subPeriodItems[] = (object)[
                                 'id'            => $rec->id . '-sub-' . $p->id,
                                 'parent_rec_id' => $rec->id,
                                 'period_id'     => $p->id,
-                                'description'   => $rec->description . ' ' . ($pIdx + 1),
-                                'date_covered'  => $this->formatDateRange($p->date_covered, $p->date_covered_end ?? null),
+                                'description'   => $rec->description . ' ' . $originalIndex,
+                                'date_covered'  => $this->formatBatchDateRange($p->date_covered, $p->date_covered_end ?? null, false),
                                 'volume'        => !empty($p->volume) ? $p->volume : '',
                                 'medium'        => $recMedium,
                                 'restriction'   => $recRestriction,
@@ -1472,9 +1591,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                 'utility'       => $this->formatItemUtility($uRows),
                                 'utility_abbr'  => $this->compileUtility($uRows),
                                 'is_sub_period' => true,
-                                'sub_index'     => $pIdx + 1,
+                                'sub_index'     => $originalIndex,
                             ];
                         }
+
+                        $batchExpiredVol = $this->compileVolume($expiredPeriods->pluck('volume')->all());
+                        $recVolume = $batchExpiredVol ?: '';
                     } else {
                         $pRow = $recPeriods->first() ?? null;
                         $rawDate = $pRow->date_covered ?? '';
@@ -1487,9 +1609,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             $compiledDates[] = $rawDateEnd;
                         }
                         $formattedDate = !empty($rawDateEnd) ? $this->formatDateRange($rawDate, $rawDateEnd) : $this->formatItemDate($rawDate);
+                        $recVolume = $rec->volume ?: '';
                     }
 
-                    $compiledVols[] = $rec->volume;
+                    $compiledVols[] = $recVolume;
                     $compiledMediums[] = $recMedium;
                     $compiledRestrictions[] = $recRestriction;
                     $compiledLocs[] = $rec->records_location;
@@ -1499,14 +1622,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     foreach ($uRows as $un) $compiledUtils[] = $un;
 
                     $allLocs[] = $rec->records_location;
-                    $allVols[] = $rec->volume;
+                    $allVols[] = $recVolume;
 
                     $childItems[] = (object)[
                         'id'           => $rec->id,
                         'series_id'    => $root->id,
                         'description'  => $rec->description,
                         'date_covered' => $formattedDate,
-                        'volume'       => $rec->volume ?: '',
+                        'volume'       => $recVolume,
                         'medium'       => $recMedium,
                         'restriction'  => $recRestriction,
                         'location'     => $rec->records_location ?: '',
@@ -1521,7 +1644,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     $totalItemsCount++;
                 }
 
-                $isPerm = (bool)($root->is_retention_period_permanent ?? false) || strtolower(trim($root->total_period ?? '')) === 'permanent';
+                if (empty($childItems)) continue;
 
                 $rootNode->compiled_period      = $this->compilePeriodCovered($compiledDates);
                 $rootNode->compiled_volume      = $this->compileVolume($compiledVols);

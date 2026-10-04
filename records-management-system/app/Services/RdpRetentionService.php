@@ -105,14 +105,71 @@ class RdpRetentionService
     }
 
     /**
-     * Determine if a record is expired.
+     * Parse the end date of a period covered into a Carbon date instance (end of day).
+     * If an end date is not explicitly provided, uses the end boundary of the start date
+     * (e.g. standalone year 2022 -> 2022-12-31 23:59:59, 'May 2024' -> 2024-05-31 23:59:59).
      */
-    public static function isRecordExpired(
-        ?string $dateCovered,
-        ?string $totalPeriod,
+    public static function parsePeriodEndDate(?string $startDate, ?string $endDate = null): ?Carbon
+    {
+        $target = !empty(trim((string)$endDate)) ? trim((string)$endDate) : trim((string)$startDate);
+        if (empty($target) || $target === '—') {
+            return null;
+        }
+
+        // Check if target is a range string like "2022-01-01 - 2022-12-31" or "Jan 2022 - Dec 2022"
+        if (preg_match('/^(.*?)\s+(?:-|to)\s+(.*)$/i', $target, $rm)) {
+            $target = trim($rm[2]);
+        }
+
+        $clean = trim(str_replace('_', ' ', $target));
+
+        // 1. Standard ISO Y-m-d
+        if (preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $clean, $m)) {
+            try {
+                return Carbon::createFromDate((int)$m[1], (int)$m[2], (int)$m[3])->endOfDay();
+            } catch (\Throwable) {}
+        }
+
+        // 2. Day Month Year (e.g. '31 December 2024')
+        if (preg_match('/^(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})$/', $clean, $m)) {
+            try {
+                return Carbon::parse("{$m[1]} {$m[2]} {$m[3]}")->endOfDay();
+            } catch (\Throwable) {}
+        }
+
+        // 3. Month Year (e.g. 'Dec 2022', 'May 2024') -> end of that month
+        if (preg_match('/^([a-zA-Z]+)\s+(\d{4})$/', $clean, $m)) {
+            try {
+                return Carbon::parse("1 {$m[1]} {$m[2]}")->endOfMonth()->endOfDay();
+            } catch (\Throwable) {}
+        }
+
+        // 4. Standalone Year (e.g. '2022') -> end of that year (Dec 31)
+        if (preg_match('/^(19\d\d|20\d\d)$/', $clean, $m)) {
+            try {
+                return Carbon::createFromDate((int)$m[1], 12, 31)->endOfDay();
+            } catch (\Throwable) {}
+        }
+
+        // Fallback parse
+        try {
+            return Carbon::parse($clean)->endOfDay();
+        } catch (\Throwable) {}
+
+        return null;
+    }
+
+    /**
+     * Determine if a specific period is expired based on its start/end dates and retention parameters.
+     */
+    public static function isPeriodExpired(
+        ?string $startDate,
+        ?string $endDate = null,
+        ?string $totalPeriod = null,
         ?string $activePeriod = null,
         ?string $storagePeriod = null,
-        bool $isPermanent = false
+        bool $isPermanent = false,
+        ?Carbon $now = null
     ): bool {
         if ($isPermanent) {
             return false;
@@ -122,12 +179,11 @@ class RdpRetentionService
             return false;
         }
 
-        $date = self::parseDateCovered($dateCovered);
-        if (!$date) {
+        $endCarbon = self::parsePeriodEndDate($startDate, $endDate);
+        if (!$endCarbon) {
             return false;
         }
 
-        // Prefer totalPeriod, or sum active + storage
         $months = self::parseDurationMonths($totalPeriod);
         if ($months === null) {
             $mActive = self::parseDurationMonths($activePeriod) ?? 0;
@@ -139,27 +195,50 @@ class RdpRetentionService
             return false;
         }
 
-        // Expiration date = date covered + retention months
-        $expirationDate = $date->copy()->addMonths($months);
+        $expirationDate = $endCarbon->copy()->addMonths($months);
+        $checkDate = $now ?? Carbon::now();
 
-        return $expirationDate->lte(Carbon::now());
+        return $expirationDate->lte($checkDate);
+    }
+
+    /**
+     * Determine if a record is expired.
+     */
+    public static function isRecordExpired(
+        ?string $dateCovered,
+        ?string $totalPeriod,
+        ?string $activePeriod = null,
+        ?string $storagePeriod = null,
+        bool $isPermanent = false,
+        ?string $dateCoveredEnd = null,
+        ?Carbon $now = null
+    ): bool {
+        return self::isPeriodExpired(
+            $dateCovered,
+            $dateCoveredEnd,
+            $totalPeriod,
+            $activePeriod,
+            $storagePeriod,
+            $isPermanent,
+            $now
+        );
     }
 
     /**
      * Scan and synchronize the transferred_to_nap3 flag on all active records.
      * Returns the count of newly transferred records.
      */
-    public static function syncTransferredRecords(?string $officeCode = null): int
+    public static function syncTransferredRecords(?string $officeCode = null, ?Carbon $now = null): int
     {
-        // 1. Fetch active records with their series retention and date covered
+        // 1. Fetch active records with their series retention and batch indicators
         $query = DB::table('rdp_record')
             ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->leftJoin('rdp_retention_period as sub_ret', 'rdp_record_series.retention_period', '=', 'sub_ret.id')
             ->leftJoin('rdp_retention_period as parent_ret', 'parent.retention_period', '=', 'parent_ret.id')
-            ->leftJoin('rdp_period_covered', 'rdp_record.id', '=', 'rdp_period_covered.period_owner')
             ->select([
                 'rdp_record.id',
+                'rdp_record.ispartof_batch',
                 'rdp_record.transferred_to_nap3',
                 'rdp_record_series.is_retention_period_permanent as sub_perm',
                 'parent.is_retention_period_permanent as parent_perm',
@@ -169,7 +248,6 @@ class RdpRetentionService
                 'parent_ret.active_period as parent_active',
                 'parent_ret.storage_period as parent_storage',
                 'parent_ret.total_period as parent_total',
-                'rdp_period_covered.date_covered',
             ])
             ->where('rdp_record.is_draft', false)
             ->where('rdp_record.is_active', true);
@@ -179,6 +257,14 @@ class RdpRetentionService
         }
 
         $records = $query->get();
+        if ($records->isEmpty()) {
+            return 0;
+        }
+
+        $periods = DB::table('rdp_period_covered')
+            ->whereIn('period_owner', $records->pluck('id'))
+            ->get()
+            ->groupBy('period_owner');
 
         $toTransferIds = [];
         $toUnsetIds = [];
@@ -190,18 +276,29 @@ class RdpRetentionService
             $effStorage = $r->sub_storage ?: $r->parent_storage;
             $effTotal = $r->sub_total ?: $r->parent_total;
 
-            $expired = self::isRecordExpired(
-                $r->date_covered,
-                $effTotal,
-                $effActive,
-                $effStorage,
-                $isPerm
-            );
+            $recPeriods = $periods[$r->id] ?? collect();
+            $isBatch = (bool)($r->ispartof_batch ?? false) || $recPeriods->count() > 1;
+
+            if ($recPeriods->isEmpty()) {
+                $expired = false;
+            } elseif ($isBatch) {
+                // Batch record: check if all periods are expired
+                $expiredCount = 0;
+                foreach ($recPeriods as $p) {
+                    if (self::isPeriodExpired($p->date_covered, $p->date_covered_end, $effTotal, $effActive, $effStorage, $isPerm, $now)) {
+                        $expiredCount++;
+                    }
+                }
+                $expired = ($expiredCount === $recPeriods->count());
+            } else {
+                $p = $recPeriods->first();
+                $expired = self::isPeriodExpired($p->date_covered, $p->date_covered_end, $effTotal, $effActive, $effStorage, $isPerm, $now);
+            }
 
             if ($expired && !(bool)$r->transferred_to_nap3) {
                 $toTransferIds[] = $r->id;
             } elseif (!$expired && (bool)$r->transferred_to_nap3) {
-                // If retention extended or date changed in the future
+                // If retention extended or dates changed
                 $toUnsetIds[] = $r->id;
             }
         }

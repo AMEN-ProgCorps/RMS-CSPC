@@ -683,11 +683,21 @@ Route::middleware(['auth'])
 
             $filters = [
                 'sort_order' => $request->query('sort_order', 'desc'),
+                'office'     => $request->query('office', 'all'),
             ];
 
             $rows = \App\Helpers\DtsExportHelper::fetchExportRecords($category, $filters, $selectedIds);
 
             $userOfficeName = auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office';
+            $filteredOfficeCode = $request->query('office', 'all');
+            if ($filteredOfficeCode && $filteredOfficeCode !== 'all') {
+                $filteredOfficeName = \Illuminate\Support\Facades\DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
+                    ->where('office_code', $filteredOfficeCode)
+                    ->value('office_name');
+                if ($filteredOfficeName) {
+                    $userOfficeName = $filteredOfficeName;
+                }
+            }
 
             $meta = [
                 'title'            => \App\Helpers\DtsExportHelper::getCategoryTitle($category),

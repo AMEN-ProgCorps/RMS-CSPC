@@ -41,6 +41,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
 
     public string $selectedPriority = 'all';
     public string $selectedStatus = 'all';
+    public string $selectedOffice = 'all';
     public string $dateFrom = '';
     public string $dateTo = '';
     public string $sortOrder = 'desc';
@@ -48,6 +49,30 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
     public string $searchQuery = '';
     public string $layoutMode = 'table'; // table or box
     public string $pathViewMode = 'timeline'; // timeline or table
+
+    public function canViewAll(): bool
+    {
+        $perms = auth()->user()?->permissions;
+        return (bool)($perms?->is_sadm ?? false) || (bool)($perms?->can_dts_view_all_list ?? false);
+    }
+
+    public function with(): array
+    {
+        $canViewAll = $this->canViewAll();
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $officesList = $canViewAll
+            ? DB::table($officeTbl)
+                ->where('is_active', true)
+                ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
+                ->orderBy('office_name', 'asc')
+                ->get()
+            : collect();
+
+        return [
+            'canViewAll'  => $canViewAll,
+            'officesList' => $officesList,
+        ];
+    }
 
     public function mount(): void
     {
@@ -155,6 +180,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
 
         $filters = [
             'sort_order' => $this->sortOrder,
+            'office'     => $this->selectedOffice,
         ];
 
         if ($this->exportFormat === 'excel') {
@@ -176,6 +202,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
             'ids'         => implode(',', $this->selectedIds),
             'cols'        => implode(',', $colsToUse),
             'sort_order'  => $this->sortOrder,
+            'office'      => $this->selectedOffice,
             'prepared_by' => $this->exportPreparedBy,
             'noted_by'    => $this->exportNotedBy,
         ];
@@ -241,6 +268,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
         $this->selectAll = false;
     }
 
+    public function updatingSelectedOffice()
+    {
+        $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
+    }
+
     public function updatingPerPage()
     {
         $this->resetPage();
@@ -274,6 +308,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
         $this->searchQuery = '';
         $this->selectedPriority = 'all';
         $this->selectedStatus = 'all';
+        $this->selectedOffice = 'all';
         $this->dateFrom = '';
         $this->dateTo = '';
         $this->sortOrder = 'desc';
@@ -296,9 +331,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data') . ' as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.trans_type', 'memorandom');
 
-        $canViewAll = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_view_all_list;
+        $canViewAll = $this->canViewAll();
         if (!$canViewAll) {
+            $this->selectedOffice = 'all';
             $query->where('dtd.originated_from', $userOfficeCode);
+        } elseif ($this->selectedOffice !== 'all' && !empty($this->selectedOffice)) {
+            $query->where('dtd.originated_from', $this->selectedOffice);
         } // 'memorandom' trans_type maps to Issuances
 
         if ($this->selectedPriority !== 'all') {
@@ -1532,6 +1570,14 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
     <div class="rms-toolbar">
         <div class="rms-toolbar-top">
             <div class="rms-filters">
+                @if($canViewAll)
+                <select class="rms-select" wire:model.live="selectedOffice" title="Filter by Office" style="max-width: 260px; text-overflow: ellipsis;">
+                    <option value="all">All Offices</option>
+                    @foreach($officesList as $off)
+                        <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
+                    @endforeach
+                </select>
+                @endif
                 <select class="rms-select" wire:model.live="selectedPriority">
                     <option value="all">All Priority</option>
                     <option value="simple">Simple</option>
@@ -1591,7 +1637,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                         <option value="asc">Date (Oldest First)</option>
                     </select>
                 </div>
-                @if(!empty($dateFrom) || !empty($dateTo) || !empty($searchQuery) || $selectedPriority !== 'all' || $selectedStatus !== 'all' || $sortOrder !== 'desc')
+                @if(!empty($dateFrom) || !empty($dateTo) || !empty($searchQuery) || $selectedPriority !== 'all' || $selectedStatus !== 'all' || ($canViewAll && $selectedOffice !== 'all') || $sortOrder !== 'desc')
                     <button type="button" wire:click="resetFilters" class="rms-select rms-btn-reset-filters" style="background-image: none; padding-right: 12px; display: inline-flex; align-items: center; gap: 4px; height: 34px; font-size: 0.82rem; font-weight: 600;" title="Reset all filters">
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                         Reset

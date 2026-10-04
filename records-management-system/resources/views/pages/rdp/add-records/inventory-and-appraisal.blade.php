@@ -102,9 +102,584 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public ?string $successMessage = null;
     public ?string $errorMessage = null;
 
-    // Batch Record Mode State
+    // Mode State: 'single', 'multi' (formerly batch), 'batch' (combined period range & volume breakdown)
+    public string $entryMode = 'single';
     public bool $isBatchMode = false;
     public array $batchItems = [];
+
+    // Batch (Combined Period Covered & Volume) State
+    public bool $showBatchModal = false;
+    public string $batch_start_date = '';
+    public string $batch_end_date = '';
+    public string $batch_start_day = '';
+    public string $batch_start_month = '';
+    public string $batch_start_year = '';
+    public string $batch_end_day = '';
+    public string $batch_end_month = '';
+    public string $batch_end_year = '';
+    public string $batch_volume_unit = 'papers';
+    public bool $batch_dropdown_expanded = true;
+    public array $batch_sub_periods = [];
+
+    public function updatedBatchStartDate(): void
+    {
+        $this->syncDmyFromBatchDates();
+        $this->generateBatchSubPeriods();
+    }
+
+    public function updatedBatchEndDate(): void
+    {
+        $this->syncDmyFromBatchDates();
+        $this->generateBatchSubPeriods();
+    }
+
+    public function updatedBatchStartDay(): void { $this->syncBatchDatesFromDmy(); }
+    public function updatedBatchStartMonth(): void { $this->syncBatchDatesFromDmy(); }
+    public function updatedBatchStartYear(): void { $this->syncBatchDatesFromDmy(); }
+    public function updatedBatchEndDay(): void { $this->syncBatchDatesFromDmy(); }
+    public function updatedBatchEndMonth(): void { $this->syncBatchDatesFromDmy(); }
+    public function updatedBatchEndYear(): void { $this->syncBatchDatesFromDmy(); }
+
+    public function syncBatchDatesFromDmy(bool $forceDefaults = false): void
+    {
+        if (!empty($this->batch_start_year)) {
+            $sY = (int)$this->batch_start_year;
+            $sM = !empty($this->batch_start_month) ? (int)$this->batch_start_month : 1;
+            $sD = !empty($this->batch_start_day) ? (int)$this->batch_start_day : 1;
+
+            if ($sY >= 1800 && $sY <= 2200 && checkdate($sM, $sD, $sY)) {
+                $this->batch_start_date = sprintf('%04d-%02d-%02d', $sY, $sM, $sD);
+                $this->batch_start_day = (string)$sD;
+                $this->batch_start_month = (string)$sM;
+            }
+        }
+
+        if (!empty($this->batch_end_year)) {
+            $eY = (int)$this->batch_end_year;
+            $eM = !empty($this->batch_end_month) ? (int)$this->batch_end_month : 12;
+
+            if ($eY >= 1800 && $eY <= 2200) {
+                if (!empty($this->batch_end_day)) {
+                    $eD = (int)$this->batch_end_day;
+                } else {
+                    $eD = Carbon::create($eY, $eM, 1)->endOfMonth()->day;
+                }
+
+                if (checkdate($eM, $eD, $eY)) {
+                    $this->batch_end_date = sprintf('%04d-%02d-%02d', $eY, $eM, $eD);
+                    $this->batch_end_day = (string)$eD;
+                    $this->batch_end_month = (string)$eM;
+                }
+            }
+        }
+
+        if (!empty($this->batch_start_date) && !empty($this->batch_end_date)) {
+            $this->generateBatchSubPeriods();
+        }
+    }
+
+    public function syncDmyFromBatchDates(): void
+    {
+        if (!empty($this->batch_start_date)) {
+            try {
+                $c = Carbon::parse($this->batch_start_date);
+                $this->batch_start_day = (string)$c->day;
+                $this->batch_start_month = (string)$c->month;
+                $this->batch_start_year = (string)$c->year;
+            } catch (\Throwable $e) {}
+        }
+        if (!empty($this->batch_end_date)) {
+            try {
+                $c = Carbon::parse($this->batch_end_date);
+                $this->batch_end_day = (string)$c->day;
+                $this->batch_end_month = (string)$c->month;
+                $this->batch_end_year = (string)$c->year;
+            } catch (\Throwable $e) {}
+        }
+    }
+
+    public function updatedBatchSubPeriods($value, $key): void
+    {
+        $parts = explode('.', (string)$key);
+        if (count($parts) >= 2) {
+            $pIdx = (int)$parts[0];
+            $field = $parts[1];
+
+            if (in_array($field, ['start_date', 'end_date'], true)) {
+                if (!empty($value)) {
+                    try {
+                        $c = Carbon::parse($value);
+                        if ($field === 'start_date') {
+                            $this->batch_sub_periods[$pIdx]['start_day'] = (string)$c->day;
+                            $this->batch_sub_periods[$pIdx]['start_month'] = (string)$c->month;
+                            $this->batch_sub_periods[$pIdx]['start_year'] = (string)$c->year;
+                        } else {
+                            $this->batch_sub_periods[$pIdx]['end_day'] = (string)$c->day;
+                            $this->batch_sub_periods[$pIdx]['end_month'] = (string)$c->month;
+                            $this->batch_sub_periods[$pIdx]['end_year'] = (string)$c->year;
+                        }
+                    } catch (\Throwable $e) {}
+                }
+                $this->recalculateBatchRangeFromSubPeriods();
+            } elseif (in_array($field, ['start_day', 'start_month', 'start_year', 'end_day', 'end_month', 'end_year'], true)) {
+                $this->syncSubPeriodDmy($pIdx);
+                $this->recalculateBatchRangeFromSubPeriods();
+            }
+        }
+    }
+
+    public function syncSubPeriodDmy(int $pIdx): void
+    {
+        if (!isset($this->batch_sub_periods[$pIdx])) {
+            return;
+        }
+
+        $sub = &$this->batch_sub_periods[$pIdx];
+
+        $sY = (int)($sub['start_year'] ?? 0);
+        $sM = !empty($sub['start_month']) ? (int)$sub['start_month'] : 1;
+        $sD = !empty($sub['start_day']) ? (int)$sub['start_day'] : 1;
+
+        if ($sY >= 1800 && $sY <= 2200 && checkdate($sM, $sD, $sY)) {
+            $sub['start_date'] = sprintf('%04d-%02d-%02d', $sY, $sM, $sD);
+            $sub['start_day'] = (string)$sD;
+            $sub['start_month'] = (string)$sM;
+        }
+
+        $eY = (int)($sub['end_year'] ?? 0);
+        $eM = !empty($sub['end_month']) ? (int)$sub['end_month'] : 12;
+        if ($eY >= 1800 && $eY <= 2200) {
+            $eD = !empty($sub['end_day']) ? (int)$sub['end_day'] : Carbon::create($eY, $eM, 1)->endOfMonth()->day;
+            if (checkdate($eM, $eD, $eY)) {
+                $sub['end_date'] = sprintf('%04d-%02d-%02d', $eY, $eM, $eD);
+                $sub['end_day'] = (string)$eD;
+                $sub['end_month'] = (string)$eM;
+            }
+        }
+    }
+
+    public function recalculateBatchRangeFromSubPeriods(): void
+    {
+        if (empty($this->batch_sub_periods)) {
+            return;
+        }
+
+        $startDates = [];
+        $endDates = [];
+
+        foreach ($this->batch_sub_periods as $sub) {
+            if (!empty($sub['start_date'])) {
+                $startDates[] = $sub['start_date'];
+            }
+            if (!empty($sub['end_date'])) {
+                $endDates[] = $sub['end_date'];
+            }
+        }
+
+        if (!empty($startDates)) {
+            sort($startDates);
+            $this->batch_start_date = $startDates[0];
+        }
+
+        if (!empty($endDates)) {
+            sort($endDates);
+            $this->batch_end_date = end($endDates);
+        }
+
+        $this->syncDmyFromBatchDates();
+    }
+
+    public function generateBatchSubPeriods(): void
+    {
+        if (empty($this->batch_start_date) || empty($this->batch_end_date)) {
+            $this->syncBatchDatesFromDmy(forceDefaults: true);
+        }
+
+        if (empty($this->batch_start_date) || empty($this->batch_end_date)) {
+            return;
+        }
+
+        try {
+            $start = Carbon::parse($this->batch_start_date);
+            $end = Carbon::parse($this->batch_end_date);
+        } catch (\Throwable $e) {
+            return;
+        }
+
+        if ($end->lt($start)) {
+            return;
+        }
+
+        $startYear = (int)$start->year;
+        $endYear = (int)$end->year;
+
+        $existingVolumes = [];
+        foreach ($this->batch_sub_periods as $sub) {
+            $key = ($sub['start_date'] ?? '') . '_' . ($sub['end_date'] ?? '');
+            $existingVolumes[$key] = $sub['volume'] ?? '';
+            if (!empty($sub['start_date'])) {
+                $y = (int)substr($sub['start_date'], 0, 4);
+                $existingVolumes['year_' . $y] = $sub['volume'] ?? '';
+            }
+        }
+
+        $newSubPeriods = [];
+
+        if ($startYear === $endYear) {
+            $sStr = $start->format('Y-m-d');
+            $eStr = $end->format('Y-m-d');
+            $vol = $existingVolumes[$sStr . '_' . $eStr] ?? $existingVolumes['year_' . $startYear] ?? '';
+            $subStart = Carbon::parse($sStr);
+            $subEnd = Carbon::parse($eStr);
+            $newSubPeriods[] = [
+                'id'          => (string)Str::uuid(),
+                'start_date'  => $sStr,
+                'end_date'    => $eStr,
+                'start_day'   => (string)$subStart->day,
+                'start_month' => (string)$subStart->month,
+                'start_year'  => (string)$subStart->year,
+                'end_day'     => (string)$subEnd->day,
+                'end_month'   => (string)$subEnd->month,
+                'end_year'    => (string)$subEnd->year,
+                'volume'      => $vol,
+            ];
+        } else {
+            for ($y = $startYear; $y <= $endYear; $y++) {
+                if ($y === $startYear) {
+                    $sStr = $start->format('Y-m-d');
+                    $eStr = Carbon::create($y, 12, 31)->format('Y-m-d');
+                } elseif ($y === $endYear) {
+                    $sStr = Carbon::create($y, 1, 1)->format('Y-m-d');
+                    $eStr = $end->format('Y-m-d');
+                } else {
+                    $sStr = Carbon::create($y, 1, 1)->format('Y-m-d');
+                    $eStr = Carbon::create($y, 12, 31)->format('Y-m-d');
+                }
+
+                $vol = $existingVolumes[$sStr . '_' . $eStr] ?? $existingVolumes['year_' . $y] ?? '';
+                $subStart = Carbon::parse($sStr);
+                $subEnd = Carbon::parse($eStr);
+
+                $newSubPeriods[] = [
+                    'id'          => (string)Str::uuid(),
+                    'start_date'  => $sStr,
+                    'end_date'    => $eStr,
+                    'start_day'   => (string)$subStart->day,
+                    'start_month' => (string)$subStart->month,
+                    'start_year'  => (string)$subStart->year,
+                    'end_day'     => (string)$subEnd->day,
+                    'end_month'   => (string)$subEnd->month,
+                    'end_year'    => (string)$subEnd->year,
+                    'volume'      => $vol,
+                ];
+            }
+        }
+
+        $this->batch_sub_periods = $newSubPeriods;
+    }
+
+    public function addBatchSubPeriod(): void
+    {
+        if (!empty($this->batch_sub_periods)) {
+            $last = end($this->batch_sub_periods);
+            try {
+                $lastEnd = Carbon::parse($last['end_date']);
+                if ($lastEnd->month == 12 && $lastEnd->day >= 20) {
+                    $nextYear = $lastEnd->year + 1;
+                    $sStr = Carbon::create($nextYear, 1, 1)->format('Y-m-d');
+                    $eStr = Carbon::create($nextYear, 12, 31)->format('Y-m-d');
+                } else {
+                    $nextStart = $lastEnd->copy()->addDay();
+                    $sStr = $nextStart->format('Y-m-d');
+                    $eStr = $nextStart->copy()->endOfYear()->format('Y-m-d');
+                }
+            } catch (\Throwable $e) {
+                $sStr = Carbon::now()->format('Y-m-d');
+                $eStr = Carbon::now()->endOfYear()->format('Y-m-d');
+            }
+        } elseif (!empty($this->batch_end_date)) {
+            try {
+                $lastEnd = Carbon::parse($this->batch_end_date);
+                if ($lastEnd->month == 12 && $lastEnd->day >= 20) {
+                    $nextYear = $lastEnd->year + 1;
+                    $sStr = Carbon::create($nextYear, 1, 1)->format('Y-m-d');
+                    $eStr = Carbon::create($nextYear, 12, 31)->format('Y-m-d');
+                } else {
+                    $nextStart = $lastEnd->copy()->addDay();
+                    $sStr = $nextStart->format('Y-m-d');
+                    $eStr = $nextStart->copy()->endOfYear()->format('Y-m-d');
+                }
+            } catch (\Throwable $e) {
+                $sStr = Carbon::now()->format('Y-m-d');
+                $eStr = Carbon::now()->endOfYear()->format('Y-m-d');
+            }
+        } else {
+            $sStr = Carbon::now()->startOfYear()->format('Y-m-d');
+            $eStr = Carbon::now()->endOfYear()->format('Y-m-d');
+        }
+
+        $cStart = Carbon::parse($sStr);
+        $cEnd = Carbon::parse($eStr);
+
+        $this->batch_sub_periods[] = [
+            'id'          => (string)Str::uuid(),
+            'start_date'  => $sStr,
+            'end_date'    => $eStr,
+            'start_day'   => (string)$cStart->day,
+            'start_month' => (string)$cStart->month,
+            'start_year'  => (string)$cStart->year,
+            'end_day'     => (string)$cEnd->day,
+            'end_month'   => (string)$cEnd->month,
+            'end_year'    => (string)$cEnd->year,
+            'volume'      => '',
+        ];
+
+        $this->recalculateBatchRangeFromSubPeriods();
+    }
+
+    public function removeBatchSubPeriod(int $index): void
+    {
+        if (isset($this->batch_sub_periods[$index])) {
+            unset($this->batch_sub_periods[$index]);
+            $this->batch_sub_periods = array_values($this->batch_sub_periods);
+            $this->recalculateBatchRangeFromSubPeriods();
+        }
+    }
+
+    public function toggleBatchDropdown(): void
+    {
+        $this->batch_dropdown_expanded = !$this->batch_dropdown_expanded;
+    }
+
+    public function parseVolumeSegments(string $input): array
+    {
+        $input = trim($input);
+        if ($input === '') {
+            return [];
+        }
+
+        // Clean leading dashes, bullets, spaces
+        $input = ltrim($input, "-•* \t\n\r");
+
+        $segments = [];
+        if (preg_match_all('/(\d+(?:\.\d+)?)\s*([a-zA-Z\s]+)?/u', $input, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $m) {
+                $amount = (float)$m[1];
+                $unit = isset($m[2]) ? trim($m[2]) : '';
+                $unit = trim(preg_replace('/^(and|&|,)\s*/i', '', $unit));
+                $unit = trim(preg_replace('/[,\.]+$/', '', $unit));
+                if ($unit === '' && preg_match('/^\d+(\.\d+)?$/', $input)) {
+                    $unit = 'Papers';
+                }
+                if ($amount > 0 || $unit !== '') {
+                    $segments[] = [
+                        'amount' => $amount,
+                        'unit'   => $unit ?: 'Papers',
+                    ];
+                }
+            }
+        }
+
+        return $segments;
+    }
+
+    public function canonicalizeVolumeUnit(string $unit): string
+    {
+        $u = strtolower(trim($unit));
+        if (in_array($u, ['paper', 'papers', 'page', 'pages', 'pc', 'pcs', 'piece', 'pieces', 'leaf', 'leaves', 'sheet', 'sheets'], true)) {
+            return 'Pages';
+        }
+        if (in_array($u, ['folder', 'folders', 'fldr', 'fldrs'], true)) {
+            return 'Folder';
+        }
+        if (in_array($u, ['box', 'boxes', 'bx', 'bxs'], true)) {
+            return 'Box';
+        }
+        if (in_array($u, ['archival box', 'archival boxes'], true)) {
+            return 'Archival Box';
+        }
+        if (in_array($u, ['transfer box', 'transfer boxes'], true)) {
+            return 'Transfer Box';
+        }
+        if (in_array($u, ['cubic meter', 'cubic meters', 'cu m', 'cu.m'], true)) {
+            return 'Cubic Meter';
+        }
+        if (in_array($u, ['cubic feet', 'cubic foot', 'cu ft', 'cu.ft'], true)) {
+            return 'Cubic Feet';
+        }
+        if (in_array($u, ['bundle', 'bundles', 'bdl'], true)) {
+            return 'Bundle';
+        }
+        if (in_array($u, ['volume', 'volumes', 'vol', 'vols'], true)) {
+            return 'Volume';
+        }
+        return Str::title($unit);
+    }
+
+    public function pluralizeVolumeUnit(string $unit, float|int $amount): string
+    {
+        if ($amount == 1) {
+            $singular = rtrim($unit, 's');
+            if (strtolower($singular) === 'boxe') return 'Box';
+            if (strtolower($singular) === 'page') return 'Page';
+            if (strtolower($singular) === 'paper') return 'Paper';
+            return $singular;
+        }
+
+        $lower = strtolower($unit);
+        if ($lower === 'box' || $lower === 'archival box' || $lower === 'transfer box') {
+            return $unit . 'es';
+        }
+        if (str_ends_with($lower, 's')) {
+            return $unit;
+        }
+        return $unit . 's';
+    }
+
+    public function compileBatchVolumeTotals(): array
+    {
+        $rawTotals = [];
+        $displayUnits = [];
+
+        foreach ($this->batch_sub_periods as $p) {
+            $val = trim((string)($p['volume'] ?? ''));
+            if ($val === '') continue;
+
+            $segments = $this->parseVolumeSegments($val);
+            if (empty($segments)) {
+                if (is_numeric($val)) {
+                    $canonical = 'Pages';
+                    $rawTotals[$canonical] = ($rawTotals[$canonical] ?? 0) + (float)$val;
+                    $displayUnits[$canonical] = 'Papers';
+                }
+                continue;
+            }
+
+            foreach ($segments as $seg) {
+                $canonical = $this->canonicalizeVolumeUnit($seg['unit']);
+                $rawTotals[$canonical] = ($rawTotals[$canonical] ?? 0) + (float)$seg['amount'];
+                if (!isset($displayUnits[$canonical])) {
+                    $origLower = strtolower($seg['unit']);
+                    if (str_contains($origLower, 'paper')) {
+                        $displayUnits[$canonical] = 'Papers';
+                    } elseif (str_contains($origLower, 'page')) {
+                        $displayUnits[$canonical] = 'Pages';
+                    } else {
+                        $displayUnits[$canonical] = $canonical;
+                    }
+                }
+            }
+        }
+
+        // Apply DB conversion rules (e.g. 100 Pages = 1 Folder)
+        try {
+            $conversions = DB::table('rdp_volume_conversion as c')
+                ->join('rdp_volume_value as std', 'c.value_standard', '=', 'std.volume_id')
+                ->join('rdp_volume_value as conv', 'c.value_converted', '=', 'conv.volume_id')
+                ->where('c.is_active', true)
+                ->select(
+                    'c.amount_standard',
+                    'c.amount_converted',
+                    'std.value_standard as standard_name',
+                    'conv.value_standard as converted_name'
+                )
+                ->get();
+
+            foreach ($conversions as $rule) {
+                $stdCanon = $this->canonicalizeVolumeUnit($rule->standard_name);
+                $convCanon = $this->canonicalizeVolumeUnit($rule->converted_name);
+
+                if (isset($rawTotals[$stdCanon]) && $rawTotals[$stdCanon] >= $rule->amount_standard && $rule->amount_standard > 0) {
+                    $multiplier = intdiv((int)$rawTotals[$stdCanon], (int)$rule->amount_standard);
+                    $convertedAddition = $multiplier * (int)$rule->amount_converted;
+                    $rawTotals[$convCanon] = ($rawTotals[$convCanon] ?? 0) + $convertedAddition;
+                    $rawTotals[$stdCanon] = fmod($rawTotals[$stdCanon], (float)$rule->amount_standard);
+
+                    if (!isset($displayUnits[$convCanon])) {
+                        $displayUnits[$convCanon] = $convCanon;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // Fallback gracefully
+        }
+
+        return [
+            'totals'        => $rawTotals,
+            'display_units' => $displayUnits,
+        ];
+    }
+
+    public function getBatchTotalVolume(): int
+    {
+        $compiled = $this->compileBatchVolumeTotals();
+        $total = 0;
+        foreach ($compiled['totals'] as $amt) {
+            $total += (int)$amt;
+        }
+        return $total;
+    }
+
+    public function getBatchTotalVolumeFormatted(): string
+    {
+        $compiled = $this->compileBatchVolumeTotals();
+        $totals = $compiled['totals'];
+        $displayUnits = $compiled['display_units'];
+
+        $parts = [];
+        $order = ['Box', 'Archival Box', 'Transfer Box', 'Bundle', 'Volume', 'Cubic Meter', 'Cubic Feet', 'Folder', 'Pages'];
+        $sortedKeys = array_unique(array_merge($order, array_keys($totals)));
+
+        foreach ($sortedKeys as $key) {
+            if (!isset($totals[$key])) continue;
+            $amt = $totals[$key];
+            if ($amt <= 0) continue;
+
+            $unitName = $displayUnits[$key] ?? $key;
+            $amtDisplay = (floor($amt) == $amt) ? (int)$amt : $amt;
+
+            $plural = $this->pluralizeVolumeUnit($unitName, $amtDisplay);
+            $parts[] = "{$amtDisplay} {$plural}";
+        }
+
+        return implode(', ', $parts);
+    }
+
+    public function switchToMultiMode(): void
+    {
+        $this->entryMode = 'multi';
+        if (empty($this->batchItems)) {
+            $this->addBatchItem();
+        } else {
+            $this->isBatchMode = true;
+        }
+    }
+
+    public function openBatchModal(): void
+    {
+        $this->syncDmyFromBatchDates();
+        $this->showBatchModal = true;
+    }
+
+    public function closeBatchModal(): void
+    {
+        $this->showBatchModal = false;
+    }
+
+    public function applyBatchModal(): void
+    {
+        $this->showBatchModal = false;
+    }
+
+    public function switchToBatchMode(): void
+    {
+        $this->entryMode = 'batch';
+        $this->isBatchMode = false;
+        $this->syncDmyFromBatchDates();
+        if (!empty($this->batch_start_date) && !empty($this->batch_end_date)) {
+            $this->generateBatchSubPeriods();
+        }
+    }
 
     public function getDefaultMediumId(): ?int
     {
@@ -121,6 +696,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public function addBatchItem(): void
     {
         $this->clearMessages();
+        $this->entryMode = 'multi';
 
         $defaultMedium = $this->records_medium ?: $this->getDefaultMediumId();
         $defaultRestriction = $this->restriction ?: 'Restricted';
@@ -204,6 +780,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function switchToSingleMode(): void
     {
+        $this->entryMode = 'single';
         if (!empty($this->batchItems)) {
             $first = $this->batchItems[0];
             $this->description       = $first['description'] ?? $this->description;
@@ -218,6 +795,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
         $this->batchItems = [];
         $this->isBatchMode = false;
+        $this->showBatchModal = false;
     }
 
     public function addBatchDuplicateOffice(int $bIdx, ?string $officeCode = null): void
@@ -1018,7 +1596,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             }
 
             $itemsToProcess = [];
-            if ($this->isBatchMode && !empty($this->batchItems)) {
+            if ($this->entryMode === 'multi' && !empty($this->batchItems)) {
                 foreach ($this->batchItems as $bItem) {
                     $desc = trim($bItem['description'] ?? '');
                     if (empty($desc)) continue;
@@ -1032,9 +1610,28 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         'frequence_use'     => $bItem['frequence_use'] ?? null,
                         'utility_values'    => $bItem['utility_values'] ?? [],
                         'date_covered'      => $bItem['date_covered'] ?? '',
+                        'date_covered_end'  => null,
                         'duplicate_offices' => $bItem['duplicate_offices'] ?? [],
+                        'sub_periods'       => [],
                     ];
                 }
+            } elseif ($this->entryMode === 'batch') {
+                $desc = trim($this->description);
+                $batchVol = $this->getBatchTotalVolumeFormatted();
+                $itemsToProcess[] = [
+                    'description'       => mb_strtoupper($desc),
+                    'volume'            => mb_strtoupper($batchVol),
+                    'records_location'  => mb_strtoupper(trim($this->records_location)),
+                    'restriction'       => $this->restriction,
+                    'records_medium'    => $this->records_medium,
+                    'time_value'        => $this->time_value ?: 'T',
+                    'frequence_use'     => $this->frequence_use,
+                    'utility_values'    => $this->utility_values,
+                    'date_covered'      => $this->batch_start_date ?: $this->date_covered,
+                    'date_covered_end'  => $this->batch_end_date ?: null,
+                    'duplicate_offices' => $this->duplicate_offices,
+                    'sub_periods'       => $this->batch_sub_periods,
+                ];
             } else {
                 $itemsToProcess[] = [
                     'description'       => mb_strtoupper(trim($this->description)),
@@ -1046,7 +1643,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     'frequence_use'     => $this->frequence_use,
                     'utility_values'    => $this->utility_values,
                     'date_covered'      => $this->date_covered,
+                    'date_covered_end'  => null,
                     'duplicate_offices' => $this->duplicate_offices,
+                    'sub_periods'       => [],
                 ];
             }
 
@@ -1057,8 +1656,22 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             }
 
             $firstRecordId = null;
+            $hasEndCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_period_covered', 'date_covered_end');
+            $hasVolCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_period_covered', 'volume');
+            $hasBatchCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_record', 'ispartof_batch');
+            $hasBatchIdCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_record', 'batch_id');
+
+            $batchId = null;
+            if ($this->entryMode === 'batch' && \Illuminate\Support\Facades\Schema::hasTable('rdp_batch')) {
+                $batchId = DB::table('rdp_batch')->insertGetId([
+                    'batch_name' => !empty($this->selectedSeriesTitle) ? $this->selectedSeriesTitle : 'Batch Record',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
             foreach ($itemsToProcess as $rIdx => $rData) {
-                $recordId = DB::table('rdp_record')->insertGetId([
+                $insertRow = [
                     'record_series_id'       => $this->record_series_id,
                     'description'            => $rData['description'],
                     'period_id'              => $periodId,
@@ -1074,7 +1687,15 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     'is_draft'               => true,
                     'created_at'             => now(),
                     'updated_at'             => now(),
-                ]);
+                ];
+                if ($hasBatchCol) {
+                    $insertRow['ispartof_batch'] = ($this->entryMode === 'batch');
+                }
+                if ($hasBatchIdCol && $batchId !== null) {
+                    $insertRow['batch_id'] = $batchId;
+                }
+
+                $recordId = DB::table('rdp_record')->insertGetId($insertRow);
 
                 if ($firstRecordId === null) {
                     $firstRecordId = $recordId;
@@ -1104,13 +1725,34 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     ]);
                 }
 
-                if (!empty($rData['date_covered'])) {
-                    DB::table('rdp_period_covered')->insert([
+                if (!empty($rData['sub_periods'])) {
+                    foreach ($rData['sub_periods'] as $sub) {
+                        if (empty($sub['start_date']) && empty($sub['end_date'])) continue;
+                        $pRow = [
+                            'period_owner' => $recordId,
+                            'date_covered' => $sub['start_date'] ?? $rData['date_covered'],
+                            'created_at'   => now(),
+                            'modified_at'  => now(),
+                        ];
+                        if ($hasEndCol && !empty($sub['end_date'])) {
+                            $pRow['date_covered_end'] = $sub['end_date'];
+                        }
+                        if ($hasVolCol && !empty($sub['volume'])) {
+                            $pRow['volume'] = trim($sub['volume']);
+                        }
+                        DB::table('rdp_period_covered')->insert($pRow);
+                    }
+                } elseif (!empty($rData['date_covered'])) {
+                    $pRow = [
                         'period_owner' => $recordId,
                         'date_covered' => $rData['date_covered'],
                         'created_at'   => now(),
                         'modified_at'  => now(),
-                    ]);
+                    ];
+                    if ($hasEndCol && !empty($rData['date_covered_end'])) {
+                        $pRow['date_covered_end'] = $rData['date_covered_end'];
+                    }
+                    DB::table('rdp_period_covered')->insert($pRow);
                 }
             }
 
@@ -1125,7 +1767,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             DB::commit();
 
             $count = count($itemsToProcess);
-            $this->successMessage = $count > 1 
+            $this->successMessage = ($this->entryMode === 'multi' && $count > 1) 
                 ? "Inventory and Appraisal draft for {$count} records saved successfully!" 
                 : "Inventory and Appraisal draft saved successfully!";
             $this->dispatch('scroll-to-top');
@@ -1251,7 +1893,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             }
 
             $itemsToProcess = [];
-            if ($this->isBatchMode && !empty($this->batchItems)) {
+            if ($this->entryMode === 'multi' && !empty($this->batchItems)) {
                 foreach ($this->batchItems as $bItem) {
                     $desc = trim($bItem['description'] ?? '');
                     if (empty($desc)) continue;
@@ -1265,7 +1907,34 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         'frequence_use'     => $bItem['frequence_use'] ?? null,
                         'utility_values'    => $bItem['utility_values'] ?? [],
                         'date_covered'      => $bItem['date_covered'] ?? '',
+                        'date_covered_end'  => null,
                         'duplicate_offices' => $bItem['duplicate_offices'] ?? [],
+                        'sub_periods'       => [],
+                    ];
+                }
+            } elseif ($this->entryMode === 'batch') {
+                $desc = trim($this->description);
+                $batchVol = $this->getBatchTotalVolumeFormatted();
+                if ($this->isAppraising && empty($batchVol)) {
+                    DB::rollBack();
+                    $this->errorMessage = 'Please input volume for the periods covered.';
+                    $this->dispatch('scroll-to-top');
+                    return;
+                }
+                if (!empty($desc)) {
+                    $itemsToProcess[] = [
+                        'description'       => mb_strtoupper($desc),
+                        'volume'            => mb_strtoupper($batchVol),
+                        'records_location'  => mb_strtoupper(trim($this->records_location)),
+                        'restriction'       => $this->restriction,
+                        'records_medium'    => $this->records_medium,
+                        'time_value'        => $this->time_value ?: 'T',
+                        'frequence_use'     => $this->frequence_use,
+                        'utility_values'    => $this->utility_values,
+                        'date_covered'      => $this->batch_start_date ?: $this->date_covered,
+                        'date_covered_end'  => $this->batch_end_date ?: null,
+                        'duplicate_offices' => $this->duplicate_offices,
+                        'sub_periods'       => $this->batch_sub_periods,
                     ];
                 }
             } else {
@@ -1281,7 +1950,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         'frequence_use'     => $this->frequence_use,
                         'utility_values'    => $this->utility_values,
                         'date_covered'      => $this->date_covered,
+                        'date_covered_end'  => null,
                         'duplicate_offices' => $this->duplicate_offices,
+                        'sub_periods'       => [],
                     ];
                 }
             }
@@ -1293,8 +1964,22 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             }
 
             $firstRecordId = null;
+            $hasEndCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_period_covered', 'date_covered_end');
+            $hasVolCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_period_covered', 'volume');
+            $hasBatchCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_record', 'ispartof_batch');
+            $hasBatchIdCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_record', 'batch_id');
+
+            $batchId = null;
+            if ($this->entryMode === 'batch' && \Illuminate\Support\Facades\Schema::hasTable('rdp_batch')) {
+                $batchId = DB::table('rdp_batch')->insertGetId([
+                    'batch_name' => !empty($this->selectedSeriesTitle) ? $this->selectedSeriesTitle : 'Batch Record',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
             foreach ($itemsToProcess as $rIdx => $rData) {
-                $recordId = DB::table('rdp_record')->insertGetId([
+                $insertRow = [
                     'record_series_id'       => $this->record_series_id,
                     'description'            => $rData['description'],
                     'period_id'              => $periodId,
@@ -1310,7 +1995,15 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     'is_draft'               => false,
                     'created_at'             => now(),
                     'updated_at'             => now(),
-                ]);
+                ];
+                if ($hasBatchCol) {
+                    $insertRow['ispartof_batch'] = ($this->entryMode === 'batch');
+                }
+                if ($hasBatchIdCol && $batchId !== null) {
+                    $insertRow['batch_id'] = $batchId;
+                }
+
+                $recordId = DB::table('rdp_record')->insertGetId($insertRow);
 
                 if ($firstRecordId === null) {
                     $firstRecordId = $recordId;
@@ -1340,13 +2033,34 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     ]);
                 }
 
-                if (!empty($rData['date_covered'])) {
-                    DB::table('rdp_period_covered')->insert([
+                if (!empty($rData['sub_periods'])) {
+                    foreach ($rData['sub_periods'] as $sub) {
+                        if (empty($sub['start_date']) && empty($sub['end_date'])) continue;
+                        $pRow = [
+                            'period_owner' => $recordId,
+                            'date_covered' => $sub['start_date'] ?? $rData['date_covered'],
+                            'created_at'   => now(),
+                            'modified_at'  => now(),
+                        ];
+                        if ($hasEndCol && !empty($sub['end_date'])) {
+                            $pRow['date_covered_end'] = $sub['end_date'];
+                        }
+                        if ($hasVolCol && !empty($sub['volume'])) {
+                            $pRow['volume'] = trim($sub['volume']);
+                        }
+                        DB::table('rdp_period_covered')->insert($pRow);
+                    }
+                } elseif (!empty($rData['date_covered'])) {
+                    $pRow = [
                         'period_owner' => $recordId,
                         'date_covered' => $rData['date_covered'],
                         'created_at'   => now(),
                         'modified_at'  => now(),
-                    ]);
+                    ];
+                    if ($hasEndCol && !empty($rData['date_covered_end'])) {
+                        $pRow['date_covered_end'] = $rData['date_covered_end'];
+                    }
+                    DB::table('rdp_period_covered')->insert($pRow);
                 }
             }
 
@@ -1361,9 +2075,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             DB::commit();
 
             $count = count($itemsToProcess);
-            $this->successMessage = $count > 1 
-                ? "Batch of {$count} records created successfully under this series!" 
-                : "Inventory and Appraisal Record created successfully!";
+            $this->successMessage = ($this->entryMode === 'multi' && $count > 1) 
+                ? "Multi-entry of {$count} records created successfully under this series!" 
+                : ($this->entryMode === 'batch' 
+                    ? "Batch record with duration breakdown created successfully!"
+                    : "Inventory and Appraisal Record created successfully!");
             $this->resetFormFields();
 
         } catch (\Exception $e) {
@@ -1375,8 +2091,15 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function resetFormFields(): void
     {
+        $this->entryMode = 'single';
         $this->isBatchMode = false;
         $this->batchItems = [];
+        $this->batch_start_date = '';
+        $this->batch_end_date = '';
+        $this->batch_volume_unit = 'papers';
+        $this->batch_dropdown_expanded = true;
+        $this->batch_sub_periods = [];
+        $this->showBatchModal = false;
         $this->selectedSeriesTitle = null;
         $this->record_series_id = null;
         $this->description = '';
@@ -1496,31 +2219,60 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         <span class="ia-mode-desc">
                             Appraise incoming document {{ $prefill_code ? '#' . $prefill_code : '' }} directly into RDP
                         </span>
-                    @else
-                        <span class="ia-mode-pill {{ $isBatchMode ? 'is-batch' : 'is-single' }}">
-                            {{ $isBatchMode ? 'BATCH ENTRY MODE (' . count($batchItems) . ' RECORDS)' : 'SINGLE ENTRY MODE' }}
+                    @elseif($entryMode === 'multi')
+                        <span class="ia-mode-pill is-multi">
+                            MULTI ENTRY MODE ({{ count($batchItems) }} RECORDS)
                         </span>
                         <span class="ia-mode-desc">
-                            {{ $isBatchMode ? 'Add multiple records simultaneously under the selected series' : 'Add an individual inventory and appraisal record' }}
+                            Add multiple distinct records simultaneously under the selected series
+                        </span>
+                    @elseif($entryMode === 'batch')
+                        <span class="ia-mode-pill is-batch">
+                            BATCH ENTRY MODE
+                        </span>
+                        <span class="ia-mode-desc">
+                            Add record with combined period covered duration and volume breakdown
+                        </span>
+                    @else
+                        <span class="ia-mode-pill is-single">
+                            SINGLE ENTRY MODE
+                        </span>
+                        <span class="ia-mode-desc">
+                            Add an individual inventory and appraisal record
                         </span>
                     @endif
                 </div>
                 @if(!$isAppraising)
                     <div class="ia-mode-actions">
-                        @if($isBatchMode)
+                        @if($entryMode === 'multi')
                             <button type="button" 
                                     wire:click="switchToSingleMode" 
                                     class="ia-mode-toggle-btn is-exit" 
-                                    title="Exit batch mode and return to single mode">
+                                    title="Exit Multi Mode and return to Single Mode">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                <span>Exit Multi Mode</span>
+                            </button>
+                        @elseif($entryMode === 'batch')
+                            <button type="button" 
+                                    wire:click="switchToSingleMode" 
+                                    class="ia-mode-toggle-btn is-exit" 
+                                    title="Exit Batch Mode and return to Single Mode">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                                 <span>Exit Batch Mode</span>
                             </button>
                         @else
                             <button type="button" 
-                                    wire:click="addBatchItem" 
-                                    class="ia-side-add-pill-btn" 
-                                    title="Switch to Batch Mode to add multiple records under this series">
+                                    wire:click="switchToMultiMode" 
+                                    class="ia-side-add-pill-btn is-multi-btn" 
+                                    title="Switch to Multi Mode to add multiple records under this series">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                <span>Multi Mode</span>
+                            </button>
+                            <button type="button" 
+                                    wire:click="switchToBatchMode" 
+                                    class="ia-side-add-pill-btn is-batch-btn" 
+                                    title="Switch to Batch Mode for combined period covered range and volume breakdown">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
                                 <span>Batch Mode</span>
                             </button>
                         @endif
@@ -1587,8 +2339,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     </div>
                 </div>
 
-                @if($isBatchMode)
-                    <!-- Batch Items List -->
+                @if($entryMode === 'multi')
+                    <!-- Multi Items List -->
                     <div class="ia-batch-list" style="display: flex; flex-direction: column; gap: 18px; margin-bottom: 26px;">
                         @foreach($batchItems as $bIdx => $bItem)
                             <div class="ia-batch-item-card" wire:key="batch-item-{{ $bIdx }}" style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 20px; transition: border-color 0.2s ease; position: relative;">
@@ -1771,46 +2523,191 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         @endif
                     </div>
 
-                    <!-- Selected Date -->
-                    <div class="ia-form-row" wire:key="ia-row-date">
-                        <span class="ia-label">Selected Date</span>
-                        <div style="flex: 1; display: flex; align-items: center; gap: 10px;">
-                            <input type="date" class="ia-input" wire:model.live="date_covered" style="max-width: 240px;">
-                            @if(!empty($date_covered))
-                                <button type="button" wire:click="$set('date_covered', '')" class="ia-btn ia-btn-secondary" style="padding: 6px 14px; font-size: 12px;">Clear Date</button>
-                            @endif
-                        </div>
-                    </div>
+                    @if($entryMode === 'batch')
+                        <!-- ═══════ COMBINED PERIOD COVERED & VOLUME (BATCH MODE) ═══════ -->
+                        <div class="ia-form-row ia-batch-period-row" wire:key="ia-row-batch-period-volume" style="align-items: flex-start;">
+                            <div class="ia-label-stack" style="margin-top: 6px;">
+                                <span class="ia-label-required">Period Covered & Volume</span>
+                                <span style="font-size: 11px; color: #64748b; font-weight: 600;">Combined Range & Breakdown</span>
+                            </div>
 
-                    <!-- Volume Amount & Unit -->
-                    <div class="ia-form-row" wire:key="ia-row-volume">
-                        <span class="ia-label ia-label-required">Volume Amount & Unit</span>
-                        <div style="flex: 1; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                            <input type="number" min="1" step="1" 
-                                   class="ia-input" 
-                                   wire:model.live="volume_amount" 
-                                   placeholder="e.g. 1" 
-                                   style="max-width: 140px; {{ empty($volume_amount) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}">
-                            <select class="ia-input" wire:model.live="volume_unit" style="max-width: 180px;">
-                                <option value="Folder">Folder(s)</option>
-                                <option value="Volume">Volume(s)</option>
-                                <option value="Box">Box(es)</option>
-                                <option value="Bundle">Bundle(s)</option>
-                                <option value="Pages">Page(s)</option>
-                                <option value="Pieces">Piece(s)</option>
-                            </select>
-                            @if(!empty($volume_amount))
-                                <span style="font-size: 12px; color: #16a34a; font-weight: 700; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 4px 10px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                                    Total: {{ $volume_amount }} {{ $volume_unit }}
-                                </span>
-                            @else
-                                <span style="font-size: 11.5px; color: #dc2626; font-style: italic;">
-                                    * Total number required (will not record unit alone)
-                                </span>
+                            <div style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
+                                @if(empty($batch_start_date) || empty($batch_end_date))
+                                    <!-- Empty State: Modal Launch Button -->
+                                    <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap; background: #f8fafc; border: 1.5px dashed #cbd5e1; border-radius: 10px; padding: 14px 18px;">
+                                        <button type="button" wire:click="openBatchModal" class="ia-btn ia-btn-primary ia-btn-lg" style="font-size: 13px;">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 5px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                            Configure Period Covered & Volume
+                                        </button>
+                                        <span style="font-size: 12px; color: #64748b; font-weight: 500;">
+                                            Set inclusive dates, volume unit, and yearly breakdown in a modal.
+                                        </span>
+                                    </div>
+                                @else
+                                    <!-- Configured State Header with Edit in Modal Button -->
+                                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                                        <span style="font-size: 12px; color: #64748b; font-weight: 600;">
+                                            Duration Breakdown ({{ count($batch_sub_periods) }} {{ \Illuminate\Support\Str::plural('period', count($batch_sub_periods)) }}):
+                                        </span>
+                                        <button type="button" wire:click="openBatchModal" class="ia-btn ia-btn-change" style="font-size: 11.5px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 5px;">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                            Edit in Modal
+                                        </button>
+                                    </div>
+
+                                    <!-- Master / Dropdown Widget -->
+                                    <div class="ia-batch-accordion-card">
+                                    <!-- Parent Header Row: [Arrow Toggle] | <Start period date> - <End period date> | <total volume> -->
+                                    <div class="ia-batch-header-row" wire:click="toggleBatchDropdown">
+                                        <div class="ia-batch-header-left">
+                                            <button type="button" 
+                                                    class="ia-batch-toggle-arrow-btn {{ $batch_dropdown_expanded ? 'is-expanded' : 'is-collapsed' }}" 
+                                                    title="{{ $batch_dropdown_expanded ? 'Collapse duration breakdown (Down Arrow)' : 'Expand duration breakdown (Side Arrow)' }}">
+                                                @if($batch_dropdown_expanded)
+                                                    <!-- Down Arrow (Expanded) -->
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round">
+                                                        <polyline points="6 9 12 15 18 9"></polyline>
+                                                    </svg>
+                                                @else
+                                                    <!-- Side Arrow (Collapsed) -->
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round">
+                                                        <polyline points="9 18 15 12 9 6"></polyline>
+                                                    </svg>
+                                                @endif
+                                            </button>
+                                            <div class="ia-batch-header-period">
+                                                @if(!empty($batch_start_date) && !empty($batch_end_date))
+                                                    <span class="ia-batch-range-text">
+                                                        {{ \Carbon\Carbon::parse($batch_start_date)->translatedFormat('j F Y') }} — {{ \Carbon\Carbon::parse($batch_end_date)->translatedFormat('j F Y') }}
+                                                    </span>
+                                                @elseif(!empty($batch_start_date))
+                                                    <span class="ia-batch-range-text">
+                                                        From {{ \Carbon\Carbon::parse($batch_start_date)->translatedFormat('j F Y') }}
+                                                    </span>
+                                                @else
+                                                    <span class="ia-batch-range-placeholder">
+                                                        Enter Start and End Period Dates above to generate duration breakdown
+                                                    </span>
+                                                @endif
+                                            </div>
+                                        </div>
+
+                                        <div class="ia-batch-header-right">
+                                            <div class="ia-batch-total-volume-pill">
+                                                <span class="ia-sum-symbol">∑</span>
+                                                <span class="ia-sum-label">TOTAL VOLUME:</span>
+                                                <span class="ia-sum-value">
+                                                    {{ $this->getBatchTotalVolumeFormatted() ?: '0 Papers' }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Sub-periods List (Tree Breakdown: Branch Connector <period date> - <end of period date> | <volume>) -->
+                                    @if($batch_dropdown_expanded)
+                                        <div class="ia-batch-children-container">
+                                            @if(!empty($batch_sub_periods))
+                                                @foreach($batch_sub_periods as $pIdx => $sub)
+                                                    <div class="ia-batch-tree-item" wire:key="batch-sub-period-{{ $pIdx }}-{{ $sub['id'] ?? $pIdx }}">
+                                                        <!-- Tree branch connector -->
+                                                        <div class="ia-batch-tree-connector" aria-hidden="true" title="Yearly breakdown branch">
+                                                            <svg width="22" height="24" viewBox="0 0 22 24" fill="none" class="ia-tree-branch-svg">
+                                                                <path d="M 7 0 V 13 H 20" stroke="#6366f1" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                                                            </svg>
+                                                        </div>
+
+                                                        <!-- Date Range Calendar Inputs: <start date> to <end date> -->
+                                                        <div class="ia-batch-tree-date">
+                                                            <div class="ia-sub-calendar-group">
+                                                                <input type="date" 
+                                                                       class="ia-input ia-input-sm ia-sub-calendar-input" 
+                                                                       wire:model.live="batch_sub_periods.{{ $pIdx }}.start_date" 
+                                                                       title="Start Date">
+                                                                <span class="ia-sub-dmy-to">to</span>
+                                                                <input type="date" 
+                                                                       class="ia-input ia-input-sm ia-sub-calendar-input" 
+                                                                       wire:model.live="batch_sub_periods.{{ $pIdx }}.end_date" 
+                                                                       title="End Date">
+                                                            </div>
+                                                        </div>
+
+                                                        <!-- Sub Volume Input -->
+                                                        <div class="ia-batch-tree-volume">
+                                                            <div class="ia-sub-vol-input-group">
+                                                                <input type="text" 
+                                                                       class="ia-input ia-input-sm ia-sub-vol-text" 
+                                                                       wire:model.live.debounce.300ms="batch_sub_periods.{{ $pIdx }}.volume" 
+                                                                       placeholder="e.g. 10 Boxes 2 Papers">
+                                                            </div>
+                                                            <button type="button" 
+                                                                    wire:click="removeBatchSubPeriod({{ $pIdx }})" 
+                                                                    class="ia-btn-remove-sub" 
+                                                                    title="Remove this period range">
+                                                                &times;
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                @endforeach
+                                            @else
+                                                <div style="padding: 18px; text-align: center; color: #64748b; font-size: 12.5px; font-style: italic;">
+                                                    No period ranges generated yet. Set Start and End dates above or click "+ Add Period Range".
+                                                </div>
+                                            @endif
+
+                                            <div class="ia-batch-children-footer">
+                                                <button type="button" wire:click="addBatchSubPeriod" class="ia-btn ia-btn-ghost ia-btn-sm" style="border-style: dashed; font-size: 12px;">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                                                    Add Period Range
+                                                </button>
+                                            </div>
+                                        </div>
+                                    @endif
+                                </div>
                             @endif
                         </div>
                     </div>
+                    @else
+                        <!-- Selected Date -->
+                        <div class="ia-form-row" wire:key="ia-row-date">
+                            <span class="ia-label">Selected Date</span>
+                            <div style="flex: 1; display: flex; align-items: center; gap: 10px;">
+                                <input type="date" class="ia-input" wire:model.live="date_covered" style="max-width: 240px;">
+                                @if(!empty($date_covered))
+                                    <button type="button" wire:click="$set('date_covered', '')" class="ia-btn ia-btn-secondary" style="padding: 6px 14px; font-size: 12px;">Clear Date</button>
+                                @endif
+                            </div>
+                        </div>
+
+                        <!-- Volume Amount & Unit -->
+                        <div class="ia-form-row" wire:key="ia-row-volume">
+                            <span class="ia-label ia-label-required">Volume Amount & Unit</span>
+                            <div style="flex: 1; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                                <input type="number" min="1" step="1" 
+                                       class="ia-input" 
+                                       wire:model.live="volume_amount" 
+                                       placeholder="e.g. 1" 
+                                       style="max-width: 140px; {{ empty($volume_amount) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}">
+                                <select class="ia-input" wire:model.live="volume_unit" style="max-width: 180px;">
+                                    <option value="Folder">Folder(s)</option>
+                                    <option value="Volume">Volume(s)</option>
+                                    <option value="Box">Box(es)</option>
+                                    <option value="Bundle">Bundle(s)</option>
+                                    <option value="Pages">Page(s)</option>
+                                    <option value="Pieces">Piece(s)</option>
+                                </select>
+                                @if(!empty($volume_amount))
+                                    <span style="font-size: 12px; color: #16a34a; font-weight: 700; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 4px 10px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                        Total: {{ $volume_amount }} {{ $volume_unit }}
+                                    </span>
+                                @else
+                                    <span style="font-size: 11.5px; color: #dc2626; font-style: italic;">
+                                        * Total number required (will not record unit alone)
+                                    </span>
+                                @endif
+                            </div>
+                        </div>
+                    @endif
 
                     <!-- Records Medium -->
                     <div class="ia-form-row" wire:key="ia-row-medium">
@@ -2128,11 +3025,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             <button type="button" wire:click="resetFormFields" onclick="rdpScrollToTop()" class="ia-btn ia-btn-secondary">CLEAR FORM</button>
             <button type="button" wire:click="saveDraft" onclick="rdpScrollToTop()" class="ia-btn ia-btn-secondary">
-                {{ $isBatchMode && count($batchItems) > 1 ? 'SAVE DRAFT (' . count($batchItems) . ' RECORDS)' : 'SAVE DRAFT' }}
+                {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'SAVE DRAFT (' . count($batchItems) . ' RECORDS)' : 'SAVE DRAFT' }}
             </button>
             <button type="button" wire:click="createRecord" onclick="rdpScrollToTop()" class="ia-btn ia-btn-primary ia-btn-lg">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-                {{ $isBatchMode && count($batchItems) > 1 ? 'CREATE ' . count($batchItems) . ' RECORDS' : 'CREATE RECORD' }}
+                {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'CREATE ' . count($batchItems) . ' RECORDS' : 'CREATE RECORD' }}
             </button>
         </div>
     </div>
@@ -2214,6 +3111,212 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 <div class="ia-modal-footer">
                     <button type="button" wire:click="closeSeriesModal" class="ia-btn ia-btn-secondary">Cancel</button>
                     <button type="button" wire:click="saveNewRecordSeries" class="ia-btn ia-btn-primary">Apply Series</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- ═══════ Batch Period Covered & Volume Modal ═══════ -->
+    @if($showBatchModal)
+        <div class="ia-modal-overlay" style="z-index: 10000;">
+            <div class="ia-modal-card is-batch-modal" style="width: 760px; max-width: 95vw;">
+                <div class="ia-modal-header">
+                    <div>
+                        <h3 style="margin-bottom: 2px;">Configure Period Covered & Volume</h3>
+                        <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 600;">
+                            Set overall date range and volume distribution across yearly durations
+                        </p>
+                    </div>
+                    <button type="button" wire:click="closeBatchModal" class="ia-modal-close" title="Close modal">&times;</button>
+                </div>
+                
+                <div class="ia-modal-body" style="display: flex; flex-direction: column; gap: 18px; max-height: 75vh; overflow-y: auto;">
+                    <!-- Configuration Bar inside Modal -->
+                    <div class="ia-batch-config-bar" style="border-radius: 10px; padding: 14px 16px;">
+                        <div class="ia-batch-date-range-bar">
+                            <!-- Start Date DMY -->
+                            <div class="ia-dmy-field-wrapper">
+                                <label class="ia-dmy-label">Start Period Date</label>
+                                <div class="ia-dmy-group">
+                                    <input type="number" min="1" max="31" class="ia-input ia-input-sm ia-dmy-day" wire:model.live.debounce.300ms="batch_start_day" placeholder="DD" title="Start Day">
+                                    <select class="ia-input ia-input-sm ia-dmy-month" wire:model.live="batch_start_month" title="Start Month">
+                                        <option value="">Month</option>
+                                        <option value="1">January</option>
+                                        <option value="2">February</option>
+                                        <option value="3">March</option>
+                                        <option value="4">April</option>
+                                        <option value="5">May</option>
+                                        <option value="6">June</option>
+                                        <option value="7">July</option>
+                                        <option value="8">August</option>
+                                        <option value="9">September</option>
+                                        <option value="10">October</option>
+                                        <option value="11">November</option>
+                                        <option value="12">December</option>
+                                    </select>
+                                    <input type="number" min="1900" max="2100" class="ia-input ia-input-sm ia-dmy-year" wire:model.live.debounce.300ms="batch_start_year" placeholder="YYYY" title="Start Year (e.g. 1998)">
+                                </div>
+                            </div>
+
+                            <span class="ia-dmy-separator">to</span>
+
+                            <!-- End Date DMY -->
+                            <div class="ia-dmy-field-wrapper">
+                                <label class="ia-dmy-label">End Period Date</label>
+                                <div class="ia-dmy-group">
+                                    <input type="number" min="1" max="31" class="ia-input ia-input-sm ia-dmy-day" wire:model.live.debounce.300ms="batch_end_day" placeholder="DD" title="End Day">
+                                    <select class="ia-input ia-input-sm ia-dmy-month" wire:model.live="batch_end_month" title="End Month">
+                                        <option value="">Month</option>
+                                        <option value="1">January</option>
+                                        <option value="2">February</option>
+                                        <option value="3">March</option>
+                                        <option value="4">April</option>
+                                        <option value="5">May</option>
+                                        <option value="6">June</option>
+                                        <option value="7">July</option>
+                                        <option value="8">August</option>
+                                        <option value="9">September</option>
+                                        <option value="10">October</option>
+                                        <option value="11">November</option>
+                                        <option value="12">December</option>
+                                    </select>
+                                    <input type="number" min="1900" max="2100" class="ia-input ia-input-sm ia-dmy-year" wire:model.live.debounce.300ms="batch_end_year" placeholder="YYYY" title="End Year (e.g. 2025)">
+                                </div>
+                            </div>
+
+                            <button type="button" wire:click="generateBatchSubPeriods" class="ia-btn ia-btn-secondary" style="height: 34px; font-size: 11.5px; padding: 0 12px; margin-bottom: 2px;" title="Refresh/regenerate yearly breakdown based on dates above">
+                                ↻ Refresh Breakdown
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Breakdown & Volume Input Area inside Modal -->
+                    <div>
+                        <div class="ia-batch-breakdown-header">
+                            <span class="ia-batch-breakdown-title">
+                                Duration Breakdown & Volume
+                            </span>
+                            <span style="font-size: 11px; color: #64748b;">
+                                Auto-updates with each date & volume input
+                            </span>
+                        </div>
+
+                        <!-- Accordion Card inside Modal -->
+                        <div class="ia-batch-accordion-card">
+                            <!-- Parent Header Row -->
+                            <div class="ia-batch-header-row" wire:click="toggleBatchDropdown">
+                                <div class="ia-batch-header-left">
+                                    <button type="button" 
+                                            class="ia-batch-toggle-arrow-btn {{ $batch_dropdown_expanded ? 'is-expanded' : 'is-collapsed' }}" 
+                                            title="{{ $batch_dropdown_expanded ? 'Collapse duration breakdown (Down Arrow)' : 'Expand duration breakdown (Side Arrow)' }}">
+                                        @if($batch_dropdown_expanded)
+                                            <!-- Down Arrow (Expanded) -->
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="6 9 12 15 18 9"></polyline>
+                                            </svg>
+                                        @else
+                                            <!-- Side Arrow (Collapsed) -->
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="9 18 15 12 9 6"></polyline>
+                                            </svg>
+                                        @endif
+                                    </button>
+                                    <div class="ia-batch-header-period">
+                                        @if(!empty($batch_start_date) && !empty($batch_end_date))
+                                            <span class="ia-batch-range-text">
+                                                {{ \Carbon\Carbon::parse($batch_start_date)->translatedFormat('j F Y') }} — {{ \Carbon\Carbon::parse($batch_end_date)->translatedFormat('j F Y') }}
+                                            </span>
+                                        @elseif(!empty($batch_start_date))
+                                            <span class="ia-batch-range-text">
+                                                From {{ \Carbon\Carbon::parse($batch_start_date)->translatedFormat('j F Y') }}
+                                            </span>
+                                        @else
+                                            <span class="ia-batch-range-placeholder">
+                                                Place Start and End Period Dates above to generate duration breakdown
+                                            </span>
+                                        @endif
+                                    </div>
+                                </div>
+
+                                <div class="ia-batch-header-right">
+                                    <div class="ia-batch-total-volume-pill">
+                                        <span class="ia-sum-symbol">∑</span>
+                                        <span class="ia-sum-label">TOTAL VOLUME:</span>
+                                        <span class="ia-sum-value">
+                                            {{ $this->getBatchTotalVolumeFormatted() ?: '0 Papers' }}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Sub-periods List -->
+                            @if($batch_dropdown_expanded)
+                                <div class="ia-batch-children-container">
+                                    @if(!empty($batch_sub_periods))
+                                        @foreach($batch_sub_periods as $pIdx => $sub)
+                                            <div class="ia-batch-tree-item" wire:key="modal-batch-sub-period-{{ $pIdx }}-{{ $sub['id'] ?? $pIdx }}">
+                                                <!-- Tree branch connector -->
+                                                <div class="ia-batch-tree-connector" aria-hidden="true" title="Yearly breakdown branch">
+                                                    <svg width="22" height="24" viewBox="0 0 22 24" fill="none" class="ia-tree-branch-svg">
+                                                        <path d="M 7 0 V 13 H 20" stroke="#6366f1" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                                                    </svg>
+                                                </div>
+
+                                                <!-- Date Range Calendar Inputs: <start date> to <end date> -->
+                                                <div class="ia-batch-tree-date">
+                                                    <div class="ia-sub-calendar-group">
+                                                        <input type="date" 
+                                                               class="ia-input ia-input-sm ia-sub-calendar-input" 
+                                                               wire:model.live="batch_sub_periods.{{ $pIdx }}.start_date" 
+                                                               title="Start Date">
+                                                        <span class="ia-sub-dmy-to">to</span>
+                                                        <input type="date" 
+                                                               class="ia-input ia-input-sm ia-sub-calendar-input" 
+                                                               wire:model.live="batch_sub_periods.{{ $pIdx }}.end_date" 
+                                                               title="End Date">
+                                                    </div>
+                                                </div>
+
+                                                <!-- Sub Volume Input -->
+                                                <div class="ia-batch-tree-volume">
+                                                    <div class="ia-sub-vol-input-group">
+                                                        <input type="text" 
+                                                               class="ia-input ia-input-sm ia-sub-vol-text" 
+                                                               wire:model.live.debounce.300ms="batch_sub_periods.{{ $pIdx }}.volume" 
+                                                               placeholder="e.g. 10 Boxes 2 Papers">
+                                                    </div>
+                                                    <button type="button" 
+                                                            wire:click="removeBatchSubPeriod({{ $pIdx }})" 
+                                                            class="ia-btn-remove-sub" 
+                                                            title="Remove this period range">
+                                                        &times;
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        @endforeach
+                                    @else
+                                        <div style="padding: 24px; text-align: center; color: #64748b; font-size: 13px; font-style: italic;">
+                                            No period ranges generated yet. Set Start and End dates above or click "+ Add Period Range".
+                                        </div>
+                                    @endif
+
+                                    <div class="ia-batch-children-footer">
+                                        <button type="button" wire:click="addBatchSubPeriod" class="ia-btn ia-btn-ghost ia-btn-sm" style="border-style: dashed; font-size: 12px;">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+                                            Add Period Range
+                                        </button>
+                                    </div>
+                                </div>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ia-modal-footer">
+                    <button type="button" wire:click="closeBatchModal" class="ia-btn ia-btn-secondary">Close</button>
+                    <button type="button" wire:click="applyBatchModal" class="ia-btn ia-btn-primary">
+                        Apply & Save Breakdown
+                    </button>
                 </div>
             </div>
         </div>

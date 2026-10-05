@@ -2,48 +2,12 @@
 
 namespace App\Helpers;
 
-use App\Services\DocumentStorageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 
-/** Letterhead templates for Generate Report (select + preview only). */
+/** Printed Distribution and Retrieval sheet used from Document Registration. */
 class ReportTemplateHelper
 {
-    public static function list(): array
-    {
-        return DB::table('dcs_report_templates')
-            ->orderByDesc('id')
-            ->get(['id', 'name', 'preview_path', 'created_at'])
-            ->map(fn ($row) => [
-                'id' => (int) $row->id,
-                'name' => $row->name,
-                'preview_url' => self::previewUrlForId((int) $row->id, $row->preview_path),
-            ])
-            ->all();
-    }
-
-    public static function letterheadDataUrl(int $templateId): ?string
-    {
-        if ($templateId <= 0) {
-            return null;
-        }
-
-        $tpl = DB::table('dcs_report_templates')->where('id', $templateId)->first();
-        if (! $tpl || ! $tpl->preview_path) {
-            return null;
-        }
-
-        $content = self::readTemplateFile($tpl->preview_path);
-        if ($content === null) {
-            return null;
-        }
-
-        $mime = DocumentStorageService::dcsFileMimeType($tpl->preview_path);
-
-        return 'data:' . $mime . ';base64,' . base64_encode($content);
-    }
-
     public static function render(Request $request)
     {
         $rawOffices = $request->input('offices', []);
@@ -197,44 +161,5 @@ class ReportTemplateHelper
         return $png !== false && $png !== ''
             ? ('data:image/png;base64,' . base64_encode($png))
             : '';
-    }
-
-    public static function preview(int $id)
-    {
-        $tpl = DB::table('dcs_report_templates')->where('id', $id)->first();
-        if (! $tpl || empty($tpl->preview_path)) {
-            abort(404);
-        }
-
-        $path = (string) $tpl->preview_path;
-        $content = self::readTemplateFile($path);
-        abort_unless($content !== null && $content !== '', 404);
-
-        $filename = basename($path) ?: 'template-preview.jpg';
-        $mime = DocumentStorageService::dcsFileMimeType($path);
-
-        return response($content, 200)
-            ->header('Content-Type', $mime)
-            ->header('Content-Disposition', 'inline; filename="' . $filename . '"');
-    }
-
-    private static function previewUrlForId(int $id, ?string $previewPath): ?string
-    {
-        if ($id <= 0 || ! $previewPath || ! DocumentStorageService::dcsScanExists($previewPath)) {
-            return null;
-        }
-
-        return route('dcs.report-templates.preview', ['id' => $id]);
-    }
-
-    private static function readTemplateFile(string $path): ?string
-    {
-        if (DocumentStorageService::isLegacyPublicScanPath($path)) {
-            return Storage::disk('public')->exists($path)
-                ? Storage::disk('public')->get($path)
-                : null;
-        }
-
-        return DocumentStorageService::getDcsScanContent($path);
     }
 }

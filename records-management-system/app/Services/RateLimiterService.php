@@ -57,7 +57,7 @@ class RateLimiterService
                 'rdp_create' => 'submitting records',
                 'dcs_create' => 'registering / updating DCS documents',
                 'dcs_ocr' => 'running DCS OCR / scan extraction',
-                'dcs_action' => 'performing DCS actions (stamp, calendar, templates, recycle)',
+                'dcs_action' => 'performing DCS actions (stamp, calendar, recycle)',
                 default      => 'submitting data',
             };
 

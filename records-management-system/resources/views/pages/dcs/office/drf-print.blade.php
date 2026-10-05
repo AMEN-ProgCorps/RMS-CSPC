@@ -721,10 +721,9 @@
             $packed[3] = trim($packed[3] . ' ' . $chunk);
         }
     }
-    $allDistribute = OfficeIntakeHelper::decodeDistributeTo($drf->distribute_to ?? null);
     $allDistribute = array_values(array_filter(array_map(
-        fn ($code) => trim((string) $code),
-        $allDistribute
+        fn (array $office) => trim((string) (($office['code'] ?? '') !== '' ? $office['code'] : ($office['name'] ?? ''))),
+        OfficeIntakeHelper::drfDistributeOffices($drf)
     ), fn ($code) => $code !== ''));
 
     $distributeOffices = OfficeIntakeHelper::drfDistributeOffices($drf);

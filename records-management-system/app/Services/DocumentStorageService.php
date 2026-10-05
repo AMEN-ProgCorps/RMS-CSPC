@@ -27,7 +27,6 @@ class DocumentStorageService
         'retrieval',
         'revisions',
         'syllabi',
-        'report_templates',
         'generated_reports',
     ];
 
@@ -43,18 +42,6 @@ class DocumentStorageService
     public const DCS_SCAN_SOURCES = [
         ['table' => 'dcs_document_request_form', 'column' => 'scanned_drf', 'category' => 'drf'],
         ['table' => 'dcs_document_change_notice', 'column' => 'scanned_dcn', 'category' => 'dcn'],
-        [
-            'table' => 'dcs_office_intake_drf',
-            'column' => 'scanned_drf',
-            'category' => 'drf',
-            'request_column' => 'src.registered_request_id',
-        ],
-        [
-            'table' => 'dcs_office_intake_dcn',
-            'column' => 'scanned_dcn',
-            'category' => 'dcn',
-            'request_column' => 'src.registered_request_id',
-        ],
         ['table' => 'dcs_masterlist_registration', 'column' => 'scanned_masterlist', 'category' => 'masterlist'],
         ['table' => 'dcs_document_distribution', 'column' => 'scanned_distribution', 'category' => 'distribution'],
         [
@@ -1617,7 +1604,6 @@ class DocumentStorageService
             'format'        => $format,
             'row_count'     => (int) ($meta['row_count'] ?? 0),
             'office_code'   => $officeFolderName,
-            'filters'       => $filters ? json_encode($filters) : null,
             'date_from'     => $meta['date_from'] ?? null,
             'date_to'       => $meta['date_to'] ?? null,
             'period'        => $meta['period'] ?? null,
@@ -1626,11 +1612,15 @@ class DocumentStorageService
             'updated_at'    => now(),
         ];
 
+        if (Schema::hasColumn('dcs_generated_reports', 'filters')) {
+            $insert['filters'] = is_array($filters) && $filters !== [] ? json_encode($filters) : null;
+        }
         if (Schema::hasColumn('dcs_generated_reports', 'content_fingerprint')) {
             $insert['content_fingerprint'] = $fingerprint !== '' ? $fingerprint : null;
         }
 
         $id = (int) DB::table('dcs_generated_reports')->insertGetId($insert);
+        self::storeGeneratedReportFilters($id, is_array($filters) ? $filters : []);
 
         return [
             'id'           => $id,
@@ -1639,6 +1629,64 @@ class DocumentStorageService
             'file_name'    => $storedFileName,
             'reused'       => false,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     */
+    private static function storeGeneratedReportFilters(int $reportId, array $filters): void
+    {
+        if ($reportId < 1 || $filters === [] || ! Schema::hasTable('dcs_generated_report_filters')) {
+            return;
+        }
+
+        $rows = [];
+        self::flattenScalarRows($filters, '', $rows);
+        foreach ($rows as $row) {
+            DB::table('dcs_generated_report_filters')->insert([
+                'report_id' => $reportId,
+                'filter_key' => $row['key'],
+                'sort_order' => $row['sort'],
+                'filter_value' => $row['value'],
+            ]);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  list<array{key: string, sort: int, value: string}>  $rows
+     */
+    private static function flattenScalarRows(array $payload, string $prefix, array &$rows): void
+    {
+        foreach ($payload as $key => $value) {
+            if ($value === null || $value === '' || $value === []) {
+                continue;
+            }
+            $name = $prefix === '' ? (string) $key : $prefix.'.'.$key;
+            if (is_array($value)) {
+                $isList = array_keys($value) === range(0, count($value) - 1);
+                if ($isList) {
+                    foreach (array_values($value) as $index => $item) {
+                        if (is_array($item) || $item === null || $item === '') {
+                            continue;
+                        }
+                        $rows[] = [
+                            'key' => mb_substr($name, 0, 120),
+                            'sort' => $index,
+                            'value' => is_bool($item) ? ($item ? '1' : '0') : (string) $item,
+                        ];
+                    }
+                    continue;
+                }
+                self::flattenScalarRows($value, $name, $rows);
+                continue;
+            }
+            $rows[] = [
+                'key' => mb_substr($name, 0, 120),
+                'sort' => 0,
+                'value' => is_bool($value) ? ($value ? '1' : '0') : (string) $value,
+            ];
+        }
     }
 
     /**
@@ -1811,8 +1859,6 @@ class DocumentStorageService
             'ret' => 'retrieval',
             'revisions' => 'revisions',
             'revision' => 'revisions',
-            'report_templates' => 'report_templates',
-            'report-template' => 'report_templates',
             'generated_reports' => 'generated_reports',
             'generated-report' => 'generated_reports',
         ];
@@ -2030,14 +2076,22 @@ class DocumentStorageService
             return false;
         }
 
+        static $cache = [];
+        if (array_key_exists($path, $cache)) {
+            return $cache[$path];
+        }
+
         if (self::isLegacyPublicScanPath($path)) {
-            return Storage::disk('public')->exists($path);
+            return $cache[$path] = Storage::disk('public')->exists($path);
         }
 
         $localPath = self::localUploadsPath($path);
+        if (Storage::disk('local')->exists($localPath)) {
+            return $cache[$path] = true;
+        }
 
-        return Storage::disk('local')->exists($localPath)
-            || Storage::disk('google')->exists($path);
+        // Drive lookups are network calls. Remember a miss for this request only.
+        return $cache[$path] = Storage::disk('google')->exists($path);
     }
 
     public static function dcsDownloadFilename(?string $requested, string $path): string
@@ -2065,14 +2119,14 @@ class DocumentStorageService
         return 'inline; filename="' . $ascii . '"; filename*=UTF-8\'\'' . rawurlencode($filename);
     }
 
-    public static function dcsScanUrl(?string $path, int $ttlMinutes = 60): ?string
+    public static function dcsScanUrl(?string $path, int $ttlMinutes = 60, bool $verifyExists = true): ?string
     {
-        if (! self::dcsScanExists($path)) {
+        $normalized = self::normalizeDcsScanPath($path);
+        if ($normalized === null) {
             return null;
         }
 
-        $normalized = self::normalizeDcsScanPath($path);
-        if ($normalized === null) {
+        if ($verifyExists && ! self::dcsScanExists($normalized)) {
             return null;
         }
 

@@ -20,7 +20,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
         $dcn = OfficeIntakeHelper::findOfficeDcn($this->id);
         abort_unless($dcn, 404);
 
-        $dept = OfficeIntakeHelper::parseDepartmentDate($dcn->department_date ?? null);
+        $dept = OfficeIntakeHelper::parseDepartmentDate($dcn);
         $office = OfficeIntakeHelper::currentUserOfficeForDcn();
 
         return [

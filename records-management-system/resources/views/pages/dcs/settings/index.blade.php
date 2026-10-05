@@ -504,11 +504,6 @@ new #[Layout('layouts.dcs')] class extends Component {
 
         if ($this->editingId) {
             DB::table('dcs_originators')->where('id', $this->editingId)->update(['originator_name' => $this->originatorName]);
-            if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
-                DB::table('dcs_masterlist_registration')
-                    ->where('originator_id', $this->editingId)
-                    ->update(['originator_name' => $this->originatorName]);
-            }
             $this->done('Originator updated.');
             return;
         }
@@ -546,11 +541,6 @@ new #[Layout('layouts.dcs')] class extends Component {
                 'updated_at' => now(),
             ]);
             \App\Helpers\FacultyCollegeHelper::sync((int) $this->editingId, $collegeIds);
-            if (Schema::hasTable('dcs_syllabi_drf') && Schema::hasColumn('dcs_syllabi_drf', 'faculty_id')) {
-                DB::table('dcs_syllabi_drf')
-                    ->where('faculty_id', $this->editingId)
-                    ->update(['faculty_name' => $name]);
-            }
             $this->done('Faculty updated.');
             return;
         }

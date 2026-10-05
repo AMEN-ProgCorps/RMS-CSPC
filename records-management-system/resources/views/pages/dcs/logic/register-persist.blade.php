@@ -1009,23 +1009,7 @@ class RegisterPersistHelper
             return [];
         }
 
-        $ids = [];
-        foreach (OfficeIntakeHelper::decodeDistributeTo($drf->distribute_to ?? null) as $stored) {
-            $stored = trim((string) $stored);
-            if ($stored === '') {
-                continue;
-            }
-            $row = DB::table(Schema::hasTable('sys_office') ? 'sys_office' : 'office')
-                ->where(function ($q) use ($stored) {
-                    $q->where('office_code', $stored)->orWhere('office_name', $stored);
-                })
-                ->first(['id']);
-            if ($row) {
-                $ids[] = (int) $row->id;
-            }
-        }
-
-        return array_values(array_unique(array_filter($ids)));
+        return OfficeIntakeHelper::distributeOfficeIds($drfId);
     }
 
     public static function isAutosaveRequest(Request $request): bool
@@ -1541,7 +1525,6 @@ class RegisterPersistHelper
                     'effectivity_date' => $request->masterlistEffectivityDate,
                     'revise_no' => self::resolveReviseNo($request),
                     'no_pages' => $request->masterlistNoOfPages,
-                    'originator_name' => $originator['originator_name'],
                     'deadline' => self::masterlistDeadlineValue($request),
                     'created_by' => $userId,
                     'created_at' => $now,
@@ -1562,6 +1545,9 @@ class RegisterPersistHelper
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistRow['originator_id'] = $originator['originator_id'];
+                }
+                if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+                    $masterlistRow['originator_name'] = $originator['originator_name'];
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
                     $masterlistRow['originator_account_id'] = RegisterQueryHelper::resolveOriginatorAccountIdForName($originator['originator_name']);
@@ -1633,7 +1619,6 @@ class RegisterPersistHelper
                     'deadline' => self::masterlistDeadlineValue($request),
                     'revise_no' => self::resolveReviseNo($request),
                     'no_pages' => $totalPages,
-                    'originator_name' => $originator['originator_name'],
                     'updated_at' => $now,
                 ];
                 $masterlistData = array_merge(
@@ -1653,6 +1638,9 @@ class RegisterPersistHelper
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
+                }
+                if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+                    $masterlistData['originator_name'] = $originator['originator_name'];
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
                     $masterlistData['originator_account_id'] = RegisterQueryHelper::resolveOriginatorAccountIdForName($originator['originator_name']);
@@ -2709,17 +2697,23 @@ class RegisterPersistHelper
                         }
                     }
 
-                    DB::table('dcs_syllabi_drf')->insert(array_merge([
+                    $syllabiDrfRow = [
                         'syllabi_id' => $syllabiId,
                         'faculty_id' => $facultyId,
-                        'faculty_name' => $facultyName,
                         'is_drf_available' => ($drfAvailArr[$rowIdx] ?? 'not available') === 'available',
                         'drf_no' => $drfNoArr[$rowIdx] ?? null,
                         'drf_date' => $drfDateArr[$rowIdx] ?? null,
                         'drf_received_date' => $drfRecvArr[$rowIdx] ?? null,
                         'created_at' => $now,
                         'updated_at' => $now,
-                    ], self::dcsScanFields('dcs_syllabi_drf', 'scanned_drf', $scannedDrf)));
+                    ];
+                    if (Schema::hasColumn('dcs_syllabi_drf', 'faculty_name')) {
+                        $syllabiDrfRow['faculty_name'] = $facultyName;
+                    }
+                    DB::table('dcs_syllabi_drf')->insert(array_merge(
+                        $syllabiDrfRow,
+                        self::dcsScanFields('dcs_syllabi_drf', 'scanned_drf', $scannedDrf)
+                    ));
                 }
             }
 

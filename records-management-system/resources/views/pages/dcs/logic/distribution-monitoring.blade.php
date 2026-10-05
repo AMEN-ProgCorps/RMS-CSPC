@@ -108,9 +108,9 @@ class DistributionRetrievalMonitorHelper
             $select[] = 'ret.retrieval_date';
         }
 
-        $query = DB::table('dcs_masterlist_registration as ml')
+        $query = DB::table(DB::raw('(SELECT DISTINCT ON (request_id) * FROM dcs_masterlist_registration ORDER BY request_id, id DESC) as ml'))
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->join('dcs_document_distribution as dist', 'dist.request_id', '=', 'ml.request_id')
+            ->join(DB::raw('(SELECT DISTINCT ON (request_id) * FROM dcs_document_distribution ORDER BY request_id, id DESC) as dist'), 'dist.request_id', '=', 'ml.request_id')
             ->join('dcs_distribution_offices as doff', 'doff.distribution_id', '=', 'dist.id')
             ->leftJoin($officeTbl . ' as o', 'o.id', '=', 'doff.office_id');
 
@@ -121,7 +121,7 @@ class DistributionRetrievalMonitorHelper
         }
 
         if ($hasRet) {
-            $query->leftJoin('dcs_document_retrieval as dret', 'dret.request_id', '=', 'ml.request_id')
+            $query->leftJoin(DB::raw('(SELECT DISTINCT ON (request_id) * FROM dcs_document_retrieval ORDER BY request_id, id DESC) as dret'), 'dret.request_id', '=', 'ml.request_id')
                 ->leftJoin('dcs_retrieval_offices as ret', function ($join) {
                     $join->on('ret.retrieval_id', '=', 'dret.id')
                         ->on('ret.office_id', '=', 'doff.office_id');

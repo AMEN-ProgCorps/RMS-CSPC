@@ -1785,8 +1785,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     <!-- Sub-setting: DCS Action Limit -->
                     <div class="setting-item" style="border-top: 1px dashed #e2e8f0; padding-top: 12px; margin-top: 6px; flex-direction: column; align-items: flex-start; gap: 6px;">
                         <div class="setting-details">
-                            <span class="setting-title">DCS Actions Limit (Stamp / Calendar / Templates / Recycle)</span>
-                            <span class="setting-desc">Maximum stamp, calendar, report-template, and recycle permanent-delete actions per user within a 1-minute window.</span>
+                            <span class="setting-title">DCS Actions Limit (Stamp / Calendar / Recycle)</span>
+                            <span class="setting-desc">Maximum stamp, calendar, and recycle permanent-delete actions per user within a 1-minute window.</span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 2px;">
                             <select wire:model="rateLimitDcsActionPerMinute" class="form-input" style="max-width: 220px; font-size: 13px; font-weight: 600; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 6px 12px; cursor: pointer; background: #ffffff;">

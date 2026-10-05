@@ -2,6 +2,7 @@
 
 use App\Helpers\RegisterQueryHelper;
 use App\Helpers\ReportHelper;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Livewire\Attributes\Layout;
@@ -32,6 +33,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public array $selectedMlIds = [];
     public string $error = '';
     public array $result = [];
+    public int $previewPage = 1;
+    /** Server cache key for the full row set. The browser only receives the current page. */
+    public string $reportCacheKey = '';
+    /** Masterlist ids for select-all. Kept separate so the row payload stays off the page. */
+    public array $allMlIds = [];
 
     public function mount(): void
     {
@@ -52,26 +58,64 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    public function goPreviewPage(int $page): void
+    {
+        $this->previewPage = max(1, $page);
+    }
+
+    /**
+     * On-screen tables show one page so a large report does not freeze the browser.
+     * Export and print still use the full result.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return array{rows: list<array<string, mixed>>, page: int, last: int, total: int, from: int}
+     */
+    public function slicePreviewRows(array $rows): array
+    {
+        $rows = array_values($rows);
+        $perPage = 40;
+        $total = count($rows);
+        $last = max(1, (int) ceil($total / $perPage));
+        $page = min(max(1, $this->previewPage), $last);
+        $slice = array_slice($rows, ($page - 1) * $perPage, $perPage);
+
+        return [
+            'rows' => $slice,
+            'page' => $page,
+            'last' => $last,
+            'total' => $total,
+            'from' => $total === 0 ? 0 : (($page - 1) * $perPage) + 1,
+        ];
+    }
+
     public function with(): array
     {
-        $allDocTypes = DB::table('dcs_doc_types')->orderBy('id')->get(['id', 'doc_type_name', 'parent_id']);
+        $filters = Cache::remember('dcs.report.filter-options.v1', 90, function () {
+            return [
+                'originators' => Schema::hasTable('dcs_originators')
+                    ? DB::table('dcs_originators')->orderBy('originator_name')->get()
+                    : collect(),
+                'offices' => \App\Helpers\RegisterQueryHelper::applySelectableOfficesFilter(
+                    DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)
+                )->orderBy('office_name')->get(),
+                'revisionNos' => DB::table('dcs_masterlist_registration')
+                    ->whereNotNull('revise_no')
+                    ->distinct()
+                    ->orderBy('revise_no')
+                    ->pluck('revise_no'),
+                'allDocTypes' => DB::table('dcs_doc_types')->orderBy('id')->get(['id', 'doc_type_name', 'parent_id']),
+            ];
+        });
+        $allDocTypes = $filters['allDocTypes'];
         $parentId = RegisterQueryHelper::parentTypeIdMap()[$this->sub] ?? null;
         $childTypes = $parentId
             ? $allDocTypes->filter(fn ($d) => (string) $d->parent_id === (string) $parentId)->values()
             : collect();
 
         return [
-            'originators' => Schema::hasTable('dcs_originators')
-                ? DB::table('dcs_originators')->orderBy('originator_name')->get()
-                : collect(),
-            'offices' => \App\Helpers\RegisterQueryHelper::applySelectableOfficesFilter(
-                DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)
-            )->orderBy('office_name')->get(),
-            'revisionNos' => DB::table('dcs_masterlist_registration')
-                ->whereNotNull('revise_no')
-                ->distinct()
-                ->orderBy('revise_no')
-                ->pluck('revise_no'),
+            'originators' => $filters['originators'],
+            'offices' => $filters['offices'],
+            'revisionNos' => $filters['revisionNos'],
             'allDocTypes' => $allDocTypes,
             'childTypes' => $childTypes,
             'isOpcr' => $this->category === 'opcr',
@@ -174,6 +218,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 $this->subTypeIds = [];
                 $this->result = [];
                 $this->error = '';
+                $this->reportCacheKey = '';
+                $this->allMlIds = [];
 
                 return;
             }
@@ -266,6 +312,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public function loadReport(): void
     {
+        $this->previewPage = 1;
         $this->error = '';
         $input = $this->queryInput();
         if (($this->category !== 'others') && $this->sub === '') {
@@ -278,13 +325,84 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 return;
             }
         }
-        $this->result = ReportHelper::payload($input);
+        $payload = ReportHelper::payload($input);
+        $rows = $payload['rows'] ?? [];
+        if ($rows instanceof \Illuminate\Support\Collection) {
+            $rows = $rows->values()->all();
+        }
+        $rows = array_values(is_array($rows) ? $rows : []);
+        unset($payload['rows']);
+        $payload['total_rows'] = count($rows);
+        $this->storeReportRows($rows);
+        $this->allMlIds = [];
+        if ($this->category === 'masterlist') {
+            foreach ($rows as $row) {
+                $id = (int) ($row['ml_id'] ?? 0);
+                if ($id > 0) {
+                    $this->allMlIds[] = (string) $id;
+                }
+            }
+        }
+        $this->result = $payload;
         if (! empty($this->result['error'])) {
             $this->error = $this->result['error'];
-            $this->result['rows'] = $this->result['rows'] ?? [];
             $this->result['columns'] = $this->result['columns'] ?? [];
         }
         $this->syncExportColumns();
+    }
+
+    /**
+     * Full report rows live in cache. The Livewire snapshot keeps columns and the visible page only.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function reportRows(): array
+    {
+        if ($this->reportCacheKey !== '') {
+            $cached = Cache::get($this->reportCacheKey);
+            if (is_array($cached)) {
+                return $cached;
+            }
+            if (($this->result['columns'] ?? []) !== []) {
+                try {
+                    $payload = ReportHelper::payload($this->queryInput());
+                    $rows = $payload['rows'] ?? [];
+                    if ($rows instanceof \Illuminate\Support\Collection) {
+                        $rows = $rows->values()->all();
+                    }
+                    $rows = array_values(is_array($rows) ? $rows : []);
+                    $this->storeReportRows($rows);
+
+                    return $rows;
+                } catch (\Throwable) {
+                    return [];
+                }
+            }
+        }
+
+        return [];
+    }
+
+    /** @param  list<array<string, mixed>>  $rows */
+    private function storeReportRows(array $rows): void
+    {
+        if ($this->reportCacheKey === '') {
+            $this->reportCacheKey = 'dcs.report.rows.'.sha1((string) (auth()->id() ?? 'guest').'|'.uniqid('', true));
+        }
+        Cache::put($this->reportCacheKey, array_values($rows), now()->addMinutes(20));
+    }
+
+    private function updateCachedReportRow(int $requestId, callable $mutate): void
+    {
+        $rows = $this->reportRows();
+        foreach ($rows as $i => $row) {
+            if ((int) ($row['request_id'] ?? 0) !== $requestId) {
+                continue;
+            }
+            $rows[$i] = $mutate($row);
+            break;
+        }
+        $this->storeReportRows($rows);
     }
 
     public function openColumns(): void
@@ -356,20 +474,16 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $value === '' ? null : $value
         );
 
-        $rows = $this->result['rows'] ?? [];
-        foreach ($rows as $i => $r) {
-            if ((int) ($r['request_id'] ?? 0) !== $requestId) {
-                continue;
-            }
+        $this->updateCachedReportRow($requestId, function (array $row) use ($field, $saved) {
             if ($field === 'remarks') {
-                $rows[$i]['remarks'] = $saved;
-                $rows[$i]['remarks_override'] = $saved;
+                $row['remarks'] = $saved;
+                $row['remarks_override'] = $saved;
             } else {
-                $rows[$i][$field] = $saved;
+                $row[$field] = $saved;
             }
-            break;
-        }
-        $this->result['rows'] = $rows;
+
+            return $row;
+        });
     }
 
     public function saveMonitoringRemark(int $requestId, $value = null): void
@@ -384,15 +498,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $value = trim($value);
         }
         $saved = app(ReportHelper::class)->saveMonitoringRemark($requestId, $value === '' ? null : $value);
-        $rows = $this->result['rows'] ?? [];
-        foreach ($rows as $i => $r) {
-            if ((int) ($r['request_id'] ?? 0) !== $requestId) {
-                continue;
-            }
-            $rows[$i]['remarks'] = $saved;
-            break;
-        }
-        $this->result['rows'] = $rows;
+        $this->updateCachedReportRow($requestId, function (array $row) use ($saved) {
+            $row['remarks'] = $saved;
+
+            return $row;
+        });
     }
 
     public function saveMonitoringForwardedDrr(int $requestId, $value = null): void
@@ -405,15 +515,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         $checked = filter_var($value, FILTER_VALIDATE_BOOLEAN);
         $saved = app(ReportHelper::class)->saveMonitoringForwardedDrr($requestId, $checked);
-        $rows = $this->result['rows'] ?? [];
-        foreach ($rows as $i => $r) {
-            if ((int) ($r['request_id'] ?? 0) !== $requestId) {
-                continue;
-            }
-            $rows[$i]['forwarded_drr'] = $saved;
-            break;
-        }
-        $this->result['rows'] = $rows;
+        $this->updateCachedReportRow($requestId, function (array $row) use ($saved) {
+            $row['forwarded_drr'] = $saved;
+
+            return $row;
+        });
     }
 
     public function toggleMasterlistSelection(array $ids): void
@@ -796,6 +902,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </div>
 
             <div class="rpt-preview-shell {{ ($isOpcr || $isMonitoring || $isOthers || $category === 'masterlist') ? 'rpt-preview-shell--table' : 'rpt-preview-shell--frame' }}">
+                @php
+                    $preview = $this->slicePreviewRows($this->reportRows());
+                @endphp
                 @if($error)
                     <div class="rpt-state">
                         <div class="rpt-state-icon state-error"><i class="fa-solid fa-circle-exclamation"></i></div>
@@ -805,7 +914,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 @elseif($isOpcr)
                     @php
                         $cols = $result['columns'] ?? [];
-                        $rows = $result['rows'] ?? [];
+                        $rows = $preview['rows'];
                         $groups = $result['group_headers'] ?? [];
                         $keys = array_keys($cols);
                         $opcrColClass = static function (string $key): string {
@@ -914,7 +1023,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 @elseif($isMonitoring || $isOthers)
                     @php
                         $cols = $result['columns'] ?? [];
-                        $rows = $result['rows'] ?? [];
+                        $rows = $preview['rows'];
                         $groups = $result['group_headers'] ?? [];
                         $keys = array_keys($cols);
                         $monColClass = static function (string $key): string {
@@ -1042,12 +1151,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 @else
                     @php
                         $cols = collect($result['columns'] ?? [])->except(['pdf_path'])->all();
-                        $rows = $result['rows'] ?? [];
+                        $rows = $preview['rows'];
                         $keys = array_keys($cols);
                         $previewKey = 'preview-'.$category.'-'.$sub.'-'.$period.'-'.$asOf.'-'.$dateFrom.'-'.$dateTo.'-'.$sortBy.'-'.$sortDir.'-'.md5(json_encode([$originator, $sourceUnit, $revisionStatus, $revNo, $subTypeIds, $monitoringDocType, $monitoringSubTypeIds]));
                     @endphp
                     @php
-                        $mlIdsOnPage = collect($rows)->pluck('ml_id')->filter()->map(fn ($id) => (string) $id)->values()->all();
+                        $mlIdsOnPage = $allMlIds;
                         $allMlSelected = $mlIdsOnPage !== [] && count(array_intersect($mlIdsOnPage, array_map('strval', $selectedMlIds))) === count($mlIdsOnPage);
                     @endphp
                     @if($selectedMlIds !== [])
@@ -1139,6 +1248,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         </template>
                     </div>
                 @endif
+                @if(empty($error) && ($preview['last'] ?? 1) > 1)
+                    <div class="rpt-preview-pager" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-top:1px solid #e2e8f0;">
+                        <button type="button" class="rpt-btn rpt-btn-outline" wire:click="goPreviewPage({{ max(1, $preview['page'] - 1) }})" @disabled($preview['page'] <= 1)>Previous</button>
+                        <span style="font-size:13px;color:#475569;">Showing {{ $preview['from'] }}–{{ $preview['from'] + count($preview['rows']) - 1 }} of {{ $preview['total'] }}. Download and print still include every row.</span>
+                        <button type="button" class="rpt-btn rpt-btn-outline" wire:click="goPreviewPage({{ $preview['page'] + 1 }})" @disabled($preview['page'] >= $preview['last'])>Next</button>
+                    </div>
+                @endif
             </div>
         </section>
     @elseif($category !== 'others')
@@ -1150,3 +1266,53 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     @endif
     </div>
 </main>
+
+@push('scripts')
+<script>
+(function () {
+    function pinReportSubhead() {
+        document.querySelectorAll('.rpt-table').forEach(function (table) {
+            var row = table.querySelector('thead tr:first-child');
+            var sub = table.querySelector('thead tr:nth-child(2)');
+            if (!row || !sub) {
+                table.style.removeProperty('--rpt-head-row1');
+                return;
+            }
+            // Rowspan cells stretch across both header rows, so their height is the whole header.
+            // Measure the gap after clearing the sticky offset, then pull the sub-header up to close it.
+            var subCell = sub.querySelector('th');
+            var band = null;
+            var cells = row.querySelectorAll('th');
+            for (var i = 0; i < cells.length; i++) {
+                if (parseInt(cells[i].getAttribute('rowspan') || '1', 10) > 1) continue;
+                band = cells[i];
+                break;
+            }
+            if (!subCell || !band) {
+                table.style.removeProperty('--rpt-head-row1');
+                return;
+            }
+            // Clear any previous offset first. A sticky top that is too large
+            // pushes this row down, and measuring that pushed row repeats the gap.
+            table.style.setProperty('--rpt-head-row1', '0px');
+            var natural = sub.offsetTop - row.offsetTop;
+            if (!(natural > 0)) natural = band.offsetHeight || 0;
+            var top = Math.max(0, Math.round(natural));
+            table.style.setProperty('--rpt-head-row1', top + 'px');
+            var gap = subCell.getBoundingClientRect().top - band.getBoundingClientRect().bottom;
+            if (Math.abs(gap) > 0.5) {
+                table.style.setProperty('--rpt-head-row1', Math.max(0, Math.round(top - gap)) + 'px');
+            }
+        });
+    }
+
+    pinReportSubhead();
+    window.addEventListener('resize', pinReportSubhead);
+
+    var root = document.querySelector('.rpt-page');
+    if (root && window.MutationObserver) {
+        new MutationObserver(function () { pinReportSubhead(); }).observe(root, { childList: true, subtree: true });
+    }
+})();
+</script>
+@endpush

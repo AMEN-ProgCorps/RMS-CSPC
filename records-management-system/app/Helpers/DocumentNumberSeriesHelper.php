@@ -380,15 +380,19 @@ class DocumentNumberSeriesHelper
 
         self::ensureShiftTable();
         if (Schema::hasTable('dcs_doc_no_shifts')) {
-            DB::table('dcs_doc_no_shifts')->insert([
+            $shift = [
                 'series_key' => $plan['series_key'],
                 'inserted_doc_no' => $plan['insert'],
-                'mappings' => json_encode($mappings),
                 'rename_letters' => ! empty($plan['rename_letters']),
                 'created_by' => auth()->id(),
                 'created_at' => now(),
                 'updated_at' => now(),
-            ]);
+            ];
+            if (Schema::hasColumn('dcs_doc_no_shifts', 'mappings')) {
+                $shift['mappings'] = json_encode($mappings);
+            }
+            $shiftId = (int) DB::table('dcs_doc_no_shifts')->insertGetId($shift);
+            self::storeShiftLines($shiftId, $mappings);
         }
 
         $summary = collect($mappings)->map(fn ($m) => $m['from'].' → '.$m['to'])->implode(', ');
@@ -649,13 +653,46 @@ class DocumentNumberSeriesHelper
                 $table->id();
                 $table->string('series_key', 150);
                 $table->string('inserted_doc_no', 100);
-                $table->json('mappings');
                 $table->boolean('rename_letters')->default(false);
                 $table->unsignedBigInteger('created_by')->nullable();
                 $table->timestamps();
             });
+            if (! Schema::hasTable('dcs_doc_no_shift_lines')) {
+                Schema::create('dcs_doc_no_shift_lines', function ($table) {
+                    $table->id();
+                    $table->foreignId('shift_id')->constrained('dcs_doc_no_shifts')->cascadeOnDelete();
+                    $table->unsignedSmallInteger('sort_order')->default(0);
+                    $table->string('from_doc_no', 100);
+                    $table->string('to_doc_no', 100);
+                });
+            }
         } catch (\Throwable $e) {
             // Audit is optional; the shift itself already ran.
+        }
+    }
+
+    /**
+     * @param  list<array{from?: string, to?: string}>  $mappings
+     */
+    private static function storeShiftLines(int $shiftId, array $mappings): void
+    {
+        if ($shiftId < 1 || $mappings === [] || ! Schema::hasTable('dcs_doc_no_shift_lines')) {
+            return;
+        }
+
+        $sort = 0;
+        foreach ($mappings as $map) {
+            $from = trim((string) ($map['from'] ?? ''));
+            $to = trim((string) ($map['to'] ?? ''));
+            if ($from === '' || $to === '') {
+                continue;
+            }
+            DB::table('dcs_doc_no_shift_lines')->insert([
+                'shift_id' => $shiftId,
+                'sort_order' => $sort++,
+                'from_doc_no' => mb_substr($from, 0, 100),
+                'to_doc_no' => mb_substr($to, 0, 100),
+            ]);
         }
     }
 

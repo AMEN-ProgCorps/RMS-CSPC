@@ -2,6 +2,7 @@
 
 use App\Helpers\SyllabiMonitoringHelper;
 use App\Helpers\RegisterQueryHelper;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -57,10 +58,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
         $contextYears = SyllabiMonitoringHelper::yearLevelsForContext($collegeId, $semesterId, $courseType);
 
+        $lookups = Cache::remember('dcs.syllabi.lookups.v1', 90, function () {
+            return [
+                'colleges' => DB::table('dcs_colleges')->orderBy('college_name')->get(['id', 'college_code', 'college_name']),
+                'schoolYears' => DB::table('dcs_school_years')->orderBy('school_year', 'desc')->get(['id', 'school_year']),
+                'semesters' => DB::table('dcs_semesters')->orderBy('id')->get(['id', 'semester_name']),
+            ];
+        });
+
         return [
-            'colleges' => DB::table('dcs_colleges')->orderBy('college_name')->get(['id', 'college_code', 'college_name']),
-            'schoolYears' => DB::table('dcs_school_years')->orderBy('school_year', 'desc')->get(['id', 'school_year']),
-            'semesters' => DB::table('dcs_semesters')->orderBy('id')->get(['id', 'semester_name']),
+            'colleges' => $lookups['colleges'],
+            'schoolYears' => $lookups['schoolYears'],
+            'semesters' => $lookups['semesters'],
             'courseTypes' => SyllabiMonitoringHelper::COURSE_TYPES,
             'contextYears' => $contextYears,
             'report' => SyllabiMonitoringHelper::build($collegeId, $schoolYearId, $semesterId, null, null, $courseType),

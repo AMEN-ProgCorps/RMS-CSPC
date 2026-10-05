@@ -391,7 +391,13 @@ class ReportHelper
     private function applyMasterlistCommonFilters($query, array $filters)
     {
         if (!empty($filters['originator'])) {
-            $query->where('ml.originator_name', $filters['originator']);
+            $originator = $filters['originator'];
+            $query->whereExists(function ($q) use ($originator) {
+                $q->select(DB::raw(1))
+                    ->from('dcs_originators as og')
+                    ->whereColumn('og.id', 'ml.originator_id')
+                    ->where('og.originator_name', $originator);
+            });
         }
 
         if (!empty($filters['source_unit'])) {
@@ -487,8 +493,9 @@ class ReportHelper
             $query->whereExists(function ($q) use ($originator) {
                 $q->select(DB::raw(1))
                     ->from('dcs_masterlist_registration as ml')
+                    ->join('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
                     ->whereColumn('ml.request_id', 'dr.id')
-                    ->where('ml.originator_name', $originator);
+                    ->where('og.originator_name', $originator);
             });
         }
 
@@ -830,6 +837,17 @@ class ReportHelper
         return $counter;
     }
 
+    /** Narrow request rows for report builders. Relations are loaded separately. */
+    private function reportRequestRows($query)
+    {
+        return $query->orderByDesc('dr.id')->get([
+            'dr.id',
+            'dr.doc_type_id',
+            'dr.sub_type_id',
+            'dr.created_at',
+        ]);
+    }
+
     // ════════════════════════════════════════════
     // MASTERLIST REPORT
     // ════════════════════════════════════════════
@@ -851,7 +869,7 @@ class ReportHelper
         $query = $this->applyMasterlistPeriodFilter($query, $dateFrom, $dateTo);
         $query = $this->applyMasterlistCommonFilters($query, $filters);
 
-        $records = RegisterQueryHelper::hydrateMasterlists($query->get());
+        $records = RegisterQueryHelper::hydrateMasterlists($query->get(), ['types']);
         $records = $this->sortMasterlistFamilies($records, $filters);
 
         $counter = 0;
@@ -873,7 +891,7 @@ class ReportHelper
                 'type_key'         => (int) ($doc?->doc_type_id ?? $ml->doc_type_id ?? 0)
                     . '|' . (int) ($doc?->sub_type_id ?? 0),
                 'pdf_path'         => $ml->scanned_masterlist
-                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
+                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist, false) : null,
                 'revision_status'  => strtolower(trim((string) ($ml->revision_status ?? ''))),
             ];
         })->values();
@@ -958,7 +976,9 @@ class ReportHelper
         $query = $this->applySubTypeFilter($query, $filters);
         $query = $this->applyUiMonitoringFilters($query, $filters);
 
-        $docs = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
+        $docs = RegisterQueryHelper::hydrateRequests($this->reportRequestRows($query), [
+            'types', 'masterlist', 'sourceOffices', 'drf', 'dcn', 'distribution',
+        ]);
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
         $docs = $this->sortMonitoringDocs($docs, $filters);
         $remarksByRequest = $this->monitoringRemarksByRequestId($docs);
@@ -1046,7 +1066,7 @@ class ReportHelper
                 'forwarded_drr' => $forwardedDRR,
                 'remarks'       => $remarksByRequest[(int) $doc->id] ?? null,
                 'pdf_path'      => $ml && $ml->scanned_masterlist
-                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
+                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist, false) : null,
             ];
         })->values();
 
@@ -1147,7 +1167,9 @@ class ReportHelper
         $query = $this->applySubTypeFilter($query, $filters);
         $query = $this->applyUiMonitoringFilters($query, $filters);
 
-        $docs = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
+        $docs = RegisterQueryHelper::hydrateRequests($this->reportRequestRows($query), [
+            'types', 'masterlist', 'sourceOffices', 'drf', 'dcn', 'distribution',
+        ]);
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
         $docs = $this->sortMonitoringDocs($docs, $filters);
         $remarksByRequest = $this->monitoringRemarksByRequestId($docs);
@@ -1229,7 +1251,7 @@ class ReportHelper
                 'days_spent'       => $daysSpent,
                 'remarks'          => $remarksByRequest[(int) $doc->id] ?? null,
                 'pdf_path'         => $ml && $ml->scanned_masterlist
-                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
+                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist, false) : null,
             ];
         })->values();
 
@@ -1325,7 +1347,7 @@ class ReportHelper
                     ? $this->formatTime($drf->drf_receipt_time) : null,
                 'doc_type'         => $drf->doc_type_name ?: 'N/A',
                 'pdf_path'         => $drf->scanned_drf
-                    ? RegisterQueryHelper::scanUrl($drf->scanned_drf) : null,
+                    ? RegisterQueryHelper::scanUrl($drf->scanned_drf, false) : null,
             ];
         })->values();
 
@@ -1392,7 +1414,7 @@ class ReportHelper
                 'doc_type'         => $dcn->doc_type_name ?: 'N/A',
                 'revision_count'   => $revisions->count(),
                 'pdf_path'         => $dcn->scanned_dcn
-                    ? RegisterQueryHelper::scanUrl($dcn->scanned_dcn) : null,
+                    ? RegisterQueryHelper::scanUrl($dcn->scanned_dcn, false) : null,
             ];
         })->values();
 
@@ -1557,7 +1579,7 @@ class ReportHelper
                 'remarks'        => $remarksOverride,
                 'remarks_override' => $remarksOverride,
                 'pdf_path'       => $ml && $ml->scanned_masterlist
-                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
+                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist, false) : null,
             ];
 
             if ($layout === 'masterlist') {
@@ -1702,7 +1724,9 @@ class ReportHelper
         $query = $this->applyCommonFilters($query, $filters);
         $query = $this->applySubTypeFilter($query, $filters);
 
-        return RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
+        return RegisterQueryHelper::hydrateRequests($this->reportRequestRows($query), [
+            'types', 'masterlist', 'drf', 'distribution',
+        ]);
     }
 
     private function ensureMonitoringRemarksTable(): void
@@ -1927,7 +1951,9 @@ class ReportHelper
         $query = $this->applyCommonFilters($query, $filters);
         $query = $this->applySubTypeFilter($query, $filters);
 
-        $docs = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
+        $docs = RegisterQueryHelper::hydrateRequests($this->reportRequestRows($query), [
+            'types', 'masterlist', 'drf', 'dcn',
+        ]);
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
         $docs = $this->sortMonitoringDocs($docs, $filters);
 
@@ -2092,9 +2118,6 @@ class ReportHelper
             'plainTable'         => $isPlainTable,
             'isMlInternal'       => $isMlPrint,
             'checkedType'        => $checkedType,
-            'letterheadUrl'      => ($isPlainTable || $isMlPrint)
-                ? null
-                : ReportTemplateHelper::letterheadDataUrl((int) $request->get('template_id', 0)),
             'republic'           => 'Republic of the Philippines',
             'institutionName'    => 'Camarines Sur Polytechnic Colleges',
             'institutionAddress' => 'Nabua, Camarines Sur',
@@ -2309,7 +2332,7 @@ HTML;
     }
 
     /**
-     * Include selection + template in the fingerprint so partial/row-filtered exports stay distinct.
+     * Include the row and column selection in the fingerprint so partial exports stay distinct.
      *
      * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
@@ -2319,11 +2342,6 @@ HTML;
         $rowsParam = trim((string) $request->get('rows', ''));
         if ($rowsParam !== '') {
             $filters['_export_rows'] = $rowsParam;
-        }
-
-        $templateId = (int) $request->get('template_id', 0);
-        if ($templateId > 0) {
-            $filters['_template_id'] = $templateId;
         }
 
         $columnsParam = trim((string) $request->get('columns', ''));

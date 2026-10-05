@@ -795,11 +795,22 @@ body {
     text-align: center;
     vertical-align: middle;
     white-space: nowrap;
-    z-index: 2;
+    z-index: 3;
 }
 
-/* Header row 2 — lighter blue */
+/* Column guidelines on the blue header. Horizontal edges stay blue so they do not open a light seam. */
+.rpt-table:not(.mon-table) thead th {
+    border-color: var(--rpt-accent);
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.55);
+}
+.rpt-table:not(.mon-table) thead th:last-child {
+    box-shadow: none;
+}
+
+/* Header row 2 (Date, Time, Q, E, T, A) stays under the group titles while scrolling. */
 .rpt-table thead tr:nth-child(2) th {
+    top: 0;
+    z-index: 2;
     font-size: 0.68rem;
     font-weight: 600;
     padding: 6px 8px;
@@ -809,6 +820,16 @@ body {
     letter-spacing: 0.3px;
     text-align: center;
     vertical-align: middle;
+}
+
+.rpt-table:not(.mon-table) thead tr:nth-child(2) th {
+    /* Overlap the row above so the sticky seam does not show the page behind it. */
+    top: calc(var(--rpt-head-row1, 0px) - 2px);
+    border-top-color: var(--rpt-accent);
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.55);
+}
+.rpt-table:not(.mon-table) thead tr:nth-child(2) th:last-child {
+    box-shadow: none;
 }
 
 /* Data cells */

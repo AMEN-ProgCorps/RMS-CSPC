@@ -5,6 +5,7 @@ use App\Helpers\RegisterQueryHelper;
 use App\Models\PersonalSetting;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -214,6 +215,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     private function catalog(): array
     {
+        return Cache::remember('dcs.database.catalog.v1', 90, function () {
+            return $this->loadCatalog();
+        });
+    }
+
+    private function loadCatalog(): array
+    {
         $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
         $allOffices = \App\Helpers\RegisterQueryHelper::applySelectableOfficesFilter(
             DB::table($officeTable)->where('is_active', true)
@@ -284,7 +292,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 ->where(function ($q3) use ($like) {
                                     $q3->where('ml.doc_no', 'ilike', $like)
                                         ->orWhere('ml.doc_title', 'ilike', $like)
-                                        ->orWhere('ml.originator_name', 'ilike', $like);
+                                        ->orWhereExists(function ($name) use ($like) {
+                                            $name->select(DB::raw(1))
+                                                ->from('dcs_originators as og')
+                                                ->whereColumn('og.id', 'ml.originator_id')
+                                                ->where('og.originator_name', 'ilike', $like);
+                                        });
                                 });
                         })
                         ->orWhereRaw('dr.id::text ilike ?', [$like]);
@@ -302,7 +315,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                             ->where(function ($q3) use ($tokenLike) {
                                                 $q3->where('ml.doc_no', 'ilike', $tokenLike)
                                                     ->orWhere('ml.doc_title', 'ilike', $tokenLike)
-                                                    ->orWhere('ml.originator_name', 'ilike', $tokenLike);
+                                                    ->orWhereExists(function ($name) use ($tokenLike) {
+                                                        $name->select(DB::raw(1))
+                                                            ->from('dcs_originators as og')
+                                                            ->whereColumn('og.id', 'ml.originator_id')
+                                                            ->where('og.originator_name', 'ilike', $tokenLike);
+                                                    });
                                             });
                                     })->orWhereExists(function ($q2) use ($tokenLike) {
                                         $q2->select(DB::raw(1))
@@ -325,8 +343,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 $query->whereExists(function ($q) use ($originator) {
                     $q->select(DB::raw(1))
                         ->from('dcs_masterlist_registration as ml')
+                        ->join('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
                         ->whereColumn('ml.request_id', 'dr.id')
-                        ->where('ml.originator_name', $originator);
+                        ->where('og.originator_name', $originator);
                 });
             }
 
@@ -392,9 +411,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 });
             }
 
-            $usedLight = $paginate && $this->receivedBy === '';
+            $usedLight = $paginate;
             $allRows = $usedLight
-                ? $this->lightInventoryRows($query)
+                ? $this->lightInventoryRows($query, (int) $this->receivedBy)
                 : RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get())
                     ->map(fn ($doc) => $this->mapDocument($doc));
 
@@ -416,7 +435,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         return false;
                     }
                     // Also require the office name to appear in the displayed receiving-office list.
-                    if ($officeName === '') {
+                    // Light rows have no names yet; the SQL filter already matched the latest distribution.
+                    if ($officeName === '' || trim((string) ($row['dist_offices'] ?? '')) === '') {
                         return true;
                     }
                     $names = collect(explode(',', (string) ($row['dist_offices'] ?? '')))
@@ -646,7 +666,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
-    private function lightInventoryRows($query): \Illuminate\Support\Collection
+    private function lightInventoryRows($query, int $receivedOfficeId = 0): \Illuminate\Support\Collection
     {
         $select = [
             'dr.id as request_id',
@@ -677,11 +697,27 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $select[] = 'ml.revised_from_doc_no';
         }
 
-        $docs = (clone $query)
-            ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+        $mlColumns = ['doc_no', 'doc_title', 'revise_no', 'revision_status'];
+        if (Schema::hasColumn('dcs_masterlist_registration', 'effectivity_date')) {
+            $mlColumns[] = 'effectivity_date';
+        }
+        if ($hasAllows) {
+            $mlColumns[] = 'allows_revision';
+        }
+        if ($hasStack) {
+            $mlColumns[] = 'stack_group';
+        }
+        if ($hasRevisedFrom) {
+            $mlColumns[] = 'revised_from_doc_no';
+        }
+        $mlSql = implode(', ', $mlColumns);
+        $docsQuery = clone $query;
+        $docsQuery->leftJoin(DB::raw(
+            "(SELECT DISTINCT ON (request_id) request_id, {$mlSql} FROM dcs_masterlist_registration ORDER BY request_id, id DESC) AS ml"
+        ), 'ml.request_id', '=', 'dr.id');
+        $docs = $docsQuery
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->orderByDesc('dr.id')
-            ->orderByDesc('ml.id')
             ->get($select)
             ->unique('request_id')
             ->values();
@@ -697,7 +733,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ->all();
         $stacks = RegisterQueryHelper::syllabiStackByRequest($syllabiIds);
 
-        return $docs->map(function ($doc) use ($stacks, $hasAllows, $hasStack, $hasRevisedFrom) {
+        return $docs->map(function ($doc) use ($stacks, $hasAllows, $hasStack, $hasRevisedFrom, $receivedOfficeId) {
             $status = strtolower(trim((string) ($doc->revision_status ?? '')));
             if ($status === '') {
                 $status = 'latest';
@@ -722,7 +758,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     : RegisterQueryHelper::effectiveTypeAllowsRevision($doc->doc_type_id ?? null, $doc->sub_type_id ?? null),
                 'syllabi_stack' => $stacks[(int) $doc->request_id] ?? '',
                 'is_deleted' => ! empty($doc->deleted_at ?? null),
-                'dist_office_ids' => [],
+                // SQL already limited rows to this receiving office, so later filters can keep them.
+                'dist_office_ids' => $receivedOfficeId > 0 ? [$receivedOfficeId] : [],
             ];
         })->values();
     }
@@ -878,7 +915,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'is_deleted' => $isDeleted,
             'deleted_at' => $isDeleted ? Carbon::parse($doc->deleted_at)->format('M d, Y h:i A') : null,
             'revised_from_doc_no' => $ml->revised_from_doc_no ?? null,
-            'pdf_path' => ($ml && $ml->scanned_masterlist) ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
+            'pdf_path' => ($ml && $ml->scanned_masterlist) ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist, false) : null,
             'source_unit' => $sourceUnitName,
             'related' => $ml ? ($ml->relatedList ?? collect())->map(fn ($r) => [
                 'doc_no' => $r->doc_no,
@@ -900,19 +937,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'dcn_receipt_date' => ($dcn && $dcn->dcn_receipt_date) ? RegisterQueryHelper::formatSmartDate($dcn->dcn_receipt_date) : null,
             'dcn_receipt_time' => $dcn && $dcn->dcn_receipt_time ? $this->formatTime($dcn->dcn_receipt_time) : null,
             'dcn_purpose' => $dcnPurpose,
-            'dcn_scan' => ($dcn && $dcn->scanned_dcn) ? RegisterQueryHelper::scanUrl($dcn->scanned_dcn) : null,
+            'dcn_scan' => ($dcn && $dcn->scanned_dcn) ? RegisterQueryHelper::scanUrl($dcn->scanned_dcn, false) : null,
             'drf_no' => $drf?->drf_no,
             'drf_date' => ($drf && $drf->drf_date) ? RegisterQueryHelper::formatSmartDate($drf->drf_date) : null,
             'drf_receipt_date' => ($drf && $drf->drf_receipt_date) ? RegisterQueryHelper::formatSmartDate($drf->drf_receipt_date) : null,
             'drf_receipt_time' => $drf && $drf->drf_receipt_time ? $this->formatTime($drf->drf_receipt_time) : null,
-            'drf_scan' => ($drf && $drf->scanned_drf) ? RegisterQueryHelper::scanUrl($drf->scanned_drf) : null,
+            'drf_scan' => ($drf && $drf->scanned_drf) ? RegisterQueryHelper::scanUrl($drf->scanned_drf, false) : null,
             'dist_onfile_date' => ($dist && $dist->doc_distribution_date_file) ? RegisterQueryHelper::formatSmartDate($dist->doc_distribution_date_file) : null,
             'dist_onfile_time' => $dist && $dist->doc_distribution_time_file ? $this->formatTime($dist->doc_distribution_time_file) : null,
             'dist_actual_date' => ($dist && $dist->doc_distribution_date_actual) ? RegisterQueryHelper::formatSmartDate($dist->doc_distribution_date_actual) : null,
             'dist_actual_time' => $dist && $dist->doc_distribution_time_actual ? $this->formatTime($dist->doc_distribution_time_actual) : null,
             'dist_offices' => $distOffices,
             'dist_office_ids' => $distOfficeIds,
-            'dist_scan' => ($dist && $dist->scanned_distribution) ? RegisterQueryHelper::scanUrl($dist->scanned_distribution) : null,
+            'dist_scan' => ($dist && $dist->scanned_distribution) ? RegisterQueryHelper::scanUrl($dist->scanned_distribution, false) : null,
             'ret_offices' => $retOffices,
         ];
     }
@@ -947,22 +984,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $indexed = $groups->values();
         $byKey = [];
         $groupTips = [];
-        $mergeScopeIds = [];
         foreach ($indexed as $i => $g) {
             $key = $this->renumberGroupKey($g['doc_no'] ?? '', $g['doc_type_id'] ?? 0, $g['sub_type_id'] ?? 0);
             $byKey[$key] = $i;
             $parent = $g['parent'] ?? [];
             $rev = (int) ($parent['rev_no'] ?? 0);
             $rid = (int) ($parent['request_id'] ?? 0);
-            if ($rid > 0) {
-                $mergeScopeIds[$rid] = $rid;
-            }
-            foreach ($g['children'] ?? [] as $child) {
-                $cid = (int) ($child['request_id'] ?? 0);
-                if ($cid > 0) {
-                    $mergeScopeIds[$cid] = $cid;
-                }
-            }
             $groupTips[$key] = [
                 'doc_no' => (string) ($g['doc_no'] ?? ''),
                 'doc_type_id' => (int) ($g['doc_type_id'] ?? 0),
@@ -975,11 +1002,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ];
         }
 
-        $mergeScopeIds = array_values($mergeScopeIds);
-        $visibleIds = $mergeScopeIds !== []
-            ? $mergeScopeIds
-            : RegisterQueryHelper::visibleRequestIds();
-        $edges = RegisterQueryHelper::buildLineageMergeEdges($groupTips, $visibleIds);
+        // revised_from is already on each row. Skip the per-family database walk;
+        // that walk runs several queries for every revised document on each page load.
+        $edges = RegisterQueryHelper::buildLineageMergeEdges($groupTips, []);
         if ($edges === []) {
             return $groups->concat($standalone)->values();
         }

@@ -406,7 +406,6 @@ class RegisterUpdateHelper
                     'effectivity_date' => $request->masterlistEffectivityDate,
                     'revise_no' => RegisterPersistHelper::resolveReviseNo($request, $masterlist?->revise_no),
                     'no_pages' => $request->masterlistNoOfPages,
-                    'originator_name' => $originator['originator_name'],
                     'deadline' => RegisterPersistHelper::masterlistDeadlineValue($request),
                     'updated_at' => $now,
                 ];
@@ -419,6 +418,9 @@ class RegisterUpdateHelper
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
+                }
+                if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+                    $masterlistData['originator_name'] = $originator['originator_name'];
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
                     $masterlistData['originator_account_id'] = RegisterQueryHelper::resolveOriginatorAccountIdForName($originator['originator_name']);
@@ -531,7 +533,6 @@ class RegisterUpdateHelper
                     'deadline' => RegisterPersistHelper::masterlistDeadlineValue($request),
                     'revise_no' => RegisterPersistHelper::resolveReviseNo($request, $masterlist?->revise_no),
                     'no_pages' => $totalPages,
-                    'originator_name' => $originator['originator_name'],
                     'updated_at' => $now,
                 ];
                 $masterlistData = array_merge(
@@ -543,6 +544,9 @@ class RegisterUpdateHelper
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
+                }
+                if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+                    $masterlistData['originator_name'] = $originator['originator_name'];
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
                     $masterlistData['originator_account_id'] = RegisterQueryHelper::resolveOriginatorAccountIdForName($originator['originator_name']);
@@ -1260,12 +1264,6 @@ class RegisterUpdateHelper
             DB::table('dcs_doc_revision')->where('dcn_id', $dcn->id)->delete();
             if (Schema::hasTable('dcs_dcn_offices')) {
                 DB::table('dcs_dcn_offices')->where('dcn_id', $dcn->id)->delete();
-            }
-            if (Schema::hasTable('dcs_dcn_reviewers')) {
-                DB::table('dcs_dcn_reviewers')->where('dcn_id', $dcn->id)->delete();
-            }
-            if (Schema::hasTable('dcs_dcn_approvals')) {
-                DB::table('dcs_dcn_approvals')->where('dcn_id', $dcn->id)->delete();
             }
             DB::table('dcs_document_change_notice')->where('id', $dcn->id)->delete();
         }

@@ -1,6 +1,7 @@
 <?php
 
 use App\Helpers\RegisterQueryHelper;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -48,16 +49,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     public function with(): array
     {
-        $query = DB::table('dcs_document_requests as dr');
+        $query = DB::table('dcs_document_requests as dr')
+            ->join(DB::raw("(SELECT DISTINCT request_id FROM dcs_masterlist_registration WHERE scanned_masterlist IS NOT NULL AND scanned_masterlist <> '') AS scanned_ml"), 'scanned_ml.request_id', '=', 'dr.id')
+            ->select(['dr.id', 'dr.doc_type_id', 'dr.sub_type_id']);
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
-        $query->whereExists(fn ($q2) =>
-                $q2->select(DB::raw(1))->from('dcs_masterlist_registration as ml')
-                    ->whereColumn('ml.request_id', 'dr.id')
-                    ->whereNotNull('ml.scanned_masterlist')
-                    ->where('ml.scanned_masterlist', '!=', '')
-            )
-            ->orderByDesc('dr.id');
+        $query->orderByDesc('dr.id');
 
         if ($this->typeId !== 'all' && $this->typeId !== '') {
             $query->where('dr.doc_type_id', $this->typeId);
@@ -114,7 +111,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $lastPage = max(1, (int) ceil($total / $perPage));
         $page = min(max(1, $this->page), $lastPage);
         $rows = RegisterQueryHelper::hydrateRequests(
-            (clone $query)->offset(($page - 1) * $perPage)->limit($perPage)->get()
+            (clone $query)->offset(($page - 1) * $perPage)->limit($perPage)->get(),
+            ['types', 'masterlist', 'stamps']
         );
         $documents = new \Illuminate\Pagination\LengthAwarePaginator(
             $rows,
@@ -124,7 +122,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ['path' => request()->url(), 'query' => request()->query()]
         );
 
-        $docTypes = DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('doc_type_name')->get();
+        $docTypes = Cache::remember('dcs.stamp.doc-types.v1', 90, function () {
+            return DB::table('dcs_doc_types')->whereNull('parent_id')->orderBy('doc_type_name')->get();
+        });
 
         return compact('documents', 'docTypes');
     }
@@ -227,7 +227,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         'abbr'        => $fileName,
                                         'cls'         => 'ml',
                                         'path'        => $ml->scanned_masterlist,
-                                        'preview_url' => RegisterQueryHelper::scanUrl($ml->scanned_masterlist),
+                                        'preview_url' => RegisterQueryHelper::scanUrl($ml->scanned_masterlist, false),
                                         'stamped'     => !!$s,
                                         'stamp_type'  => $s?->stamp_type,
                                     ];
@@ -246,7 +246,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                         <div class="st-files-group">
                                             @foreach($files as $file)
                                                 <div class="st-file-tag-wrap">
-                                                    <a href="{{ RegisterQueryHelper::scanUrl($file['path']) }}"
+                                                    <a href="{{ $file['preview_url'] }}"
                                                        target="_blank"
                                                        rel="noopener"
                                                        class="st-file-tag st-file-{{ $file['cls'] }} {{ $file['stamped'] ? 'st-file-stamped' : '' }}"

@@ -972,8 +972,6 @@ Route::middleware(['auth'])
                     Route::get('/reports/export', fn (Request $request) => app(ReportHelper::class)->export($request))->name('reports.export');
                     Route::match(['get', 'post'], '/reports/distribution-template', fn (Request $request) => ReportTemplateHelper::render($request))
                         ->name('reports.distributionTemplate');
-                    Route::get('/api/report-templates/{id}/preview', fn (int $id) => ReportTemplateHelper::preview($id))
-                        ->name('report-templates.preview');
                 });
 
                 Route::middleware(['dcs.module:stamping'])->group(function () {

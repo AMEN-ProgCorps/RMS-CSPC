@@ -171,13 +171,14 @@ class SyllabiMonitoringHelper
         $tosTypeId = self::subtypeId('tos');
 
         $submissions = self::loadSubmissions($collegeId, $schoolYearId, $semesterId, $deadline, $yearLevel, $courseType);
-
-        $rows = [];
-        $totals = self::emptyTotals();
         // Remarks work for the loaded college/year/semester; scoped to the
         // selected deadline, or to OVERALL_DEADLINE when viewing all.
         $remarksEnabled = true;
         $statusDeadline = $deadline ?: self::OVERALL_DEADLINE;
+        $savedByProgram = self::savedStatusMap($collegeId, $schoolYearId, $semesterId, $statusDeadline);
+
+        $rows = [];
+        $totals = self::emptyTotals();
 
         foreach ($programs as $program) {
             $catalog = $coursesByProgram->get($program->id, collect());
@@ -232,7 +233,7 @@ class SyllabiMonitoringHelper
             $tosLackingNames = self::lackingCourseLabels($catalog, $tosActualIds);
             $tosDrfLackingNames = self::lackingCourseLabels($catalog, $tosDrfCourseIds);
 
-            $saved = self::savedStatuses($collegeId, $schoolYearId, $semesterId, (int) $program->id, $statusDeadline);
+            $saved = $savedByProgram[(int) $program->id] ?? [];
             $syllabiStatus = $saved['syllabi'] ?? self::suggestStatus($syllabiActual, $target, $syllabiSubs, $deadline);
             $tosStatus = $saved['tos'] ?? self::suggestStatus($tosActual, $tosTarget, $tosSubs, $deadline);
 
@@ -368,8 +369,8 @@ class SyllabiMonitoringHelper
     {
         $query = DB::table('dcs_syllabi as s')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 's.request_id')
-            ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 's.request_id')
-            ->leftJoin('dcs_document_distribution as dist', 'dist.request_id', '=', 's.request_id')
+            ->leftJoin(DB::raw('(SELECT DISTINCT ON (request_id) * FROM dcs_masterlist_registration ORDER BY request_id, id DESC) as ml'), 'ml.request_id', '=', 's.request_id')
+            ->leftJoin(DB::raw('(SELECT DISTINCT ON (request_id) * FROM dcs_document_distribution ORDER BY request_id, id DESC) as dist'), 'dist.request_id', '=', 's.request_id')
             ->leftJoin('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
             ->where('s.college_id', $collegeId)
             ->where('s.school_year_id', $schoolYearId)
@@ -493,20 +494,25 @@ class SyllabiMonitoringHelper
         );
     }
 
-    private static function savedStatuses(int $collegeId, int $schoolYearId, int $semesterId, int $programId, string $deadline): array
+    /** @return array<int, array<string, mixed>> */
+    private static function savedStatusMap(int $collegeId, int $schoolYearId, int $semesterId, string $deadline): array
     {
         if (! Schema::hasTable('dcs_syllabi_monitoring_status')) {
             return [];
         }
 
-        return DB::table('dcs_syllabi_monitoring_status')
+        $map = [];
+        $rows = DB::table('dcs_syllabi_monitoring_status')
             ->where('college_id', $collegeId)
             ->where('school_year_id', $schoolYearId)
             ->where('semester_id', $semesterId)
-            ->where('program_id', $programId)
             ->whereDate('deadline', $deadline)
-            ->pluck('status', 'section')
-            ->all();
+            ->get(['program_id', 'section', 'status']);
+        foreach ($rows as $row) {
+            $map[(int) $row->program_id][(string) $row->section] = $row->status;
+        }
+
+        return $map;
     }
 
     private static function suggestStatus(int $actual, int $target, $subs, ?string $deadline): string

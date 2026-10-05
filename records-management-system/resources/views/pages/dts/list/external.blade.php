@@ -1639,13 +1639,16 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                     @forelse($this->transactions as $index => $t)
                         @php
                             $isChecked = in_array((string)$t->transaction_id, $selectedIds);
+                            $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (strtolower($t->status ?? '') === 'completed');
                         @endphp
                         <tr style="background-color: {{ $isChecked ? '#f0f6ff' : '' }};">
                             <td style="text-align: center;">
                                 <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                             </td>
                             <td style="text-align: center;">{{ $this->transactions->firstItem() + $index }}</td>
-                            <td style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</td>
+                            <td style="font-weight: 600; color: {{ $canSeeCtrlNo ? '#1e40af' : '#94a3b8' }};">
+                                {{ $canSeeCtrlNo ? $t->control_number : '—' }}
+                            </td>
                             <td>{{ $t->qr_code }}</td>
                             <td>{{ \Carbon\Carbon::parse($t->date_created)->format('Y-m-d H:i') }}</td>
                             <td>{{ $t->requestor_name ?: ($t->originated_office_name ?: $t->originated_from) }}</td>
@@ -1709,6 +1712,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
             @forelse ($this->transactions as $index => $t)
                 @php
                     $isChecked = in_array((string)$t->transaction_id, $selectedIds);
+                    $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (strtolower($t->status ?? '') === 'completed');
                 @endphp
                 <div class="dts-box-card {{ $isChecked ? 'selected' : '' }}">
                     
@@ -1720,7 +1724,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                     <!-- Right side Info Contents -->
                     <div class="dts-box-card-content">
                         <div class="dts-box-card-header">
-                            <span class="dts-box-control-no">{{ $t->control_number }}</span>
+                            <span class="dts-box-control-no" style="{{ $canSeeCtrlNo ? '' : 'color: #94a3b8;' }}">{{ $canSeeCtrlNo ? $t->control_number : '—' }}</span>
                             <span class="status-badge status-{{ $t->status }}" style="font-size: 9px; padding: 2px 6px;">{{ $t->status }}</span>
                         </div>
 
@@ -1792,14 +1796,19 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                     
                     <div class="receive-fields">
                         <!-- Control Number field -->
+                        @php
+                            $canSeeModalCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (strtolower($selectedTransaction->status ?? '') === 'completed');
+                        @endphp
+                        @if ($canSeeModalCtrlNo)
                         <div class="receive-field-row">
                             <span class="receive-field-label">Control #:</span>
-                            @if ($editingAll)
+                            @if ($editingAll && (auth()->user()?->permissions?->is_sadm ?? false))
                                 <input type="text" class="receive-field-input" wire:model="controlNumber">
                             @else
                                 <input type="text" class="receive-field-input" value="{{ $controlNumber }}" readonly>
                             @endif
                         </div>
+                        @endif
 
                         <!-- Originator field -->
                         <div class="receive-field-row">

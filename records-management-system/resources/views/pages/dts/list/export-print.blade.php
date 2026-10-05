@@ -693,8 +693,11 @@
                                 </td>
 
                             @elseif($colKey === 'control_number')
+                                @php
+                                    $canSeePrintCtrl = (auth()->user()?->permissions?->is_sadm ?? false) || (strtolower($row->status ?? '') === 'completed');
+                                @endphp
                                 <td>
-                                    <strong style="color: #003699; font-size: 10px; letter-spacing: 0.2px;">{{ $val }}</strong>
+                                    <strong style="color: {{ $canSeePrintCtrl ? '#003699' : '#94a3b8' }}; font-size: 10px; letter-spacing: 0.2px;">{{ $canSeePrintCtrl ? $val : '—' }}</strong>
                                 </td>
 
                             @elseif($colKey === 'elapsed_days')

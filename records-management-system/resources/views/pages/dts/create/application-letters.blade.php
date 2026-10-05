@@ -827,8 +827,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
         if (empty($this->originating_office)) {
             $this->originating_office = $this->unit_college ?: (auth()->user()?->details?->office?->office_code ?? '');
         }
-        if (empty($this->apply_to_office) && !empty($this->unit_college) && $this->unit_college !== $this->originating_office) {
-            $this->apply_to_office = $this->unit_college;
+        if (empty($this->apply_to_office)) {
+            $this->apply_to_office = $this->unit_college ?: $this->originating_office;
         }
 
         $this->validate([

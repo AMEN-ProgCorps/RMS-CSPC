@@ -17,7 +17,7 @@ class TransactionFlowRestrictorTest extends TestCase
     {
         parent::setUp();
 
-        $this->user = User::find(1);
+        $this->user = User::find(1) ?? User::first();
         if ($this->user) {
             Auth::login($this->user);
         }
@@ -54,7 +54,7 @@ class TransactionFlowRestrictorTest extends TestCase
                 'flow_code' => 'TEST-FLOW-VALID',
                 'flow_name' => 'Test Flow Valid 3 Nodes',
                 'is_active' => true,
-                'added_by' => 1,
+                'added_by' => $this->user?->account_id ?? 1,
                 'date_added' => now(),
                 'flow_use' => 'none'
             ]);

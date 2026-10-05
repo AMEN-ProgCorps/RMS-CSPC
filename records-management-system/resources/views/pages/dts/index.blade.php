@@ -3490,6 +3490,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     
                     <div class="receive-fields">
                         <!-- Control Number field -->
+                        @php
+                            $canSeeModalCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (strtolower($selectedTransaction->status ?? '') === 'completed');
+                        @endphp
+                        @if ($canSeeModalCtrlNo)
                         <div class="receive-field-row">
                             <span class="receive-field-label">Control #:</span>
                             @if ($editingAll && $hasWideEditClearance)
@@ -3498,6 +3502,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 <input type="text" class="receive-field-input" value="{{ $controlNumber }}" readonly style="background-color: #f8fafc; color: #64748b;" title="{{ $editingAll ? 'Control Number can only be edited by administrators' : '' }}">
                             @endif
                         </div>
+                        @endif
 
                         <!-- Originator field -->
                         <div class="receive-field-row">

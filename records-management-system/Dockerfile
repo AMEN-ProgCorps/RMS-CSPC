@@ -1,4 +1,4 @@
-FROM php:8.4-fpm-bookworm
+FROM php:8.5-fpm-bookworm
 
 # ── System dependencies, Nginx, Supervisor, ImageMagick & PaddleOCR ───────────
 RUN apt-get update && apt-get install -y --no-install-recommends \

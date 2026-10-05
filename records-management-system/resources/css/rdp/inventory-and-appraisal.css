@@ -1043,10 +1043,16 @@ textarea.ia-input {
     border: 1px solid #cbd5e1;
 }
 
-.ia-mode-pill.is-batch {
+.ia-mode-pill.is-multi {
     background: #e0e7ff;
     color: #4338ca;
     border: 1px solid #c7d2fe;
+}
+
+.ia-mode-pill.is-batch {
+    background: #ecfdf5;
+    color: #065f46;
+    border: 1px solid #a7f3d0;
 }
 
 .ia-mode-desc {
@@ -1086,6 +1092,21 @@ textarea.ia-input {
     box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
 }
 
+.ia-side-add-pill-btn.is-batch-btn {
+    color: #047857;
+    background: #ecfdf5;
+    border: 1.5px solid #10b981;
+    box-shadow: 0 1px 3px rgba(16, 185, 129, 0.15);
+}
+
+.ia-side-add-pill-btn.is-batch-btn:hover {
+    background: #d1fae5;
+    border-color: #059669;
+    color: #064e3b;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+}
+
 .ia-mode-toggle-btn.is-exit {
     display: inline-flex;
     align-items: center;
@@ -1123,6 +1144,238 @@ textarea.ia-input {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
 }
 
+/* ---------- Batch Mode Combined Period & Volume Widget ---------- */
+.ia-batch-config-bar {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 14px;
+}
+
+.ia-batch-accordion-card {
+    border: 1.5px solid #cbd5e1;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #ffffff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+}
+
+.ia-batch-header-row {
+    cursor: pointer;
+    padding: 12px 18px;
+    background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    user-select: none;
+    transition: background 0.15s ease;
+}
+
+.ia-batch-header-row:hover {
+    background: #f1f5f9;
+}
+
+.ia-batch-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.ia-batch-toggle-arrow-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: #e0e7ff;
+    color: #4338ca;
+    border: 1px solid #c7d2fe;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.ia-batch-toggle-arrow-btn:hover {
+    background: #4f46e5;
+    color: #ffffff;
+    border-color: #4338ca;
+    box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25);
+}
+
+.ia-batch-toggle-arrow-btn svg {
+    transition: transform 0.2s ease;
+}
+
+.ia-batch-range-text {
+    font-size: 13.5px;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: 0.2px;
+}
+
+.ia-batch-range-placeholder {
+    font-size: 12.5px;
+    font-style: italic;
+    color: #94a3b8;
+}
+
+.ia-batch-total-volume-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #ecfdf5;
+    color: #065f46;
+    border: 1px solid #6ee7b7;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.ia-sum-symbol {
+    font-size: 14px;
+    font-weight: 900;
+    color: #059669;
+}
+
+.ia-sum-label {
+    font-size: 10.5px;
+    letter-spacing: 0.5px;
+    color: #047857;
+}
+
+.ia-sum-value {
+    font-size: 13px;
+    font-weight: 800;
+    color: #064e3b;
+}
+
+.ia-batch-children-container {
+    padding: 14px 18px 16px 22px;
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ia-batch-tree-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 14px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    transition: all 0.15s ease;
+}
+
+.ia-batch-tree-item:hover {
+    background: #f1f5f9;
+    border-color: #cbd5e1;
+}
+
+.ia-batch-tree-connector {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.ia-tree-branch-svg {
+    display: block;
+}
+
+.ia-batch-tree-date {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.ia-tree-date-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #334155;
+    min-width: 220px;
+}
+
+.ia-tree-date-inputs {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ia-input-xs {
+    padding: 2px 6px !important;
+    font-size: 11px !important;
+    height: 26px !important;
+    max-width: 135px;
+}
+
+.ia-batch-tree-volume {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ia-sub-vol-input-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 2px 8px;
+}
+
+.ia-sub-vol-input-group .ia-input-sm {
+    border: none !important;
+    padding: 2px 4px !important;
+    height: 26px !important;
+    font-size: 12.5px !important;
+    font-weight: 700;
+    width: 70px;
+    box-shadow: none !important;
+}
+
+.ia-sub-vol-unit {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #64748b;
+}
+
+.ia-btn-remove-sub {
+    border: 1px solid #fca5a5;
+    background: #fee2e2;
+    color: #dc2626;
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.ia-btn-remove-sub:hover {
+    background: #fecaca;
+    color: #991b1b;
+}
+
+.ia-batch-children-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding-top: 6px;
+    margin-left: 36px;
+}
+
 [data-theme="dark"] .ia-mode-bar {
     background: #1e293b;
     border-bottom-color: #334155;
@@ -1134,10 +1387,16 @@ textarea.ia-input {
     border-color: #334155;
 }
 
-[data-theme="dark"] .ia-mode-pill.is-batch {
+[data-theme="dark"] .ia-mode-pill.is-multi {
     background: rgba(99, 102, 241, 0.2);
     color: #a5b4fc;
     border-color: rgba(99, 102, 241, 0.4);
+}
+
+[data-theme="dark"] .ia-mode-pill.is-batch {
+    background: rgba(16, 185, 129, 0.2);
+    color: #6ee7b7;
+    border-color: rgba(16, 185, 129, 0.4);
 }
 
 [data-theme="dark"] .ia-mode-desc {
@@ -1157,6 +1416,18 @@ textarea.ia-input {
     color: #ffffff;
 }
 
+[data-theme="dark"] .ia-side-add-pill-btn.is-batch-btn {
+    background: rgba(16, 185, 129, 0.18);
+    border-color: #10b981;
+    color: #a7f3d0;
+}
+
+[data-theme="dark"] .ia-side-add-pill-btn.is-batch-btn:hover {
+    background: rgba(16, 185, 129, 0.32);
+    border-color: #34d399;
+    color: #ffffff;
+}
+
 [data-theme="dark"] .ia-mode-toggle-btn.is-exit {
     background: rgba(239, 68, 68, 0.18);
     border-color: #f87171;
@@ -1173,4 +1444,227 @@ textarea.ia-input {
 [data-theme="dark"] .ia-batch-item-card {
     background: #0f172a;
     border-color: #334155;
+}
+
+[data-theme="dark"] .ia-batch-config-bar {
+    background: #0f172a;
+    border-color: #334155;
+}
+
+[data-theme="dark"] .ia-batch-accordion-card {
+    background: #1e293b;
+    border-color: #334155;
+}
+
+[data-theme="dark"] .ia-batch-header-row {
+    background: #0f172a;
+    border-bottom-color: #334155;
+}
+
+[data-theme="dark"] .ia-batch-range-text {
+    color: #f1f5f9;
+}
+
+[data-theme="dark"] .ia-batch-children-container {
+    background: #1e293b;
+}
+
+[data-theme="dark"] .ia-batch-tree-item {
+    background: #0f172a;
+    border-color: #334155;
+}
+
+[data-theme="dark"] .ia-tree-date-label {
+    color: #e2e8f0;
+}
+
+[data-theme="dark"] .ia-sub-vol-input-group {
+    background: #0f172a;
+    border-color: #334155;
+}
+
+[data-theme="dark"] .ia-batch-toggle-arrow-btn {
+    background: rgba(99, 102, 241, 0.2);
+    color: #a5b4fc;
+    border-color: rgba(99, 102, 241, 0.4);
+}
+
+[data-theme="dark"] .ia-batch-toggle-arrow-btn:hover {
+    background: #6366f1;
+    color: #ffffff;
+}
+
+[data-theme="dark"] .ia-tree-branch-svg path {
+    stroke: #818cf8;
+}
+
+.ia-modal-card.is-batch-modal {
+    width: 760px;
+    max-width: 95vw;
+}
+
+/* DMY Date Picker Layout Styles */
+.ia-batch-date-range-bar {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.ia-dmy-field-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ia-dmy-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.ia-dmy-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ia-dmy-day {
+    width: 62px !important;
+    text-align: center;
+    font-weight: 600;
+}
+
+.ia-dmy-month {
+    width: 130px !important;
+    font-weight: 600;
+}
+
+.ia-dmy-year {
+    width: 82px !important;
+    text-align: center;
+    font-weight: 600;
+}
+
+.ia-dmy-separator {
+    font-weight: 800;
+    color: #94a3b8;
+    font-size: 13px;
+    padding-bottom: 6px;
+    text-transform: lowercase;
+}
+
+/* Sub-period DMY styles */
+.ia-sub-dmy-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.ia-dmy-mini-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ia-dmy-day-xs {
+    width: 48px !important;
+    height: 26px !important;
+    padding: 2px 4px !important;
+    font-size: 11px !important;
+    text-align: center;
+    font-weight: 600;
+}
+
+.ia-dmy-month-xs {
+    width: 78px !important;
+    height: 26px !important;
+    padding: 2px 4px !important;
+    font-size: 11px !important;
+    font-weight: 600;
+}
+
+.ia-dmy-year-xs {
+    width: 65px !important;
+    height: 26px !important;
+    padding: 2px 4px !important;
+    font-size: 11px !important;
+    text-align: center;
+    font-weight: 600;
+}
+
+.ia-sub-dmy-to {
+    font-size: 11px;
+    color: #94a3b8;
+    font-weight: 700;
+}
+
+.ia-sub-vol-text {
+    min-width: 190px !important;
+    width: auto !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+}
+
+.ia-batch-breakdown-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.ia-batch-breakdown-title {
+    font-size: 11.5px;
+    font-weight: 800;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Dark mode overrides for DMY and batch breakdown */
+[data-theme="dark"] .ia-dmy-label,
+[data-theme="dark"] .ia-batch-breakdown-title {
+    color: #94a3b8;
+}
+
+[data-theme="dark"] .ia-dmy-separator,
+[data-theme="dark"] .ia-sub-dmy-to {
+    color: #64748b;
+}
+
+/* Sub-period Calendar Date Inputs */
+.ia-sub-calendar-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ia-sub-calendar-input {
+    width: 140px !important;
+    height: 32px !important;
+    padding: 3px 8px !important;
+    font-size: 12px !important;
+    font-weight: 600;
+    color: #1e293b;
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    cursor: pointer;
+    box-sizing: border-box;
+}
+
+.ia-sub-calendar-input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+    outline: none;
+}
+
+[data-theme="dark"] .ia-sub-calendar-input {
+    background-color: #0b0f19;
+    border-color: #334155;
+    color: #f8fafc;
+    color-scheme: dark;
 }

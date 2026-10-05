@@ -41,6 +41,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
 
     public string $selectedPriority = 'all';
     public string $selectedStatus = 'all';
+    public string $selectedOffice = 'all';
     public string $dateFrom = '';
     public string $dateTo = '';
     public string $sortOrder = 'desc';
@@ -48,6 +49,30 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public string $searchQuery = '';
     public string $layoutMode = 'table'; // table or box
     public string $pathViewMode = 'timeline'; // timeline or table
+
+    public function canViewAll(): bool
+    {
+        $perms = auth()->user()?->permissions;
+        return (bool)($perms?->is_sadm ?? false) || (bool)($perms?->can_dts_view_all_list ?? false);
+    }
+
+    public function with(): array
+    {
+        $canViewAll = $this->canViewAll();
+        $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $officesList = $canViewAll
+            ? DB::table($officeTbl)
+                ->where('is_active', true)
+                ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
+                ->orderBy('office_name', 'asc')
+                ->get()
+            : collect();
+
+        return [
+            'canViewAll'  => $canViewAll,
+            'officesList' => $officesList,
+        ];
+    }
 
     public function mount(): void
     {
@@ -155,6 +180,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
 
         $filters = [
             'sort_order' => $this->sortOrder,
+            'office'     => $this->selectedOffice,
         ];
 
         if ($this->exportFormat === 'excel') {
@@ -176,6 +202,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             'ids'         => implode(',', $this->selectedIds),
             'cols'        => implode(',', $colsToUse),
             'sort_order'  => $this->sortOrder,
+            'office'      => $this->selectedOffice,
             'prepared_by' => $this->exportPreparedBy,
             'noted_by'    => $this->exportNotedBy,
         ];
@@ -190,6 +217,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public $selectedTransaction = null;
     public string $controlNumber = '';
     public string $fileCode = '';
+    public string $applyToOffice = '';
     public string $particulars = '';
     public string $classification = '';
     public string $actionNeeded = '';
@@ -241,6 +269,13 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->selectAll = false;
     }
 
+    public function updatingSelectedOffice()
+    {
+        $this->resetPage();
+        $this->selectedIds = [];
+        $this->selectAll = false;
+    }
+
     public function updatingPerPage()
     {
         $this->resetPage();
@@ -274,6 +309,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->searchQuery = '';
         $this->selectedPriority = 'all';
         $this->selectedStatus = 'all';
+        $this->selectedOffice = 'all';
         $this->dateFrom = '';
         $this->dateTo = '';
         $this->sortOrder = 'desc';
@@ -296,9 +332,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data') . ' as doc', 'doc.document_path', '=', 'dt.doc_dir')
             ->where('dt.trans_type', 'others');
 
-        $canViewAll = auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_dts_view_all_list;
+        $canViewAll = $this->canViewAll();
         if (!$canViewAll) {
+            $this->selectedOffice = 'all';
             $query->where('dtd.originated_from', $userOfficeCode);
+        } elseif ($this->selectedOffice !== 'all' && !empty($this->selectedOffice)) {
+            $query->where('dtd.originated_from', $this->selectedOffice);
         } // 'others' trans_type maps to Application Letters
 
         if ($this->selectedPriority !== 'all') {
@@ -599,6 +638,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->emailAccess = '';
         $this->docPassword = '';
         $this->transactionFlow = '';
+        $this->applyToOffice = '';
     }
 
     public function toggleMoreDetails(): void
@@ -773,6 +813,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                     'subject' => $this->particulars,
                     'classification' => $this->classification ?: null,
                     'action_needed' => $this->actionNeeded ?: null,
+                    'apply_to_office' => $this->applyToOffice ?: ($this->selectedTransaction->apply_to_office ?? null),
                     'requestor_id' => $requestorId,
                     'email_access' => $emailAccessId,
                     'document_password' => $this->docPassword ?: null,
@@ -893,6 +934,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as applied_office', 'applied_office.office_code', '=', 'dtd.apply_to_office')
             ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as creator_ad', 'creator_ad.account_id', '=', 'dtd.created_by')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as creator_acc', 'creator_acc.id', '=', 'dtd.created_by')
@@ -904,6 +946,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                 'req.requestor_position as requestor_label',
                 'dea.email as access_email',
                 'originated_office.office_name as originated_office_name',
+                'applied_office.office_name as applied_office_name',
                 DB::raw("TRIM(CONCAT(COALESCE(creator_ad.first_name, ''), ' ', COALESCE(creator_ad.last_name, ''))) as creator_name"),
                 'creator_acc.username as creator_username'
             )
@@ -917,6 +960,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
 
         if ($this->selectedTransaction) {
             $this->controlNumber = $this->selectedTransaction->control_number;
+            $this->applyToOffice = $this->selectedTransaction->apply_to_office ?? '';
             $this->fileCode = $this->selectedTransaction->copy_filled_id ?: '';
             $this->particulars = $this->selectedTransaction->subject ?: '';
             $this->classification = $this->selectedTransaction->classification ?: '';
@@ -1454,6 +1498,14 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     <div class="rms-toolbar">
         <div class="rms-toolbar-top">
             <div class="rms-filters">
+                @if($canViewAll)
+                <select class="rms-select" wire:model.live="selectedOffice" title="Filter by Office" style="max-width: 260px; text-overflow: ellipsis;">
+                    <option value="all">All Offices</option>
+                    @foreach($officesList as $off)
+                        <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
+                    @endforeach
+                </select>
+                @endif
                 <select class="rms-select" wire:model.live="selectedPriority">
                     <option value="all">All Priority</option>
                     <option value="simple">Simple</option>
@@ -1513,7 +1565,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                         <option value="asc">Date (Oldest First)</option>
                     </select>
                 </div>
-                @if(!empty($dateFrom) || !empty($dateTo) || !empty($searchQuery) || $selectedPriority !== 'all' || $selectedStatus !== 'all' || $sortOrder !== 'desc')
+                @if(!empty($dateFrom) || !empty($dateTo) || !empty($searchQuery) || $selectedPriority !== 'all' || $selectedStatus !== 'all' || ($canViewAll && $selectedOffice !== 'all') || $sortOrder !== 'desc')
                     <button type="button" wire:click="resetFilters" class="rms-select rms-btn-reset-filters" style="background-image: none; padding-right: 12px; display: inline-flex; align-items: center; gap: 4px; height: 34px; font-size: 0.82rem; font-weight: 600;" title="Reset all filters">
                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                         Reset
@@ -1571,13 +1623,16 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                     @forelse($this->transactions as $index => $t)
                         @php
                             $isChecked = in_array((string)$t->transaction_id, $selectedIds);
+                            $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (strtolower($t->status ?? '') === 'completed');
                         @endphp
                         <tr style="background-color: {{ $isChecked ? '#f0f6ff' : '' }};">
                             <td style="text-align: center;">
                                 <input type="checkbox" wire:model.live="selectedIds" value="{{ $t->transaction_id }}" style="width: 16px; height: 16px; cursor: pointer; accent-color: #1e40af;">
                             </td>
                             <td style="text-align: center;">{{ $this->transactions->firstItem() + $index }}</td>
-                            <td style="font-weight: 600; color: #1e40af;">{{ $t->control_number }}</td>
+                            <td style="font-weight: 600; color: {{ $canSeeCtrlNo ? '#1e40af' : '#94a3b8' }};">
+                                {{ $canSeeCtrlNo ? $t->control_number : '—' }}
+                            </td>
                             <td>{{ $t->qr_code }}</td>
                             <td>{{ \Carbon\Carbon::parse($t->date_created)->format('Y-m-d H:i') }}</td>
                             <td>{{ $t->requestor_name ?? 'N/A' }}</td>
@@ -1608,6 +1663,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             @forelse ($this->transactions as $index => $t)
                 @php
                     $isChecked = in_array((string)$t->transaction_id, $selectedIds);
+                    $canSeeCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (strtolower($t->status ?? '') === 'completed');
                 @endphp
                 <div class="dts-box-card {{ $isChecked ? 'selected' : '' }}">
                     
@@ -1619,7 +1675,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                     <!-- Right side Info Contents -->
                     <div class="dts-box-card-content">
                         <div class="dts-box-card-header">
-                            <span class="dts-box-control-no">{{ $t->control_number }}</span>
+                            <span class="dts-box-control-no" style="{{ $canSeeCtrlNo ? '' : 'color: #94a3b8;' }}">{{ $canSeeCtrlNo ? $t->control_number : '—' }}</span>
                             <span class="status-badge status-{{ $t->status }}" style="font-size: 9px; padding: 2px 6px;">{{ $t->status }}</span>
                         </div>
 
@@ -1692,14 +1748,19 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                     
                     <div class="receive-fields">
                         <!-- Control Number field -->
+                        @php
+                            $canSeeModalCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (strtolower($selectedTransaction->status ?? '') === 'completed');
+                        @endphp
+                        @if ($canSeeModalCtrlNo)
                         <div class="receive-field-row">
                             <span class="receive-field-label">Control #:</span>
-                            @if ($editingAll)
+                            @if ($editingAll && (auth()->user()?->permissions?->is_sadm ?? false))
                                 <input type="text" class="receive-field-input" wire:model="controlNumber">
                             @else
                                 <input type="text" class="receive-field-input" value="{{ $controlNumber }}" readonly>
                             @endif
                         </div>
+                        @endif
 
                         <!-- Originator field -->
                         <div class="receive-field-row">
@@ -1786,6 +1847,32 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                         <input type="text" class="receive-field-input" wire:model="requestorPosition">
                                     @else
                                         <input type="text" class="receive-field-input" value="{{ $requestorPosition ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                                    @endif
+                                </div>
+                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Applied Unit/Colleges:</span>
+                                    @if ($editingAll)
+                                        @php
+                                            $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+                                            $appliedOfficesList = DB::table($officeTable)
+                                                ->where('is_active', true)
+                                                ->whereNotIn('office_code', ['ORIGIN', '[H]'])
+                                                ->orderBy('office_name')
+                                                ->get();
+                                        @endphp
+                                        <select class="receive-field-input" wire:model.live="applyToOffice" style="height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; background: #fff;">
+                                            <option value="">-- Select Unit / College --</option>
+                                            @foreach ($appliedOfficesList as $ao)
+                                                <option value="{{ $ao->office_code }}">{{ $ao->office_name }} ({{ $ao->office_code }})</option>
+                                            @endforeach
+                                        </select>
+                                    @else
+                                        @php
+                                            $aoName = $selectedTransaction->applied_office_name ?? '';
+                                            $aoCode = $selectedTransaction->apply_to_office ?? '';
+                                            $aoDisplay = $aoName ? ($aoName . ($aoCode && $aoCode !== $aoName ? " ({$aoCode})" : '')) : ($aoCode ?: 'N/A');
+                                        @endphp
+                                        <input type="text" class="receive-field-input" value="{{ $aoDisplay }}" readonly style="background-color: #f8fafc; color: #64748b;">
                                     @endif
                                 </div>
                                 @if ($editingAll || (!empty(trim($emailAccess ?? '')) && $emailAccess !== 'N/A'))

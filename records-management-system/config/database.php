@@ -98,6 +98,21 @@ return [
             'sslmode' => in_array($dbHost, ['db', '127.0.0.1', 'localhost']) ? 'prefer' : env('DB_SSLMODE', 'prefer'),
         ],
 
+        'pgsql_testing' => [
+            'driver' => 'pgsql',
+            'url' => env('DB_URL'),
+            'host' => $dbHost = env('DB_HOST', file_exists('/.dockerenv') ? 'db' : '127.0.0.1'),
+            'port' => env('DB_PORT', '5432'),
+            'database' => 'rms_testing',
+            'username' => env('DB_USERNAME', 'root'),
+            'password' => env('DB_PASSWORD', ''),
+            'charset' => env('DB_CHARSET', 'utf8'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'search_path' => 'public',
+            'sslmode' => in_array($dbHost, ['db', '127.0.0.1', 'localhost']) ? 'prefer' : env('DB_SSLMODE', 'prefer'),
+        ],
+
         'sqlsrv' => [
             'driver' => 'sqlsrv',
             'url' => env('DB_URL'),

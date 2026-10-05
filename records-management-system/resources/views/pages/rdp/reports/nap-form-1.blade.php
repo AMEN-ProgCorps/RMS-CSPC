@@ -34,6 +34,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     // Edit Subject Modal Properties
     public bool $showEditSubjectModal = false;
     public ?int $editingSubjectId = null;
+    public ?int $editingPeriodId = null;
+    public bool $editingIsBatchSubPeriod = false;
     public string $editSubjectDescription = '';
     public string $editSubjectDateCovered = '';
     public string $editSubjectVolume = '';
@@ -71,7 +73,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
         // Access clearance check
         if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_access_form_1 ?? true))) {
-            redirect()->route('rdp')->send();
+            $this->redirectRoute('rdp');
             return;
         }
 
@@ -353,7 +355,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         $this->viewSeriesData = null;
     }
 
-    public function openEditSubjectModal(int $id): void
+    public function openEditSubjectModal(int $id, ?int $periodId = null): void
     {
         $rec = DB::table('rdp_record')->where('id', $id)->first();
         if ($rec) {
@@ -370,17 +372,42 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $this->canCancelRecord = $this->canEditDescription;
 
             $this->editingSubjectId = $rec->id;
-            $this->editSubjectDescription = $rec->description ?? '';
-            $this->editSubjectVolume = $rec->volume ?? '';
+            $this->editingPeriodId = $periodId;
+            $this->editingIsBatchSubPeriod = !empty($periodId);
+
             $this->editSubjectLocation = $rec->records_location ?? '';
             $this->editSubjectMedium = $rec->records_medium ? (int)$rec->records_medium : null;
             $this->editSubjectRestriction = $rec->restriction ?? null;
             $this->editSubjectFrequency = $rec->frequence_use ?? null;
             $this->editSubjectTimeValue = $rec->time_value ?: 'T';
 
-            // Period covered
-            $period = DB::table('rdp_period_covered')->where('period_owner', $id)->orderBy('id', 'desc')->first();
-            $this->editSubjectDateCovered = $period->date_covered ?? '';
+            if ($periodId) {
+                $period = DB::table('rdp_period_covered')->where('id', $periodId)->first();
+                $allPeriods = DB::table('rdp_period_covered')->where('period_owner', $id)->orderBy('id', 'asc')->get();
+                $subIdx = 1;
+                foreach ($allPeriods as $idx => $p) {
+                    if ($p->id == $periodId) {
+                        $subIdx = $idx + 1;
+                        break;
+                    }
+                }
+                $this->editSubjectDescription = ($rec->description ?? '') . ' ' . $subIdx;
+                $this->editSubjectVolume = $period->volume ?? '';
+                if ($period) {
+                    if (!empty($period->date_covered_end) && $period->date_covered_end !== $period->date_covered) {
+                        $this->editSubjectDateCovered = $period->date_covered . ' to ' . $period->date_covered_end;
+                    } else {
+                        $this->editSubjectDateCovered = $period->date_covered ?? '';
+                    }
+                } else {
+                    $this->editSubjectDateCovered = '';
+                }
+            } else {
+                $this->editSubjectDescription = $rec->description ?? '';
+                $this->editSubjectVolume = $rec->volume ?? '';
+                $period = DB::table('rdp_period_covered')->where('period_owner', $id)->orderBy('id', 'desc')->first();
+                $this->editSubjectDateCovered = $period->date_covered ?? '';
+            }
 
             // Utilities
             $this->editSubjectUtilities = DB::table('rdp_utility_manager')
@@ -398,6 +425,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     {
         $this->showEditSubjectModal = false;
         $this->editingSubjectId = null;
+        $this->editingPeriodId = null;
+        $this->editingIsBatchSubPeriod = false;
     }
 
     public function saveEditSubject(): void
@@ -418,40 +447,81 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         try {
             DB::beginTransaction();
 
-            $updatePayload = [
-                'volume'           => mb_strtoupper(trim($this->editSubjectVolume)),
-                'records_location' => mb_strtoupper(trim($this->editSubjectLocation)),
-                'records_medium'   => $this->editSubjectMedium ?: null,
-                'restriction'      => $this->editSubjectRestriction ?: null,
-                'frequence_use'    => $this->editSubjectFrequency ?: null,
-                'time_value'       => $this->editSubjectTimeValue ?: 'T',
-                'updated_at'       => Carbon::now(),
-            ];
+            if ($this->editingPeriodId) {
+                // Parse date range if entered as range (e.g. "2022-01-01 to 2022-12-31" or "2022-01-01 - 2022-12-31")
+                $rawDate = trim($this->editSubjectDateCovered);
+                $startDate = $rawDate;
+                $endDate = null;
 
-            if ($this->canEditDescription) {
-                $updatePayload['description'] = mb_strtoupper($cleanDesc);
-            }
+                if (preg_match('/^(.*?)\s+(?:-|to)\s+(.*)$/i', $rawDate, $m)) {
+                    $startDate = trim($m[1]);
+                    $endDate = trim($m[2]);
+                }
 
-            DB::table('rdp_record')
-                ->where('id', $this->editingSubjectId)
-                ->update($updatePayload);
+                DB::table('rdp_period_covered')->where('id', $this->editingPeriodId)->update([
+                    'date_covered'     => $startDate ?: null,
+                    'date_covered_end' => $endDate ?: null,
+                    'volume'           => mb_strtoupper(trim($this->editSubjectVolume)),
+                    'modified_at'      => Carbon::now(),
+                ]);
 
-            // Update or insert period covered
-            $existingPeriod = DB::table('rdp_period_covered')->where('period_owner', $this->editingSubjectId)->orderBy('id', 'desc')->first();
-            if ($existingPeriod) {
-                DB::table('rdp_period_covered')
-                    ->where('id', $existingPeriod->id)
-                    ->update([
+                // Recompile parent volume from all sub-periods
+                $allSubVols = DB::table('rdp_period_covered')
+                    ->where('period_owner', $this->editingSubjectId)
+                    ->whereNotNull('volume')
+                    ->pluck('volume')
+                    ->all();
+                $compiledVol = $this->compileVolume($allSubVols);
+
+                $updatePayload = [
+                    'volume'           => mb_strtoupper($compiledVol ?: trim($this->editSubjectVolume)),
+                    'records_location' => mb_strtoupper(trim($this->editSubjectLocation)),
+                    'records_medium'   => $this->editSubjectMedium ?: null,
+                    'restriction'      => $this->editSubjectRestriction ?: null,
+                    'frequence_use'    => $this->editSubjectFrequency ?: null,
+                    'time_value'       => $this->editSubjectTimeValue ?: 'T',
+                    'updated_at'       => Carbon::now(),
+                ];
+
+                DB::table('rdp_record')
+                    ->where('id', $this->editingSubjectId)
+                    ->update($updatePayload);
+            } else {
+                $updatePayload = [
+                    'volume'           => mb_strtoupper(trim($this->editSubjectVolume)),
+                    'records_location' => mb_strtoupper(trim($this->editSubjectLocation)),
+                    'records_medium'   => $this->editSubjectMedium ?: null,
+                    'restriction'      => $this->editSubjectRestriction ?: null,
+                    'frequence_use'    => $this->editSubjectFrequency ?: null,
+                    'time_value'       => $this->editSubjectTimeValue ?: 'T',
+                    'updated_at'       => Carbon::now(),
+                ];
+
+                if ($this->canEditDescription) {
+                    $updatePayload['description'] = mb_strtoupper($cleanDesc);
+                }
+
+                DB::table('rdp_record')
+                    ->where('id', $this->editingSubjectId)
+                    ->update($updatePayload);
+
+                // Update or insert period covered
+                $existingPeriod = DB::table('rdp_period_covered')->where('period_owner', $this->editingSubjectId)->orderBy('id', 'desc')->first();
+                if ($existingPeriod) {
+                    DB::table('rdp_period_covered')
+                        ->where('id', $existingPeriod->id)
+                        ->update([
+                            'date_covered' => trim($this->editSubjectDateCovered),
+                            'modified_at'  => Carbon::now(),
+                        ]);
+                } elseif (!empty(trim($this->editSubjectDateCovered))) {
+                    DB::table('rdp_period_covered')->insert([
+                        'period_owner' => $this->editingSubjectId,
                         'date_covered' => trim($this->editSubjectDateCovered),
+                        'created_at'   => Carbon::now(),
                         'modified_at'  => Carbon::now(),
                     ]);
-            } elseif (!empty(trim($this->editSubjectDateCovered))) {
-                DB::table('rdp_period_covered')->insert([
-                    'period_owner' => $this->editingSubjectId,
-                    'date_covered' => trim($this->editSubjectDateCovered),
-                    'created_at'   => Carbon::now(),
-                    'modified_at'  => Carbon::now(),
-                ]);
+                }
             }
 
             // Update utility manager
@@ -469,7 +539,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
             DB::commit();
 
-            $this->successMessage = "Record subject updated successfully.";
+            $this->successMessage = $this->editingPeriodId ? "Batch item record updated successfully." : "Record subject updated successfully.";
             $this->closeEditSubjectModal();
         } catch (\Exception $e) {
             DB::rollBack();
@@ -488,6 +558,43 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
         try {
             DB::beginTransaction();
+
+            if ($this->editingPeriodId) {
+                // Delete this sub-period
+                DB::table('rdp_period_covered')->where('id', $this->editingPeriodId)->delete();
+
+                $remainingPeriods = DB::table('rdp_period_covered')->where('period_owner', $this->editingSubjectId)->count();
+                if ($remainingPeriods === 0) {
+                    DB::table('rdp_record')->where('id', $this->editingSubjectId)->update([
+                        'is_active'  => false,
+                        'updated_at' => Carbon::now(),
+                    ]);
+                } else {
+                    $allSubVols = DB::table('rdp_period_covered')
+                        ->where('period_owner', $this->editingSubjectId)
+                        ->whereNotNull('volume')
+                        ->pluck('volume')
+                        ->all();
+                    $compiledVol = $this->compileVolume($allSubVols);
+                    DB::table('rdp_record')->where('id', $this->editingSubjectId)->update([
+                        'volume'     => $compiledVol ?: '—',
+                        'updated_at' => Carbon::now(),
+                    ]);
+                }
+
+                $adminId = auth()->id() ?? 1;
+                DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs')->insert([
+                    'admin_id'     => $adminId,
+                    'changes'      => 'Canceled Batch Sub-Period Record (ID: ' . $this->editingPeriodId . ') of Record ID: ' . $this->editingSubjectId . ' via NAP Form 1',
+                    'what_system'  => 2,
+                    'when_changes' => now(),
+                ]);
+
+                DB::commit();
+                $this->successMessage = 'Batch item record removed successfully.';
+                $this->closeEditSubjectModal();
+                return;
+            }
 
             $record = DB::table('rdp_record')->where('id', $this->editingSubjectId)->first();
             if (!$record) {
@@ -535,22 +642,48 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     {
         $years = [];
         $rawList = [];
+        $maxParsedDate = null;
+        $maxParsedYear = null;
+        $now = Carbon::now();
+
         foreach ($dates as $d) {
             $d = trim((string)$d);
             if (empty($d) || $d === '—') continue;
-            if (preg_match('/(19\d\d|20\d\d)/', $d, $m)) {
-                $years[] = (int)$m[1];
+
+            try {
+                $parsed = Carbon::parse($d);
+                if ($maxParsedDate === null || $parsed->gt($maxParsedDate)) {
+                    $maxParsedDate = $parsed;
+                }
+            } catch (\Throwable) {}
+
+            if (preg_match_all('/(19\d\d|20\d\d)/', $d, $allMatches)) {
+                $matchedYears = array_map('intval', $allMatches[1]);
+                $minY = min($matchedYears);
+                $maxY = max($matchedYears);
+                for ($y = $minY; $y <= $maxY; $y++) {
+                    $years[] = $y;
+                }
+                if ($maxParsedYear === null || $maxY > $maxParsedYear) {
+                    $maxParsedYear = $maxY;
+                }
             } else {
                 $rawList[] = $d;
             }
         }
+
         $years = array_values(array_unique($years));
-        rsort($years);
+        sort($years);
 
         if (empty($years)) {
             return !empty($rawList) ? implode(', ', array_unique($rawList)) : '—';
         }
 
+        // Check if the period covered extends beyond current date/year
+        $isFutureOrPresent = ($maxParsedYear && $maxParsedYear > $now->year)
+                          || ($maxParsedDate && $maxParsedDate->year > $now->year);
+
+        // Group consecutive years
         $groups = [];
         $currentGroup = [];
         foreach ($years as $y) {
@@ -558,7 +691,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 $currentGroup[] = $y;
             } else {
                 $last = end($currentGroup);
-                if ($last - 1 === $y) {
+                if ($last + 1 === $y) {
                     $currentGroup[] = $y;
                 } else {
                     $groups[] = $currentGroup;
@@ -571,11 +704,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         }
 
         $formattedGroups = [];
-        foreach ($groups as $grp) {
-            if (count($grp) >= 2) {
-                $formattedGroups[] = $grp[0] . '-' . end($grp);
+        $numGroups = count($groups);
+        foreach ($groups as $gIdx => $grp) {
+            $startYear = $grp[0];
+            $endYear = end($grp);
+            $isLastGroup = ($gIdx === $numGroups - 1);
+
+            if ($isLastGroup && $isFutureOrPresent) {
+                $formattedGroups[] = $startYear . ' - Present';
+            } elseif ($startYear !== $endYear) {
+                $formattedGroups[] = $startYear . '-' . $endYear;
             } else {
-                $formattedGroups[] = (string)$grp[0];
+                $formattedGroups[] = (string)$startYear;
             }
         }
 
@@ -584,6 +724,86 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $res .= ', ' . implode(', ', array_unique($rawList));
         }
         return $res;
+    }
+
+    private function formatBatchDateRange(?string $startDate, ?string $endDate = null, bool $isHeader = false): string
+    {
+        $startDate = trim((string)$startDate);
+        $endDate = trim((string)$endDate);
+
+        if (empty($startDate) && empty($endDate)) return '—';
+
+        if (empty($endDate) && preg_match('/^(.*?)\s+(?:-|to)\s+(.*)$/i', $startDate, $m)) {
+            $startDate = trim($m[1]);
+            $endDate = trim($m[2]);
+        }
+
+        $formatToken = function(string $token): array {
+            $token = trim($token);
+            if (empty($token) || $token === '—') return ['text' => '—', 'year' => null, 'carbon' => null, 'has_month' => false];
+
+            if (preg_match('/^(19\d\d|20\d\d)$/', $token, $m)) {
+                $y = (int)$m[1];
+                return ['text' => (string)$y, 'year' => $y, 'carbon' => Carbon::createFromDate($y, 1, 1), 'has_month' => false];
+            }
+
+            if (preg_match('/^([a-zA-Z]+)\s+(\d{4})$/', $token, $m)) {
+                try {
+                    $c = Carbon::parse("1 {$m[1]} {$m[2]}");
+                    $text = in_array(strtolower($m[1]), ['june', 'july']) ? $c->format('F Y') : $c->format('M Y');
+                    return ['text' => $text, 'year' => (int)$m[2], 'carbon' => $c, 'has_month' => true];
+                } catch (\Throwable) {}
+            }
+
+            try {
+                $c = Carbon::parse($token);
+                $text = (in_array($c->month, [6, 7])) ? $c->format('F Y') : $c->format('M Y');
+                return ['text' => $text, 'year' => $c->year, 'carbon' => $c, 'has_month' => true];
+            } catch (\Throwable) {
+                return ['text' => $token, 'year' => null, 'carbon' => null, 'has_month' => false];
+            }
+        };
+
+        $sInfo = $formatToken($startDate);
+        $eInfo = !empty($endDate) ? $formatToken($endDate) : null;
+
+        if ($isHeader) {
+            $now = Carbon::now();
+            $isFutureOrPresent = false;
+            if ($eInfo && $eInfo['carbon']) {
+                $isFutureOrPresent = $eInfo['carbon']->year > $now->year;
+            } elseif ($sInfo && $sInfo['carbon']) {
+                $isFutureOrPresent = $sInfo['carbon']->year > $now->year;
+            }
+
+            if ($isFutureOrPresent) {
+                $headerStart = ($sInfo['has_month'] ? $sInfo['text'] : (string)$sInfo['year']);
+                return $headerStart . ' - Present';
+            }
+        }
+
+        if (!$eInfo || empty($endDate)) {
+            return $sInfo['text'];
+        }
+
+        // If start date had no month (year-only)
+        if (!$sInfo['has_month']) {
+            if ($sInfo['year'] === $eInfo['year']) {
+                return (string)$sInfo['year'];
+            }
+            return (string)$sInfo['year'] . ' - ' . (string)$eInfo['year'];
+        }
+
+        if ($sInfo['text'] === $eInfo['text']) {
+            return $sInfo['text'];
+        }
+
+        return $sInfo['text'] . ' - ' . $eInfo['text'];
+    }
+
+    private function formatDateRange(?string $startDate, ?string $endDate = null): string
+    {
+        return $this->formatBatchDateRange($startDate, $endDate, false);
     }
 
     private function compileVolume(array $volumes): string
@@ -595,31 +815,33 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $v = trim((string)$v);
             if (empty($v) || $v === '—') continue;
 
-            $parts = preg_split('/[,+&]|\band\b/i', $v);
-            foreach ($parts as $part) {
-                $part = trim($part);
-                if (empty($part)) continue;
-
-                if (preg_match('/^(\d+(?:\.\d+)?)\s*([a-zA-Z\s\.]+)/', $part, $m)) {
+            $matchedAny = false;
+            if (preg_match_all('/(\d+(?:\.\d+)?)\s*([a-zA-Z\s\.]+)?/u', $v, $matches, PREG_SET_ORDER)) {
+                foreach ($matches as $m) {
                     $amount = (float)$m[1];
-                    $unit = strtolower(trim($m[2]));
-                    if (str_starts_with($unit, 'paper') || str_starts_with($unit, 'sheet') || str_starts_with($unit, 'page')) {
+                    $unit = isset($m[2]) ? trim($m[2]) : '';
+                    $unit = trim(preg_replace('/^(and|&|,)\s*/i', '', $unit));
+                    $unit = trim(preg_replace('/[,\.]+$/', '', $unit));
+                    $unitLower = strtolower($unit);
+                    if (str_starts_with($unitLower, 'paper') || str_starts_with($unitLower, 'sheet') || str_starts_with($unitLower, 'page') || $unit === '') {
                         $normUnit = 'papers';
-                    } elseif (str_starts_with($unit, 'folder')) {
+                    } elseif (str_starts_with($unitLower, 'folder')) {
                         $normUnit = 'folders';
-                    } elseif (str_starts_with($unit, 'box')) {
+                    } elseif (str_starts_with($unitLower, 'box')) {
                         $normUnit = 'boxes';
-                    } elseif (str_starts_with($unit, 'bundle')) {
+                    } elseif (str_starts_with($unitLower, 'bundle')) {
                         $normUnit = 'bundles';
-                    } elseif (str_starts_with($unit, 'cu') || str_contains($unit, 'meter') || str_contains($unit, 'm.')) {
+                    } elseif (str_starts_with($unitLower, 'cu') || str_contains($unitLower, 'meter') || str_contains($unitLower, 'm.')) {
                         $normUnit = 'cu. m.';
                     } else {
-                        $normUnit = $unit;
+                        $normUnit = $unitLower;
                     }
                     $totals[$normUnit] = ($totals[$normUnit] ?? 0) + $amount;
-                } else {
-                    $unmatched[] = $part;
+                    $matchedAny = true;
                 }
+            }
+            if (!$matchedAny) {
+                $unmatched[] = $v;
             }
         }
 
@@ -820,7 +1042,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         $recordsQuery = DB::table('rdp_record')
             ->where('is_draft', false)
             ->where('is_active', true)
-            ->where('transferred_to_nap3', false);
+            ->where(function($q) {
+                $q->where('rdp_record.transferred_to_nap3', false)
+                  ->orWhere('rdp_record.ispartof_batch', true);
+            });
 
         if ($effectiveOffice) {
             $recordsQuery->where(function($q) use ($effectiveOffice) {
@@ -981,6 +1206,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     $subRecs = $recordsBySeries[$sub->id] ?? collect();
                     if ($subRecs->isEmpty()) continue; // Only show if used!
 
+                    $isPerm = (bool)($sub->is_retention_period_permanent) 
+                              || strtolower(trim($sub->total_period ?? '')) === 'permanent'
+                              || (empty($sub->total_period) && ((bool)($root->is_retention_period_permanent) || strtolower(trim($root->total_period ?? '')) === 'permanent'));
+
+                    $effActive = $sub->active_period ?: ($root->active_period ?: '—');
+                    $effStorage = $sub->storage_period ?: ($root->storage_period ?: '');
+                    $effTotal = $sub->total_period ?: ($root->total_period ?: '—');
+
                     $compiledDates = [];
                     $compiledVols = [];
                     $compiledMediums = [];
@@ -993,8 +1226,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     $childItems = [];
 
                     foreach ($subRecs as $rec) {
-                        $pRow = $periods[$rec->id]->first() ?? null;
-                        $rawDate = $pRow->date_covered ?? '';
+                        $recPeriods = $periods[$rec->id] ?? collect();
+                        $isBatch = (bool)($rec->ispartof_batch ?? false) || $recPeriods->count() > 1;
+
+                        if ($isBatch) {
+                            $activePeriods = $recPeriods->filter(function($p) use ($effTotal, $effActive, $effStorage, $isPerm) {
+                                return !\App\Services\RdpRetentionService::isPeriodExpired(
+                                    $p->date_covered,
+                                    $p->date_covered_end ?? null,
+                                    $effTotal,
+                                    $effActive,
+                                    $effStorage,
+                                    $isPerm
+                                );
+                            });
+
+                            if ($activePeriods->isEmpty()) {
+                                continue;
+                            }
+                        } else {
+                            $activePeriods = $recPeriods;
+                        }
+
                         $uRows = ($utilities[$rec->id] ?? collect())->pluck('utility_name')->all();
 
                         $recMedium = '—';
@@ -1012,8 +1265,61 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                             $recDup = '—';
                         }
 
-                        $compiledDates[] = $rawDate;
-                        $compiledVols[] = $rec->volume;
+                        $subPeriodItems = [];
+                        if ($isBatch && $activePeriods->isNotEmpty()) {
+                            $batchStart = $activePeriods->whereNotNull('date_covered')->min('date_covered');
+                            $batchEnd = $activePeriods->whereNotNull('date_covered_end')->max('date_covered_end')
+                                        ?: $activePeriods->whereNotNull('date_covered')->max('date_covered');
+                            $formattedDate = $this->formatBatchDateRange($batchStart, $batchEnd, true);
+
+                            if (!empty($batchStart) && !empty($batchEnd)) {
+                                $compiledDates[] = $batchStart . ' - ' . $batchEnd;
+                            }
+
+                            foreach ($activePeriods as $p) {
+                                if (!empty($p->date_covered) && !empty($p->date_covered_end)) {
+                                    $compiledDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
+                                } elseif (!empty($p->date_covered)) {
+                                    $compiledDates[] = $p->date_covered;
+                                } elseif (!empty($p->date_covered_end)) {
+                                    $compiledDates[] = $p->date_covered_end;
+                                }
+                            }
+
+                            foreach ($activePeriods as $p) {
+                                $originalIndex = $recPeriods->values()->search(fn($item) => $item->id == $p->id) + 1;
+                                $subPeriodItems[] = (object)[
+                                    'id'            => $rec->id . '-sub-' . $p->id,
+                                    'parent_rec_id' => $rec->id,
+                                    'period_id'     => $p->id,
+                                    'description'   => $rec->description . ' ' . $originalIndex,
+                                    'date_covered'  => $this->formatBatchDateRange($p->date_covered, $p->date_covered_end ?? null, false),
+                                    'volume'        => !empty($p->volume) ? $p->volume : '—',
+                                    'medium'        => $recMedium,
+                                    'restriction'   => $recRestriction,
+                                    'location'      => $rec->records_location ?: '—',
+                                    'frequence_use' => $recFreq,
+                                    'duplication'   => $recDup,
+                                    'time_value'    => $rec->time_value ?: 'T',
+                                    'utility'       => $this->formatItemUtility($uRows),
+                                    'is_sub_period' => true,
+                                    'sub_index'     => $originalIndex,
+                                ];
+                            }
+
+                            $batchActiveVol = $this->compileVolume($activePeriods->pluck('volume')->all());
+                            $recVolume = $batchActiveVol ?: '—';
+                        } else {
+                            $pRow = $recPeriods->first() ?? null;
+                            $rawDate = $pRow->date_covered ?? '';
+                            $rawDateEnd = $pRow->date_covered_end ?? null;
+                            if (!empty($rawDate)) $compiledDates[] = $rawDate;
+                            if (!empty($rawDateEnd)) $compiledDates[] = $rawDateEnd;
+                            $formattedDate = !empty($rawDateEnd) ? $this->formatDateRange($rawDate, $rawDateEnd) : $this->formatItemDate($rawDate);
+                            $recVolume = $rec->volume ?: '—';
+                        }
+
+                        $compiledVols[] = $recVolume;
                         $compiledMediums[] = $recMedium;
                         $compiledRestrictions[] = $recRestriction;
                         $compiledLocs[] = $rec->records_location;
@@ -1026,8 +1332,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                             'id'            => $rec->id,
                             'series_id'     => $sub->id,
                             'description'   => $rec->description,
-                            'date_covered'  => $this->formatItemDate($rawDate),
-                            'volume'        => $rec->volume ?: '—',
+                            'date_covered'  => $formattedDate,
+                            'volume'        => $recVolume,
                             'medium'        => $recMedium,
                             'restriction'   => $recRestriction,
                             'location'      => $rec->records_location ?: '—',
@@ -1035,20 +1341,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                             'duplication'   => $recDup,
                             'time_value'    => $rec->time_value ?: 'T',
                             'utility'       => $this->formatItemUtility($uRows),
+                            'is_batch'      => $isBatch,
+                            'sub_periods'   => $subPeriodItems,
                         ];
                         $totalItemsCount++;
                     }
 
-                    $isPerm = (bool)($sub->is_retention_period_permanent) 
-                              || strtolower(trim($sub->total_period ?? '')) === 'permanent'
-                              || (empty($sub->total_period) && ((bool)($root->is_retention_period_permanent) || strtolower(trim($root->total_period ?? '')) === 'permanent'));
+                    if (empty($childItems)) continue;
 
                     if ($isPerm) $permanentCount++; else $temporaryCount++;
-
-                    // Effective retention
-                    $effActive = $sub->active_period ?: ($root->active_period ?: '—');
-                    $effStorage = $sub->storage_period ?: ($root->storage_period ?: '');
-                    $effTotal = $sub->total_period ?: ($root->total_period ?: '—');
 
                     $rootNode->sub_series[] = (object)[
                         'id'                   => $sub->id,
@@ -1077,6 +1378,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 $directRecs = $recordsBySeries[$root->id] ?? collect();
                 if ($directRecs->isEmpty()) continue; // Only show if used!
 
+                $isPerm = (bool)($root->is_retention_period_permanent) || strtolower(trim($root->total_period ?? '')) === 'permanent';
+                $effActive = $root->active_period ?: '—';
+                $effStorage = $root->storage_period ?: '';
+                $effTotal = $root->total_period ?: '—';
+
                 $compiledDates = [];
                 $compiledVols = [];
                 $compiledMediums = [];
@@ -1089,8 +1395,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 $childItems = [];
 
                 foreach ($directRecs as $rec) {
-                    $pRow = $periods[$rec->id]->first() ?? null;
-                    $rawDate = $pRow->date_covered ?? '';
+                    $recPeriods = $periods[$rec->id] ?? collect();
+                    $isBatch = (bool)($rec->ispartof_batch ?? false) || $recPeriods->count() > 1;
+
+                    if ($isBatch) {
+                        $activePeriods = $recPeriods->filter(function($p) use ($effTotal, $effActive, $effStorage, $isPerm) {
+                            return !\App\Services\RdpRetentionService::isPeriodExpired(
+                                $p->date_covered,
+                                $p->date_covered_end ?? null,
+                                $effTotal,
+                                $effActive,
+                                $effStorage,
+                                $isPerm
+                            );
+                        });
+
+                        if ($activePeriods->isEmpty()) {
+                            continue;
+                        }
+                    } else {
+                        $activePeriods = $recPeriods;
+                    }
+
                     $uRows = ($utilities[$rec->id] ?? collect())->pluck('utility_name')->all();
 
                     $recMedium = '—';
@@ -1108,8 +1434,67 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         $recDup = '—';
                     }
 
-                    $compiledDates[] = $rawDate;
-                    $compiledVols[] = $rec->volume;
+                    $subPeriodItems = [];
+
+                    if ($isBatch && $activePeriods->isNotEmpty()) {
+                        $batchStart = $activePeriods->whereNotNull('date_covered')->min('date_covered');
+                        $batchEnd = $activePeriods->whereNotNull('date_covered_end')->max('date_covered_end')
+                                    ?: $activePeriods->whereNotNull('date_covered')->max('date_covered');
+                        $formattedDate = $this->formatBatchDateRange($batchStart, $batchEnd, true);
+
+                        if (!empty($batchStart) && !empty($batchEnd)) {
+                            $compiledDates[] = $batchStart . ' - ' . $batchEnd;
+                        }
+
+                        foreach ($activePeriods as $p) {
+                            if (!empty($p->date_covered) && !empty($p->date_covered_end)) {
+                                $compiledDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
+                            } elseif (!empty($p->date_covered)) {
+                                $compiledDates[] = $p->date_covered;
+                            } elseif (!empty($p->date_covered_end)) {
+                                $compiledDates[] = $p->date_covered_end;
+                            }
+                        }
+
+                        foreach ($activePeriods as $p) {
+                            $originalIndex = $recPeriods->values()->search(fn($item) => $item->id == $p->id) + 1;
+                            $subPeriodItems[] = (object)[
+                                'id'            => $rec->id . '-sub-' . $p->id,
+                                'parent_rec_id' => $rec->id,
+                                'period_id'     => $p->id,
+                                'description'   => $rec->description . ' ' . $originalIndex,
+                                'date_covered'  => $this->formatBatchDateRange($p->date_covered, $p->date_covered_end ?? null, false),
+                                'volume'        => !empty($p->volume) ? $p->volume : '—',
+                                'medium'        => $recMedium,
+                                'restriction'   => $recRestriction,
+                                'location'      => $rec->records_location ?: '—',
+                                'frequence_use' => $recFreq,
+                                'duplication'   => $recDup,
+                                'time_value'    => $rec->time_value ?: 'T',
+                                'utility'       => $this->formatItemUtility($uRows),
+                                'is_sub_period' => true,
+                                'sub_index'     => $originalIndex,
+                            ];
+                        }
+
+                        $batchActiveVol = $this->compileVolume($activePeriods->pluck('volume')->all());
+                        $recVolume = $batchActiveVol ?: '—';
+                    } else {
+                        $pRow = $recPeriods->first() ?? null;
+                        $rawDate = $pRow->date_covered ?? '';
+                        $rawDateEnd = $pRow->date_covered_end ?? null;
+                        if (!empty($rawDate) && !empty($rawDateEnd)) {
+                            $compiledDates[] = $rawDate . ' - ' . $rawDateEnd;
+                        } elseif (!empty($rawDate)) {
+                            $compiledDates[] = $rawDate;
+                        } elseif (!empty($rawDateEnd)) {
+                            $compiledDates[] = $rawDateEnd;
+                        }
+                        $formattedDate = !empty($rawDateEnd) ? $this->formatDateRange($rawDate, $rawDateEnd) : $this->formatItemDate($rawDate);
+                        $recVolume = $rec->volume ?: '—';
+                    }
+
+                    $compiledVols[] = $recVolume;
                     $compiledMediums[] = $recMedium;
                     $compiledRestrictions[] = $recRestriction;
                     $compiledLocs[] = $rec->records_location;
@@ -1122,8 +1507,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         'id'            => $rec->id,
                         'series_id'     => $root->id,
                         'description'   => $rec->description,
-                        'date_covered'  => $this->formatItemDate($rawDate),
-                        'volume'        => $rec->volume ?: '—',
+                        'date_covered'  => $formattedDate,
+                        'volume'        => $recVolume,
                         'medium'        => $recMedium,
                         'restriction'   => $recRestriction,
                         'location'      => $rec->records_location ?: '—',
@@ -1131,11 +1516,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         'duplication'   => $recDup,
                         'time_value'    => $rec->time_value ?: 'T',
                         'utility'       => $this->formatItemUtility($uRows),
+                        'is_batch'      => $isBatch,
+                        'sub_periods'   => $subPeriodItems,
                     ];
                     $totalItemsCount++;
                 }
 
-                $isPerm = (bool)($root->is_retention_period_permanent) || strtolower(trim($root->total_period ?? '')) === 'permanent';
+                if (empty($childItems)) continue;
+
                 if ($isPerm) $permanentCount++; else $temporaryCount++;
 
                 $rootNode->compiled_period      = $this->compilePeriodCovered($compiledDates);
@@ -1720,11 +2108,43 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
                                         <td style="text-align: center; color: #cbd5e1;">—</td>
                                         <td style="text-align: right; white-space: nowrap;">
-                                            <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
-                                                Edit
-                                            </button>
+                                            @if(empty($rec->is_batch))
+                                                <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
+                                                    Edit
+                                                </button>
+                                            @else
+                                                <span style="color: #94a3b8; font-size: 11px;">—</span>
+                                            @endif
                                         </td>
                                     </tr>
+
+                                    @if(!empty($rec->is_batch) && !empty($rec->sub_periods))
+                                        @foreach($rec->sub_periods as $subP)
+                                            <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
+                                                <td style="text-align: center; padding: 6px 4px; white-space: nowrap;"></td>
+                                                <td style="padding-left: 64px;">
+                                                    <span style="color: #94a3b8; margin-right: 4px;">└</span>
+                                                    <span style="font-weight: 500; color: #334155; font-size: 12px;">{{ $subP->description }}</span>
+                                                </td>
+                                                <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->date_covered }}</td>
+                                                <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->volume }}</td>
+                                                <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->medium }}</td>
+                                                <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->restriction }}</td>
+                                                <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->location }}</td>
+                                                <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->frequence_use }}</td>
+                                                <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->duplication }}</td>
+                                                <td style="text-align: center; font-weight: 600; color: #64748b; font-size: 11.5px;">{{ $subP->time_value }}</td>
+                                                <td style="text-align: center; font-size: 11px; color: #64748b;">{{ $subP->utility }}</td>
+                                                <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
+                                                <td style="text-align: center; color: #cbd5e1;">—</td>
+                                                <td style="text-align: right; white-space: nowrap;">
+                                                    <button type="button" wire:click="openEditSubjectModal({{ $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
+                                                        Edit
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    @endif
                                 @endforeach
                             @endforeach
                         @else
@@ -1757,11 +2177,43 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
                                     <td style="text-align: center; color: #cbd5e1;">—</td>
                                     <td style="text-align: right; white-space: nowrap;">
-                                        <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
-                                            Edit
-                                        </button>
+                                        @if(empty($rec->is_batch))
+                                            <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
+                                                Edit
+                                            </button>
+                                        @else
+                                            <span style="color: #94a3b8; font-size: 11px;">—</span>
+                                        @endif
                                     </td>
                                 </tr>
+
+                                @if(!empty($rec->is_batch) && !empty($rec->sub_periods))
+                                    @foreach($rec->sub_periods as $subP)
+                                        <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
+                                            <td style="text-align: center; padding: 6px 4px; white-space: nowrap;"></td>
+                                            <td style="padding-left: 50px;">
+                                                <span style="color: #94a3b8; margin-right: 4px;">└</span>
+                                                <span style="font-weight: 500; color: #334155; font-size: 12px;">{{ $subP->description }}</span>
+                                            </td>
+                                            <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->date_covered }}</td>
+                                            <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->volume }}</td>
+                                            <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->medium }}</td>
+                                            <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->restriction }}</td>
+                                            <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->location }}</td>
+                                            <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->frequence_use }}</td>
+                                            <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->duplication }}</td>
+                                            <td style="text-align: center; font-weight: 600; color: #64748b; font-size: 11.5px;">{{ $subP->time_value }}</td>
+                                            <td style="text-align: center; font-size: 11px; color: #64748b;">{{ $subP->utility }}</td>
+                                            <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
+                                            <td style="text-align: center; color: #cbd5e1;">—</td>
+                                            <td style="text-align: right; white-space: nowrap;">
+                                                <button type="button" wire:click="openEditSubjectModal({{ $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
+                                                    Edit
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                @endif
                             @endforeach
                         @endif
                     @empty
@@ -1812,6 +2264,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     'rec'    => $rec,
                                     'indent' => 20,
                                 ];
+                                if (!empty($rec->is_batch) && !empty($rec->sub_periods)) {
+                                    foreach ($rec->sub_periods as $subP) {
+                                        $flattenedItems[] = [
+                                            'type'   => 'record',
+                                            'rec'    => $subP,
+                                            'indent' => 32,
+                                        ];
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -1847,6 +2308,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         'rec'    => $rec,
                                         'indent' => 26,
                                     ];
+                                    if (!empty($rec->is_batch) && !empty($rec->sub_periods)) {
+                                        foreach ($rec->sub_periods as $subP) {
+                                            $flattenedItems[] = [
+                                                'type'   => 'record',
+                                                'rec'    => $subP,
+                                                'indent' => 38,
+                                            ];
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2081,6 +2551,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         @php $rec = $item['rec']; @endphp
                                         <tr style="vertical-align: top;">
                                             <td style="{{ $cellBorder }} text-align: left; padding: 2px 6px 2px {{ $item['indent'] ?? 20 }}px; font-size: 7px;">
+                                                @if(!empty($rec->is_sub_period))
+                                                    <span style="margin-right: 2px;">└</span>
+                                                @endif
                                                 {{ $cleanVal($rec->description) }}
                                             </td>
                                             <td style="{{ $cellBorder }} padding: 2px; text-align: center;">{{ $cleanVal($rec->date_covered) }}</td>
@@ -2184,8 +2657,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             <div class="modal-dialog" style="max-width: 680px; width: 100%;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
                     <div>
-                        <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">Edit Record Subject</h3>
-                        <p style="margin: 2px 0 0 0; font-size: 12px; color: #64748b;">Update and fix details, typos, or classifications for this record.</p>
+                        <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">{{ $editingIsBatchSubPeriod ? 'Edit Batch Item Record' : 'Edit Record Subject' }}</h3>
+                        <p style="margin: 2px 0 0 0; font-size: 12px; color: #64748b;">{{ $editingIsBatchSubPeriod ? 'Update volume, dates, or classifications for this batch item.' : 'Update and fix details, typos, or classifications for this record.' }}</p>
                     </div>
                     <button type="button" wire:click="closeEditSubjectModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
                 </div>
@@ -2194,17 +2667,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     <!-- Subject Description -->
                     <div>
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-                            <label style="font-size: 12px; font-weight: 700; color: #334155;">Subject / Description</label>
-                            @if(!$canEditDescription)
-                                <span title="You do not have clearance to edit this record's description" style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: #94a3b8; background: #f1f5f9; padding: 2px 8px; border-radius: 9999px; border: 1px solid #cbd5e1;">
-                                    <i class="fa-solid fa-lock" style="font-size: 10px;"></i> Locked
+                            <label style="font-size: 12px; font-weight: 700; color: #334155;">{{ $editingIsBatchSubPeriod ? 'Batch Item Name' : 'Subject / Description' }}</label>
+                            @if(!$canEditDescription || $editingIsBatchSubPeriod)
+                                <span title="{{ $editingIsBatchSubPeriod ? 'Batch item name is generated automatically' : 'You do not have clearance to edit this record\'s description' }}" style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: #94a3b8; background: #f1f5f9; padding: 2px 8px; border-radius: 9999px; border: 1px solid #cbd5e1;">
+                                    <i class="fa-solid fa-lock" style="font-size: 10px;"></i> {{ $editingIsBatchSubPeriod ? 'Auto' : 'Locked' }}
                                 </span>
                             @endif
                         </div>
-                        @if($canEditDescription)
+                        @if($canEditDescription && !$editingIsBatchSubPeriod)
                             <textarea wire:model="editSubjectDescription" rows="2" class="nap-form-control" placeholder="Enter record subject title or description" required></textarea>
                         @else
-                            <textarea wire:model="editSubjectDescription" rows="2" class="nap-form-control" readonly disabled title="Editing description is locked due to lack of clearance"></textarea>
+                            <textarea wire:model="editSubjectDescription" rows="2" class="nap-form-control" readonly disabled title="{{ $editingIsBatchSubPeriod ? 'Batch item title is formatted from the batch series' : 'Editing description is locked due to lack of clearance' }}"></textarea>
                         @endif
                     </div>
 

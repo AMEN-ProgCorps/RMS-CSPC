@@ -245,4 +245,35 @@ class CreateTransactionQrCodeTest extends TestCase
             'added_by' => $user->id
         ]);
     }
+
+    public function test_application_letters_saves_originating_office_and_apply_to_office()
+    {
+        $qrCode = 'QR-TST-APL-APP01';
+        DB::table('dts_qr_code')->insert([
+            'code_id' => $qrCode,
+            'qr_status' => 'not used',
+            'created_at' => now(),
+        ]);
+
+        Volt::test('pages.dts.create.application-letters')
+            ->set('seq_number', '8888')
+            ->set('originating_office', 'ORIGIN')
+            ->set('applicant_name', 'Jane Doe')
+            ->set('position', 'Instructor II')
+            ->set('apply_to_office', 'TST-OFF')
+            ->set('type_of_document', 'Test Flow Create')
+            ->set('transaction_flow', 'TEST-FLOW-CREATE')
+            ->set('flow_offices', ['ORIGIN', 'TST-OFF', 'ORIGIN'])
+            ->set('copy_furnished', 'No')
+            ->set('generatedQrCode', $qrCode)
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('dts_transaction_details', [
+            'control_number' => 'APL-' . now()->format('Y-m') . '-8888',
+            'originated_from' => 'ORIGIN',
+            'apply_to_office' => 'TST-OFF',
+            'subject' => 'Application for Instructor II',
+        ]);
+    }
 }

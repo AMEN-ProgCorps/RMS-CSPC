@@ -222,6 +222,8 @@ class DtsExportHelper
         $canViewAll = $user?->permissions?->is_sadm || $user?->permissions?->can_dts_view_all_list;
         if (!$canViewAll) {
             $query->where('dtd.originated_from', $userOfficeCode);
+        } elseif (!empty($filters['office']) && $filters['office'] !== 'all') {
+            $query->where('dtd.originated_from', $filters['office']);
         }
 
         $sortDirection = (!empty($filters['sort_order']) && in_array(strtolower($filters['sort_order']), ['asc', 'desc'])) 

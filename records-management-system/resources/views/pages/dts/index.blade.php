@@ -53,6 +53,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public string $requestorPosition = '';
     public string $emailAccess = '';
     public string $docPassword = '';
+    public string $sourceOffice = '';
+    public string $applyToOffice = '';
     public array $flowOffices = [];
     public string $selectedFlowOfficeToAdd = '';
 
@@ -975,6 +977,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         $this->requestorPosition = '';
         $this->emailAccess = '';
         $this->docPassword = '';
+        $this->sourceOffice = '';
+        $this->applyToOffice = '';
         $this->transactionFlow = '';
         $this->resubmitTarget = 'start';
         $this->showCompletionConfirmModal = false;
@@ -1060,6 +1064,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin('dts_source_office as src', 'src.s_office_code', '=', 'dtd.source_office')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as applied_office', 'applied_office.office_code', '=', 'dtd.apply_to_office')
             ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as creator_ad', 'creator_ad.account_id', '=', 'dtd.created_by')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as creator_acc', 'creator_acc.id', '=', 'dtd.created_by')
@@ -1072,6 +1077,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 'src.s_office_name as source_office_name',
                 'dea.email as access_email',
                 'originated_office.office_name as originated_office_name',
+                'applied_office.office_name as applied_office_name',
                 DB::raw("TRIM(CONCAT(COALESCE(creator_ad.first_name, ''), ' ', COALESCE(creator_ad.last_name, ''))) as creator_name"),
                 'creator_acc.username as creator_username'
             )
@@ -1093,6 +1099,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             
             $this->requestorName = $this->selectedTransaction->requestor_name ?: '';
             $this->requestorPosition = $this->selectedTransaction->requestor_label ?: '';
+            $this->sourceOffice = $this->selectedTransaction->source_office ?? '';
+            $this->applyToOffice = $this->selectedTransaction->apply_to_office ?? '';
             $this->emailAccess = $this->selectedTransaction->access_email ?: '';
             $this->docPassword = $this->selectedTransaction->document_password ?: '';
             $this->transactionFlow = $this->selectedTransaction->transaction_flow ?: '';
@@ -1918,6 +1926,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     'subject' => $this->particulars,
                     'classification' => $this->classification ?: null,
                     'action_needed' => $this->actionNeeded ?: null,
+                    'source_office' => $this->sourceOffice ?: ($this->selectedTransaction->source_office ?? null),
+                    'apply_to_office' => $this->applyToOffice ?: ($this->selectedTransaction->apply_to_office ?? null),
                     'requestor_id' => $reqId,
                     'email_access' => $emailAccessId,
                     'document_password' => $this->docPassword ?: null,
@@ -3490,6 +3500,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     
                     <div class="receive-fields">
                         <!-- Control Number field -->
+                        @php
+                            $canSeeModalCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (strtolower($selectedTransaction->status ?? '') === 'completed');
+                        @endphp
+                        @if ($canSeeModalCtrlNo)
                         <div class="receive-field-row">
                             <span class="receive-field-label">Control #:</span>
                             @if ($editingAll && $hasWideEditClearance)
@@ -3498,6 +3512,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 <input type="text" class="receive-field-input" value="{{ $controlNumber }}" readonly style="background-color: #f8fafc; color: #64748b;" title="{{ $editingAll ? 'Control Number can only be edited by administrators' : '' }}">
                             @endif
                         </div>
+                        @endif
 
                         <!-- Originator field -->
                         <div class="receive-field-row">
@@ -3549,6 +3564,34 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             @endif
                         </div>
 
+                        <!-- Source Office field -->
+                        @if (($selectedTransaction->trans_type ?? '') === 'external' || !empty($selectedTransaction->source_office))
+                            <div class="receive-field-row" style="align-items: center;">
+                                <span class="receive-field-label">Source Office:</span>
+                                @if ($editingAll)
+                                    @php
+                                        $availableSourceOffices = DB::table('dts_source_office')
+                                            ->where('is_active', true)
+                                            ->orderBy('s_office_name', 'asc')
+                                            ->get();
+                                    @endphp
+                                    <select class="receive-field-input" wire:model.live="sourceOffice" style="height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; background: #fff;">
+                                        <option value="">-- Select Source Office --</option>
+                                        @foreach ($availableSourceOffices as $so)
+                                            <option value="{{ $so->s_office_code }}">{{ $so->s_office_name }} ({{ $so->s_office_code }})</option>
+                                        @endforeach
+                                    </select>
+                                @else
+                                    @php
+                                        $soName = $selectedTransaction->source_office_name ?? '';
+                                        $soCode = $selectedTransaction->source_office ?? '';
+                                        $soDisplay = $soName ? ($soName . ($soCode && $soCode !== $soName ? " ({$soCode})" : '')) : ($soCode ?: 'N/A');
+                                    @endphp
+                                    <input type="text" class="receive-field-input" value="{{ $soDisplay }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                                @endif
+                            </div>
+                        @endif
+
                         <!-- Subject field -->
                         <div class="receive-field-row receive-field-row--particulars" style="grid-template-columns: 110px minmax(0, 1fr); align-items: start; min-width: 0; width: 100%;">
                             <span class="receive-field-label" style="padding-top: 8px;">Subject:</span>
@@ -3586,6 +3629,34 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <input type="text" class="receive-field-input" value="{{ $requestorPosition ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
                                     @endif
                                 </div>
+                                @if (($selectedTransaction->trans_type ?? '') === 'others' || !empty($selectedTransaction->apply_to_office))
+                                    <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                        <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Applied Unit/Colleges:</span>
+                                        @if ($editingAll)
+                                            @php
+                                                $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+                                                $appliedOfficesList = DB::table($officeTable)
+                                                    ->where('is_active', true)
+                                                    ->whereNotIn('office_code', ['ORIGIN', '[H]'])
+                                                    ->orderBy('office_name')
+                                                    ->get();
+                                            @endphp
+                                            <select class="receive-field-input" wire:model.live="applyToOffice" style="height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; background: #fff;">
+                                                <option value="">-- Select Unit / College --</option>
+                                                @foreach ($appliedOfficesList as $ao)
+                                                    <option value="{{ $ao->office_code }}">{{ $ao->office_name }} ({{ $ao->office_code }})</option>
+                                                @endforeach
+                                            </select>
+                                        @else
+                                            @php
+                                                $aoName = $selectedTransaction->applied_office_name ?? '';
+                                                $aoCode = $selectedTransaction->apply_to_office ?? '';
+                                                $aoDisplay = $aoName ? ($aoName . ($aoCode && $aoCode !== $aoName ? " ({$aoCode})" : '')) : ($aoCode ?: 'N/A');
+                                            @endphp
+                                            <input type="text" class="receive-field-input" value="{{ $aoDisplay }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                                        @endif
+                                    </div>
+                                @endif
                                 @if ($editingAll || (!empty(trim($emailAccess ?? '')) && $emailAccess !== 'N/A'))
                                     <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
                                         <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Email Access:</span>

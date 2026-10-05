@@ -217,6 +217,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public $selectedTransaction = null;
     public string $controlNumber = '';
     public string $fileCode = '';
+    public string $applyToOffice = '';
     public string $particulars = '';
     public string $classification = '';
     public string $actionNeeded = '';
@@ -637,6 +638,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
         $this->emailAccess = '';
         $this->docPassword = '';
         $this->transactionFlow = '';
+        $this->applyToOffice = '';
     }
 
     public function toggleMoreDetails(): void
@@ -811,6 +813,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                     'subject' => $this->particulars,
                     'classification' => $this->classification ?: null,
                     'action_needed' => $this->actionNeeded ?: null,
+                    'apply_to_office' => $this->applyToOffice ?: ($this->selectedTransaction->apply_to_office ?? null),
                     'requestor_id' => $requestorId,
                     'email_access' => $emailAccessId,
                     'document_password' => $this->docPassword ?: null,
@@ -931,6 +934,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as applied_office', 'applied_office.office_code', '=', 'dtd.apply_to_office')
             ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as creator_ad', 'creator_ad.account_id', '=', 'dtd.created_by')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as creator_acc', 'creator_acc.id', '=', 'dtd.created_by')
@@ -942,6 +946,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                 'req.requestor_position as requestor_label',
                 'dea.email as access_email',
                 'originated_office.office_name as originated_office_name',
+                'applied_office.office_name as applied_office_name',
                 DB::raw("TRIM(CONCAT(COALESCE(creator_ad.first_name, ''), ' ', COALESCE(creator_ad.last_name, ''))) as creator_name"),
                 'creator_acc.username as creator_username'
             )
@@ -955,6 +960,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
 
         if ($this->selectedTransaction) {
             $this->controlNumber = $this->selectedTransaction->control_number;
+            $this->applyToOffice = $this->selectedTransaction->apply_to_office ?? '';
             $this->fileCode = $this->selectedTransaction->copy_filled_id ?: '';
             $this->particulars = $this->selectedTransaction->subject ?: '';
             $this->classification = $this->selectedTransaction->classification ?: '';
@@ -1841,6 +1847,32 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                         <input type="text" class="receive-field-input" wire:model="requestorPosition">
                                     @else
                                         <input type="text" class="receive-field-input" value="{{ $requestorPosition ?: 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                                    @endif
+                                </div>
+                                <div class="receive-field-row" style="grid-template-columns: 180px 1fr; margin-bottom: 12px; align-items: center;">
+                                    <span class="receive-field-label" style="font-weight: 600; color: #475569; white-space: nowrap;">Applied Unit/Colleges:</span>
+                                    @if ($editingAll)
+                                        @php
+                                            $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+                                            $appliedOfficesList = DB::table($officeTable)
+                                                ->where('is_active', true)
+                                                ->whereNotIn('office_code', ['ORIGIN', '[H]'])
+                                                ->orderBy('office_name')
+                                                ->get();
+                                        @endphp
+                                        <select class="receive-field-input" wire:model.live="applyToOffice" style="height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; background: #fff;">
+                                            <option value="">-- Select Unit / College --</option>
+                                            @foreach ($appliedOfficesList as $ao)
+                                                <option value="{{ $ao->office_code }}">{{ $ao->office_name }} ({{ $ao->office_code }})</option>
+                                            @endforeach
+                                        </select>
+                                    @else
+                                        @php
+                                            $aoName = $selectedTransaction->applied_office_name ?? '';
+                                            $aoCode = $selectedTransaction->apply_to_office ?? '';
+                                            $aoDisplay = $aoName ? ($aoName . ($aoCode && $aoCode !== $aoName ? " ({$aoCode})" : '')) : ($aoCode ?: 'N/A');
+                                        @endphp
+                                        <input type="text" class="receive-field-input" value="{{ $aoDisplay }}" readonly style="background-color: #f8fafc; color: #64748b;">
                                     @endif
                                 </div>
                                 @if ($editingAll || (!empty(trim($emailAccess ?? '')) && $emailAccess !== 'N/A'))

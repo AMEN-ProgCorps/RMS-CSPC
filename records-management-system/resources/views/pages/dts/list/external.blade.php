@@ -217,6 +217,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
     public $selectedTransaction = null;
     public string $controlNumber = '';
     public string $fileCode = '';
+    public string $sourceOffice = '';
     public string $particulars = '';
     public string $classification = '';
     public string $actionNeeded = '';
@@ -668,6 +669,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
         $this->emailAccess = '';
         $this->docPassword = '';
         $this->transactionFlow = '';
+        $this->sourceOffice = '';
     }
 
     public function toggleMoreDetails(): void
@@ -842,6 +844,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                     'subject' => $this->particulars,
                     'classification' => $this->classification ?: null,
                     'action_needed' => $this->actionNeeded ?: null,
+                    'source_office' => $this->sourceOffice ?: null,
                     'requestor_id' => $requestorId,
                     'email_access' => $emailAccessId,
                     'document_password' => $this->docPassword ?: null,
@@ -961,6 +964,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
         $this->selectedTransaction = DB::table('dts_transactions as dt')
             ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
             ->leftJoin('dts_requestor_history as req', 'req.id', '=', 'dtd.requestor_id')
+            ->leftJoin('dts_source_office as so', 'so.s_office_code', '=', 'dtd.source_office')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
             ->leftJoin('dts_email_access as dea', 'dea.id', '=', 'dtd.email_access')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as creator_ad', 'creator_ad.account_id', '=', 'dtd.created_by')
@@ -969,6 +973,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
             ->select(
                 'dt.*',
                 'dtd.*',
+                'so.s_office_name as source_office_name',
                 'req.requestor_name',
                 'req.requestor_position as requestor_label',
                 'dea.email as access_email',
@@ -986,6 +991,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
 
         if ($this->selectedTransaction) {
             $this->controlNumber = $this->selectedTransaction->control_number;
+            $this->sourceOffice = $this->selectedTransaction->source_office ?? '';
             $this->fileCode = $this->selectedTransaction->copy_filled_id ?: '';
             $this->particulars = $this->selectedTransaction->subject ?: '';
             $this->classification = $this->selectedTransaction->classification ?: '';
@@ -1857,6 +1863,32 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                     }
                                 @endphp
                                 <input type="text" class="receive-field-input" value="{{ $flowName }}" readonly style="background-color: #f8fafc; color: #64748b;">
+                            @endif
+                        </div>
+
+                        <!-- Source Office field -->
+                        <div class="receive-field-row" style="align-items: center;">
+                            <span class="receive-field-label">Source Office:</span>
+                            @if ($editingAll)
+                                @php
+                                    $availableSourceOffices = DB::table('dts_source_office')
+                                        ->where('is_active', true)
+                                        ->orderBy('s_office_name', 'asc')
+                                        ->get();
+                                @endphp
+                                <select class="receive-field-input" wire:model.live="sourceOffice" style="height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; background: #fff;">
+                                    <option value="">-- Select Source Office --</option>
+                                    @foreach ($availableSourceOffices as $so)
+                                        <option value="{{ $so->s_office_code }}">{{ $so->s_office_name }} ({{ $so->s_office_code }})</option>
+                                    @endforeach
+                                </select>
+                            @else
+                                @php
+                                    $soName = $selectedTransaction->source_office_name ?? '';
+                                    $soCode = $selectedTransaction->source_office ?? '';
+                                    $soDisplay = $soName ? ($soName . ($soCode && $soCode !== $soName ? " ({$soCode})" : '')) : ($soCode ?: 'N/A');
+                                @endphp
+                                <input type="text" class="receive-field-input" value="{{ $soDisplay }}" readonly style="background-color: #f8fafc; color: #64748b;">
                             @endif
                         </div>
 

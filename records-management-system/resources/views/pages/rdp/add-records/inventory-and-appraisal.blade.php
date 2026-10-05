@@ -101,6 +101,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public $uploadedFile = null;
     public ?string $successMessage = null;
     public ?string $errorMessage = null;
+    public bool $showValidationErrors = false;
 
     // Mode State: 'single', 'multi' (formerly batch), 'batch' (combined period range & volume breakdown)
     public string $entryMode = 'single';
@@ -118,8 +119,18 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public string $batch_end_month = '';
     public string $batch_end_year = '';
     public string $batch_volume_unit = 'papers';
+    public string $batch_default_volume = '';
     public bool $batch_dropdown_expanded = true;
     public array $batch_sub_periods = [];
+
+    public function applyBatchDefaultVolume(): void
+    {
+        $val = trim($this->batch_default_volume);
+        if ($val === '') return;
+        foreach ($this->batch_sub_periods as $idx => $sub) {
+            $this->batch_sub_periods[$idx]['volume'] = $val;
+        }
+    }
 
     public function updatedBatchStartDate(): void
     {
@@ -328,7 +339,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         if ($startYear === $endYear) {
             $sStr = $start->format('Y-m-d');
             $eStr = $end->format('Y-m-d');
-            $vol = $existingVolumes[$sStr . '_' . $eStr] ?? $existingVolumes['year_' . $startYear] ?? '';
+            $vol = $existingVolumes[$sStr . '_' . $eStr] ?? $existingVolumes['year_' . $startYear] ?? ($this->batch_default_volume ?: '');
             $subStart = Carbon::parse($sStr);
             $subEnd = Carbon::parse($eStr);
             $newSubPeriods[] = [
@@ -356,7 +367,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     $eStr = Carbon::create($y, 12, 31)->format('Y-m-d');
                 }
 
-                $vol = $existingVolumes[$sStr . '_' . $eStr] ?? $existingVolumes['year_' . $y] ?? '';
+                $vol = $existingVolumes[$sStr . '_' . $eStr] ?? $existingVolumes['year_' . $y] ?? ($this->batch_default_volume ?: '');
                 $subStart = Carbon::parse($sStr);
                 $subEnd = Carbon::parse($eStr);
 
@@ -431,7 +442,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             'end_day'     => (string)$cEnd->day,
             'end_month'   => (string)$cEnd->month,
             'end_year'    => (string)$cEnd->year,
-            'volume'      => '',
+            'volume'      => $this->batch_default_volume ?: '',
         ];
 
         $this->recalculateBatchRangeFromSubPeriods();
@@ -970,6 +981,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function mount(): void
     {
+        $this->showValidationErrors = false;
         $this->time_value = $this->is_permanent ? 'P' : 'T';
 
         if ($this->records_medium === null) {
@@ -980,6 +992,15 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
         if (empty($this->date_covered)) {
             $this->date_covered = Carbon::now()->format('Y-m-d');
+        }
+        if (empty($this->records_location)) {
+            $this->records_location = 'Records Office';
+        }
+        if (empty($this->frequence_use)) {
+            $this->frequence_use = 'Annually';
+        }
+        if (empty($this->utility_values)) {
+            $this->utility_values = [1];
         }
 
         $this->prefill_intake_id = request()->query('prefill_intake_id') ? (int)request()->query('prefill_intake_id') : null;
@@ -1507,6 +1528,143 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         ];
     }
 
+    public function validateRecordData(): bool
+    {
+        $fail = function(string $msg): bool {
+            $this->showValidationErrors = true;
+            $this->errorMessage = $msg;
+            $this->dispatch('scroll-to-top');
+            return false;
+        };
+
+        if (empty($this->selectedSeriesTitle)) {
+            return $fail('Please select or configure a Record Series first.');
+        }
+
+        $requiredUpload = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'rdp_required_upload_file')->value('value') === 'true';
+        if ($requiredUpload && !$this->uploadedFile) {
+            return $fail('Uploading a file is required to save a record according to system settings.');
+        }
+
+        if ($this->entryMode === 'single') {
+            if (empty(trim($this->description))) {
+                return $fail('Please provide a Record Subject / Description.');
+            }
+
+            if (empty(trim($this->date_covered))) {
+                return $fail('Please provide the Period Covered (Date Covered).');
+            }
+
+            $vol = trim($this->volume ?: ($this->volume_amount ? ($this->volume_amount . ' ' . $this->volume_unit) : ''));
+            if (empty($vol) || !preg_match('/\d/', $vol)) {
+                return $fail('Please provide a valid Volume Amount & Unit (e.g. 1 box 10 papers).');
+            }
+
+            if (empty(trim($this->records_location))) {
+                return $fail('Please provide the Records Location (e.g. Cabinet 3, Shelf 2).');
+            }
+
+            if (empty($this->records_medium)) {
+                return $fail('Please select a Records Medium.');
+            }
+
+            if (empty($this->restriction)) {
+                return $fail('Please select a Restriction / Access type.');
+            }
+
+            if (empty($this->frequence_use)) {
+                return $fail('Please select the Frequency of Use.');
+            }
+
+            if (empty($this->utility_values)) {
+                return $fail('Please select at least one Utility Value (e.g. Administrative).');
+            }
+        } elseif ($this->entryMode === 'batch') {
+            if (empty(trim($this->description))) {
+                return $fail('Please provide a Record Subject / Description for the batch.');
+            }
+
+            if (empty($this->batch_start_date) || empty($this->batch_end_date)) {
+                return $fail('Please provide both Start and End dates for the period covered.');
+            }
+
+            if (empty($this->batch_sub_periods)) {
+                return $fail('Please generate the period breakdown ranges for the batch.');
+            }
+
+            foreach ($this->batch_sub_periods as $pIdx => $sub) {
+                $sVol = trim((string)($sub['volume'] ?? ''));
+                if (empty($sVol) || !preg_match('/\d/', $sVol)) {
+                    $yearLabel = !empty($sub['start_date']) ? Carbon::parse($sub['start_date'])->format('Y') : ('#' . ($pIdx + 1));
+                    return $fail("Please provide a valid volume for all period breakdowns (e.g. 1 box 10 papers). Missing volume for period {$yearLabel}.");
+                }
+            }
+
+            if (empty(trim($this->records_location))) {
+                return $fail('Please provide the Records Location (e.g. Cabinet 3, Shelf 2).');
+            }
+
+            if (empty($this->records_medium)) {
+                return $fail('Please select a Records Medium.');
+            }
+
+            if (empty($this->restriction)) {
+                return $fail('Please select a Restriction / Access type.');
+            }
+
+            if (empty($this->frequence_use)) {
+                return $fail('Please select the Frequency of Use.');
+            }
+
+            if (empty($this->utility_values)) {
+                return $fail('Please select at least one Utility Value (e.g. Administrative).');
+            }
+        } elseif ($this->entryMode === 'multi') {
+            if (empty($this->batchItems)) {
+                return $fail('Please add at least one record item.');
+            }
+
+            foreach ($this->batchItems as $bIdx => $bItem) {
+                $itemNum = $bIdx + 1;
+                if (empty(trim($bItem['description'] ?? ''))) {
+                    return $fail("Please provide a Subject / Title for Record #{$itemNum}.");
+                }
+
+                if (empty(trim($bItem['date_covered'] ?? ''))) {
+                    return $fail("Please provide the Date Covered for Record #{$itemNum}.");
+                }
+
+                $iVol = trim((string)($bItem['volume'] ?? ''));
+                if (empty($iVol) || !preg_match('/\d/', $iVol)) {
+                    return $fail("Please provide a valid Volume Amount & Unit (e.g. 1 box 10 papers) for Record #{$itemNum}.");
+                }
+
+                if (empty(trim($bItem['records_location'] ?? ''))) {
+                    return $fail("Please provide the Records Location for Record #{$itemNum}.");
+                }
+
+                if (empty($bItem['records_medium'])) {
+                    return $fail("Please select a Records Medium for Record #{$itemNum}.");
+                }
+
+                if (empty($bItem['restriction'])) {
+                    return $fail("Please select a Restriction type for Record #{$itemNum}.");
+                }
+
+                if (empty($bItem['frequence_use'])) {
+                    return $fail("Please select the Frequency of Use for Record #{$itemNum}.");
+                }
+
+                if (empty($bItem['utility_values'])) {
+                    return $fail("Please select at least one Utility Value for Record #{$itemNum}.");
+                }
+            }
+        }
+
+        $this->showValidationErrors = false;
+        return true;
+    }
+
     public function saveDraft(): void
     {
         $rateCheck = \App\Services\RateLimiterService::check('rdp_create');
@@ -1516,9 +1674,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             return;
         }
 
-        if (empty($this->selectedSeriesTitle)) {
-            $this->errorMessage = 'Please select or stage a Record Series first to save draft.';
-            $this->dispatch('scroll-to-top');
+        if (!$this->validateRecordData()) {
             return;
         }
 
@@ -1531,10 +1687,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
             $rawVol = trim($this->volume);
             $rawAmt = trim((string)$this->volume_amount);
-            if (!empty($rawAmt) && preg_match('/\d/', $rawAmt)) {
-                $formattedVolume = mb_strtoupper($rawAmt . ' ' . ($this->volume_unit ?: 'FOLDER'));
-            } elseif (!empty($rawVol) && preg_match('/\d/', $rawVol)) {
+            if (!empty($rawVol) && preg_match('/\d/', $rawVol)) {
                 $formattedVolume = mb_strtoupper($rawVol);
+            } elseif (!empty($rawAmt) && preg_match('/\d/', $rawAmt)) {
+                $formattedVolume = mb_strtoupper($rawAmt . ' ' . ($this->volume_unit ?: 'FOLDER'));
             } else {
                 $formattedVolume = null;
             }
@@ -1787,16 +1943,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             return;
         }
 
-        if (empty($this->selectedSeriesTitle)) {
-            $this->errorMessage = 'Please select or configure a Record Series first.';
-            $this->dispatch('scroll-to-top');
-            return;
-        }
-
-        $requiredUpload = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'rdp_required_upload_file')->value('value') === 'true';
-        if ($requiredUpload && !$this->uploadedFile) {
-            $this->errorMessage = 'Uploading a file is required to create a record according to system settings.';
-            $this->dispatch('scroll-to-top');
+        if (!$this->validateRecordData()) {
             return;
         }
 
@@ -1809,31 +1956,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
             $rawVol = trim($this->volume);
             $rawAmt = trim((string)$this->volume_amount);
-            if (!empty($rawAmt) && preg_match('/\d/', $rawAmt)) {
-                $formattedVolume = mb_strtoupper($rawAmt . ' ' . ($this->volume_unit ?: 'FOLDER'));
-            } elseif (!empty($rawVol) && preg_match('/\d/', $rawVol)) {
+            if (!empty($rawVol) && preg_match('/\d/', $rawVol)) {
                 $formattedVolume = mb_strtoupper($rawVol);
+            } elseif (!empty($rawAmt) && preg_match('/\d/', $rawAmt)) {
+                $formattedVolume = mb_strtoupper($rawAmt . ' ' . ($this->volume_unit ?: 'FOLDER'));
             } else {
                 $formattedVolume = '';
-            }
-
-            if ($this->isAppraising && empty($formattedVolume)) {
-                DB::rollBack();
-                $this->errorMessage = 'Please input a total number for Volume Amount.';
-                $this->dispatch('scroll-to-top');
-                return;
-            }
-
-            if ($this->isAppraising) {
-                if (empty($this->records_medium)) {
-                    $this->records_medium = $this->getDefaultMediumId();
-                }
-                if (empty($this->restriction)) {
-                    $this->restriction = 'Restricted';
-                }
-                if (empty($this->frequence_use)) {
-                    $this->frequence_use = 'Annually';
-                }
             }
 
             $titles = explode(' ➔ ', $this->selectedSeriesTitle);
@@ -2091,12 +2219,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function resetFormFields(): void
     {
+        $this->showValidationErrors = false;
         $this->entryMode = 'single';
         $this->isBatchMode = false;
         $this->batchItems = [];
         $this->batch_start_date = '';
         $this->batch_end_date = '';
         $this->batch_volume_unit = 'papers';
+        $this->batch_default_volume = '';
         $this->batch_dropdown_expanded = true;
         $this->batch_sub_periods = [];
         $this->showBatchModal = false;
@@ -2110,11 +2240,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->prefill_intake_id = null;
         $this->records_medium = $this->getDefaultMediumId();
         $this->restriction = 'Restricted';
-        $this->records_location = '';
-        $this->frequence_use = null;
+        $this->records_location = 'Records Office';
+        $this->frequence_use = 'Annually';
         $this->duplication = null;
         $this->time_value = 'T';
-        $this->utility_values = [];
+        $this->utility_values = [1];
         $this->retention_period = '';
         $this->is_permanent = false;
         $this->active_period = '';
@@ -2370,22 +2500,22 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
                                 <div style="display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 12px; margin-bottom: 12px;">
                                     <div>
-                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Selected Date</label>
+                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Selected Date *</label>
                                         <input type="date" class="ia-input" wire:model.blur="batchItems.{{ $bIdx }}.date_covered" style="width: 100%; box-sizing: border-box;">
                                     </div>
                                     <div>
-                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Volume Amount & Unit</label>
-                                        <input type="text" class="ia-input" wire:model="batchItems.{{ $bIdx }}.volume" placeholder="E.G. 1 BOX 20 PAPERS..." style="width: 100%; box-sizing: border-box;">
+                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Volume Amount & Unit *</label>
+                                        <input type="text" class="ia-input" wire:model="batchItems.{{ $bIdx }}.volume" placeholder="E.G. 1 BOX 10 PAPERS..." style="width: 100%; box-sizing: border-box;">
                                     </div>
                                     <div>
-                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Location</label>
+                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Location *</label>
                                         <input type="text" class="ia-input" wire:model="batchItems.{{ $bIdx }}.records_location" placeholder="E.G. CABINET 3, SHELF 2" style="width: 100%; box-sizing: border-box;">
                                     </div>
                                 </div>
 
                                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px;">
                                     <div>
-                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Medium</label>
+                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Medium *</label>
                                         <select class="ia-input" wire:model.live="batchItems.{{ $bIdx }}.records_medium" style="width: 100%; box-sizing: border-box; background: #ffffff;">
                                             <option value="" disabled {{ empty($bItem['records_medium']) ? 'selected' : '' }}>Select Medium...</option>
                                             @foreach($mediaList as $med)
@@ -2396,7 +2526,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                         </select>
                                     </div>
                                     <div>
-                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Restriction / Access</label>
+                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Restriction / Access *</label>
                                         <select class="ia-input" wire:model.live="batchItems.{{ $bIdx }}.restriction" style="width: 100%; box-sizing: border-box; background: #ffffff;">
                                             <option value="" disabled {{ empty($bItem['restriction']) ? 'selected' : '' }}>Select Restriction...</option>
                                             @foreach($restrictionsList as $rest)
@@ -2407,7 +2537,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                         </select>
                                     </div>
                                     <div>
-                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Frequency of Use</label>
+                                        <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Frequency of Use *</label>
                                         <select class="ia-input" wire:model.live="batchItems.{{ $bIdx }}.frequence_use" style="width: 100%; box-sizing: border-box; background: #ffffff;">
                                             <option value="" disabled {{ empty($bItem['frequence_use']) ? 'selected' : '' }}>Select Frequency...</option>
                                             @foreach($frequenciesList as $freq)
@@ -2420,7 +2550,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                 </div>
 
                                 <div style="margin-bottom: 12px;">
-                                    <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Utility Values</label>
+                                    <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Utility Values *</label>
                                     <div style="display: flex; flex-wrap: wrap; gap: 8px;">
                                         @foreach($utilityValuesList as $uv)
                                             @php
@@ -2519,7 +2649,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         @if($isAppraising)
                             <textarea class="ia-input" wire:model="description" rows="3" readonly style="flex: 1; background: #f8fafc; cursor: not-allowed; color: #334155; font-weight: 500; font-family: inherit; border: 1px solid #cbd5e1;"></textarea>
                         @else
-                            <textarea class="ia-input" wire:model="description" rows="3" placeholder="ENTER RECORD DESCRIPTION OR SPECIFIC DETAILS..." style="flex: 1; font-family: inherit;"></textarea>
+                            <textarea class="ia-input" wire:model="description" rows="3" placeholder="ENTER RECORD DESCRIPTION OR SPECIFIC DETAILS..." style="flex: 1; font-family: inherit; {{ ($showValidationErrors && empty(trim($description))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}"></textarea>
                         @endif
                     </div>
 
@@ -2546,9 +2676,25 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                 @else
                                     <!-- Configured State Header with Edit in Modal Button -->
                                     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                                        <span style="font-size: 12px; color: #64748b; font-weight: 600;">
-                                            Duration Breakdown ({{ count($batch_sub_periods) }} {{ \Illuminate\Support\Str::plural('period', count($batch_sub_periods)) }}):
-                                        </span>
+                                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                            <span style="font-size: 12px; color: #64748b; font-weight: 600;">
+                                                Duration Breakdown ({{ count($batch_sub_periods) }} {{ \Illuminate\Support\Str::plural('period', count($batch_sub_periods)) }}):
+                                            </span>
+                                            <div style="display: inline-flex; align-items: center; gap: 6px;">
+                                                <input type="text" 
+                                                       class="ia-input ia-input-sm" 
+                                                       wire:model.live.debounce.300ms="batch_default_volume" 
+                                                       placeholder="Default vol e.g. 1 box 10 papers" 
+                                                       style="max-width: 200px; height: 28px; font-size: 11.5px;">
+                                                <button type="button" 
+                                                        wire:click="applyBatchDefaultVolume" 
+                                                        class="ia-btn ia-btn-secondary" 
+                                                        style="height: 28px; font-size: 11px; padding: 0 8px;" 
+                                                        title="Set this volume for all breakdown periods">
+                                                    Apply All
+                                                </button>
+                                            </div>
+                                        </div>
                                         <button type="button" wire:click="openBatchModal" class="ia-btn ia-btn-change" style="font-size: 11.5px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 5px;">
                                             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                                             Edit in Modal
@@ -2637,7 +2783,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                                                 <input type="text" 
                                                                        class="ia-input ia-input-sm ia-sub-vol-text" 
                                                                        wire:model.live.debounce.300ms="batch_sub_periods.{{ $pIdx }}.volume" 
-                                                                       placeholder="e.g. 10 Boxes 2 Papers">
+                                                                       placeholder="e.g. 10 Boxes 2 Papers"
+                                                                       style="{{ ($showValidationErrors && (empty($sub['volume']) || !preg_match('/\d/', $sub['volume']))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}"
+                                                                       title="Volume for this period (Required, e.g. 1 box 10 papers)">
                                                             </div>
                                                             <button type="button" 
                                                                     wire:click="removeBatchSubPeriod({{ $pIdx }})" 
@@ -2669,9 +2817,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     @else
                         <!-- Selected Date -->
                         <div class="ia-form-row" wire:key="ia-row-date">
-                            <span class="ia-label">Selected Date</span>
+                            <span class="ia-label ia-label-required">Period Covered / Date Covered</span>
                             <div style="flex: 1; display: flex; align-items: center; gap: 10px;">
-                                <input type="date" class="ia-input" wire:model.live="date_covered" style="max-width: 240px;">
+                                <input type="date" class="ia-input" wire:model.live="date_covered" style="max-width: 240px; {{ ($showValidationErrors && empty(trim($date_covered))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}">
                                 @if(!empty($date_covered))
                                     <button type="button" wire:click="$set('date_covered', '')" class="ia-btn ia-btn-secondary" style="padding: 6px 14px; font-size: 12px;">Clear Date</button>
                                 @endif
@@ -2682,27 +2830,19 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         <div class="ia-form-row" wire:key="ia-row-volume">
                             <span class="ia-label ia-label-required">Volume Amount & Unit</span>
                             <div style="flex: 1; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                                <input type="number" min="1" step="1" 
+                                <input type="text" 
                                        class="ia-input" 
-                                       wire:model.live="volume_amount" 
-                                       placeholder="e.g. 1" 
-                                       style="max-width: 140px; {{ empty($volume_amount) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}">
-                                <select class="ia-input" wire:model.live="volume_unit" style="max-width: 180px;">
-                                    <option value="Folder">Folder(s)</option>
-                                    <option value="Volume">Volume(s)</option>
-                                    <option value="Box">Box(es)</option>
-                                    <option value="Bundle">Bundle(s)</option>
-                                    <option value="Pages">Page(s)</option>
-                                    <option value="Pieces">Piece(s)</option>
-                                </select>
-                                @if(!empty($volume_amount))
+                                       wire:model.live.debounce.300ms="volume" 
+                                       placeholder="e.g. 1 box 10 papers, 2 boxes, 1 folder" 
+                                       style="flex: 1; max-width: 420px; {{ ($showValidationErrors && (empty($volume) || !preg_match('/\d/', $volume))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}">
+                                @if(!empty($volume) && preg_match('/\d/', $volume))
                                     <span style="font-size: 12px; color: #16a34a; font-weight: 700; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 4px 10px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                                        Total: {{ $volume_amount }} {{ $volume_unit }}
+                                        Volume: {{ mb_strtoupper($volume) }}
                                     </span>
-                                @else
+                                @elseif($showValidationErrors)
                                     <span style="font-size: 11.5px; color: #dc2626; font-style: italic;">
-                                        * Total number required (will not record unit alone)
+                                        * Required (e.g. 1 box 10 papers)
                                     </span>
                                 @endif
                             </div>
@@ -2712,7 +2852,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     <!-- Records Medium -->
                     <div class="ia-form-row" wire:key="ia-row-medium">
                         <div class="ia-label-stack">
-                            <span>Records Medium</span>
+                            <span class="ia-label-required">Records Medium</span>
                             @if($isAppraising)
                                 <span class="ia-locked-badge">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
@@ -2743,7 +2883,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     <!-- Restriction -->
                     <div class="ia-form-row" wire:key="ia-row-restriction">
                         <div class="ia-label-stack">
-                            <span>Restriction / Access</span>
+                            <span class="ia-label-required">Restriction / Access</span>
                             @if($isAppraising)
                                 <span class="ia-locked-badge">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
@@ -2773,14 +2913,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
                     <!-- Records Location -->
                     <div class="ia-form-row" wire:key="ia-row-location">
-                        <span class="ia-label">Records Location</span>
-                        <input type="text" class="ia-input" wire:model="records_location" placeholder="E.G. BUILDING A, CABINET 3, SHELF 2">
+                        <span class="ia-label ia-label-required">Records Location</span>
+                        <input type="text" class="ia-input" wire:model="records_location" placeholder="E.G. BUILDING A, CABINET 3, SHELF 2" style="{{ ($showValidationErrors && empty(trim($records_location))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}">
                     </div>
 
                     <!-- Frequency of Use -->
                     <div class="ia-form-row" wire:key="ia-row-frequency">
                         <div class="ia-label-stack">
-                            <span>Frequency of Use</span>
+                            <span class="ia-label-required">Frequency of Use</span>
                             @if($isAppraising)
                                 <span class="ia-locked-badge">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
@@ -2931,7 +3071,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             <!-- Utility Value (Multi-Choice Pills) -->
             @if(!$isBatchMode)
                 <div class="ia-form-row" wire:key="ia-row-utility" style="align-items: flex-start;">
-                    <span class="ia-label" style="margin-top: 8px;">Utility Value</span>
+                    <span class="ia-label ia-label-required" style="margin-top: 8px;">Utility Value</span>
                     <div style="flex: 1; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
                         @foreach($utilityValuesList as $uv)
                             @php
@@ -3188,6 +3328,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                 ↻ Refresh Breakdown
                             </button>
                         </div>
+
+                        <div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #cbd5e1; flex-wrap: wrap;">
+                            <label style="font-size: 11.5px; font-weight: 700; color: #334155; margin: 0;">Default Volume per Period:</label>
+                            <input type="text" class="ia-input ia-input-sm" wire:model.live.debounce.300ms="batch_default_volume" placeholder="e.g. 1 box 10 papers" style="max-width: 220px; font-size: 12px;">
+                            <button type="button" wire:click="applyBatchDefaultVolume" class="ia-btn ia-btn-secondary" style="height: 30px; font-size: 11px; padding: 0 10px;" title="Apply this default volume to all generated breakdown periods">Apply to All Periods</button>
+                        </div>
                     </div>
 
                     <!-- Breakdown & Volume Input Area inside Modal -->
@@ -3283,7 +3429,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                                         <input type="text" 
                                                                class="ia-input ia-input-sm ia-sub-vol-text" 
                                                                wire:model.live.debounce.300ms="batch_sub_periods.{{ $pIdx }}.volume" 
-                                                               placeholder="e.g. 10 Boxes 2 Papers">
+                                                               placeholder="e.g. 10 Boxes 2 Papers"
+                                                               style="{{ ($showValidationErrors && (empty($sub['volume']) || !preg_match('/\d/', $sub['volume']))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}"
+                                                               title="Volume for this period (Required, e.g. 1 box 10 papers)">
                                                     </div>
                                                     <button type="button" 
                                                             wire:click="removeBatchSubPeriod({{ $pIdx }})" 

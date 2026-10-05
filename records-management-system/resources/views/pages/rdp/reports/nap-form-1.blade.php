@@ -815,31 +815,33 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $v = trim((string)$v);
             if (empty($v) || $v === '—') continue;
 
-            $parts = preg_split('/[,+&]|\band\b/i', $v);
-            foreach ($parts as $part) {
-                $part = trim($part);
-                if (empty($part)) continue;
-
-                if (preg_match('/^(\d+(?:\.\d+)?)\s*([a-zA-Z\s\.]+)/', $part, $m)) {
+            $matchedAny = false;
+            if (preg_match_all('/(\d+(?:\.\d+)?)\s*([a-zA-Z\s\.]+)?/u', $v, $matches, PREG_SET_ORDER)) {
+                foreach ($matches as $m) {
                     $amount = (float)$m[1];
-                    $unit = strtolower(trim($m[2]));
-                    if (str_starts_with($unit, 'paper') || str_starts_with($unit, 'sheet') || str_starts_with($unit, 'page')) {
+                    $unit = isset($m[2]) ? trim($m[2]) : '';
+                    $unit = trim(preg_replace('/^(and|&|,)\s*/i', '', $unit));
+                    $unit = trim(preg_replace('/[,\.]+$/', '', $unit));
+                    $unitLower = strtolower($unit);
+                    if (str_starts_with($unitLower, 'paper') || str_starts_with($unitLower, 'sheet') || str_starts_with($unitLower, 'page') || $unit === '') {
                         $normUnit = 'papers';
-                    } elseif (str_starts_with($unit, 'folder')) {
+                    } elseif (str_starts_with($unitLower, 'folder')) {
                         $normUnit = 'folders';
-                    } elseif (str_starts_with($unit, 'box')) {
+                    } elseif (str_starts_with($unitLower, 'box')) {
                         $normUnit = 'boxes';
-                    } elseif (str_starts_with($unit, 'bundle')) {
+                    } elseif (str_starts_with($unitLower, 'bundle')) {
                         $normUnit = 'bundles';
-                    } elseif (str_starts_with($unit, 'cu') || str_contains($unit, 'meter') || str_contains($unit, 'm.')) {
+                    } elseif (str_starts_with($unitLower, 'cu') || str_contains($unitLower, 'meter') || str_contains($unitLower, 'm.')) {
                         $normUnit = 'cu. m.';
                     } else {
-                        $normUnit = $unit;
+                        $normUnit = $unitLower;
                     }
                     $totals[$normUnit] = ($totals[$normUnit] ?? 0) + $amount;
-                } else {
-                    $unmatched[] = $part;
+                    $matchedAny = true;
                 }
+            }
+            if (!$matchedAny) {
+                $unmatched[] = $v;
             }
         }
 

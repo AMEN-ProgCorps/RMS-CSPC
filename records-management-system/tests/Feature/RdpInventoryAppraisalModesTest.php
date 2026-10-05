@@ -300,4 +300,76 @@ class RdpInventoryAppraisalModesTest extends TestCase
         }
         DB::table('rdp_record_series')->where('series_title', 'TEST SER_BATCH_MODE_SERIES')->delete();
     }
+
+    public function test_single_mode_freeform_volume_and_required_validation(): void
+    {
+        $component = Volt::test('pages.rdp.add-records.inventory-and-appraisal');
+        $component->call('switchToSingleMode');
+
+        // Missing required fields triggers validation failure and sets errorMessage
+        $component->call('createRecord');
+        $this->assertNotNull($component->get('errorMessage'));
+        $this->assertStringContainsString('Record Series', $component->get('errorMessage'));
+
+        // Fill Series Title & Description, and clear date_covered to test Date Covered requirement
+        $component->set('selectedSeriesTitle', 'TEST REQUIRED SERIES');
+        $component->set('description', 'TEST REQUIRED DESC');
+        $component->set('date_covered', '');
+        $component->call('createRecord');
+        $this->assertNotNull($component->get('errorMessage'));
+        $this->assertStringContainsString('Date Covered', $component->get('errorMessage'));
+
+        // Fill Date, but missing volume
+        $component->set('date_covered', '2025-05-10');
+        $component->set('volume', '');
+        $component->call('createRecord');
+        $this->assertNotNull($component->get('errorMessage'));
+        $this->assertStringContainsString('Volume Amount & Unit', $component->get('errorMessage'));
+
+        // Enter freeform volume: "1 box 10 papers"
+        $component->set('volume', '1 box 10 papers');
+        $component->set('records_location', 'Records Room Cabinet A');
+        $component->set('frequence_use', 'Annually');
+        $component->set('utility_values', [1]);
+
+        $component->call('createRecord');
+        $this->assertNull($component->get('errorMessage'));
+
+        // Verify record created in DB with uppercase formatted volume
+        $record = DB::table('rdp_record')
+            ->where('description', 'TEST REQUIRED DESC')
+            ->latest('id')
+            ->first();
+
+        $this->assertNotNull($record);
+        $this->assertEquals('1 BOX 10 PAPERS', $record->volume);
+        $this->assertEquals('RECORDS ROOM CABINET A', $record->records_location);
+
+        // Cleanup
+        DB::table('rdp_period_covered')->where('period_owner', $record->id)->delete();
+        DB::table('rdp_record')->where('id', $record->id)->delete();
+        DB::table('rdp_record_series')->where('series_title', 'TEST REQUIRED SERIES')->delete();
+    }
+
+    public function test_batch_default_volume_applies_to_all_sub_periods(): void
+    {
+        $component = Volt::test('pages.rdp.add-records.inventory-and-appraisal');
+        $component->call('switchToBatchMode');
+        $component->set('batch_start_date', '2023-01-01');
+        $component->set('batch_end_date', '2025-12-31');
+        $component->call('generateBatchSubPeriods');
+
+        $this->assertCount(3, $component->get('batch_sub_periods'));
+
+        // Apply default volume to all periods
+        $component->set('batch_default_volume', '1 box 10 papers');
+        $component->call('applyBatchDefaultVolume');
+
+        foreach ($component->get('batch_sub_periods') as $period) {
+            $this->assertEquals('1 box 10 papers', $period['volume']);
+        }
+
+        // Check total volume compilation: 3 boxes, 30 papers
+        $this->assertEquals('3 Boxes, 30 Papers', $component->instance()->getBatchTotalVolumeFormatted());
+    }
 }

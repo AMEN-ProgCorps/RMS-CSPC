@@ -1081,9 +1081,6 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         if (empty($this->date_covered)) {
             $this->date_covered = Carbon::now()->format('Y-m-d');
         }
-        if (empty($this->records_location)) {
-            $this->records_location = 'Records Office';
-        }
         if (empty($this->frequence_use)) {
             $this->frequence_use = 'Annually';
         }
@@ -2336,7 +2333,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->prefill_intake_id = null;
         $this->records_medium = $this->getDefaultMediumId();
         $this->restriction = 'Restricted';
-        $this->records_location = 'Records Office';
+        $this->records_location = '';
         $this->frequence_use = 'Annually';
         $this->duplication = null;
         $this->time_value = 'T';

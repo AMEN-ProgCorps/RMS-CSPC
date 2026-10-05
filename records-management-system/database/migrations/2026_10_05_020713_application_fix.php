@@ -11,9 +11,13 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('dts_transaction_details', function (Blueprint $table) {
-            $table->string('apply_to_office')->nullable()->after('originated_fromn');
-            $table->foreign('apply_to_office')->references('office_code')->on('dts_offices');
+        $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+
+        Schema::table('dts_transaction_details', function (Blueprint $table) use ($officeTable) {
+            if (!Schema::hasColumn('dts_transaction_details', 'apply_to_office')) {
+                $table->string('apply_to_office')->nullable()->after('originated_from');
+                $table->foreign('apply_to_office')->references('office_code')->on($officeTable)->nullOnDelete();
+            }
         });
     }
 
@@ -22,10 +26,11 @@ return new class extends Migration
      */
     public function down(): void
     {
-        if (Schema::hasTable('') && Schema::hasColumn('rdp_period_covered', 'volume')) {
-            Schema::table('rdp_period_covered', function (Blueprint $table) {
-                $table->dropColumn('volume');
-            });
-        }
+        Schema::table('dts_transaction_details', function (Blueprint $table) {
+            if (Schema::hasColumn('dts_transaction_details', 'apply_to_office')) {
+                $table->dropForeign(['apply_to_office']);
+                $table->dropColumn('apply_to_office');
+            }
+        });
     }
 };

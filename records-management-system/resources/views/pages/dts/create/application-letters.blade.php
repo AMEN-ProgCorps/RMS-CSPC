@@ -14,6 +14,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
     public bool $showDocTypeDropdown = false;
     public string $applicant_name = '';
     public string $position = '';
+    public string $originating_office = '';
+    public string $apply_to_office = '';
     public string $unit_college = '';
     public string $transaction_flow = '';
     public string $copy_furnished = 'Yes';
@@ -63,7 +65,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             return;
         }
 
-        $userOfficeCode = $this->unit_college ?: (auth()->user()?->details?->office?->office_code);
+        $userOfficeCode = $this->originating_office ?: ($this->unit_college ?: (auth()->user()?->details?->office?->office_code));
         $isSuperAdmin = auth()->user()?->permissions?->is_sadm ?? false;
 
         if (!$isSuperAdmin && $req->office !== $userOfficeCode) {
@@ -92,7 +94,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
         $name = trim($this->editRequestorName);
         $pos = trim($this->editRequestorPosition ?? '');
 
-        $userOfficeCode = $this->unit_college ?: (auth()->user()?->details?->office?->office_code);
+        $userOfficeCode = $this->originating_office ?: ($this->unit_college ?: (auth()->user()?->details?->office?->office_code));
         $isSuperAdmin = auth()->user()?->permissions?->is_sadm ?? false;
 
         $req = DB::table('dts_requestor_history')->where('id', $this->editingRequestorId)->first();
@@ -210,7 +212,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             abort(403, 'Unauthorized access to Application Letter transactions.');
         }
 
-        $this->unit_college = auth()->user()?->details?->office?->office_code ?? '';
+        $this->originating_office = auth()->user()?->details?->office?->office_code ?? '';
+        $this->unit_college = $this->originating_office;
 
         $this->offices = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
             ->where('is_active', true)
@@ -250,6 +253,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
 
         $userOfficeCode = auth()->user()?->details?->office?->office_code;
         if ($userOfficeCode) {
+            $this->originating_office = $userOfficeCode;
             $this->unit_college = $userOfficeCode;
         }
     }
@@ -304,6 +308,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
     {
         $this->availabilityMessage = '';
         $this->isAvailable = null;
+    }
+
+    public function updatedOriginatingOffice(): void
+    {
+        if (!empty($this->transaction_flow)) {
+            $this->updatedTransactionFlow($this->transaction_flow);
+        }
     }
 
     public function updatedUnitCollege(): void
@@ -393,7 +404,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 ->pluck('office_code')
                 ->toArray();
 
-            $originOfficeCode = $this->unit_college;
+            $originOfficeCode = $this->originating_office ?: ($this->unit_college ?: (auth()->user()?->details?->office?->office_code ?? ''));
             $originOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $originOfficeCode)->first();
             $clusterHead = null;
             if ($originOffice && $originOffice->cluster) {
@@ -813,18 +824,31 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
 
         $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
 
+        if (empty($this->originating_office)) {
+            $this->originating_office = $this->unit_college ?: (auth()->user()?->details?->office?->office_code ?? '');
+        }
+        if (empty($this->apply_to_office) && !empty($this->unit_college) && $this->unit_college !== $this->originating_office) {
+            $this->apply_to_office = $this->unit_college;
+        }
+
         $this->validate([
             'seq_number' => 'required|string|max:50',
+            'originating_office' => "required|string|exists:{$officeTbl},office_code",
             'type_of_document' => 'required|string|max:255',
             'applicant_name' => 'required|string|max:255',
             'position' => 'required|string|max:255',
-            'unit_college' => "required|string|exists:{$officeTbl},office_code",
+            'apply_to_office' => "required|string|exists:{$officeTbl},office_code",
             'transaction_flow' => 'required|string|exists:dts_transaction_flow,flow_code',
             'copy_furnished' => 'required|string|in:Yes,No',
             'cf_selected_offices' => 'nullable|array',
+        ], [
+            'originating_office.required' => 'The Originating Office is required.',
+            'originating_office.exists' => 'The selected Originating Office is invalid.',
+            'apply_to_office.required' => 'The Unit/College is required.',
+            'apply_to_office.exists' => 'The selected Unit/College is invalid.',
         ]);
 
-        $originOfficeCode = $this->unit_college;
+        $originOfficeCode = $this->originating_office;
         $originOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $originOfficeCode)->first();
         $clusterHead = null;
         if ($originOffice && $originOffice->cluster) {
@@ -880,7 +904,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             // Resolve or create record in dts_requestor_history
             $reqName = trim($this->applicant_name);
             $reqPos = trim($this->position);
-            $reqOffice = $this->unit_college;
+            $reqOffice = $originOfficeCode;
 
             $existingReq = DB::table('dts_requestor_history')
                 ->where('requestor_name', $reqName)
@@ -909,7 +933,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             $flowCode = $this->transaction_flow;
             $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transaction_flow)->first();
             
-            $originOfficeCode = $this->unit_college;
             $originOffice = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $originOfficeCode)->first();
             $clusterHead = null;
             if ($originOffice && $originOffice->cluster) {
@@ -965,7 +988,6 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             $autoFwdSetting = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'dts_auto_forward_created_transaction')->value('value');
             $shouldAutoForward = ($autoFwdSetting !== 'false') && (count($resolvedOffices) > 1);
 
-            $originOfficeCode = $this->unit_college;
             $nextOfficeCode = $resolvedOffices[1] ?? $originOfficeCode;
             $currentOffice = $shouldAutoForward ? $nextOfficeCode : ($resolvedOffices[0] ?? $originOfficeCode);
             $initialSequence = $shouldAutoForward ? 2 : 1;
@@ -1060,7 +1082,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 'id' => $transactionId,
                 'type' => 'others',
                 'created_by' => auth()->id(),
-                'originated_from' => $this->unit_college,
+                'originated_from' => $originOfficeCode,
+                'apply_to_office' => $this->apply_to_office ?: null,
                 'requestor_id' => $requestorId,
                 'source_office' => null,
                 'subject' => 'Application for ' . $this->position,
@@ -1105,7 +1128,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 // Initial tracking log at origin waiting to be forwarded
                 DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')->insert([
                     'transaction_id' => $transactionId,
-                    'office_code' => $this->unit_college,
+                    'office_code' => $originOfficeCode,
                     'type' => 'received',
                     'date_in' => now(),
                     'date_out' => null,
@@ -1134,7 +1157,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 'requestor' => $this->applicant_name,
                 'requestor_position' => $this->position,
                 'qr_code' => $this->generatedQrCode,
-                'office' => $this->unit_college,
+                'office' => $originOfficeCode,
+                'apply_to_office' => $this->apply_to_office,
                 'type' => 'Application Letter',
             ];
 
@@ -1142,6 +1166,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
             $this->seq_number = '';
             $this->applicant_name = '';
             $this->position = '';
+            $this->apply_to_office = '';
             $this->type_of_document = '';
             $this->transaction_flow = '';
             $this->flow_offices = [];
@@ -1214,14 +1239,32 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                     </div>
                 @endif
 
+                <!-- Originating Office field -->
+                @if(auth()->user()?->permissions?->is_sadm)
+                <div class="form-row">
+                    <div class="form-col medium-input">
+                        <label class="input-label">Originating Office</label>
+                        <select wire:model.live="originating_office" class="select-input">
+                            <option value="">Select Originating Office</option>
+                            @foreach($offices as $office)
+                                <option value="{{ $office['office_code'] }}">{{ $office['office_name'] }} ({{ $office['office_code'] }})</option>
+                            @endforeach
+                        </select>
+                        @error('originating_office')
+                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                        @enderror
+                    </div>
+                </div>
+                @endif
+
                 <!-- Name of Applicant -->
                 <div class="form-row">
                     <div class="form-col small-input" style="position: relative;">
                         @php
-                            $userOfficeCodeForReq = $this->unit_college ?: (auth()->user()?->details?->office?->office_code);
+                            $userOfficeCodeForReq = $this->originating_office ?: ($this->unit_college ?: (auth()->user()?->details?->office?->office_code));
                             $isSuperAdminForReq = auth()->user()?->permissions?->is_sadm ?? false;
-                            $selectedReqRec = (!empty($applicant_name) && !empty($unit_college))
-                                ? \DB::table('dts_requestor_history')->where('office', $unit_college)->where('requestor_name', $applicant_name)->first()
+                            $selectedReqRec = (!empty($applicant_name) && !empty($userOfficeCodeForReq))
+                                ? \DB::table('dts_requestor_history')->where('office', $userOfficeCodeForReq)->where('requestor_name', $applicant_name)->first()
                                 : null;
                             $canEditSelectedReq = $selectedReqRec && ($isSuperAdminForReq || $selectedReqRec->office === $userOfficeCodeForReq);
                         @endphp
@@ -1239,7 +1282,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                             @if($showRequestorDropdown)
                                 <div class="dts-custom-dropdown">
                                     @php
-                                        $targetOffice = $unit_college;
+                                        $targetOffice = $this->originating_office ?: ($this->unit_college ?: (auth()->user()?->details?->office?->office_code));
                                         $existingRequestors = \DB::table('dts_requestor_history')
                                             ->where('office', $targetOffice)
                                             ->where('is_active', true)
@@ -1292,22 +1335,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 </div>
                 
                 <!-- Unit/College -->
-                @if(auth()->user()?->permissions?->is_sadm)
                 <div class="form-row">
                     <div class="form-col medium-input">
                         <label class="input-label">Unit/College</label>
-                        <select wire:model="unit_college" class="select-input">
+                        <select wire:model="apply_to_office" class="select-input">
                             <option value="">Select Unit/College</option>
                             @foreach($offices as $office)
                                 <option value="{{ $office['office_code'] }}">{{ $office['office_name'] }} ({{ $office['office_code'] }})</option>
                             @endforeach
                         </select>
-                        @error('unit_college')
+                        @error('apply_to_office')
                             <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
                         @enderror
                     </div>
                 </div>
-                @endif
                 
                 <!-- Type of Document -->
                  <div class="form-row">
@@ -1403,8 +1444,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                                         ['office_code' => 'ALL', 'office_name' => 'All Office']
                                     ], $offices);
 
-                                    $filteredOffices = array_filter($cfList, function($office) use ($cf_selected_offices, $unit_college) {
-                                        return !in_array($office['office_code'], $cf_selected_offices) && $office['office_code'] !== $unit_college;
+                                    $currentOriginOffice = $this->originating_office ?: ($this->unit_college ?: (auth()->user()?->details?->office?->office_code));
+                                    $filteredOffices = array_filter($cfList, function($office) use ($cf_selected_offices, $currentOriginOffice) {
+                                        return !in_array($office['office_code'], $cf_selected_offices) && $office['office_code'] !== $currentOriginOffice;
                                     });
                                     
                                     $searchLower = strtolower($cf_search);
@@ -1820,7 +1862,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                 <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
                     <div style="background: #f0f9ff; border: 1px solid #bae6fd; padding: 10px 12px; border-radius: 8px; font-size: 12px; color: #0369a1; display: flex; align-items: center; gap: 8px;">
                         <i class="fa-solid fa-shield-halved"></i>
-                        <span>Only your office (<strong>{{ $this->unit_college ?: (auth()->user()?->details?->office?->office_code) }}</strong>) can edit its applicants.</span>
+                        <span>Only your office (<strong>{{ $this->originating_office ?: ($this->unit_college ?: (auth()->user()?->details?->office?->office_code)) }}</strong>) can edit its applicants.</span>
                     </div>
                     <div>
                         <label style="font-size: 12px; font-weight: 600; color: #334155;">Applicant Name <span style="color: #ef4444;">*</span></label>
@@ -1871,9 +1913,15 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Applicat
                             <span class="dts-success-summary-value">{{ $createdTransactionSummary['requestor'] }} @if(!empty($createdTransactionSummary['requestor_position'])) ({{ $createdTransactionSummary['requestor_position'] }}) @endif</span>
                         </div>
                         <div class="dts-success-summary-row">
-                            <span class="dts-success-summary-label">Unit/College:</span>
+                            <span class="dts-success-summary-label">Originating Office:</span>
                             <span class="dts-success-summary-value">{{ $createdTransactionSummary['office'] }}</span>
                         </div>
+                        @if(!empty($createdTransactionSummary['apply_to_office']))
+                        <div class="dts-success-summary-row">
+                            <span class="dts-success-summary-label">Unit/College:</span>
+                            <span class="dts-success-summary-value">{{ $createdTransactionSummary['apply_to_office'] }}</span>
+                        </div>
+                        @endif
                         <div class="dts-success-summary-row">
                             <span class="dts-success-summary-label">Subject:</span>
                             <span class="dts-success-summary-value">{{ $createdTransactionSummary['subject'] }}</span>

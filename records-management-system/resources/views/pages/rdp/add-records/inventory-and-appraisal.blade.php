@@ -132,6 +132,53 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    public function formatSubPeriodYear(?string $startStr, ?string $endStr): string
+    {
+        try {
+            $startY = !empty($startStr) ? \Carbon\Carbon::parse($startStr)->year : null;
+            $endY = !empty($endStr) ? \Carbon\Carbon::parse($endStr)->year : null;
+            if ($startY && $endY) {
+                return ($startY === $endY) ? (string)$startY : ($startY . '–' . $endY);
+            }
+            if ($startY) return (string)$startY;
+            if ($endY) return (string)$endY;
+        } catch (\Throwable) {}
+        return '';
+    }
+
+    public function formatSubPeriodDefaultDescription(?string $startStr, ?string $endStr, ?string $subject = null): string
+    {
+        $subj = trim($subject ?? $this->description);
+        $year = $this->formatSubPeriodYear($startStr, $endStr);
+        if (!empty($subj) && !empty($year)) {
+            return $subj . ' ' . $year;
+        }
+        if (!empty($subj)) {
+            return $subj;
+        }
+        return $year;
+    }
+
+    public function syncSubPeriodDescriptions(?string $subject = null): void
+    {
+        $subj = trim($subject ?? $this->description);
+        foreach ($this->batch_sub_periods as $idx => $sub) {
+            $curDesc = trim((string)($sub['description'] ?? ''));
+            if (empty($curDesc) || empty($sub['is_custom_desc'])) {
+                $this->batch_sub_periods[$idx]['description'] = $this->formatSubPeriodDefaultDescription(
+                    $sub['start_date'] ?? '',
+                    $sub['end_date'] ?? '',
+                    $subj
+                );
+            }
+        }
+    }
+
+    public function updatedDescription($val): void
+    {
+        $this->syncSubPeriodDescriptions((string)$val);
+    }
+
     public function updatedBatchStartDate(): void
     {
         $this->syncDmyFromBatchDates();
@@ -216,7 +263,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $pIdx = (int)$parts[0];
             $field = $parts[1];
 
-            if (in_array($field, ['start_date', 'end_date'], true)) {
+            if ($field === 'description') {
+                $this->batch_sub_periods[$pIdx]['is_custom_desc'] = !empty(trim((string)$value));
+            } elseif (in_array($field, ['start_date', 'end_date'], true)) {
                 if (!empty($value)) {
                     try {
                         $c = Carbon::parse($value);
@@ -231,9 +280,21 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         }
                     } catch (\Throwable $e) {}
                 }
+                if (empty($this->batch_sub_periods[$pIdx]['is_custom_desc'])) {
+                    $this->batch_sub_periods[$pIdx]['description'] = $this->formatSubPeriodDefaultDescription(
+                        $this->batch_sub_periods[$pIdx]['start_date'] ?? '',
+                        $this->batch_sub_periods[$pIdx]['end_date'] ?? ''
+                    );
+                }
                 $this->recalculateBatchRangeFromSubPeriods();
             } elseif (in_array($field, ['start_day', 'start_month', 'start_year', 'end_day', 'end_month', 'end_year'], true)) {
                 $this->syncSubPeriodDmy($pIdx);
+                if (empty($this->batch_sub_periods[$pIdx]['is_custom_desc'])) {
+                    $this->batch_sub_periods[$pIdx]['description'] = $this->formatSubPeriodDefaultDescription(
+                        $this->batch_sub_periods[$pIdx]['start_date'] ?? '',
+                        $this->batch_sub_periods[$pIdx]['end_date'] ?? ''
+                    );
+                }
                 $this->recalculateBatchRangeFromSubPeriods();
             }
         }
@@ -325,12 +386,26 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $endYear = (int)$end->year;
 
         $existingVolumes = [];
+        $existingDescriptions = [];
+        $existingCustomFlags = [];
         foreach ($this->batch_sub_periods as $sub) {
             $key = ($sub['start_date'] ?? '') . '_' . ($sub['end_date'] ?? '');
             $existingVolumes[$key] = $sub['volume'] ?? '';
+            if (!empty($sub['description'])) {
+                $existingDescriptions[$key] = $sub['description'];
+            }
+            if (!empty($sub['is_custom_desc'])) {
+                $existingCustomFlags[$key] = true;
+            }
             if (!empty($sub['start_date'])) {
                 $y = (int)substr($sub['start_date'], 0, 4);
                 $existingVolumes['year_' . $y] = $sub['volume'] ?? '';
+                if (!empty($sub['description'])) {
+                    $existingDescriptions['year_' . $y] = $sub['description'];
+                }
+                if (!empty($sub['is_custom_desc'])) {
+                    $existingCustomFlags['year_' . $y] = true;
+                }
             }
         }
 
@@ -340,19 +415,23 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $sStr = $start->format('Y-m-d');
             $eStr = $end->format('Y-m-d');
             $vol = $existingVolumes[$sStr . '_' . $eStr] ?? $existingVolumes['year_' . $startYear] ?? ($this->batch_default_volume ?: '');
+            $desc = $existingDescriptions[$sStr . '_' . $eStr] ?? $existingDescriptions['year_' . $startYear] ?? $this->formatSubPeriodDefaultDescription($sStr, $eStr);
+            $isCustom = $existingCustomFlags[$sStr . '_' . $eStr] ?? $existingCustomFlags['year_' . $startYear] ?? false;
             $subStart = Carbon::parse($sStr);
             $subEnd = Carbon::parse($eStr);
             $newSubPeriods[] = [
-                'id'          => (string)Str::uuid(),
-                'start_date'  => $sStr,
-                'end_date'    => $eStr,
-                'start_day'   => (string)$subStart->day,
-                'start_month' => (string)$subStart->month,
-                'start_year'  => (string)$subStart->year,
-                'end_day'     => (string)$subEnd->day,
-                'end_month'   => (string)$subEnd->month,
-                'end_year'    => (string)$subEnd->year,
-                'volume'      => $vol,
+                'id'             => (string)Str::uuid(),
+                'description'    => $desc,
+                'is_custom_desc' => $isCustom,
+                'start_date'     => $sStr,
+                'end_date'       => $eStr,
+                'start_day'      => (string)$subStart->day,
+                'start_month'    => (string)$subStart->month,
+                'start_year'     => (string)$subStart->year,
+                'end_day'        => (string)$subEnd->day,
+                'end_month'      => (string)$subEnd->month,
+                'end_year'       => (string)$subEnd->year,
+                'volume'         => $vol,
             ];
         } else {
             for ($y = $startYear; $y <= $endYear; $y++) {
@@ -368,20 +447,24 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 }
 
                 $vol = $existingVolumes[$sStr . '_' . $eStr] ?? $existingVolumes['year_' . $y] ?? ($this->batch_default_volume ?: '');
+                $desc = $existingDescriptions[$sStr . '_' . $eStr] ?? $existingDescriptions['year_' . $y] ?? $this->formatSubPeriodDefaultDescription($sStr, $eStr);
+                $isCustom = $existingCustomFlags[$sStr . '_' . $eStr] ?? $existingCustomFlags['year_' . $y] ?? false;
                 $subStart = Carbon::parse($sStr);
                 $subEnd = Carbon::parse($eStr);
 
                 $newSubPeriods[] = [
-                    'id'          => (string)Str::uuid(),
-                    'start_date'  => $sStr,
-                    'end_date'    => $eStr,
-                    'start_day'   => (string)$subStart->day,
-                    'start_month' => (string)$subStart->month,
-                    'start_year'  => (string)$subStart->year,
-                    'end_day'     => (string)$subEnd->day,
-                    'end_month'   => (string)$subEnd->month,
-                    'end_year'    => (string)$subEnd->year,
-                    'volume'      => $vol,
+                    'id'             => (string)Str::uuid(),
+                    'description'    => $desc,
+                    'is_custom_desc' => $isCustom,
+                    'start_date'     => $sStr,
+                    'end_date'       => $eStr,
+                    'start_day'      => (string)$subStart->day,
+                    'start_month'    => (string)$subStart->month,
+                    'start_year'     => (string)$subStart->year,
+                    'end_day'        => (string)$subEnd->day,
+                    'end_month'      => (string)$subEnd->month,
+                    'end_year'       => (string)$subEnd->year,
+                    'volume'         => $vol,
                 ];
             }
         }
@@ -433,16 +516,18 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $cEnd = Carbon::parse($eStr);
 
         $this->batch_sub_periods[] = [
-            'id'          => (string)Str::uuid(),
-            'start_date'  => $sStr,
-            'end_date'    => $eStr,
-            'start_day'   => (string)$cStart->day,
-            'start_month' => (string)$cStart->month,
-            'start_year'  => (string)$cStart->year,
-            'end_day'     => (string)$cEnd->day,
-            'end_month'   => (string)$cEnd->month,
-            'end_year'    => (string)$cEnd->year,
-            'volume'      => $this->batch_default_volume ?: '',
+            'id'             => (string)Str::uuid(),
+            'description'    => $this->formatSubPeriodDefaultDescription($sStr, $eStr),
+            'is_custom_desc' => false,
+            'start_date'     => $sStr,
+            'end_date'       => $eStr,
+            'start_day'      => (string)$cStart->day,
+            'start_month'    => (string)$cStart->month,
+            'start_year'     => (string)$cStart->year,
+            'end_day'        => (string)$cEnd->day,
+            'end_month'      => (string)$cEnd->month,
+            'end_year'       => (string)$cEnd->year,
+            'volume'         => $this->batch_default_volume ?: '',
         ];
 
         $this->recalculateBatchRangeFromSubPeriods();
@@ -669,6 +754,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public function openBatchModal(): void
     {
         $this->syncDmyFromBatchDates();
+        $this->syncSubPeriodDescriptions();
         $this->showBatchModal = true;
     }
 
@@ -689,6 +775,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->syncDmyFromBatchDates();
         if (!empty($this->batch_start_date) && !empty($this->batch_end_date)) {
             $this->generateBatchSubPeriods();
+        } else {
+            $this->syncSubPeriodDescriptions();
         }
     }
 
@@ -1814,6 +1902,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $firstRecordId = null;
             $hasEndCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_period_covered', 'date_covered_end');
             $hasVolCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_period_covered', 'volume');
+            $hasDescCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_period_covered', 'description');
             $hasBatchCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_record', 'ispartof_batch');
             $hasBatchIdCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_record', 'batch_id');
 
@@ -1895,6 +1984,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         }
                         if ($hasVolCol && !empty($sub['volume'])) {
                             $pRow['volume'] = trim($sub['volume']);
+                        }
+                        if ($hasDescCol && !empty($sub['description'])) {
+                            $pRow['description'] = trim($sub['description']);
                         }
                         DB::table('rdp_period_covered')->insert($pRow);
                     }
@@ -2094,6 +2186,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $firstRecordId = null;
             $hasEndCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_period_covered', 'date_covered_end');
             $hasVolCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_period_covered', 'volume');
+            $hasDescCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_period_covered', 'description');
             $hasBatchCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_record', 'ispartof_batch');
             $hasBatchIdCol = \Illuminate\Support\Facades\Schema::hasColumn('rdp_record', 'batch_id');
 
@@ -2175,6 +2268,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         }
                         if ($hasVolCol && !empty($sub['volume'])) {
                             $pRow['volume'] = trim($sub['volume']);
+                        }
+                        if ($hasDescCol && !empty($sub['description'])) {
+                            $pRow['description'] = trim($sub['description']);
                         }
                         DB::table('rdp_period_covered')->insert($pRow);
                     }
@@ -2776,7 +2872,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         @if($isAppraising)
                             <textarea class="ia-input" wire:model="description" rows="3" readonly style="flex: 1; background: #f8fafc; cursor: not-allowed; color: #334155; font-weight: 500; font-family: inherit; border: 1px solid #cbd5e1;"></textarea>
                         @else
-                            <textarea class="ia-input" wire:model="description" rows="3" placeholder="ENTER RECORD DESCRIPTION OR SPECIFIC DETAILS..." style="flex: 1; font-family: inherit; {{ ($showValidationErrors && empty(trim($description))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}"></textarea>
+                            <textarea class="ia-input" wire:model.blur="description" rows="3" placeholder="ENTER RECORD DESCRIPTION OR SPECIFIC DETAILS..." style="flex: 1; font-family: inherit; {{ ($showValidationErrors && empty(trim($description))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}"></textarea>
                         @endif
                     </div>
 
@@ -2882,44 +2978,56 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                             @if(!empty($batch_sub_periods))
                                                 @foreach($batch_sub_periods as $pIdx => $sub)
                                                     <div class="ia-batch-tree-item" wire:key="batch-sub-period-{{ $pIdx }}-{{ $sub['id'] ?? $pIdx }}">
-                                                        <!-- Tree branch connector -->
-                                                        <div class="ia-batch-tree-connector" aria-hidden="true" title="Yearly breakdown branch">
-                                                            <svg width="22" height="24" viewBox="0 0 22 24" fill="none" class="ia-tree-branch-svg">
-                                                                <path d="M 7 0 V 13 H 20" stroke="#6366f1" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
-                                                            </svg>
+                                                        <!-- Top Row: Sub-period Title / Subject Input (<subject> <year>) -->
+                                                        <div class="ia-sub-desc-row">
+                                                            <input type="text" 
+                                                                   class="ia-input ia-input-sm ia-sub-desc-input" 
+                                                                   wire:model.live.debounce.300ms="batch_sub_periods.{{ $pIdx }}.description" 
+                                                                   placeholder="e.g. {{ $this->formatSubPeriodDefaultDescription($sub['start_date'] ?? '', $sub['end_date'] ?? '') ?: 'Subject Year' }}" 
+                                                                   title="Subject / Title for this period (Auto-fills with Subject + Year)">
                                                         </div>
 
-                                                        <!-- Date Range Calendar Inputs: <start date> to <end date> -->
-                                                        <div class="ia-batch-tree-date">
-                                                            <div class="ia-sub-calendar-group">
-                                                                <input type="date" 
-                                                                       class="ia-input ia-input-sm ia-sub-calendar-input" 
-                                                                       wire:model.live="batch_sub_periods.{{ $pIdx }}.start_date" 
-                                                                       title="Start Date">
-                                                                <span class="ia-sub-dmy-to">to</span>
-                                                                <input type="date" 
-                                                                       class="ia-input ia-input-sm ia-sub-calendar-input" 
-                                                                       wire:model.live="batch_sub_periods.{{ $pIdx }}.end_date" 
-                                                                       title="End Date">
+                                                        <!-- Bottom Row: Connector + Date Range + Volume + Remove -->
+                                                        <div class="ia-sub-bottom-row">
+                                                            <!-- Tree branch connector -->
+                                                            <div class="ia-batch-tree-connector" aria-hidden="true" title="Yearly breakdown branch">
+                                                                <svg width="22" height="24" viewBox="0 0 22 24" fill="none" class="ia-tree-branch-svg">
+                                                                    <path d="M 7 0 V 13 H 20" stroke="#6366f1" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                                                                </svg>
                                                             </div>
-                                                        </div>
 
-                                                        <!-- Sub Volume Input -->
-                                                        <div class="ia-batch-tree-volume">
-                                                            <div class="ia-sub-vol-input-group">
-                                                                <input type="text" 
-                                                                       class="ia-input ia-input-sm ia-sub-vol-text" 
-                                                                       wire:model.live.debounce.300ms="batch_sub_periods.{{ $pIdx }}.volume" 
-                                                                       placeholder="e.g. 10 Boxes 2 Papers"
-                                                                       style="{{ ($showValidationErrors && (empty($sub['volume']) || !preg_match('/\d/', $sub['volume']))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}"
-                                                                       title="Volume for this period (Required, e.g. 1 box 10 papers)">
+                                                            <!-- Date Range Calendar Inputs: <start date> to <end date> -->
+                                                            <div class="ia-batch-tree-date">
+                                                                <div class="ia-sub-calendar-group">
+                                                                    <input type="date" 
+                                                                           class="ia-input ia-input-sm ia-sub-calendar-input" 
+                                                                           wire:model.live="batch_sub_periods.{{ $pIdx }}.start_date" 
+                                                                           title="Start Date">
+                                                                    <span class="ia-sub-dmy-to">to</span>
+                                                                    <input type="date" 
+                                                                           class="ia-input ia-input-sm ia-sub-calendar-input" 
+                                                                           wire:model.live="batch_sub_periods.{{ $pIdx }}.end_date" 
+                                                                           title="End Date">
+                                                                </div>
                                                             </div>
-                                                            <button type="button" 
-                                                                    wire:click="removeBatchSubPeriod({{ $pIdx }})" 
-                                                                    class="ia-btn-remove-sub" 
-                                                                    title="Remove this period range">
-                                                                &times;
-                                                            </button>
+
+                                                            <!-- Sub Volume Input -->
+                                                            <div class="ia-batch-tree-volume">
+                                                                <div class="ia-sub-vol-input-group">
+                                                                    <input type="text" 
+                                                                           class="ia-input ia-input-sm ia-sub-vol-text" 
+                                                                           wire:model.live.debounce.300ms="batch_sub_periods.{{ $pIdx }}.volume" 
+                                                                           placeholder="e.g. 10 Boxes 2 Papers"
+                                                                           style="{{ ($showValidationErrors && (empty($sub['volume']) || !preg_match('/\d/', $sub['volume']))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}"
+                                                                           title="Volume for this period (Required, e.g. 1 box 10 papers)">
+                                                                </div>
+                                                                <button type="button" 
+                                                                        wire:click="removeBatchSubPeriod({{ $pIdx }})" 
+                                                                        class="ia-btn-remove-sub" 
+                                                                        title="Remove this period range">
+                                                                    &times;
+                                                                </button>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 @endforeach
@@ -3528,44 +3636,56 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                     @if(!empty($batch_sub_periods))
                                         @foreach($batch_sub_periods as $pIdx => $sub)
                                             <div class="ia-batch-tree-item" wire:key="modal-batch-sub-period-{{ $pIdx }}-{{ $sub['id'] ?? $pIdx }}">
-                                                <!-- Tree branch connector -->
-                                                <div class="ia-batch-tree-connector" aria-hidden="true" title="Yearly breakdown branch">
-                                                    <svg width="22" height="24" viewBox="0 0 22 24" fill="none" class="ia-tree-branch-svg">
-                                                        <path d="M 7 0 V 13 H 20" stroke="#6366f1" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
-                                                    </svg>
+                                                <!-- Top Row: Sub-period Title / Subject Input (<subject> <year>) -->
+                                                <div class="ia-sub-desc-row">
+                                                    <input type="text" 
+                                                           class="ia-input ia-input-sm ia-sub-desc-input" 
+                                                           wire:model.live.debounce.300ms="batch_sub_periods.{{ $pIdx }}.description" 
+                                                           placeholder="e.g. {{ $this->formatSubPeriodDefaultDescription($sub['start_date'] ?? '', $sub['end_date'] ?? '') ?: 'Subject Year' }}" 
+                                                           title="Subject / Title for this period (Auto-fills with Subject + Year)">
                                                 </div>
 
-                                                <!-- Date Range Calendar Inputs: <start date> to <end date> -->
-                                                <div class="ia-batch-tree-date">
-                                                    <div class="ia-sub-calendar-group">
-                                                        <input type="date" 
-                                                               class="ia-input ia-input-sm ia-sub-calendar-input" 
-                                                               wire:model.live="batch_sub_periods.{{ $pIdx }}.start_date" 
-                                                               title="Start Date">
-                                                        <span class="ia-sub-dmy-to">to</span>
-                                                        <input type="date" 
-                                                               class="ia-input ia-input-sm ia-sub-calendar-input" 
-                                                               wire:model.live="batch_sub_periods.{{ $pIdx }}.end_date" 
-                                                               title="End Date">
+                                                <!-- Bottom Row: Connector + Date Range + Volume + Remove -->
+                                                <div class="ia-sub-bottom-row">
+                                                    <!-- Tree branch connector -->
+                                                    <div class="ia-batch-tree-connector" aria-hidden="true" title="Yearly breakdown branch">
+                                                        <svg width="22" height="24" viewBox="0 0 22 24" fill="none" class="ia-tree-branch-svg">
+                                                            <path d="M 7 0 V 13 H 20" stroke="#6366f1" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                                                        </svg>
                                                     </div>
-                                                </div>
 
-                                                <!-- Sub Volume Input -->
-                                                <div class="ia-batch-tree-volume">
-                                                    <div class="ia-sub-vol-input-group">
-                                                        <input type="text" 
-                                                               class="ia-input ia-input-sm ia-sub-vol-text" 
-                                                               wire:model.live.debounce.300ms="batch_sub_periods.{{ $pIdx }}.volume" 
-                                                               placeholder="e.g. 10 Boxes 2 Papers"
-                                                               style="{{ ($showValidationErrors && (empty($sub['volume']) || !preg_match('/\d/', $sub['volume']))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}"
-                                                               title="Volume for this period (Required, e.g. 1 box 10 papers)">
+                                                    <!-- Date Range Calendar Inputs: <start date> to <end date> -->
+                                                    <div class="ia-batch-tree-date">
+                                                        <div class="ia-sub-calendar-group">
+                                                            <input type="date" 
+                                                                   class="ia-input ia-input-sm ia-sub-calendar-input" 
+                                                                   wire:model.live="batch_sub_periods.{{ $pIdx }}.start_date" 
+                                                                   title="Start Date">
+                                                            <span class="ia-sub-dmy-to">to</span>
+                                                            <input type="date" 
+                                                                   class="ia-input ia-input-sm ia-sub-calendar-input" 
+                                                                   wire:model.live="batch_sub_periods.{{ $pIdx }}.end_date" 
+                                                                   title="End Date">
+                                                        </div>
                                                     </div>
-                                                    <button type="button" 
-                                                            wire:click="removeBatchSubPeriod({{ $pIdx }})" 
-                                                            class="ia-btn-remove-sub" 
-                                                            title="Remove this period range">
-                                                        &times;
-                                                    </button>
+
+                                                    <!-- Sub Volume Input -->
+                                                    <div class="ia-batch-tree-volume">
+                                                        <div class="ia-sub-vol-input-group">
+                                                            <input type="text" 
+                                                                   class="ia-input ia-input-sm ia-sub-vol-text" 
+                                                                   wire:model.live.debounce.300ms="batch_sub_periods.{{ $pIdx }}.volume" 
+                                                                   placeholder="e.g. 10 Boxes 2 Papers"
+                                                                   style="{{ ($showValidationErrors && (empty($sub['volume']) || !preg_match('/\d/', $sub['volume']))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}"
+                                                                   title="Volume for this period (Required, e.g. 1 box 10 papers)">
+                                                        </div>
+                                                        <button type="button" 
+                                                                wire:click="removeBatchSubPeriod({{ $pIdx }})" 
+                                                                class="ia-btn-remove-sub" 
+                                                                title="Remove this period range">
+                                                            &times;
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
                                         @endforeach

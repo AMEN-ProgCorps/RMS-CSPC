@@ -1154,3 +1154,49 @@ window.setupIconModeInteractions = setupIconModeInteractions;
         }, 1000);
     }
 })();
+
+// Automatically prevent Grammarly from attaching to all inputs, textareas, and editable fields
+(function () {
+    const disableGrammarly = (el) => {
+        if (!el || el.nodeType !== 1) return;
+        if (el.matches && el.matches('input, textarea, [contenteditable="true"]')) {
+            el.setAttribute('data-gramm', 'false');
+            el.setAttribute('data-gramm_editor', 'false');
+            el.setAttribute('data-enable-grammarly', 'false');
+            el.setAttribute('spellcheck', 'false');
+        }
+        if (el.querySelectorAll) {
+            el.querySelectorAll('input, textarea, [contenteditable="true"]').forEach((child) => {
+                child.setAttribute('data-gramm', 'false');
+                child.setAttribute('data-gramm_editor', 'false');
+                child.setAttribute('data-enable-grammarly', 'false');
+                child.setAttribute('spellcheck', 'false');
+            });
+        }
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            if (document.body) disableGrammarly(document.body);
+        });
+    } else {
+        if (document.body) disableGrammarly(document.body);
+    }
+
+    const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+            for (const node of m.addedNodes) {
+                disableGrammarly(node);
+            }
+        }
+    });
+
+    if (document.documentElement) {
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+    }
+
+    // Intercept focus before Grammarly attaches popovers or badges
+    document.addEventListener('focusin', (e) => {
+        if (e.target) disableGrammarly(e.target);
+    }, true);
+})();

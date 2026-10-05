@@ -67,7 +67,7 @@
     <title>CSPC - Records Disposition Program</title>
     @stack('styles')
 </head>
-<body>
+<body data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
     <header>
         <div class="cspc-logo">
             <img class="ico" src="{{ asset('images/cspc.png') }}" alt="CSPC">

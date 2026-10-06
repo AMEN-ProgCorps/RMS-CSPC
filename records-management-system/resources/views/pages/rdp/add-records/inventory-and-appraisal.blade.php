@@ -63,6 +63,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public ?int $records_medium = null;
     public ?string $restriction = null;
     public string $records_location = '';
+    public bool $showLocationDropdown = false;
+    public ?int $activeBatchLocationIndex = null;
     public ?string $frequence_use = null;
     public ?string $duplication = null;
     public array $duplicate_offices = [];
@@ -951,6 +953,94 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    public function updatedRecordsLocation(): void
+    {
+        $this->showLocationDropdown = true;
+    }
+
+    public function selectLocationSuggestion(string $location): void
+    {
+        $this->records_location = $location;
+        $this->showLocationDropdown = false;
+    }
+
+    public function getOfficePastLocations(): array
+    {
+        $user = Auth::user();
+        $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+
+        $query = DB::table('rdp_record')
+            ->whereNotNull('records_location')
+            ->where('records_location', '!=', '');
+
+        if (!empty($userOfficeCode)) {
+            $query->where('office_own', $userOfficeCode);
+        }
+
+        $rawLocations = $query->distinct()->pluck('records_location')->all();
+
+        $locations = [];
+        $seen = [];
+        foreach ($rawLocations as $loc) {
+            $clean = trim((string)$loc);
+            if ($clean === '') {
+                continue;
+            }
+            $upper = mb_strtoupper($clean);
+            if (!isset($seen[$upper])) {
+                $seen[$upper] = true;
+                $locations[] = $clean;
+            }
+        }
+
+        sort($locations);
+
+        return $locations;
+    }
+
+    public function getLocationSuggestions(?string $search = null): array
+    {
+        $allLocations = $this->getOfficePastLocations();
+        $term = trim((string)($search !== null ? $search : $this->records_location));
+
+        if ($term === '') {
+            return array_slice($allLocations, 0, 10);
+        }
+
+        $termLower = strtolower($term);
+        $matches = array_filter($allLocations, function ($loc) use ($termLower) {
+            return str_contains(strtolower($loc), $termLower);
+        });
+
+        usort($matches, function ($a, $b) use ($termLower) {
+            $aLower = strtolower($a);
+            $bLower = strtolower($b);
+            $aStarts = str_starts_with($aLower, $termLower);
+            $bStarts = str_starts_with($bLower, $termLower);
+
+            if ($aStarts && !$bStarts) return -1;
+            if (!$aStarts && $bStarts) return 1;
+
+            return strcmp($aLower, $bLower);
+        });
+
+        return array_values(array_slice($matches, 0, 10));
+    }
+
+    public function getBatchLocationSuggestions(int $bIdx): array
+    {
+        $term = $this->batchItems[$bIdx]['records_location'] ?? '';
+        return $this->getLocationSuggestions($term);
+    }
+
+    public function selectBatchLocationSuggestion(int $bIdx, string $location): void
+    {
+        if (isset($this->batchItems[$bIdx])) {
+            $this->batchItems[$bIdx]['records_location'] = $location;
+        }
+        $this->activeBatchLocationIndex = null;
+    }
+
     public function updatedUploadedFile(): void
     {
         if (!$this->uploadedFile) return;
@@ -1610,6 +1700,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             'timeValuesList'       => DB::table('rdp_time_value')->orderBy('char_value', 'asc')->get(),
             'utilityValuesList'    => DB::table('rdp_utility_medium')->orderBy('utility_name', 'asc')->get(),
             'officesList'          => $officesList,
+            'locationSuggestions'  => $this->getLocationSuggestions(),
         ];
     }
 
@@ -2334,6 +2425,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->records_medium = $this->getDefaultMediumId();
         $this->restriction = 'Restricted';
         $this->records_location = '';
+        $this->showLocationDropdown = false;
+        $this->activeBatchLocationIndex = null;
         $this->frequence_use = 'Annually';
         $this->duplication = null;
         $this->time_value = 'T';
@@ -2718,7 +2811,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                     <textarea class="ia-input" wire:model="batchItems.{{ $bIdx }}.description" rows="2" placeholder="ENTER RECORD DESCRIPTION OR SPECIFIC DETAILS..." style="width: 100%; box-sizing: border-box;"></textarea>
                                 </div>
 
-                                <div style="display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 12px; margin-bottom: 12px;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 12px; margin-bottom: 12px; position: relative; z-index: 20;">
                                     <div>
                                         <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Selected Date *</label>
                                         <input type="date" class="ia-input" wire:model.blur="batchItems.{{ $bIdx }}.date_covered" style="width: 100%; box-sizing: border-box;">
@@ -2727,9 +2820,35 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                         <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Volume Amount & Unit *</label>
                                         <input type="text" class="ia-input" wire:model="batchItems.{{ $bIdx }}.volume" placeholder="E.G. 1 BOX 10 PAPERS..." style="width: 100%; box-sizing: border-box;">
                                     </div>
-                                    <div>
+                                    <div style="position: relative; z-index: 25;" wire:click.outside="$set('activeBatchLocationIndex', null)">
                                         <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Location *</label>
-                                        <input type="text" class="ia-input" wire:model="batchItems.{{ $bIdx }}.records_location" placeholder="E.G. CABINET 3, SHELF 2" style="width: 100%; box-sizing: border-box;">
+                                        <input type="text"
+                                            class="ia-input"
+                                            wire:model.live.debounce.150ms="batchItems.{{ $bIdx }}.records_location"
+                                            wire:focus="$set('activeBatchLocationIndex', {{ $bIdx }})"
+                                            placeholder="E.G. CABINET 3, SHELF 2"
+                                            style="width: 100%; box-sizing: border-box;">
+
+                                        @if($activeBatchLocationIndex === $bIdx && count($this->getBatchLocationSuggestions($bIdx)) > 0)
+                                            <div class="ia-autocomplete-dropdown" style="top: 100%; left: 0; right: 0; z-index: 1050; max-height: 180px; overflow-y: auto;">
+                                                @foreach($this->getBatchLocationSuggestions($bIdx) as $bLocSugg)
+                                                    <div wire:click="selectBatchLocationSuggestion({{ $bIdx }}, '{{ addslashes($bLocSugg) }}')"
+                                                         class="ia-autocomplete-item"
+                                                         style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; cursor: pointer;">
+                                                        <div style="display: flex; align-items: center; gap: 6px;">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                                                                <circle cx="12" cy="10" r="3"></circle>
+                                                            </svg>
+                                                            <span style="font-weight: 600;">{{ $bLocSugg }}</span>
+                                                        </div>
+                                                        <span style="font-size: 9.5px; font-weight: 700; color: #64748b; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 2px 5px; border-radius: 4px; text-transform: uppercase;">
+                                                            Office Location
+                                                        </span>
+                                                    </div>
+                                                @endforeach
+                                            </div>
+                                        @endif
                                     </div>
                                 </div>
 
@@ -3144,9 +3263,37 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     </div>
 
                     <!-- Records Location -->
-                    <div class="ia-form-row" wire:key="ia-row-location">
+                    <div class="ia-form-row" wire:key="ia-row-location" style="position: relative; z-index: 25;">
                         <span class="ia-label ia-label-required">Records Location</span>
-                        <input type="text" class="ia-input" wire:model="records_location" placeholder="E.G. BUILDING A, CABINET 3, SHELF 2" style="{{ ($showValidationErrors && empty(trim($records_location))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}">
+                        <div style="position: relative; flex: 1;" wire:click.outside="$set('showLocationDropdown', false)">
+                            <input type="text"
+                                class="ia-input"
+                                wire:model.live.debounce.150ms="records_location"
+                                wire:focus="$set('showLocationDropdown', true)"
+                                placeholder="E.G. BUILDING A, CABINET 3, SHELF 2"
+                                style="width: 100%; {{ ($showValidationErrors && empty(trim($records_location))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}">
+
+                            @if($showLocationDropdown && count($locationSuggestions) > 0)
+                                <div class="ia-autocomplete-dropdown">
+                                    @foreach($locationSuggestions as $locSugg)
+                                        <div wire:click="selectLocationSuggestion('{{ addslashes($locSugg) }}')"
+                                             class="ia-autocomplete-item"
+                                             style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                                                    <circle cx="12" cy="10" r="3"></circle>
+                                                </svg>
+                                                <span style="font-weight: 600;">{{ $locSugg }}</span>
+                                            </div>
+                                            <span style="font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">
+                                                Office Location
+                                            </span>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @endif
+                        </div>
                     </div>
 
                     <!-- Frequency of Use -->

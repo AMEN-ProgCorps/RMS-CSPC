@@ -436,7 +436,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 'volume'         => $vol,
             ];
         } else {
-            for ($y = $startYear; $y <= $endYear; $y++) {
+            for ($y = $endYear; $y >= $startYear; $y--) {
                 if ($y === $startYear) {
                     $sStr = $start->format('Y-m-d');
                     $eStr = Carbon::create($y, 12, 31)->format('Y-m-d');
@@ -533,6 +533,17 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         ];
 
         $this->recalculateBatchRangeFromSubPeriods();
+        $this->sortBatchSubPeriodsDesc();
+    }
+
+    public function sortBatchSubPeriodsDesc(): void
+    {
+        usort($this->batch_sub_periods, function($a, $b) {
+            $dateA = $a['end_date'] ?: ($a['start_date'] ?? '');
+            $dateB = $b['end_date'] ?: ($b['start_date'] ?? '');
+            return strcmp($dateB, $dateA);
+        });
+        $this->batch_sub_periods = array_values($this->batch_sub_periods);
     }
 
     public function removeBatchSubPeriod(int $index): void

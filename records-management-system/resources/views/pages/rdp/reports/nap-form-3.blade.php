@@ -847,6 +847,360 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         return $this->formatBatchDateRange($startDate, $endDate, false);
     }
 
+    private function formatSubPeriodYear(?string $startStr, ?string $endStr): string
+    {
+        try {
+            $startY = !empty($startStr) ? \Carbon\Carbon::parse($startStr)->year : null;
+            $endY = !empty($endStr) ? \Carbon\Carbon::parse($endStr)->year : null;
+            if ($startY && $endY) {
+                return ($startY === $endY) ? (string)$startY : ($startY . '–' . $endY);
+            }
+            if ($startY) return (string)$startY;
+            if ($endY) return (string)$endY;
+        } catch (\Throwable $e) {}
+        return '';
+    }
+
+    private function formatSubPeriodTitle(string $parentSubject, ?string $pDesc, ?string $startStr, ?string $endStr, int $fallbackIndex = 1): string
+    {
+        $pDesc = trim((string)$pDesc);
+        if (!empty($pDesc)) {
+            return $pDesc;
+        }
+
+        $year = $this->formatSubPeriodYear($startStr, $endStr);
+        $parentSubject = trim($parentSubject);
+        if (!empty($parentSubject) && !empty($year)) {
+            return $parentSubject . ' ' . $year;
+        }
+        if (!empty($parentSubject)) {
+            return $parentSubject . ' ' . $fallbackIndex;
+        }
+        return $year ?: ('Item ' . $fallbackIndex);
+    }
+
+    private function processSeriesRecords(
+        $records,
+        $seriesId,
+        $effTotal,
+        $effActive,
+        $effStorage,
+        $isPerm,
+        $periods,
+        $utilities,
+        $mediumsMap,
+        $duplications,
+        &$compiledDates,
+        &$compiledVols,
+        &$compiledMediums,
+        &$compiledRestrictions,
+        &$compiledLocs,
+        &$compiledFreqs,
+        &$compiledDups,
+        &$compiledTimes,
+        &$compiledUtils,
+        &$totalItemsCount,
+        &$rootDates = null,
+        &$rootVols = null,
+        &$rootMediums = null,
+        &$rootRestrictions = null,
+        &$rootLocs = null,
+        &$rootFreqs = null,
+        &$rootDups = null,
+        &$rootTimes = null,
+        &$rootUtils = null,
+        &$allLocs = null,
+        &$allVols = null
+    ): array {
+        $childItems = [];
+
+        // Group records by office and normalized description (subject)
+        $groupedBySubject = $records->groupBy(function($r) {
+            $off = trim((string)($r->office_own ?? ''));
+            $desc = trim(mb_strtoupper((string)($r->description ?? '')));
+            return $off . '___' . $desc;
+        });
+
+        foreach ($groupedBySubject as $group) {
+            $firstRec = $group->first();
+            $primarySubject = $firstRec->description;
+
+            // Collect expired periods for all records in this group
+            $groupPeriods = [];
+            foreach ($group as $r) {
+                $rPeriods = $periods[$r->id] ?? collect();
+                $isRecordBatch = (bool)($r->ispartof_batch ?? false) || $rPeriods->count() > 1;
+
+                if ($isRecordBatch) {
+                    $expiredP = $rPeriods->filter(function($p) use ($effTotal, $effActive, $effStorage, $isPerm) {
+                        return \App\Services\RdpRetentionService::isPeriodExpired(
+                            $p->date_covered,
+                            $p->date_covered_end ?? null,
+                            $effTotal,
+                            $effActive,
+                            $effStorage,
+                            $isPerm
+                        );
+                    });
+                } else {
+                    if (!(bool)($r->transferred_to_nap3 ?? false)) {
+                        continue;
+                    }
+                    $expiredP = $rPeriods;
+                }
+
+                foreach ($expiredP as $p) {
+                    $groupPeriods[] = [
+                        'rec'    => $r,
+                        'period' => $p,
+                    ];
+                }
+            }
+
+            if (empty($groupPeriods)) {
+                continue;
+            }
+
+            $isBatch = ($group->count() > 1) 
+                || count($groupPeriods) > 1 
+                || (bool)($firstRec->ispartof_batch ?? false);
+
+            if (!$isBatch) {
+                // Single Record
+                $r = $groupPeriods[0]['rec'];
+                $p = $groupPeriods[0]['period'];
+
+                $rawDate = $p->date_covered ?? '';
+                $rawDateEnd = $p->date_covered_end ?? null;
+                if (!empty($rawDate) && !empty($rawDateEnd)) {
+                    $compiledDates[] = $rawDate . ' - ' . $rawDateEnd;
+                    if ($rootDates !== null) $rootDates[] = $rawDate . ' - ' . $rawDateEnd;
+                } elseif (!empty($rawDate)) {
+                    $compiledDates[] = $rawDate;
+                    if ($rootDates !== null) $rootDates[] = $rawDate;
+                } elseif (!empty($rawDateEnd)) {
+                    $compiledDates[] = $rawDateEnd;
+                    if ($rootDates !== null) $rootDates[] = $rawDateEnd;
+                }
+                $formattedDate = !empty($rawDateEnd) ? $this->formatDateRange($rawDate, $rawDateEnd) : $this->formatItemDate($rawDate);
+                $recVolume = $r->volume ?: '';
+
+                $recMedium = !empty($r->records_medium) ? ($mediumsMap[$r->records_medium] ?? (string)$r->records_medium) : '';
+                $recRestriction = !empty($r->restriction) ? $r->restriction : '';
+                $recFreq = !empty($r->frequence_use) ? $r->frequence_use : '';
+
+                if (!empty($r->duplication_id) && isset($duplications[$r->duplication_id])) {
+                    $dupCodes = $duplications[$r->duplication_id]->pluck('office_code')->unique()->values()->all();
+                    $recDup = !empty($dupCodes) ? implode(', ', $dupCodes) : '';
+                } else {
+                    $recDup = '';
+                }
+
+                $uRows = ($utilities[$r->id] ?? collect())->pluck('utility_name')->all();
+
+                $compiledVols[] = $recVolume;
+                if ($rootVols !== null) $rootVols[] = $recVolume;
+                $compiledMediums[] = $recMedium;
+                if ($rootMediums !== null) $rootMediums[] = $recMedium;
+                $compiledRestrictions[] = $recRestriction;
+                if ($rootRestrictions !== null) $rootRestrictions[] = $recRestriction;
+                $compiledLocs[] = $r->records_location;
+                if ($rootLocs !== null) $rootLocs[] = $r->records_location;
+                $compiledFreqs[] = $recFreq;
+                if ($rootFreqs !== null) $rootFreqs[] = $recFreq;
+                $compiledDups[] = $recDup;
+                if ($rootDups !== null) $rootDups[] = $recDup;
+                $compiledTimes[] = $r->time_value;
+                if ($rootTimes !== null) $rootTimes[] = $r->time_value;
+
+                $compiledUtils = array_merge($compiledUtils, $uRows);
+                if ($rootUtils !== null) $rootUtils = array_merge($rootUtils, $uRows);
+
+                if ($allLocs !== null) $allLocs[] = $r->records_location;
+                if ($allVols !== null) $allVols[] = $recVolume;
+
+                $childItems[] = (object)[
+                    'id'            => $r->id,
+                    'series_id'     => $seriesId,
+                    'description'   => $r->description,
+                    'date_covered'  => $formattedDate,
+                    'volume'        => $recVolume,
+                    'medium'        => $recMedium,
+                    'restriction'   => $recRestriction,
+                    'location'      => $r->records_location ?: '',
+                    'frequence_use' => $recFreq,
+                    'duplication'   => $recDup,
+                    'time_value'    => $r->time_value ?: '',
+                    'utility'       => $this->formatItemUtility($uRows),
+                    'utility_abbr'  => $this->compileUtility($uRows),
+                    'is_batch'      => false,
+                    'sub_periods'   => [],
+                ];
+                $totalItemsCount++;
+            } else {
+                // Batch Record (Single Batch or Merged Batch from same subject & office)
+                $subPeriodItems = [];
+                $allStartDates = [];
+                $allEndDates = [];
+
+                foreach ($groupPeriods as $gp) {
+                    $r = $gp['rec'];
+                    $p = $gp['period'];
+
+                    $pStart = $p->date_covered ?? null;
+                    $pEnd = $p->date_covered_end ?? null;
+
+                    if (!empty($pStart)) $allStartDates[] = $pStart;
+                    if (!empty($pEnd)) $allEndDates[] = $pEnd;
+
+                    $rMedium = !empty($r->records_medium) ? ($mediumsMap[$r->records_medium] ?? (string)$r->records_medium) : '';
+                    $rRestriction = !empty($r->restriction) ? $r->restriction : '';
+                    $rFreq = !empty($r->frequence_use) ? $r->frequence_use : '';
+
+                    if (!empty($r->duplication_id) && isset($duplications[$r->duplication_id])) {
+                        $dupCodes = $duplications[$r->duplication_id]->pluck('office_code')->unique()->values()->all();
+                        $rDup = !empty($dupCodes) ? implode(', ', $dupCodes) : '';
+                    } else {
+                        $rDup = '';
+                    }
+
+                    $rURows = ($utilities[$r->id] ?? collect())->pluck('utility_name')->all();
+
+                    $subTitle = $this->formatSubPeriodTitle(
+                        $primarySubject,
+                        $p->description ?? null,
+                        $pStart,
+                        $pEnd
+                    );
+
+                    $subVol = !empty($p->volume) ? $p->volume : (!empty($r->volume) ? $r->volume : '');
+
+                    $subPeriodItems[] = (object)[
+                        'id'            => $r->id . '-sub-' . $p->id,
+                        'parent_rec_id' => $r->id,
+                        'period_id'     => $p->id,
+                        'description'   => $subTitle,
+                        'date_covered'  => $this->formatBatchDateRange($pStart, $pEnd, false),
+                        'volume'        => $subVol,
+                        'medium'        => $rMedium,
+                        'restriction'   => $rRestriction,
+                        'location'      => $r->records_location ?: '',
+                        'frequence_use' => $rFreq,
+                        'duplication'   => $rDup,
+                        'time_value'    => $r->time_value ?: '',
+                        'utility'       => $this->formatItemUtility($rURows),
+                        'utility_abbr'  => $this->compileUtility($rURows),
+                        'is_sub_period' => true,
+                        'sub_index'     => 1,
+                        'raw_sort_date' => $pEnd ?: ($pStart ?: '0000-00-00'),
+                    ];
+                }
+
+                // Sort sub-periods descending (latest year/date on top, oldest at bottom)
+                usort($subPeriodItems, function($a, $b) {
+                    return strcmp($b->raw_sort_date, $a->raw_sort_date);
+                });
+
+                foreach ($subPeriodItems as $sIdx => $sItem) {
+                    $sItem->sub_index = $sIdx + 1;
+                }
+
+                $batchStart = !empty($allStartDates) ? min($allStartDates) : null;
+                $batchEnd = !empty($allEndDates) ? max($allEndDates) : (!empty($allStartDates) ? max($allStartDates) : null);
+                $formattedDate = $this->formatBatchDateRange($batchStart, $batchEnd, false);
+
+                if (!empty($batchStart) && !empty($batchEnd)) {
+                    $compiledDates[] = $batchStart . ' - ' . $batchEnd;
+                    if ($rootDates !== null) $rootDates[] = $batchStart . ' - ' . $batchEnd;
+                }
+                foreach ($groupPeriods as $gp) {
+                    $p = $gp['period'];
+                    if (!empty($p->date_covered) && !empty($p->date_covered_end)) {
+                        $compiledDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
+                        if ($rootDates !== null) $rootDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
+                    } elseif (!empty($p->date_covered)) {
+                        $compiledDates[] = $p->date_covered;
+                        if ($rootDates !== null) $rootDates[] = $p->date_covered;
+                    } elseif (!empty($p->date_covered_end)) {
+                        $compiledDates[] = $p->date_covered_end;
+                        if ($rootDates !== null) $rootDates[] = $p->date_covered_end;
+                    }
+                }
+
+                $subVols = array_filter(array_map(fn($s) => ($s->volume !== '' ? $s->volume : null), $subPeriodItems));
+                $batchExpiredVol = $this->compileVolume($subVols);
+                $recVolume = $batchExpiredVol ?: '';
+
+                $compiledVols[] = $recVolume;
+                if ($rootVols !== null) $rootVols[] = $recVolume;
+
+                $allMediums = array_unique(array_filter(array_map(fn($s) => ($s->medium !== '' ? $s->medium : null), $subPeriodItems)));
+                $parentMedium = !empty($allMediums) ? implode(', ', $allMediums) : '';
+                $compiledMediums[] = $parentMedium;
+                if ($rootMediums !== null) $rootMediums[] = $parentMedium;
+
+                $allRestrictions = array_unique(array_filter(array_map(fn($s) => ($s->restriction !== '' ? $s->restriction : null), $subPeriodItems)));
+                $parentRestriction = !empty($allRestrictions) ? implode(', ', $allRestrictions) : '';
+                $compiledRestrictions[] = $parentRestriction;
+                if ($rootRestrictions !== null) $rootRestrictions[] = $parentRestriction;
+
+                $allLocsArr = array_unique(array_filter(array_map(fn($s) => ($s->location !== '' ? $s->location : null), $subPeriodItems)));
+                $parentLocation = !empty($allLocsArr) ? implode(', ', $allLocsArr) : '';
+                $compiledLocs[] = $parentLocation;
+                if ($rootLocs !== null) $rootLocs[] = $parentLocation;
+
+                $allFreqsArr = array_unique(array_filter(array_map(fn($s) => ($s->frequence_use !== '' ? $s->frequence_use : null), $subPeriodItems)));
+                $parentFreq = !empty($allFreqsArr) ? implode(', ', $allFreqsArr) : '';
+                $compiledFreqs[] = $parentFreq;
+                if ($rootFreqs !== null) $rootFreqs[] = $parentFreq;
+
+                $allDupsArr = array_unique(array_filter(array_map(fn($s) => ($s->duplication !== '' ? $s->duplication : null), $subPeriodItems)));
+                $parentDup = !empty($allDupsArr) ? implode(', ', $allDupsArr) : '';
+                $compiledDups[] = $parentDup;
+                if ($rootDups !== null) $rootDups[] = $parentDup;
+
+                $compiledTimes[] = $firstRec->time_value ?: '';
+                if ($rootTimes !== null) $rootTimes[] = $firstRec->time_value ?: '';
+
+                $allUtils = [];
+                foreach ($group as $r) {
+                    $uRows = ($utilities[$r->id] ?? collect())->pluck('utility_name')->all();
+                    foreach ($uRows as $un) {
+                        $compiledUtils[] = $un;
+                        if ($rootUtils !== null) $rootUtils[] = $un;
+                        $allUtils[] = $un;
+                    }
+                }
+                $parentUtils = array_values(array_unique($allUtils));
+
+                if ($allLocs !== null) $allLocs[] = $parentLocation;
+                if ($allVols !== null) $allVols[] = $recVolume;
+
+                $childItems[] = (object)[
+                    'id'            => $firstRec->id,
+                    'group_rec_ids' => $group->pluck('id')->all(),
+                    'series_id'     => $seriesId,
+                    'description'   => $primarySubject,
+                    'date_covered'  => $formattedDate,
+                    'volume'        => $recVolume,
+                    'medium'        => $parentMedium,
+                    'restriction'   => $parentRestriction,
+                    'location'      => $parentLocation,
+                    'frequence_use' => $parentFreq,
+                    'duplication'   => $parentDup,
+                    'time_value'    => $firstRec->time_value ?: '',
+                    'utility'       => $this->formatItemUtility($parentUtils),
+                    'utility_abbr'  => $this->compileUtility($parentUtils),
+                    'is_batch'      => true,
+                    'sub_periods'   => $subPeriodItems,
+                ];
+                $totalItemsCount++;
+            }
+        }
+
+        return $childItems;
+    }
+
     private function compileVolume(array $volumes): string
     {
         $totals = [];
@@ -1285,157 +1639,39 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     $compiledDups = [];
                     $compiledTimes = [];
                     $compiledUtils = [];
-                    $childItems = [];
-
-                    foreach ($subRecs as $rec) {
-                        $recPeriods = $periods[$rec->id] ?? collect();
-                        $isBatch = (bool)($rec->ispartof_batch ?? false) || $recPeriods->count() > 1;
-
-                        if ($isBatch) {
-                            $expiredPeriods = $recPeriods->filter(function($p) use ($effTotal, $effActive, $effStorage, $isPerm) {
-                                return \App\Services\RdpRetentionService::isPeriodExpired(
-                                    $p->date_covered,
-                                    $p->date_covered_end ?? null,
-                                    $effTotal,
-                                    $effActive,
-                                    $effStorage,
-                                    $isPerm
-                                );
-                            });
-
-                            if ($expiredPeriods->isEmpty()) {
-                                continue;
-                            }
-                        } else {
-                            if (!(bool)($rec->transferred_to_nap3 ?? false)) {
-                                continue;
-                            }
-                            $expiredPeriods = $recPeriods;
-                        }
-
-                        $uRows = ($utilities[$rec->id] ?? collect())->pluck('utility_name')->all();
-
-                        $recMedium = '';
-                        if (!empty($rec->records_medium)) {
-                            $recMedium = $mediumsMap[$rec->records_medium] ?? (string)$rec->records_medium;
-                        }
-
-                        $recRestriction = !empty($rec->restriction) ? $rec->restriction : '';
-                        $recFreq = !empty($rec->frequence_use) ? $rec->frequence_use : '';
-
-                        $recDup = '';
-                        if (!empty($rec->duplication_id) && isset($duplications[$rec->duplication_id])) {
-                            $dupCodes = $duplications[$rec->duplication_id]->pluck('office_code')->unique()->values()->all();
-                            $recDup = !empty($dupCodes) ? implode(', ', $dupCodes) : '';
-                        }
-
-                        $subPeriodItems = [];
-
-                        if ($isBatch && $expiredPeriods->isNotEmpty()) {
-                            $batchStart = $expiredPeriods->whereNotNull('date_covered')->min('date_covered');
-                            $batchEnd = $expiredPeriods->whereNotNull('date_covered_end')->max('date_covered_end')
-                                        ?: $expiredPeriods->whereNotNull('date_covered')->max('date_covered');
-                            $formattedDate = $this->formatBatchDateRange($batchStart, $batchEnd, false);
-
-                            if (!empty($batchStart) && !empty($batchEnd)) {
-                                $compiledDates[] = $batchStart . ' - ' . $batchEnd;
-                                $rootDates[] = $batchStart . ' - ' . $batchEnd;
-                            }
-
-                            foreach ($expiredPeriods as $p) {
-                                if (!empty($p->date_covered) && !empty($p->date_covered_end)) {
-                                    $compiledDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
-                                    $rootDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
-                                } elseif (!empty($p->date_covered)) {
-                                    $compiledDates[] = $p->date_covered;
-                                    $rootDates[] = $p->date_covered;
-                                } elseif (!empty($p->date_covered_end)) {
-                                    $compiledDates[] = $p->date_covered_end;
-                                    $rootDates[] = $p->date_covered_end;
-                                }
-                            }
-
-                            foreach ($expiredPeriods as $p) {
-                                $originalIndex = $recPeriods->values()->search(fn($item) => $item->id == $p->id) + 1;
-                                $subPeriodItems[] = (object)[
-                                    'id'            => $rec->id . '-sub-' . $p->id,
-                                    'parent_rec_id' => $rec->id,
-                                    'period_id'     => $p->id,
-                                    'description'   => !empty($p->description) ? $p->description : ($rec->description . ' ' . $originalIndex),
-                                    'date_covered'  => $this->formatBatchDateRange($p->date_covered, $p->date_covered_end ?? null, false),
-                                    'volume'        => !empty($p->volume) ? $p->volume : '',
-                                    'medium'        => $recMedium,
-                                    'restriction'   => $recRestriction,
-                                    'location'      => $rec->records_location ?: '',
-                                    'frequence_use' => $recFreq,
-                                    'duplication'   => $recDup,
-                                    'time_value'    => $rec->time_value ?: '',
-                                    'utility'       => $this->formatItemUtility($uRows),
-                                    'utility_abbr'  => $this->compileUtility($uRows),
-                                    'is_sub_period' => true,
-                                    'sub_index'     => $originalIndex,
-                                ];
-                            }
-
-                            $batchExpiredVol = $this->compileVolume($expiredPeriods->pluck('volume')->all());
-                            $recVolume = $batchExpiredVol ?: '';
-                        } else {
-                            $pRow = $recPeriods->first() ?? null;
-                            $rawDate = $pRow->date_covered ?? '';
-                            $rawDateEnd = $pRow->date_covered_end ?? null;
-                            if (!empty($rawDate) && !empty($rawDateEnd)) {
-                                $compiledDates[] = $rawDate . ' - ' . $rawDateEnd;
-                                $rootDates[] = $rawDate . ' - ' . $rawDateEnd;
-                            } elseif (!empty($rawDate)) {
-                                $compiledDates[] = $rawDate;
-                                $rootDates[] = $rawDate;
-                            } elseif (!empty($rawDateEnd)) {
-                                $compiledDates[] = $rawDateEnd;
-                                $rootDates[] = $rawDateEnd;
-                            }
-                            $formattedDate = !empty($rawDateEnd) ? $this->formatDateRange($rawDate, $rawDateEnd) : $this->formatItemDate($rawDate);
-                            $recVolume = $rec->volume ?: '';
-                        }
-
-                        $compiledVols[] = $recVolume;
-                        $rootVols[] = $recVolume;
-                        $compiledMediums[] = $recMedium;
-                        $rootMediums[] = $recMedium;
-                        $compiledRestrictions[] = $recRestriction;
-                        $rootRestrictions[] = $recRestriction;
-                        $compiledLocs[] = $rec->records_location;
-                        $rootLocs[] = $rec->records_location;
-                        $compiledFreqs[] = $recFreq;
-                        $rootFreqs[] = $recFreq;
-                        $compiledDups[] = $recDup;
-                        $rootDups[] = $recDup;
-                        $compiledTimes[] = $rec->time_value;
-                        $rootTimes[] = $rec->time_value;
-                        $compiledUtils = array_merge($compiledUtils, $uRows);
-                        $rootUtils = array_merge($rootUtils, $uRows);
-
-                        $allLocs[] = $rec->records_location;
-                        $allVols[] = $recVolume;
-
-                        $childItems[] = (object)[
-                            'id'           => $rec->id,
-                            'series_id'    => $sub->id,
-                            'description'  => $rec->description,
-                            'date_covered' => $formattedDate,
-                            'volume'       => $recVolume,
-                            'medium'       => $recMedium,
-                            'restriction'  => $recRestriction,
-                            'location'     => $rec->records_location ?: '',
-                            'frequence_use'=> $recFreq,
-                            'duplication'  => $recDup,
-                            'time_value'   => $rec->time_value ?: '',
-                            'utility'      => $this->formatItemUtility($uRows),
-                            'utility_abbr' => $this->compileUtility($uRows),
-                            'is_batch'     => $isBatch,
-                            'sub_periods'  => $subPeriodItems,
-                        ];
-                        $totalItemsCount++;
-                    }
+                    $childItems = $this->processSeriesRecords(
+                        $subRecs,
+                        $sub->id,
+                        $effTotal,
+                        $effActive,
+                        $effStorage,
+                        $isPerm,
+                        $periods,
+                        $utilities,
+                        $mediumsMap,
+                        $duplications,
+                        $compiledDates,
+                        $compiledVols,
+                        $compiledMediums,
+                        $compiledRestrictions,
+                        $compiledLocs,
+                        $compiledFreqs,
+                        $compiledDups,
+                        $compiledTimes,
+                        $compiledUtils,
+                        $totalItemsCount,
+                        $rootDates,
+                        $rootVols,
+                        $rootMediums,
+                        $rootRestrictions,
+                        $rootLocs,
+                        $rootFreqs,
+                        $rootDups,
+                        $rootTimes,
+                        $rootUtils,
+                        $allLocs,
+                        $allVols
+                    );
 
                     if (empty($childItems)) continue;
 
@@ -1509,142 +1745,39 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 $compiledDups = [];
                 $compiledTimes = [];
                 $compiledUtils = [];
-                $childItems = [];
-
-                foreach ($directRecs as $rec) {
-                    $recPeriods = $periods[$rec->id] ?? collect();
-                    $isBatch = (bool)($rec->ispartof_batch ?? false) || $recPeriods->count() > 1;
-
-                    if ($isBatch) {
-                        $expiredPeriods = $recPeriods->filter(function($p) use ($effTotal, $effActive, $effStorage, $isPerm) {
-                            return \App\Services\RdpRetentionService::isPeriodExpired(
-                                $p->date_covered,
-                                $p->date_covered_end ?? null,
-                                $effTotal,
-                                $effActive,
-                                $effStorage,
-                                $isPerm
-                            );
-                        });
-
-                        if ($expiredPeriods->isEmpty()) {
-                            continue;
-                        }
-                    } else {
-                        if (!(bool)($rec->transferred_to_nap3 ?? false)) {
-                            continue;
-                        }
-                        $expiredPeriods = $recPeriods;
-                    }
-
-                    $uRows = ($utilities[$rec->id] ?? collect())->pluck('utility_name')->all();
-
-                    $recMedium = '';
-                    if (!empty($rec->records_medium)) {
-                        $recMedium = $mediumsMap[$rec->records_medium] ?? (string)$rec->records_medium;
-                    }
-
-                    $recRestriction = !empty($rec->restriction) ? $rec->restriction : '';
-                    $recFreq = !empty($rec->frequence_use) ? $rec->frequence_use : '';
-
-                    $recDup = '';
-                    if (!empty($rec->duplication_id) && isset($duplications[$rec->duplication_id])) {
-                        $dupCodes = $duplications[$rec->duplication_id]->pluck('office_code')->unique()->values()->all();
-                        $recDup = !empty($dupCodes) ? implode(', ', $dupCodes) : '';
-                    }
-
-                    $subPeriodItems = [];
-
-                    if ($isBatch && $expiredPeriods->isNotEmpty()) {
-                        $batchStart = $expiredPeriods->whereNotNull('date_covered')->min('date_covered');
-                        $batchEnd = $expiredPeriods->whereNotNull('date_covered_end')->max('date_covered_end')
-                                    ?: $expiredPeriods->whereNotNull('date_covered')->max('date_covered');
-                        $formattedDate = $this->formatBatchDateRange($batchStart, $batchEnd, false);
-
-                        if (!empty($batchStart) && !empty($batchEnd)) {
-                            $compiledDates[] = $batchStart . ' - ' . $batchEnd;
-                        }
-
-                        foreach ($expiredPeriods as $p) {
-                            if (!empty($p->date_covered) && !empty($p->date_covered_end)) {
-                                $compiledDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
-                            } elseif (!empty($p->date_covered)) {
-                                $compiledDates[] = $p->date_covered;
-                            } elseif (!empty($p->date_covered_end)) {
-                                $compiledDates[] = $p->date_covered_end;
-                            }
-                        }
-
-                        foreach ($expiredPeriods as $p) {
-                            $originalIndex = $recPeriods->values()->search(fn($item) => $item->id == $p->id) + 1;
-                            $subPeriodItems[] = (object)[
-                                'id'            => $rec->id . '-sub-' . $p->id,
-                                'parent_rec_id' => $rec->id,
-                                'period_id'     => $p->id,
-                                'description'   => !empty($p->description) ? $p->description : ($rec->description . ' ' . $originalIndex),
-                                'date_covered'  => $this->formatBatchDateRange($p->date_covered, $p->date_covered_end ?? null, false),
-                                'volume'        => !empty($p->volume) ? $p->volume : '',
-                                'medium'        => $recMedium,
-                                'restriction'   => $recRestriction,
-                                'location'      => $rec->records_location ?: '',
-                                'frequence_use' => $recFreq,
-                                'duplication'   => $recDup,
-                                'time_value'    => $rec->time_value ?: '',
-                                'utility'       => $this->formatItemUtility($uRows),
-                                'utility_abbr'  => $this->compileUtility($uRows),
-                                'is_sub_period' => true,
-                                'sub_index'     => $originalIndex,
-                            ];
-                        }
-
-                        $batchExpiredVol = $this->compileVolume($expiredPeriods->pluck('volume')->all());
-                        $recVolume = $batchExpiredVol ?: '';
-                    } else {
-                        $pRow = $recPeriods->first() ?? null;
-                        $rawDate = $pRow->date_covered ?? '';
-                        $rawDateEnd = $pRow->date_covered_end ?? null;
-                        if (!empty($rawDate) && !empty($rawDateEnd)) {
-                            $compiledDates[] = $rawDate . ' - ' . $rawDateEnd;
-                        } elseif (!empty($rawDate)) {
-                            $compiledDates[] = $rawDate;
-                        } elseif (!empty($rawDateEnd)) {
-                            $compiledDates[] = $rawDateEnd;
-                        }
-                        $formattedDate = !empty($rawDateEnd) ? $this->formatDateRange($rawDate, $rawDateEnd) : $this->formatItemDate($rawDate);
-                        $recVolume = $rec->volume ?: '';
-                    }
-
-                    $compiledVols[] = $recVolume;
-                    $compiledMediums[] = $recMedium;
-                    $compiledRestrictions[] = $recRestriction;
-                    $compiledLocs[] = $rec->records_location;
-                    $compiledFreqs[] = $recFreq;
-                    $compiledDups[] = $recDup;
-                    $compiledTimes[] = $rec->time_value;
-                    foreach ($uRows as $un) $compiledUtils[] = $un;
-
-                    $allLocs[] = $rec->records_location;
-                    $allVols[] = $recVolume;
-
-                    $childItems[] = (object)[
-                        'id'           => $rec->id,
-                        'series_id'    => $root->id,
-                        'description'  => $rec->description,
-                        'date_covered' => $formattedDate,
-                        'volume'       => $recVolume,
-                        'medium'       => $recMedium,
-                        'restriction'  => $recRestriction,
-                        'location'     => $rec->records_location ?: '',
-                        'frequence_use'=> $recFreq,
-                        'duplication'  => $recDup,
-                        'time_value'   => $rec->time_value ?: '',
-                        'utility'      => $this->formatItemUtility($uRows),
-                        'utility_abbr' => $this->compileUtility($uRows),
-                        'is_batch'     => $isBatch,
-                        'sub_periods'  => $subPeriodItems,
-                    ];
-                    $totalItemsCount++;
-                }
+                $childItems = $this->processSeriesRecords(
+                    $directRecs,
+                    $root->id,
+                    $effTotal,
+                    $effActive,
+                    $effStorage,
+                    $isPerm,
+                    $periods,
+                    $utilities,
+                    $mediumsMap,
+                    $duplications,
+                    $compiledDates,
+                    $compiledVols,
+                    $compiledMediums,
+                    $compiledRestrictions,
+                    $compiledLocs,
+                    $compiledFreqs,
+                    $compiledDups,
+                    $compiledTimes,
+                    $compiledUtils,
+                    $totalItemsCount,
+                    $dummyDates,
+                    $dummyVols,
+                    $dummyMediums,
+                    $dummyRestrictions,
+                    $dummyLocs,
+                    $dummyFreqs,
+                    $dummyDups,
+                    $dummyTimes,
+                    $dummyUtils,
+                    $allLocs,
+                    $allVols
+                );
 
                 if (empty($childItems)) continue;
 
@@ -2179,7 +2312,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                                 <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->date_covered }}</td>
                                                 <td style="text-align: center; color: #cbd5e1;">—</td>
                                                 <td style="text-align: right; white-space: nowrap;">
-                                                    <button type="button" wire:click="openEditSubjectModal({{ $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
+                                                    <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
                                                         Edit
                                                     </button>
                                                 </td>
@@ -2232,7 +2365,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                             <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->date_covered }}</td>
                                             <td style="text-align: center; color: #cbd5e1;">—</td>
                                             <td style="text-align: right; white-space: nowrap;">
-                                                <button type="button" wire:click="openEditSubjectModal({{ $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
+                                                <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
                                                     Edit
                                                 </button>
                                             </td>

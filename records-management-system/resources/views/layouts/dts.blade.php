@@ -125,6 +125,7 @@
     @auth
     <livewire:components.session-guard />
     @endauth
+    <x-rms-error />
     @stack('scripts')
     <script>
         document.addEventListener('submit', () => {

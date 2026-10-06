@@ -100,31 +100,14 @@ window.dcsShowToast = function (message, type, title) {
 };
 
 function diagnosedRequestFailure(status, content) {
-    let body = null;
-    if (content && typeof content === 'object') {
-        body = content;
-    } else if (typeof content === 'string' && content.trim().charAt(0) === '{') {
-        try { body = JSON.parse(content); } catch (e) { body = null; }
+    if (typeof window.rmsDiagnoseError === 'function') {
+        return window.rmsDiagnoseError(status, content);
     }
-    const offline = !status || status === 0;
-    const client = !offline && (body?.error_kind === 'client' || (status >= 400 && status < 500));
-    const title = client ? 'Client error' : 'Server error';
-    let message = body?.message || '';
-    if (!message && (offline || (status === 503 && !body))) {
-        message = 'Cannot connect to the server.';
-    }
-    if (!message && status === 419) {
-        message = 'Your session expired. Refresh the page and try again.';
-    }
-    if (!message) {
-        message = client
-            ? 'This request could not be completed.'
-            : 'The server could not finish this request.';
-    }
-    if (body?.reference) {
-        message += ' Reference ' + body.reference + '.';
-    }
-    return { title: title, message: message, skipDefault: status !== 422 };
+    return {
+        title: 'Server error',
+        message: 'The server could not finish this request.',
+        skipDefault: status !== 422,
+    };
 }
 
 document.addEventListener('DOMContentLoaded', scanToasts);

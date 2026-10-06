@@ -304,7 +304,7 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
 
     @if($loadError)
         <div class="drt-error is-{{ $loadError->kind }}" role="alert">
-            <strong>{{ $loadError->kind === 'client' ? 'Client error' : 'Server error' }}</strong>
+            <strong>{{ $loadError->title }}</strong>
             <p>{{ $loadError->message }}</p>
             @if($loadError->reference)
                 <p>Reference {{ $loadError->reference }}</p>

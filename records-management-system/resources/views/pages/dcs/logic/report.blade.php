@@ -884,7 +884,7 @@ class ReportHelper
                 'doc_title'        => $ml->doc_title,
                 'effectivity_date' => $ml->effectivity_date
                     ? RegisterQueryHelper::formatSmartDate($ml->effectivity_date) : null,
-                'originator'       => $ml->originator_name,
+                'originator'       => $ml->originator_name ?? null,
                 'no_pages'         => $ml->no_pages,
                 'doc_type'         => $doc?->docType?->doc_type_name ?? $ml->docType?->doc_type_name ?? 'N/A',
                 'sub_type'         => $doc?->subType?->doc_type_name ?? null,
@@ -1240,7 +1240,7 @@ class ReportHelper
                 'time_registered'  => $timeRegistered,
                 'mins_spent'       => $minsSpent,
                 'source'           => $source,
-                'in_charge'        => $ml ? ($ml->originator_name ?: null) : null,
+                'in_charge'        => $ml ? ($ml->originator_name ?? null) : null,
                 'control_number'   => $controlNumber,
                 'subject_matter'   => $subjectMatter,
                 'effectivity_date' => $effectivityDate,
@@ -1963,7 +1963,7 @@ class ReportHelper
             $drf = $doc->documentRequestForm;
             $dcn = $doc->documentChangeNotice;
 
-            $originator = $ml ? ($ml->originator_name ?: null) : null;
+            $originator = $ml ? ($ml->originator_name ?? null) : null;
 
             $checklists = collect();
             if ($drf) $checklists->push('DRF');

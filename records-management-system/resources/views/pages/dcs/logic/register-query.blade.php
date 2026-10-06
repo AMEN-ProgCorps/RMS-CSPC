@@ -1205,11 +1205,9 @@ class RegisterQueryHelper
             ->filter(fn (int $id) => $id > 0)
             ->unique()
             ->values();
-        if ($ids->isEmpty()) {
-            return;
-        }
-
-        $names = DB::table('dcs_originators')->whereIn('id', $ids)->pluck('originator_name', 'id');
+        $names = $ids->isEmpty()
+            ? collect()
+            : DB::table('dcs_originators')->whereIn('id', $ids)->pluck('originator_name', 'id');
         foreach ($list as $row) {
             if (! is_object($row)) {
                 continue;
@@ -3329,6 +3327,8 @@ class RegisterQueryHelper
             abort(404, 'Document not found.');
         }
 
+        self::attachOriginatorNames($mls);
+
         $tipRequestId = (int) $mls->first()->request_id;
 
         $requestIds = self::intIds($mls->pluck('request_id'));
@@ -4261,7 +4261,7 @@ class RegisterQueryHelper
             self::hstRow('revise_no', 'Revision no.', $ml->revise_no === null ? null : (string) $ml->revise_no),
             self::hstRow('registered_at', 'Registered', self::hstDateTime($ml->request_created_at ?? $ml->created_at)),
             self::hstRow('registered_by', 'Registered by', $lookups['creators'][(int) $creatorId] ?? null),
-            self::hstRow('originator', 'Originator', $ml->originator_name),
+            self::hstRow('originator', 'Originator', $ml->originator_name ?? ($mlHydrated->originator_name ?? null)),
             self::hstOfficeRow('sources', 'Source offices', $mlHydrated->sourceOffices ?? collect()),
             self::hstRow('effectivity', 'Effectivity', self::formatSmartDate($ml->effectivity_date, '—')),
             self::hstRow('deadline', 'Deadline', $ml->deadline ? self::formatSmartDate($ml->deadline) : 'N/A'),
@@ -4376,13 +4376,14 @@ class RegisterQueryHelper
                 $name = $syl->course->course_name ?? $syl->course_name ?? '';
                 $label = trim($code . ' ' . $name) ?: ('Course ' . ($idx + 1));
                 $prefix = 'syl.' . ($syl->course_id ?? $syl->id);
-                $faculties = collect($syl->drfs ?? [])->pluck('faculty_name')->filter()->unique()->implode(', ');
+                $faculties = collect($syl->drfs ?? [])->map(fn ($d) => $d->faculty_name ?? null)->filter()->unique()->implode(', ');
                 $drfBits = collect($syl->drfs ?? [])->map(function ($d) {
                     if (!self::pgBool($d->is_drf_available ?? false)) {
                         return null;
                     }
+                    $faculty = trim((string) ($d->faculty_name ?? ''));
 
-                    return trim(($d->faculty_name ? $d->faculty_name . ': ' : '') . ($d->drf_no ?: 'DRF') .
+                    return trim(($faculty !== '' ? $faculty . ': ' : '') . ($d->drf_no ?: 'DRF') .
                         ($d->drf_date ? ' (' . self::hstDate($d->drf_date) . ')' : ''));
                 })->filter()->implode('; ');
 
@@ -6089,7 +6090,7 @@ class RegisterQueryHelper
                 self::previewField('Registered Time', self::formatDisplayTime($ml->doc_registered_time)),
                 self::previewField('Effectivity Date', self::formatDisplayDate($ml->effectivity_date)),
                 self::previewField('No. of Pages', $ml->no_pages),
-                self::previewField('Originator', $ml->originator_name),
+                self::previewField('Originator', $ml->originator_name ?? null),
                 self::previewField('Deadline', $ml->deadline ? self::formatDisplayDate($ml->deadline) : 'N/A'),
                 self::previewField('Time Spent (mins)', $ml->time_spent),
             ],
@@ -6386,7 +6387,7 @@ class RegisterQueryHelper
                     })(),
                     'revision_status' => strtolower(trim((string) ($latest->revision_status ?? 'latest'))),
                     'latest_title' => $latest->doc_title,
-                    'latest_originator' => $latest->originator_name,
+                    'latest_originator' => $latest->originator_name ?? null,
                     'revision_count' => $registrations->count(),
                     'latest_distribution_offices' => $latestDistributionOffices,
                     'already_retrieved_offices' => $alreadyRetrieved,
@@ -6922,7 +6923,7 @@ class RegisterQueryHelper
                 'id' => $o->office_id,
                 'label' => $o->office_name ?? 'Unknown',
             ])->filter(fn ($o) => $o['id'])->values(),
-            'masterlistOriginatorSeed' => ($ml && $ml->originator_name)
+            'masterlistOriginatorSeed' => ($ml && ($ml->originator_name ?? null))
                 ? [[
                     'type' => !empty($ml->originator_id ?? null) ? 'office' : 'name',
                     'id' => ($ml->originator_id ?? null) ?: ('n' . $ml->id),

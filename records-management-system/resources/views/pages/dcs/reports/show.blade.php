@@ -779,7 +779,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     <header class="rpt-hdr">
         <div>
-            <div class="rpt-crumb">Document Control System / Generate Report /<span> {{ $pageTitle }}</span></div>
+            <div class="rpt-crumb">Document Control System / {{ $isMonitoring ? 'Monitoring' : 'Generate Report' }} /<span> {{ $pageTitle }}</span></div>
             <h1>{{ $pageTitle }}</h1>
         </div>
     </header>

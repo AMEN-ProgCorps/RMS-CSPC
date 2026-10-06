@@ -91,7 +91,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 }">
     <header class="rpt-hdr">
         <div>
-            <div class="rpt-crumb">Document Control System / Generate Report /<span> Syllabi &amp; TOS/Rubrics</span></div>
+            <div class="rpt-crumb">Document Control System / Monitoring /<span> Syllabi &amp; TOS/Rubrics</span></div>
             <h1>Monitoring of Syllabi &amp; TOS/Rubrics Submission</h1>
         </div>
     </header>

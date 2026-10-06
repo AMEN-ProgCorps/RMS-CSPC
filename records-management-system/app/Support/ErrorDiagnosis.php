@@ -26,14 +26,18 @@ class ErrorDiagnosis
         }
 
         $reference = 'SRV-'.strtoupper(Str::random(6));
-        Log::error('Server error '.$reference, [
-            'exception' => $e::class,
-            'message' => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-            'url' => request()?->fullUrl(),
-            'user_id' => Auth::id(),
-        ]);
+        try {
+            Log::error('Server error '.$reference, [
+                'exception' => $e::class,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'url' => request()?->fullUrl(),
+                'user_id' => Auth::id(),
+            ]);
+        } catch (Throwable) {
+            // A locked log file must not replace the original error.
+        }
 
         return new self(
             'server',

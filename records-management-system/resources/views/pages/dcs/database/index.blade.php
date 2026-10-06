@@ -653,7 +653,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ];
         } catch (\Throwable $e) {
             $refId = uniqid('err_');
-            Log::error("Database listing error [{$refId}]: " . $e->getMessage());
+            try {
+                Log::error("Database listing error [{$refId}]: " . $e->getMessage());
+            } catch (\Throwable) {
+            }
 
             return [
                 'data' => [],
@@ -904,7 +907,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'rev_no' => $ml ? (int) $ml->revise_no : 0,
             'title' => ($ml && $ml->doc_title) ? $ml->doc_title : (($drf && $drf->doc_title) ? $drf->doc_title : 'N/A'),
             'effectivity' => ($ml && $ml->effectivity_date) ? RegisterQueryHelper::formatSmartDate($ml->effectivity_date) : null,
-            'originator' => $ml?->originator_name,
+            'originator' => $ml ? ($ml->originator_name ?? null) : null,
             'pages' => $ml?->no_pages,
             'status' => $status,
             'allows_revision' => $allowsRevision,

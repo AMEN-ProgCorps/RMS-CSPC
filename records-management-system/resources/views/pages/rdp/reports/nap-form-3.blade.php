@@ -35,6 +35,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
     // Edit Subject Modal Properties
     public bool $showEditSubjectModal = false;
+    public bool $isEditingSubject = false;
     public ?int $editingSubjectId = null;
     public ?int $editingPeriodId = null;
     public bool $editingIsBatchSubPeriod = false;
@@ -456,13 +457,30 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 ->map(fn($v) => (int)$v)
                 ->all();
 
+            $this->isEditingSubject = false;
             $this->showEditSubjectModal = true;
         }
+    }
+
+    public function enableEditSubject(): void
+    {
+        if ($this->canEditDescription) {
+            $this->isEditingSubject = true;
+        }
+    }
+
+    public function cancelEditSubject(): void
+    {
+        if ($this->editingSubjectId) {
+            $this->openEditSubjectModal($this->editingSubjectId, $this->editingPeriodId);
+        }
+        $this->isEditingSubject = false;
     }
 
     public function closeEditSubjectModal(): void
     {
         $this->showEditSubjectModal = false;
+        $this->isEditingSubject = false;
         $this->editingSubjectId = null;
         $this->editingPeriodId = null;
         $this->editingIsBatchSubPeriod = false;
@@ -2294,8 +2312,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                         <td style="text-align: center; color: #cbd5e1;">—</td>
                                         <td style="text-align: right; white-space: nowrap;">
                                             @if(empty($rec->is_batch))
-                                                <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
-                                                    Edit
+                                                <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="View Record Details">
+                                                    <svg style="width: 13px; height: 13px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-7-9.542-7z"/></svg>
+                                                    View
                                                 </button>
                                             @else
                                                 <span style="color: #94a3b8; font-size: 11px;">—</span>
@@ -2315,8 +2334,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                                 <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->date_covered }}</td>
                                                 <td style="text-align: center; color: #cbd5e1;">—</td>
                                                 <td style="text-align: right; white-space: nowrap;">
-                                                    <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
-                                                        Edit
+                                                    <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="View Record Details">
+                                                        <svg style="width: 13px; height: 13px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-7-9.542-7z"/></svg>
+                                                        View
                                                     </button>
                                                 </td>
                                             </tr>
@@ -2347,8 +2367,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                     <td style="text-align: center; color: #cbd5e1;">—</td>
                                     <td style="text-align: right; white-space: nowrap;">
                                         @if(empty($rec->is_batch))
-                                            <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
-                                                Edit
+                                            <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="View Record Details">
+                                                <svg style="width: 13px; height: 13px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-7-9.542-7z"/></svg>
+                                                View
                                             </button>
                                         @else
                                             <span style="color: #94a3b8; font-size: 11px;">—</span>
@@ -2368,8 +2389,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                             <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->date_covered }}</td>
                                             <td style="text-align: center; color: #cbd5e1;">—</td>
                                             <td style="text-align: right; white-space: nowrap;">
-                                                <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px;">
-                                                    Edit
+                                                <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="View Record Details">
+                                                    <svg style="width: 13px; height: 13px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-7-9.542-7z"/></svg>
+                                                    View
                                                 </button>
                                             </td>
                                         </tr>
@@ -2740,13 +2762,33 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             <div class="modal-dialog" style="max-width: 680px; width: 100%;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
                     <div>
-                        <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">{{ $editingIsBatchSubPeriod ? 'Edit Batch Item Record' : 'Edit Record Subject' }}</h3>
-                        <p style="margin: 2px 0 0 0; font-size: 12px; color: #64748b;">{{ $editingIsBatchSubPeriod ? 'Update volume, dates, or classifications for this batch item.' : 'Update and fix details, typos, or classifications for this record.' }}</p>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">
+                                {{ $isEditingSubject ? ($editingIsBatchSubPeriod ? 'Edit Batch Item Record' : 'Edit Record Subject') : ($editingIsBatchSubPeriod ? 'View Batch Item Record' : 'View Record Subject') }}
+                            </h3>
+                            @if($isEditingSubject)
+                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 2px 7px; border-radius: 9999px;">
+                                    ✏️ EDITING
+                                </span>
+                            @else
+                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 7px; border-radius: 9999px;">
+                                    👁️ VIEW ONLY
+                                </span>
+                            @endif
+                        </div>
+                        <p style="margin: 2px 0 0 0; font-size: 12px; color: #64748b;">
+                            {{ $isEditingSubject ? ($editingIsBatchSubPeriod ? 'Update volume, dates, or classifications for this batch item.' : 'Update and fix details, typos, or classifications for this record.') : 'Inspect record details, classifications, and storage parameters.' }}
+                        </p>
                     </div>
                     <button type="button" wire:click="closeEditSubjectModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
                 </div>
 
                 <form wire:submit.prevent="saveEditSubject" style="display: flex; flex-direction: column; gap: 14px;">
+                    @php
+                        $canEditFields = $isEditingSubject && $canEditDescription;
+                        $fieldStyle = !$canEditFields ? 'background: #f8fafc; cursor: default; color: #1e293b; border-color: #e2e8f0;' : '';
+                    @endphp
+
                     <!-- Subject Description -->
                     <div>
                         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
@@ -2757,10 +2799,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                 </span>
                             @endif
                         </div>
-                        @if($canEditDescription && !$editingIsBatchSubPeriod)
+                        @if($canEditFields && !$editingIsBatchSubPeriod)
                             <textarea wire:model="editSubjectDescription" rows="2" class="nap-form-control" placeholder="Enter record subject title or description" required></textarea>
                         @else
-                            <textarea wire:model="editSubjectDescription" rows="2" class="nap-form-control" readonly disabled title="{{ $editingIsBatchSubPeriod ? 'Batch item title is formatted from the batch series' : 'Editing description is locked due to lack of clearance' }}"></textarea>
+                            <textarea wire:model="editSubjectDescription" rows="2" class="nap-form-control" readonly disabled style="{{ $fieldStyle }} font-weight: 600;" title="{{ $editingIsBatchSubPeriod ? 'Batch item title is formatted from the batch series' : 'View mode or locked' }}"></textarea>
                         @endif
                     </div>
 
@@ -2768,11 +2810,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Period Covered / Inclusive Dates</label>
-                            <input type="text" wire:model="editSubjectDateCovered" class="nap-form-control" placeholder="e.g. 2020-2024 or 2023" {{ !$canEditDescription ? 'readonly disabled' : '' }}>
+                            <input type="text" wire:model="editSubjectDateCovered" class="nap-form-control" placeholder="e.g. 2020-2024 or 2023" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
                         </div>
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Volume Amount & Unit</label>
-                            <input type="text" wire:model="editSubjectVolume" class="nap-form-control" placeholder="e.g. 2 papers, 1 box, 2 bundles" {{ !$canEditDescription ? 'readonly disabled' : '' }}>
+                            <input type="text" wire:model="editSubjectVolume" class="nap-form-control" placeholder="e.g. 2 papers, 1 box, 2 bundles" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
                         </div>
                     </div>
 
@@ -2780,11 +2822,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Location of Records</label>
-                            <input type="text" wire:model="editSubjectLocation" class="nap-form-control" placeholder="e.g. Cabinet 2L, Shelf 3" {{ !$canEditDescription ? 'readonly disabled' : '' }}>
+                            <input type="text" wire:model="editSubjectLocation" class="nap-form-control" placeholder="e.g. Cabinet 2L, Shelf 3" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
                         </div>
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Medium</label>
-                            <select wire:model="editSubjectMedium" class="nap-form-control" {{ !$canEditDescription ? 'disabled' : '' }}>
+                            <select wire:model="editSubjectMedium" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
                                 <option value="" {{ empty($editSubjectMedium) ? 'selected' : '' }}>Select Medium...</option>
                                 @foreach($mediaList as $med)
                                     <option value="{{ $med->id }}" {{ (string)$editSubjectMedium === (string)$med->id ? 'selected' : '' }}>{{ $med->medium_name }}</option>
@@ -2797,7 +2839,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Restriction / Access</label>
-                            <select wire:model="editSubjectRestriction" class="nap-form-control" {{ !$canEditDescription ? 'disabled' : '' }}>
+                            <select wire:model="editSubjectRestriction" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
                                 <option value="" {{ empty($editSubjectRestriction) ? 'selected' : '' }}>Select Restriction...</option>
                                 @foreach($restrictionsList as $rest)
                                     <option value="{{ $rest->restriction_value }}" {{ $editSubjectRestriction === $rest->restriction_value ? 'selected' : '' }}>{{ $rest->restriction_value }}</option>
@@ -2806,7 +2848,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         </div>
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Frequency of Use</label>
-                            <select wire:model="editSubjectFrequency" class="nap-form-control" {{ !$canEditDescription ? 'disabled' : '' }}>
+                            <select wire:model="editSubjectFrequency" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
                                 <option value="" {{ empty($editSubjectFrequency) ? 'selected' : '' }}>Select Frequency...</option>
                                 @foreach($frequenciesList as $freq)
                                     <option value="{{ $freq->freq_type }}" {{ $editSubjectFrequency === $freq->freq_type ? 'selected' : '' }}>{{ $freq->freq_type }}</option>
@@ -2819,7 +2861,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start;">
                         <div>
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Time Value (T/P)</label>
-                            <select wire:model="editSubjectTimeValue" class="nap-form-control" {{ !$canEditDescription ? 'disabled' : '' }}>
+                            <select wire:model="editSubjectTimeValue" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
                                 @foreach($timeValuesList as $tv)
                                     <option value="{{ $tv->char_value }}" {{ $editSubjectTimeValue === $tv->char_value ? 'selected' : '' }}>{{ $tv->char_value }} — {{ $tv->description }}</option>
                                 @endforeach
@@ -2829,8 +2871,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Utility Value</label>
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
                                 @foreach($utilityValuesList as $uv)
-                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 7px 10px; border-radius: 8px; border: 1px solid {{ !$canEditDescription ? '#e2e8f0' : '#cbd5e1' }}; background: {{ !$canEditDescription ? '#f8fafc' : '#ffffff' }}; color: {{ !$canEditDescription ? '#64748b' : '#334155' }}; cursor: {{ !$canEditDescription ? 'not-allowed' : 'pointer' }}; box-sizing: border-box;">
-                                        <input type="checkbox" wire:model="editSubjectUtilities" value="{{ $uv->id }}" {{ !$canEditDescription ? 'disabled' : '' }} style="accent-color: #dc2626; width: 14px; height: 14px; cursor: {{ !$canEditDescription ? 'not-allowed' : 'pointer' }}; margin: 0;">
+                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 7px 10px; border-radius: 8px; border: 1px solid {{ !$canEditFields ? '#e2e8f0' : '#cbd5e1' }}; background: {{ !$canEditFields ? '#f8fafc' : '#ffffff' }}; color: {{ !$canEditFields ? '#64748b' : '#334155' }}; cursor: {{ !$canEditFields ? 'default' : 'pointer' }}; box-sizing: border-box;">
+                                        <input type="checkbox" wire:model="editSubjectUtilities" value="{{ $uv->id }}" {{ !$canEditFields ? 'disabled' : '' }} style="accent-color: #dc2626; width: 14px; height: 14px; cursor: {{ !$canEditFields ? 'default' : 'pointer' }}; margin: 0;">
                                         <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $uv->utility_name }}</span>
                                     </label>
                                 @endforeach
@@ -2838,18 +2880,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         </div>
                     </div>
 
+                    <!-- Footer Action Bar -->
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
                         <div>
                             @if($canCancelRecord)
-                                <button type="button" wire:click="cancelRecord" wire:confirm="Are you sure you want to cancel this record? This will remove it from NAP Form 3." class="nap-btn" style="background: #fee2e2; color: #dc2626; border: 1px solid #fecaca;">
+                                <button type="button" wire:click="cancelRecord" wire:confirm="Are you sure you want to cancel this record? This will remove it from NAP Form 3." class="nap-btn" style="background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; font-size: 12px; padding: 6px 12px;">
                                     Cancel Record
                                 </button>
                             @endif
                         </div>
-                        <div style="display: flex; gap: 10px;">
-                            <button type="button" wire:click="closeEditSubjectModal" class="nap-btn nap-btn-secondary">Close</button>
-                            @if($canEditDescription)
-                                <button type="submit" class="nap-btn nap-btn-primary">Save Changes</button>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            @if(!$isEditingSubject)
+                                <button type="button" wire:click="closeEditSubjectModal" class="nap-btn nap-btn-secondary" style="font-size: 12px; padding: 6px 14px;">Close</button>
+                                @if($canEditDescription)
+                                    <button type="button" wire:click="enableEditSubject" class="nap-btn nap-btn-primary" style="display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 6px 14px;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                        Edit
+                                    </button>
+                                @endif
+                            @else
+                                <button type="button" wire:click="cancelEditSubject" class="nap-btn nap-btn-secondary" style="font-size: 12px; padding: 6px 14px;">Cancel Edit</button>
+                                <button type="submit" class="nap-btn nap-btn-primary" style="font-size: 12px; padding: 6px 14px;">Save Changes</button>
                             @endif
                         </div>
                     </div>

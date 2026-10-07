@@ -769,23 +769,22 @@ Route::middleware(['auth'])
 
                 if (\App\Services\DocumentStorageService::isLegacyPublicScanPath($path)) {
                     abort_unless(\Illuminate\Support\Facades\Storage::disk('public')->exists($path), 404);
+                    $legacyContent = \Illuminate\Support\Facades\Storage::disk('public')->get($path);
+                    abort_unless(is_string($legacyContent) && str_starts_with($legacyContent, '%PDF-'), 415, 'Only a PDF document can be opened.');
 
-                    return response()->file(
-                        \Illuminate\Support\Facades\Storage::disk('public')->path($path),
-                        [
-                            'Content-Type' => 'application/pdf',
-                            'Content-Disposition' => $disposition,
-                        ]
-                    );
+                    return response($legacyContent, 200)
+                        ->header('Content-Type', 'application/pdf')
+                        ->header('X-Content-Type-Options', 'nosniff')
+                        ->header('Content-Disposition', $disposition);
                 }
 
                 $content = \App\Services\DocumentStorageService::getDcsScanContent($path);
                 abort_unless($content, 404, 'Document file not found.');
-
-                $mime = \App\Services\DocumentStorageService::dcsFileMimeType($path);
+                abort_unless(str_starts_with($content, '%PDF-'), 415, 'Only a PDF document can be opened.');
 
                 return response($content, 200)
-                    ->header('Content-Type', $mime)
+                    ->header('Content-Type', 'application/pdf')
+                    ->header('X-Content-Type-Options', 'nosniff')
                     ->header('Content-Disposition', $disposition);
             })->where('downloadAs', '[^/]+')->name('view-document');
 
@@ -984,14 +983,13 @@ Route::middleware(['auth'])
                 Route::middleware(['dcs.module:reports'])->group(function () {
                     Volt::route('/reports/masterlist', 'pages.dcs.reports.show')->name('reports.masterlist');
                     Volt::route('/reports/monitoring', 'pages.dcs.reports.show')->name('reports.monitoring');
+                    Volt::route('/reports/distribution-retrieval', 'pages.dcs.reports.distribution-retrieval')->name('reports.distributionRetrieval');
                     Volt::route('/reports/opcr', 'pages.dcs.reports.show')->name('reports.opcr');
                     Volt::route('/reports/others', 'pages.dcs.reports.show')->name('reports.others');
                     Volt::route('/reports/syllabi-tos', 'pages.dcs.reports.syllabi-tos')->name('reports.syllabiTos');
                     Route::get('/reports/export', fn (Request $request) => app(ReportHelper::class)->export($request))->name('reports.export');
                     Route::match(['get', 'post'], '/reports/distribution-template', fn (Request $request) => ReportTemplateHelper::render($request))
                         ->name('reports.distributionTemplate');
-                    Route::get('/api/report-templates/{id}/preview', fn (int $id) => ReportTemplateHelper::preview($id))
-                        ->name('report-templates.preview');
                 });
 
                 Route::middleware(['dcs.module:stamping'])->group(function () {

@@ -37,9 +37,9 @@ class RegisterQueryHelper
         return Carbon::parse($deletedAt)->addYears(self::RECYCLE_BIN_RETENTION_YEARS);
     }
 
-    public static function scanUrl(?string $path): ?string
+    public static function scanUrl(?string $path, bool $verifyExists = true): ?string
     {
-        return DocumentStorageService::dcsScanUrl($path);
+        return DocumentStorageService::dcsScanUrl($path, 60, $verifyExists);
     }
 
     public static function pgBool(mixed $val): bool
@@ -180,6 +180,184 @@ class RegisterQueryHelper
         $n = mb_strtolower($name);
 
         return str_contains($n, 'syllab') || str_contains($n, 'tos') || str_contains($n, 'rubric');
+    }
+
+    /** @return list<string> */
+    public static function searchTokens(string $search): array
+    {
+        $parts = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower(trim($search))) ?: [];
+        $tokens = [];
+        foreach ($parts as $part) {
+            $part = trim((string) $part);
+            if ($part !== '' && mb_strlen($part) >= 2) {
+                $tokens[$part] = $part;
+            }
+        }
+
+        return array_values($tokens);
+    }
+
+    /**
+     * Match a phrase or the same words in any order.
+     * Higher score = closer to the typed query (phrase, then word order, then tightness).
+     */
+    public static function looseSearchScore(string $search, string $haystack): int
+    {
+        $hay = mb_strtolower(trim($haystack));
+        $query = mb_strtolower(trim($search));
+        if ($query === '' || $hay === '') {
+            return 0;
+        }
+
+        $tokens = self::searchTokens($query);
+        if ($tokens === []) {
+            return str_contains($hay, $query) ? 100 : 0;
+        }
+
+        $positions = [];
+        foreach ($tokens as $token) {
+            $pos = mb_strpos($hay, $token);
+            if ($pos === false) {
+                return 0;
+            }
+            $positions[] = $pos;
+        }
+
+        $score = 100 * count($tokens);
+        if (str_contains($hay, $query)) {
+            $score += 500;
+        }
+
+        $ordered = true;
+        for ($i = 1, $n = count($positions); $i < $n; $i++) {
+            if ($positions[$i] < $positions[$i - 1]) {
+                $ordered = false;
+                break;
+            }
+        }
+        if ($ordered) {
+            $score += 200;
+        }
+
+        $span = max($positions) - min($positions);
+        $score += max(0, 180 - (int) $span);
+        if (str_starts_with($hay, $tokens[0])) {
+            $score += 40;
+        }
+
+        return $score;
+    }
+
+    /**
+     * Inventory stack key.
+     * Syllabi stack only within the same college + program + course type.
+     * Other non-revisable rows that merely share a document number stay separate.
+     */
+    public static function inventoryStackKey(array $row): string
+    {
+        $stackGroup = trim((string) ($row['stack_group'] ?? ''));
+        if ($stackGroup !== '') {
+            return 'rel||' . $stackGroup;
+        }
+
+        $type = (int) ($row['doc_type_id'] ?? 0) . '||' . (int) ($row['sub_type_id'] ?? 0);
+        $syllabi = trim((string) ($row['syllabi_stack'] ?? ''));
+        if ($syllabi !== '') {
+            return 'syl||' . $syllabi . '||' . $type;
+        }
+
+        if (empty($row['allows_revision'])) {
+            $title = mb_strtolower(trim((string) ($row['title'] ?? '')));
+            $docNo = strtolower(trim((string) ($row['doc_no'] ?? '')));
+            if ($title !== '' && $title !== 'n/a' && $docNo !== '' && $docNo !== 'n/a') {
+                return 'copy||' . $docNo . '||' . $title . '||' . $type;
+            }
+
+            return 'solo||' . (int) ($row['request_id'] ?? 0);
+        }
+
+        $docNo = trim((string) ($row['doc_no'] ?? ''));
+        if ($docNo === '' || strcasecmp($docNo, 'N/A') === 0) {
+            return 'no_ml_' . (int) ($row['request_id'] ?? 0);
+        }
+
+        return strtolower($docNo) . '||' . $type;
+    }
+
+    /**
+     * college|program|course type for each syllabi registration.
+     *
+     * @param  list<int>  $requestIds
+     * @return array<int, string>
+     */
+    public static function syllabiStackByRequest(array $requestIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $requestIds))));
+        if ($ids === [] || ! \Illuminate\Support\Facades\Schema::hasTable('dcs_syllabi')) {
+            return [];
+        }
+
+        $select = ['s.request_id', 's.college_id', 's.program_id'];
+        $hasType = \Illuminate\Support\Facades\Schema::hasColumn('dcs_program_courses', 'course_type');
+        if ($hasType) {
+            $select[] = 'pc.course_type';
+        }
+
+        $rows = DB::table('dcs_syllabi as s')
+            ->leftJoin('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
+            ->whereIn('s.request_id', $ids)
+            ->orderBy('s.id')
+            ->get($select);
+
+        $out = [];
+        foreach ($rows as $row) {
+            $rid = (int) $row->request_id;
+            if (isset($out[$rid])) {
+                continue;
+            }
+            $out[$rid] = (int) ($row->college_id ?? 0)
+                . '|' . (int) ($row->program_id ?? 0)
+                . '|' . mb_strtolower(trim((string) ($row->course_type ?? '')));
+        }
+
+        return $out;
+    }
+
+    /**
+     * Phrase match, or every word present in any order across the given columns.
+     *
+     * @param  list<string>  $columns
+     */
+    public static function applyLooseColumnSearch($query, string $search, array $columns): void
+    {
+        $search = trim($search);
+        if ($search === '' || $columns === []) {
+            return;
+        }
+
+        $tokens = self::searchTokens($search);
+        $phrase = '%' . $search . '%';
+        $query->where(function ($outer) use ($phrase, $tokens, $columns) {
+            $outer->where(function ($q) use ($phrase, $columns) {
+                foreach ($columns as $i => $col) {
+                    $method = $i === 0 ? 'where' : 'orWhere';
+                    $q->{$method}($col, 'ilike', $phrase);
+                }
+            });
+            if (count($tokens) > 1) {
+                $outer->orWhere(function ($all) use ($tokens, $columns) {
+                    foreach ($tokens as $token) {
+                        $like = '%' . $token . '%';
+                        $all->where(function ($one) use ($like, $columns) {
+                            foreach ($columns as $i => $col) {
+                                $method = $i === 0 ? 'where' : 'orWhere';
+                                $one->{$method}($col, 'ilike', $like);
+                            }
+                        });
+                    }
+                });
+            }
+        });
     }
 
     /** Whether a doc-type/subtype row allows New→Revised / DCN lineage. */
@@ -346,6 +524,24 @@ class RegisterQueryHelper
     public static function intIds($ids): array
     {
         return collect($ids)->map(fn ($id) => (int) $id)->filter()->unique()->values()->all();
+    }
+
+    /**
+     * One child row per request (highest id). Avoids join fan-out when a request
+     * has more than one masterlist, DRF, DCN, or distribution row.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     */
+    public static function joinLatestByRequest($query, string $table, string $alias, string $parentAlias = 'dr', string $parentKey = 'id')
+    {
+        $table = preg_replace('/[^a-z0-9_]/', '', $table) ?: $table;
+        $alias = preg_replace('/[^a-z0-9_]/', '', $alias) ?: $alias;
+        $parentAlias = preg_replace('/[^a-z0-9_]/', '', $parentAlias) ?: $parentAlias;
+        $parentKey = preg_replace('/[^a-z0-9_]/', '', $parentKey) ?: $parentKey;
+
+        $derived = "(SELECT DISTINCT ON (request_id) * FROM {$table} ORDER BY request_id, id DESC) as {$alias}";
+
+        return $query->leftJoin(DB::raw($derived), "{$alias}.request_id", '=', "{$parentAlias}.{$parentKey}");
     }
 
     /** Exclude soft-deleted document requests when the column exists. */
@@ -969,7 +1165,8 @@ class RegisterQueryHelper
         $selfName = self::normalizedOriginatorName();
 
         $query = DB::table('dcs_masterlist_registration as ml')
-            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id');
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id');
         self::applyNotDeleted($query, 'dr');
 
         $query->where(function ($q) use ($userId, $selfName) {
@@ -985,7 +1182,7 @@ class RegisterQueryHelper
                     if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
                         $legacy->whereNull('ml.originator_account_id');
                     }
-                    $legacy->whereRaw('LOWER(TRIM(COALESCE(ml.originator_name, \'\'))) = ?', [$selfName]);
+                    $legacy->whereRaw('LOWER(TRIM(COALESCE(og.originator_name, \'\'))) = ?', [$selfName]);
                 });
             } elseif ($userId < 1) {
                 $q->whereRaw('1 = 0');
@@ -993,6 +1190,31 @@ class RegisterQueryHelper
         });
 
         return self::intIds($query->pluck('ml.request_id'));
+    }
+
+    /** Copy the catalog name onto masterlist rows that only store originator_id. */
+    public static function attachOriginatorNames(iterable $rows): void
+    {
+        $list = $rows instanceof Collection ? $rows : collect($rows);
+        if ($list->isEmpty() || ! Schema::hasTable('dcs_originators')) {
+            return;
+        }
+
+        $ids = $list
+            ->map(fn ($row) => is_object($row) ? (int) ($row->originator_id ?? 0) : 0)
+            ->filter(fn (int $id) => $id > 0)
+            ->unique()
+            ->values();
+        $names = $ids->isEmpty()
+            ? collect()
+            : DB::table('dcs_originators')->whereIn('id', $ids)->pluck('originator_name', 'id');
+        foreach ($list as $row) {
+            if (! is_object($row)) {
+                continue;
+            }
+            $id = (int) ($row->originator_id ?? 0);
+            $row->originator_name = $id > 0 ? ($names[$id] ?? null) : null;
+        }
     }
 
     public static function resolveOriginatorAccountIdForName(?string $originatorName): ?int
@@ -1025,10 +1247,6 @@ class RegisterQueryHelper
 
         $normalized = DocumentStorageService::normalizeDcsScanPath($path);
         abort_unless($normalized, 404);
-
-        if (self::isOfficeIntakeScanPath($normalized)) {
-            abort(403, 'Office intake forms are not part of the registered document inventory.');
-        }
 
         $requestId = DocumentStorageService::resolveRequestIdForScanPath($normalized);
         if ($requestId !== null) {
@@ -1302,20 +1520,7 @@ class RegisterQueryHelper
         self::applyNotDeleted($query, 'dr');
         self::applyRegisteredDocumentScope($query, 'dr');
 
-        return $query
-            ->orderBy('drf.drf_date')
-            ->pluck('drf.drf_date')
-            ->map(function ($date) {
-                try {
-                    return \Carbon\Carbon::parse($date)->format('Y');
-                } catch (\Throwable) {
-                    return null;
-                }
-            })
-            ->filter()
-            ->unique()
-            ->values()
-            ->all();
+        return self::distinctYears($query, 'drf.drf_date');
     }
 
     /** @return list<string> */
@@ -1332,7 +1537,7 @@ class RegisterQueryHelper
         self::applyNotDeleted($query, 'dr');
         self::applyRegisteredDocumentScope($query, 'dr');
 
-        return self::yearsFromDates($query->orderBy('dcn.dcn_date')->pluck('dcn.dcn_date'));
+        return self::distinctYears($query, 'dcn.dcn_date');
     }
 
     /**
@@ -1373,7 +1578,25 @@ class RegisterQueryHelper
         self::applyNotDeleted($query, 'dr');
         self::applyRegisteredDocumentScope($query, 'dr');
 
-        return self::yearsFromDates($query->orderBy('drf.drf_date')->pluck('drf.drf_date'));
+        return self::distinctYears($query, 'drf.drf_date');
+    }
+
+    /** Distinct calendar years in SQL so report filters do not load every date. */
+    private static function distinctYears($query, string $column): array
+    {
+        if (! preg_match('/^[a-z0-9_]+\.[a-z0-9_]+$/i', $column)) {
+            return [];
+        }
+
+        return $query
+            ->selectRaw("DISTINCT to_char({$column}::date, 'YYYY') as yr")
+            ->whereNotNull($column)
+            ->orderBy('yr')
+            ->pluck('yr')
+            ->map(fn ($year) => (string) $year)
+            ->filter(fn ($year) => $year !== '')
+            ->values()
+            ->all();
     }
 
     /** @param \Illuminate\Support\Collection<int, mixed> $dates */
@@ -1424,13 +1647,17 @@ class RegisterQueryHelper
     }
 
     /**
-     * Newest open draft for this document number + type (one draft per document).
+     * Newest open draft for this document number, type, subtype, and syllabi context.
+     * Syllabi drafts that differ by college, program, course type, semester, or school year stay separate.
+     *
+     * @param  array{college_id?: int, program_id?: int, semester_id?: int, school_year_id?: int, course_type?: string}|null  $syllabiContext
      */
     public static function findExistingDraftRequestId(
         string $docNo,
         int $docTypeId,
         ?int $subTypeId = null,
-        int $excludeRequestId = 0
+        int $excludeRequestId = 0,
+        ?array $syllabiContext = null
     ): ?int {
         if (! self::supportsDrafts()) {
             return null;
@@ -1450,6 +1677,45 @@ class RegisterQueryHelper
         self::applyOfficeScope($query, 'dr');
         self::applyExcludeOfficeIntakeRequests($query, 'dr');
 
+        if ($subTypeId) {
+            $query->where('dr.sub_type_id', $subTypeId);
+        } else {
+            $query->whereNull('dr.sub_type_id');
+        }
+
+        if ($syllabiContext !== null) {
+            $collegeId = (int) ($syllabiContext['college_id'] ?? 0);
+            $programId = (int) ($syllabiContext['program_id'] ?? 0);
+            $semesterId = (int) ($syllabiContext['semester_id'] ?? 0);
+            $schoolYearId = (int) ($syllabiContext['school_year_id'] ?? 0);
+            $courseType = trim((string) ($syllabiContext['course_type'] ?? ''));
+            if ($collegeId > 0 && $programId > 0) {
+                $query->whereExists(function ($q) use ($collegeId, $programId, $semesterId, $schoolYearId, $courseType) {
+                    $q->select(DB::raw(1))
+                        ->from('dcs_syllabi as s')
+                        ->leftJoin('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
+                        ->whereColumn('s.request_id', 'dr.id')
+                        ->where('s.college_id', $collegeId)
+                        ->where('s.program_id', $programId);
+                    if ($semesterId > 0) {
+                        $q->where('s.semester_id', $semesterId);
+                    }
+                    if ($schoolYearId > 0) {
+                        $q->where('s.school_year_id', $schoolYearId);
+                    }
+                    if ($courseType !== '' && Schema::hasColumn('dcs_program_courses', 'course_type')) {
+                        $q->where('pc.course_type', $courseType);
+                    }
+                });
+            } else {
+                $query->whereNotExists(function ($q) {
+                    $q->select(DB::raw(1))
+                        ->from('dcs_syllabi as s')
+                        ->whereColumn('s.request_id', 'dr.id');
+                });
+            }
+        }
+
         if ($excludeRequestId > 0) {
             $query->where('dr.id', '!=', $excludeRequestId);
         }
@@ -1457,32 +1723,6 @@ class RegisterQueryHelper
         $id = $query->orderByDesc('dr.updated_at')->orderByDesc('dr.id')->value('dr.id');
 
         return $id ? (int) $id : null;
-    }
-
-    public static function isOfficeIntakeScanPath(string $path): bool
-    {
-        $path = DocumentStorageService::normalizeDcsScanPath($path);
-        if ($path === null) {
-            return false;
-        }
-
-        foreach ([
-            ['table' => 'dcs_office_intake_drf', 'column' => 'scanned_drf'],
-            ['table' => 'dcs_office_intake_dcn', 'column' => 'scanned_dcn'],
-        ] as $source) {
-            if (! Schema::hasTable($source['table'])
-                || ! Schema::hasColumn($source['table'], $source['column'])) {
-                continue;
-            }
-
-            if (DB::table($source['table'])
-                ->where($source['column'], $path)
-                ->exists()) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     public static function userCanAccessRequest(int $requestId): bool
@@ -1614,6 +1854,18 @@ class RegisterQueryHelper
             return [];
         }
 
+        $needsLineage = false;
+        foreach ($groupTips as $meta) {
+            $from = trim((string) ($meta['revised_from'] ?? ''));
+            if ((int) ($meta['rev_no'] ?? 0) > 0 || ($from !== '' && strcasecmp($from, (string) ($meta['doc_no'] ?? '')) !== 0)) {
+                $needsLineage = true;
+                break;
+            }
+        }
+        if (! $needsLineage) {
+            return [];
+        }
+
         $pickWinner = static function (array $candidates) use ($groupTips): ?string {
             $active = [];
             foreach ($candidates as $key => $score) {
@@ -1714,8 +1966,18 @@ class RegisterQueryHelper
         }
 
         if ($visibleIds !== []) {
-            self::applyDcnLineageMergeEdges($groupTips, $edges);
-            self::applyRevisionFamilyMergeEdges($groupTips, $edges, $visibleIds);
+            $linked = [];
+            foreach ($groupTips as $key => $meta) {
+                $from = trim((string) ($meta['revised_from'] ?? ''));
+                $rev = (int) ($meta['rev_no'] ?? 0);
+                if ($rev > 0 || ($from !== '' && strcasecmp($from, (string) ($meta['doc_no'] ?? '')) !== 0)) {
+                    $linked[$key] = $meta;
+                }
+            }
+            if ($linked !== []) {
+                self::applyDcnLineageMergeEdges($linked, $edges);
+                self::applyRevisionFamilyMergeEdges($linked, $edges, $visibleIds);
+            }
         }
 
         return $edges;
@@ -2088,6 +2350,16 @@ class RegisterQueryHelper
             return $groups;
         }
 
+        $isStandalone = function ($g): bool {
+            return empty($g['allows_revision'])
+                || trim((string) ($g['parent']['syllabi_stack'] ?? '')) !== '';
+        };
+        $standalone = $groups->filter($isStandalone)->values();
+        $groups = $groups->reject($isStandalone)->values();
+        if ($groups->isEmpty()) {
+            return $standalone;
+        }
+
         $byKey = [];
         foreach ($groups as $g) {
             $p = $g['parent'];
@@ -2102,7 +2374,7 @@ class RegisterQueryHelper
         }
 
         if ($byKey === []) {
-            return $groups;
+            return $groups->concat($standalone)->values();
         }
 
         $parentIds = $groups
@@ -2128,7 +2400,7 @@ class RegisterQueryHelper
         $edges = self::buildLineageMergeEdges(self::lineageGroupTipsFromParents($parentsByKey), $visibleIds);
 
         if ($edges === []) {
-            return $groups;
+            return $groups->concat($standalone)->values();
         }
 
         $absorbedAsTopLevel = [];
@@ -2226,7 +2498,7 @@ class RegisterQueryHelper
             $merged->push($g);
         }
 
-        return $merged;
+        return $merged->concat($standalone)->values();
     }
 
     /**
@@ -2367,20 +2639,13 @@ class RegisterQueryHelper
             'per_page' => $perPage,
         ];
 
-        $visibleIds = self::visibleRequestIds();
-        if ($visibleIds === []) {
-            return $empty;
-        }
-
         $query = DB::table('dcs_document_requests as dr')
-            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
-            ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_request_form as drf', 'drf.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_change_notice as dcn', 'dcn.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_retrieval as ret', 'ret.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_distribution as dist', 'dist.request_id', '=', 'dr.id')
-            ->whereIn('dr.id', $visibleIds);
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id');
+        self::joinLatestByRequest($query, 'dcs_masterlist_registration', 'ml');
+        self::joinLatestByRequest($query, 'dcs_document_request_form', 'drf');
+        self::joinLatestByRequest($query, 'dcs_document_change_notice', 'dcn');
         self::applyNotDeleted($query, 'dr');
+        self::applyRegisteredDocumentScope($query, 'dr');
         $select = [
             'dr.id',
             'dr.doc_type_id',
@@ -2393,14 +2658,18 @@ class RegisterQueryHelper
             'drf.doc_title as drf_title',
             'drf.id as drf_id',
             'dcn.id as dcn_id',
-            'ret.id as ret_id',
-            'dist.id as dist_id',
         ];
         if (self::supportsRevisionStatus()) {
             $select[] = 'ml.revision_status';
         }
         if (self::supportsAllowsRevisionColumn()) {
             $select[] = 'ml.allows_revision';
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            $select[] = 'ml.stack_group';
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'effectivity_date')) {
+            $select[] = 'ml.effectivity_date';
         }
         if (self::supportsDrafts()) {
             $select[] = 'dr.is_draft';
@@ -2415,13 +2684,31 @@ class RegisterQueryHelper
         $matchedIds = null;
         if ($search !== '') {
             $like = '%' . $search . '%';
-            $matchQuery = (clone $query)->where(function ($q) use ($like) {
-                $q->whereRaw('dr.id::text ilike ?', [$like])
-                    ->orWhere('ml.doc_no', 'ilike', $like)
-                    ->orWhere('ml.doc_title', 'ilike', $like)
-                    ->orWhere('drf.drf_no', 'ilike', $like)
-                    ->orWhere('drf.doc_title', 'ilike', $like)
-                    ->orWhere('dcn.dcn_no', 'ilike', $like);
+            $tokens = self::searchTokens($search);
+            $matchQuery = (clone $query)->where(function ($q) use ($like, $tokens) {
+                $q->where(function ($phrase) use ($like) {
+                    $phrase->whereRaw('dr.id::text ilike ?', [$like])
+                        ->orWhere('ml.doc_no', 'ilike', $like)
+                        ->orWhere('ml.doc_title', 'ilike', $like)
+                        ->orWhere('drf.drf_no', 'ilike', $like)
+                        ->orWhere('drf.doc_title', 'ilike', $like)
+                        ->orWhere('dcn.dcn_no', 'ilike', $like);
+                });
+                if (count($tokens) > 1) {
+                    $q->orWhere(function ($all) use ($tokens) {
+                        foreach ($tokens as $token) {
+                            $tokenLike = '%' . $token . '%';
+                            $all->where(function ($one) use ($tokenLike) {
+                                $one->where('ml.doc_no', 'ilike', $tokenLike)
+                                    ->orWhere('ml.doc_title', 'ilike', $tokenLike)
+                                    ->orWhere('drf.drf_no', 'ilike', $tokenLike)
+                                    ->orWhere('drf.doc_title', 'ilike', $tokenLike)
+                                    ->orWhere('dcn.dcn_no', 'ilike', $tokenLike)
+                                    ->orWhereRaw('dr.id::text ilike ?', [$tokenLike]);
+                            });
+                        }
+                    });
+                }
             });
             $matchedIds = $matchQuery->pluck('dr.id')->map(fn ($id) => (int) $id)->all();
             if ($matchedIds === []) {
@@ -2430,8 +2717,9 @@ class RegisterQueryHelper
         }
 
         $documents = $query->orderByDesc('dr.id')->get();
+        $viewerCanEdit = self::isFullDcsUser();
 
-        $mapRow = function ($doc): array {
+        $mapRow = function ($doc) use ($viewerCanEdit): array {
             $docNo = trim((string) ($doc->doc_no ?? ''));
             $title = $doc->ml_title ?: ($doc->drf_title ?: 'N/A');
             $isDraft = self::supportsDrafts() && !empty($doc->is_draft);
@@ -2445,8 +2733,6 @@ class RegisterQueryHelper
                 ? (bool) ($doc->allows_revision ?? true)
                 : self::effectiveTypeAllowsRevision($doc->doc_type_id ?? null, $doc->sub_type_id ?? null);
 
-            $canEdit = self::canEditDocument((int) $doc->id, $doc);
-
             return [
                 'request_id' => (int) $doc->id,
                 'doc_type_id' => (int) ($doc->doc_type_id ?? 0),
@@ -2456,33 +2742,41 @@ class RegisterQueryHelper
                 'rev_no' => (int) ($doc->revise_no ?? 0),
                 'doc_type' => $doc->doc_type_name ?? 'N/A',
                 'revision_status' => $status,
+                'stack_group' => trim((string) ($doc->stack_group ?? '')),
+                'effectivity_sort' => ! empty($doc->effectivity_date)
+                    ? \Carbon\Carbon::parse($doc->effectivity_date)->format('Y-m-d')
+                    : '',
                 'allows_revision' => $allowsRevision,
                 'is_draft' => $isDraft,
                 'is_latest' => $status !== 'obsolete' && $status !== 'draft',
                 'edit_url' => route('dcs.register.edit', $doc->id),
                 'history_url' => (!$isDraft && $docNo !== '') ? route('dcs.register.history', $docNo) : null,
                 'can_delete' => $status !== 'obsolete',
-                'can_edit' => $canEdit,
+                'can_edit' => $viewerCanEdit || self::canEditDocument((int) $doc->id, $doc),
             ];
         };
 
         $rows = $documents->map($mapRow);
+        $syllabiIds = $rows
+            ->filter(fn (array $row) => self::isSyllabiLikeName($row['doc_type'] ?? null))
+            ->pluck('request_id')
+            ->all();
+        $stacks = self::syllabiStackByRequest($syllabiIds);
+        $rows = $rows->map(function (array $row) use ($stacks) {
+            $row['syllabi_stack'] = $stacks[(int) $row['request_id']] ?? '';
 
-        $grouped = $rows->groupBy(function ($row) {
-            if ($row['doc_no'] === 'N/A') {
-                return 'no_ml_' . $row['request_id'];
-            }
-
-            return strtolower($row['doc_no']) . '||' . $row['doc_type_id'] . '||' . $row['sub_type_id'];
+            return $row;
         });
+
+        $grouped = $rows->groupBy(fn ($row) => self::inventoryStackKey($row));
 
         $groups = collect();
         foreach ($grouped as $family) {
             $allowsRevision = (bool) ($family->first()['allows_revision'] ?? true);
-            // Non-revisable stacks: tip = newest request_id (all stay Latest Rev 0).
+            // Non-revisable stacks: tip = latest effectivity (a newer year stays above the earlier one).
             $sorted = $allowsRevision
                 ? $family->sortByDesc('rev_no')->sortByDesc('request_id')->values()
-                : $family->sortByDesc('request_id')->values();
+                : $family->sortByDesc(fn ($r) => sprintf('%s|%010d', (string) ($r['effectivity_sort'] ?? ''), (int) ($r['request_id'] ?? 0)))->values();
 
             // Heal: tip must be the highest revise_no (e.g. Rev 10 beats Rev 7).
             // Never rewrite draft rows into latest/obsolete.
@@ -2533,6 +2827,7 @@ class RegisterQueryHelper
         }
 
         // Stack renumbered prior doc numbers under the tip (same as Database).
+        $visibleIds = $groups->isEmpty() ? [] : self::visibleRequestIds();
         $groups = self::mergeUpdateListLineageGroups($groups, $visibleIds);
 
         if ($matchedIds !== null) {
@@ -2549,6 +2844,20 @@ class RegisterQueryHelper
         }
 
         $groups = $groups->sortByDesc('sort_id')->values();
+        if ($search !== '') {
+            $groups = $groups->sortByDesc(function ($g) use ($search) {
+                $bits = [
+                    $g['parent']['doc_no'] ?? '',
+                    $g['parent']['title'] ?? '',
+                    $g['parent']['doc_type'] ?? '',
+                ];
+                foreach ($g['children'] ?? [] as $child) {
+                    $bits[] = ($child['doc_no'] ?? '') . ' ' . ($child['title'] ?? '');
+                }
+
+                return self::looseSearchScore($search, implode(' ', $bits));
+            })->values();
+        }
 
         $total = $groups->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
@@ -2612,17 +2921,36 @@ class RegisterQueryHelper
         $search = trim($search);
         if ($search !== '') {
             $like = '%' . $search . '%';
-            $query->where(function ($q) use ($like) {
-                $q->whereRaw('dr.id::text ilike ?', [$like])
-                    ->orWhere('ml.doc_no', 'ilike', $like)
-                    ->orWhere('ml.doc_title', 'ilike', $like)
-                    ->orWhere('drf.drf_no', 'ilike', $like)
-                    ->orWhere('drf.doc_title', 'ilike', $like)
-                    ->orWhere('dcn.dcn_no', 'ilike', $like);
+            $tokens = self::searchTokens($search);
+            $query->where(function ($q) use ($search, $like, $tokens) {
+                self::applyLooseColumnSearch($q, $search, [
+                    'ml.doc_no',
+                    'ml.doc_title',
+                    'drf.doc_title',
+                    'drf.drf_no',
+                    'dcn.dcn_no',
+                ]);
+                $q->orWhereRaw('dr.id::text ilike ?', [$like]);
+                if (count($tokens) > 1) {
+                    $q->orWhere(function ($all) use ($tokens) {
+                        foreach ($tokens as $token) {
+                            $all->whereRaw('dr.id::text ilike ?', ['%' . $token . '%']);
+                        }
+                    });
+                }
             });
         }
 
-        $documents = $query->orderByDesc('dr.updated_at')->orderByDesc('dr.id')->get();
+        $searchActive = $search !== '';
+        $total = (int) (clone $query)->distinct()->count('dr.id');
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min(max(1, $page), $lastPage);
+
+        $pageQuery = $query->orderByDesc('dr.updated_at')->orderByDesc('dr.id');
+        if (! $searchActive) {
+            $pageQuery->offset(($page - 1) * $perPage)->limit($perPage);
+        }
+        $documents = $pageQuery->get();
         $rows = $documents->map(function ($doc) {
             $docNo = trim((string) ($doc->doc_no ?? ''));
             $title = $doc->ml_title ?: ($doc->drf_title ?: 'Untitled draft');
@@ -2642,10 +2970,18 @@ class RegisterQueryHelper
             ];
         })->values();
 
-        $total = $rows->count();
-        $lastPage = max(1, (int) ceil($total / $perPage));
-        $page = min(max(1, $page), $lastPage);
-        $pageRows = $rows->slice(($page - 1) * $perPage, $perPage)->values()->all();
+        if ($searchActive) {
+            $rows = $rows->sortByDesc(fn ($row) => self::looseSearchScore(
+                $search,
+                trim(($row['doc_no'] ?? '') . ' ' . ($row['title'] ?? '') . ' ' . ($row['doc_type'] ?? ''))
+            ))->values();
+            $total = $rows->count();
+            $lastPage = max(1, (int) ceil($total / $perPage));
+            $page = min(max(1, $page), $lastPage);
+            $pageRows = $rows->slice(($page - 1) * $perPage, $perPage)->values()->all();
+        } else {
+            $pageRows = $rows->values()->all();
+        }
 
         return [
             'rows' => $pageRows,
@@ -2701,19 +3037,40 @@ class RegisterQueryHelper
         $search = trim($search);
         if ($search !== '') {
             $like = '%' . $search . '%';
-            $query->where(function ($q) use ($like) {
-                $q->whereRaw('dr.id::text ilike ?', [$like])
-                    ->orWhere('ml.doc_no', 'ilike', $like)
-                    ->orWhere('ml.doc_title', 'ilike', $like)
-                    ->orWhere('drf.doc_title', 'ilike', $like);
+            $tokens = self::searchTokens($search);
+            $query->where(function ($q) use ($search, $like, $tokens) {
+                self::applyLooseColumnSearch($q, $search, [
+                    'ml.doc_no',
+                    'ml.doc_title',
+                    'drf.doc_title',
+                ]);
+                $q->orWhereRaw('dr.id::text ilike ?', [$like]);
+                if (count($tokens) > 1) {
+                    $q->orWhere(function ($all) use ($tokens) {
+                        foreach ($tokens as $token) {
+                            $all->whereRaw('dr.id::text ilike ?', ['%' . $token . '%']);
+                        }
+                    });
+                }
             });
+            $matched = $query->get()->sortByDesc(function ($doc) use ($search) {
+                $title = $doc->ml_title ?: ($doc->drf_title ?: '');
+
+                return self::looseSearchScore(
+                    $search,
+                    trim(($doc->doc_no ?? '') . ' ' . $title . ' ' . ($doc->doc_type_name ?? ''))
+                );
+            })->values();
+            $total = $matched->count();
+            $lastPage = max(1, (int) ceil($total / $perPage));
+            $page = min(max(1, $page), $lastPage);
+            $documents = $matched->slice(($page - 1) * $perPage, $perPage)->values();
+        } else {
+            $total = (clone $query)->count();
+            $lastPage = max(1, (int) ceil($total / $perPage));
+            $page = min(max(1, $page), $lastPage);
+            $documents = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
         }
-
-        $total = (clone $query)->count();
-        $lastPage = max(1, (int) ceil($total / $perPage));
-        $page = min(max(1, $page), $lastPage);
-
-        $documents = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
 
         $deletedByIds = $documents->pluck('deleted_by')->filter()->unique()->all();
         $accDetailsTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
@@ -2771,18 +3128,13 @@ class RegisterQueryHelper
             'filtered' => trim($search) !== '' || ($docTypeId !== '' && $docTypeId !== 'all'),
         ];
 
-        $visibleIds = self::visibleRequestIds();
-        if ($visibleIds === []) {
-            return $empty;
-        }
-
-        // Prefer rows marked latest; fall back to highest revise_no / id per doc_no family.
+        // Latest row per document number, scoped in SQL so the page does not load every id first.
         $latestMl = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->whereIn('ml.request_id', $visibleIds)
             ->whereNotNull('ml.doc_no')
             ->where('ml.doc_no', '!=', '');
         self::applyNotDeleted($latestMl, 'dr');
+        self::applyRegisteredDocumentScope($latestMl, 'dr');
         self::applyLatestRevisionStatus($latestMl, 'ml');
         $latestMl = $latestMl
             ->select('ml.doc_no', DB::raw('MAX(ml.id) as ml_id'))
@@ -2790,10 +3142,10 @@ class RegisterQueryHelper
 
         $revCounts = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->whereIn('ml.request_id', $visibleIds)
             ->whereNotNull('ml.doc_no')
             ->where('ml.doc_no', '!=', '');
         self::applyNotDeleted($revCounts, 'dr');
+        self::applyRegisteredDocumentScope($revCounts, 'dr');
         $revCounts = $revCounts
             ->select('ml.doc_no', DB::raw('COUNT(*) as rev_count'))
             ->groupBy('ml.doc_no');
@@ -2806,13 +3158,9 @@ class RegisterQueryHelper
                 $join->on('rc.doc_no', '=', 'ml.doc_no');
             })
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
-            ->leftJoin('dcs_document_request_form as drf', 'drf.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_change_notice as dcn', 'dcn.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_retrieval as ret', 'ret.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_distribution as dist', 'dist.request_id', '=', 'dr.id')
-            ->whereIn('dr.id', $visibleIds);
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id');
         self::applyNotDeleted($query, 'dr');
+        self::applyRegisteredDocumentScope($query, 'dr');
         $query->orderByDesc('ml.revise_no')
             ->orderByDesc('ml.id')
             ->select([
@@ -2824,11 +3172,10 @@ class RegisterQueryHelper
                 'dr.sub_type_id',
                 'dt.doc_type_name',
                 'rc.rev_count',
-                'drf.id as drf_id',
-                'dcn.id as dcn_id',
-                'ml.id as ml_id',
-                'ret.id as ret_id',
-                'dist.id as dist_id',
+                DB::raw('(select id from dcs_document_request_form where request_id = dr.id limit 1) as drf_id'),
+                DB::raw('(select id from dcs_document_change_notice where request_id = dr.id limit 1) as dcn_id'),
+                DB::raw('(select id from dcs_document_retrieval where request_id = dr.id limit 1) as ret_id'),
+                DB::raw('(select id from dcs_document_distribution where request_id = dr.id limit 1) as dist_id'),
             ]);
 
         if ($docTypeId !== '' && $docTypeId !== 'all') {
@@ -2837,70 +3184,17 @@ class RegisterQueryHelper
 
         $search = trim($search);
         if ($search !== '') {
-            $like = '%' . $search . '%';
-            $query->where(function ($q) use ($like) {
-                $q->where('ml.doc_no', 'ilike', $like)
-                    ->orWhere('ml.doc_title', 'ilike', $like);
-            });
+            self::applyLooseColumnSearch($query, $search, [
+                'ml.doc_no',
+                'ml.doc_title',
+            ]);
         }
 
-        // Resolve renumber lineage tips so prior numbers don't appear as separate review rows.
-        $candidates = $query->limit(120)->get();
-        $hasKeywords = Schema::hasColumn('dcs_masterlist_registration', 'keywords');
-        $tipRows = collect();
-        $seenTipKeys = [];
-        foreach ($candidates as $hit) {
-            $tip = self::resolveLineageTipMasterlist($hit, $visibleIds);
-            if (!$tip) {
-                continue;
-            }
-            $key = strtolower(trim((string) ($tip->doc_no ?? ''))) . '|'
-                . (int) ($tip->doc_type_id ?? 0) . '|'
-                . (int) ($tip->sub_type_id ?? 0);
-            if (isset($seenTipKeys[$key])) {
-                continue;
-            }
-            $seenTipKeys[$key] = true;
-            $enriched = self::loadSearchDocumentRow((int) $tip->id, $hasKeywords);
-            if ($enriched) {
-                $enriched->rev_count = (int) ($hit->rev_count ?? 0);
-                $enriched->drf_id = $hit->drf_id ?? null;
-                $enriched->dcn_id = $hit->dcn_id ?? null;
-                $enriched->ret_id = $hit->ret_id ?? null;
-                $enriched->dist_id = $hit->dist_id ?? null;
-                $tipRows->push($enriched);
-            }
-        }
-
-        // Recount revisions across the full renumber chain for each tip.
-        $tipRows = $tipRows->map(function ($doc) use ($visibleIds) {
-            $docTypeId = (int) ($doc->doc_type_id ?? 0);
-            $subTypeId = !empty($doc->sub_type_id) ? (int) $doc->sub_type_id : null;
-            $chain = RegisterQueryHelper::docNosForRevisionLookup(
-                (string) $doc->doc_no,
-                $docTypeId,
-                $subTypeId,
-                $visibleIds
-            );
-            $count = 0;
-            foreach ($chain as $chainDocNo) {
-                $count += count(self::masterlistRevisionsForDocNo($chainDocNo, $docTypeId, $subTypeId, $visibleIds));
-            }
-            $doc->rev_count = max($count, (int) ($doc->rev_count ?? 0));
-
-            return $doc;
-        })->values();
-
-        $total = $tipRows->count();
+        $perPage = max(1, $perPage);
+        $total = (clone $query)->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
         $page = min(max(1, $page), $lastPage);
-        $documents = $tipRows->slice(($page - 1) * $perPage, $perPage)->values();
-
-        $requestIds = $documents->pluck('request_id')->all();
-        $drfIds = $requestIds ? DB::table('dcs_document_request_form')->whereIn('request_id', $requestIds)->pluck('request_id')->flip() : collect();
-        $dcnIds = $requestIds ? DB::table('dcs_document_change_notice')->whereIn('request_id', $requestIds)->pluck('request_id')->flip() : collect();
-        $distIds = $requestIds ? DB::table('dcs_document_distribution')->whereIn('request_id', $requestIds)->pluck('request_id')->flip() : collect();
-        $retIds = $requestIds ? DB::table('dcs_document_retrieval')->whereIn('request_id', $requestIds)->pluck('request_id')->flip() : collect();
+        $documents = (clone $query)->offset(($page - 1) * $perPage)->limit($perPage)->get();
 
         $checklistNames = [
             1 => 'Document Request Form',
@@ -2913,21 +3207,21 @@ class RegisterQueryHelper
             $checklistNames[$row->id] = $row->checklist_name;
         }
 
-        $rows = $documents->map(function ($doc) use ($checklistNames, $drfIds, $dcnIds, $distIds, $retIds) {
+        $rows = $documents->map(function ($doc) use ($checklistNames) {
             $revCount = (int) ($doc->rev_count ?? 0);
             $canCompare = $revCount >= 2;
             $checklists = [];
-            if (isset($drfIds[$doc->request_id])) {
+            if (!empty($doc->drf_id)) {
                 $checklists[] = $checklistNames[1] ?? 'DRF';
             }
-            if (isset($dcnIds[$doc->request_id])) {
+            if (!empty($doc->dcn_id)) {
                 $checklists[] = $checklistNames[2] ?? 'DCN';
             }
             $checklists[] = $checklistNames[3] ?? 'Masterlist';
-            if (isset($retIds[$doc->request_id])) {
+            if (!empty($doc->ret_id)) {
                 $checklists[] = $checklistNames[4] ?? 'Retrieval';
             }
-            if (isset($distIds[$doc->request_id])) {
+            if (!empty($doc->dist_id)) {
                 $checklists[] = $checklistNames[5] ?? 'Distribution';
             }
 
@@ -2939,7 +3233,7 @@ class RegisterQueryHelper
                 'rev_count' => $revCount,
                 'can_compare' => $canCompare,
                 'reason' => null,
-                'doc_type' => $doc->type_name ?? 'N/A',
+                'doc_type' => $doc->doc_type_name ?? 'N/A',
                 'checklists' => $checklists,
             ];
         })->all();
@@ -3032,6 +3326,8 @@ class RegisterQueryHelper
         if ($mls->isEmpty()) {
             abort(404, 'Document not found.');
         }
+
+        self::attachOriginatorNames($mls);
 
         $tipRequestId = (int) $mls->first()->request_id;
 
@@ -3965,7 +4261,7 @@ class RegisterQueryHelper
             self::hstRow('revise_no', 'Revision no.', $ml->revise_no === null ? null : (string) $ml->revise_no),
             self::hstRow('registered_at', 'Registered', self::hstDateTime($ml->request_created_at ?? $ml->created_at)),
             self::hstRow('registered_by', 'Registered by', $lookups['creators'][(int) $creatorId] ?? null),
-            self::hstRow('originator', 'Originator', $ml->originator_name),
+            self::hstRow('originator', 'Originator', $ml->originator_name ?? ($mlHydrated->originator_name ?? null)),
             self::hstOfficeRow('sources', 'Source offices', $mlHydrated->sourceOffices ?? collect()),
             self::hstRow('effectivity', 'Effectivity', self::formatSmartDate($ml->effectivity_date, '—')),
             self::hstRow('deadline', 'Deadline', $ml->deadline ? self::formatSmartDate($ml->deadline) : 'N/A'),
@@ -4080,13 +4376,14 @@ class RegisterQueryHelper
                 $name = $syl->course->course_name ?? $syl->course_name ?? '';
                 $label = trim($code . ' ' . $name) ?: ('Course ' . ($idx + 1));
                 $prefix = 'syl.' . ($syl->course_id ?? $syl->id);
-                $faculties = collect($syl->drfs ?? [])->pluck('faculty_name')->filter()->unique()->implode(', ');
+                $faculties = collect($syl->drfs ?? [])->map(fn ($d) => $d->faculty_name ?? null)->filter()->unique()->implode(', ');
                 $drfBits = collect($syl->drfs ?? [])->map(function ($d) {
                     if (!self::pgBool($d->is_drf_available ?? false)) {
                         return null;
                     }
+                    $faculty = trim((string) ($d->faculty_name ?? ''));
 
-                    return trim(($d->faculty_name ? $d->faculty_name . ': ' : '') . ($d->drf_no ?: 'DRF') .
+                    return trim(($faculty !== '' ? $faculty . ': ' : '') . ($d->drf_no ?: 'DRF') .
                         ($d->drf_date ? ' (' . self::hstDate($d->drf_date) . ')' : ''));
                 })->filter()->implode('; ');
 
@@ -4235,6 +4532,7 @@ class RegisterQueryHelper
 
         $query = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
             ->whereIn('ml.request_id', $visibleIds);
@@ -4257,7 +4555,7 @@ class RegisterQueryHelper
                         if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
                             $legacy->whereNull('ml.originator_account_id');
                         }
-                        $legacy->whereRaw('LOWER(TRIM(COALESCE(ml.originator_name, \'\'))) = ?', [$selfName]);
+                        $legacy->whereRaw('LOWER(TRIM(COALESCE(og.originator_name, \'\'))) = ?', [$selfName]);
                     });
                 }
             });
@@ -4265,6 +4563,13 @@ class RegisterQueryHelper
 
         if (!$allRevisions && !$dashboardSearch) {
             self::applyLatestRevisionStatus($query, 'ml');
+        }
+
+        $revisionPick = $request->boolean('for_revision') || in_array($field, ['no', 'title'], true);
+        if ($revisionPick && self::supportsDrafts()) {
+            $query->where(function ($draft) {
+                $draft->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
         }
 
         if ($docTypeId) {
@@ -4276,15 +4581,15 @@ class RegisterQueryHelper
 
         $query->where(function ($qr) use ($q, $field, $hasKeywords) {
             if ($field === 'no') {
-                $qr->where('ml.doc_no', 'ilike', "%{$q}%");
+                self::applyLooseColumnSearch($qr, $q, ['ml.doc_no']);
             } elseif ($field === 'title') {
-                $qr->where('ml.doc_title', 'ilike', "%{$q}%");
+                self::applyLooseColumnSearch($qr, $q, ['ml.doc_title']);
             } else {
-                $qr->where('ml.doc_title', 'ilike', "%{$q}%")
-                    ->orWhere('ml.doc_no', 'ilike', "%{$q}%");
+                $columns = ['ml.doc_title', 'ml.doc_no'];
                 if ($hasKeywords) {
-                    $qr->orWhere('ml.keywords', 'ilike', "%{$q}%");
+                    $columns[] = 'ml.keywords';
                 }
+                self::applyLooseColumnSearch($qr, $q, $columns);
             }
         });
 
@@ -4300,7 +4605,7 @@ class RegisterQueryHelper
             'ml.revise_no',
             'ml.effectivity_date',
             'ml.scanned_masterlist',
-            'ml.originator_name',
+            'og.originator_name as originator_name',
             'dr.doc_type_id',
             'dr.sub_type_id',
             'dt.doc_type_name as type_name',
@@ -4319,7 +4624,7 @@ class RegisterQueryHelper
         $rows = $query->orderByDesc('ml.revise_no')
             ->orderBy('ml.doc_no')
             ->orderBy('ml.doc_title')
-            ->limit($allRevisions ? 50 : ($dashboardSearch ? 60 : 30))
+            ->limit(count(self::searchTokens($q)) > 1 ? 200 : ($allRevisions ? 50 : ($dashboardSearch ? 60 : 30)))
             ->get($select);
 
         $forRevision = $request->boolean('for_revision') || in_array($field, ['no', 'title'], true);
@@ -4358,6 +4663,11 @@ class RegisterQueryHelper
                 return true;
             })->values();
         }
+
+        $rows = $rows->sortByDesc(fn ($m) => self::looseSearchScore(
+            $q,
+            trim(($m->doc_no ?? '') . ' ' . ($m->doc_title ?? '') . ' ' . ($m->keywords ?? '') . ' ' . ($m->type_name ?? ''))
+        ))->values();
 
         $rows = $rows->take(15);
 
@@ -4431,6 +4741,7 @@ class RegisterQueryHelper
     ): Collection {
         $query = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
             ->where(function ($q) use ($docTypeId) {
@@ -4448,6 +4759,11 @@ class RegisterQueryHelper
 
         self::applyNotDeleted($query, 'dr');
         self::applyExcludeOfficeIntakeRequests($query, 'dr');
+        if (self::supportsDrafts()) {
+            $query->where(function ($draft) {
+                $draft->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
+        }
 
         if ($excludeRequestId > 0) {
             $query->where('ml.request_id', '!=', $excludeRequestId);
@@ -4455,9 +4771,9 @@ class RegisterQueryHelper
 
         $query->where(function ($qr) use ($q, $field) {
             if ($field === 'title') {
-                $qr->where('ml.doc_title', 'ilike', "%{$q}%");
+                self::applyLooseColumnSearch($qr, $q, ['ml.doc_title']);
             } else {
-                $qr->where('ml.doc_no', 'ilike', "%{$q}%");
+                self::applyLooseColumnSearch($qr, $q, ['ml.doc_no', 'ml.doc_title']);
             }
         });
 
@@ -4635,7 +4951,7 @@ class RegisterQueryHelper
             'ml.revise_no',
             'ml.effectivity_date',
             'ml.scanned_masterlist',
-            'ml.originator_name',
+            'og.originator_name as originator_name',
             'dr.doc_type_id',
             'dr.sub_type_id',
             'dt.doc_type_name as type_name',
@@ -4650,6 +4966,7 @@ class RegisterQueryHelper
 
         return DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
             ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
             ->where('ml.id', $masterlistId)
@@ -5470,6 +5787,11 @@ class RegisterQueryHelper
         } else {
             $query->whereNull('dr.sub_type_id');
         }
+        if (self::supportsDrafts()) {
+            $query->where(function ($draft) {
+                $draft->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
+        }
 
         return $query
             ->orderByDesc('ml.revise_no')
@@ -5744,6 +6066,7 @@ class RegisterQueryHelper
         if (!$ml) {
             abort(404);
         }
+        self::attachOriginatorNames([$ml]);
 
         $offices = self::previewOfficeRows(
             DB::table('dcs_masterlist_source_offices as s')
@@ -5767,7 +6090,7 @@ class RegisterQueryHelper
                 self::previewField('Registered Time', self::formatDisplayTime($ml->doc_registered_time)),
                 self::previewField('Effectivity Date', self::formatDisplayDate($ml->effectivity_date)),
                 self::previewField('No. of Pages', $ml->no_pages),
-                self::previewField('Originator', $ml->originator_name),
+                self::previewField('Originator', $ml->originator_name ?? null),
                 self::previewField('Deadline', $ml->deadline ? self::formatDisplayDate($ml->deadline) : 'N/A'),
                 self::previewField('Time Spent (mins)', $ml->time_spent),
             ],
@@ -5923,6 +6246,7 @@ class RegisterQueryHelper
                 ->first();
             $result['latest'] = $latest;
             if ($latest) {
+                self::attachOriginatorNames([$latest]);
                 $visibleIds = self::visibleRequestIds();
                 $familyRevs = self::familyReviseNumbers(
                     $docNo,
@@ -5947,6 +6271,7 @@ class RegisterQueryHelper
                     ->where('doc_no', $docNo)
                     ->orderByDesc('revise_no')
                     ->get();
+                self::attachOriginatorNames($registrations);
 
                 $latestDistribution = DB::table('dcs_document_distribution')
                     ->where('request_id', $latest->request_id)
@@ -6038,8 +6363,31 @@ class RegisterQueryHelper
                     'latest_scanned_copy_url' => $latest->scanned_masterlist
                         ? self::scanUrl($latest->scanned_masterlist)
                         : null,
+                    'existing_request_id' => (int) $latest->request_id,
+                    'copies' => (function () use ($registrations) {
+                        $live = $registrations->filter(function ($row) {
+                            $status = strtolower(trim((string) ($row->revision_status ?? 'latest')));
+
+                            return ! in_array($status, ['obsolete', 'archived', 'draft'], true);
+                        });
+                        $pool = $live->isNotEmpty() ? $live : $registrations;
+
+                        return $pool->map(function ($row) {
+                            $date = $row->effectivity_date ?? null;
+
+                            return [
+                                'request_id' => (int) $row->request_id,
+                                'doc_title' => $row->doc_title,
+                                'revise_no' => (int) ($row->revise_no ?? 0),
+                                'originator_name' => $row->originator_name ?? null,
+                                'revision_status' => strtolower(trim((string) ($row->revision_status ?? 'latest'))),
+                                'effectivity_date' => $date ? Carbon::parse($date)->format('M j, Y') : null,
+                            ];
+                        })->values();
+                    })(),
+                    'revision_status' => strtolower(trim((string) ($latest->revision_status ?? 'latest'))),
                     'latest_title' => $latest->doc_title,
-                    'latest_originator' => $latest->originator_name,
+                    'latest_originator' => $latest->originator_name ?? null,
                     'revision_count' => $registrations->count(),
                     'latest_distribution_offices' => $latestDistributionOffices,
                     'already_retrieved_offices' => $alreadyRetrieved,
@@ -6116,6 +6464,17 @@ class RegisterQueryHelper
                 'taken_revs' => [],
                 'next_rev' => 0,
                 'message' => 'Insert confirmed. This is a new document at Rev 0. Existing numbers in this group will shift when you save.',
+            ];
+        }
+
+        if ($request->boolean('allow_duplicate_doc_no')) {
+            return [
+                'taken' => false,
+                'duplicate_copy' => true,
+                'revise_no' => 0,
+                'taken_revs' => [],
+                'next_rev' => 0,
+                'message' => 'Same number kept as a new registration. Other numbers will not move.',
             ];
         }
 
@@ -6294,6 +6653,9 @@ class RegisterQueryHelper
         $readOnly = ! $canEdit;
 
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $id)->first();
+        if ($ml) {
+            self::attachOriginatorNames([$ml]);
+        }
         // Obsolete revisions are editable; Update list groups them under the latest tip.
 
         $drf = DB::table('dcs_document_request_form')->where('request_id', $id)->first();
@@ -6463,7 +6825,11 @@ class RegisterQueryHelper
             ->get($syllabiSelect);
 
         $syllabiGroupsSeed = $syllabi->map(function ($syl) {
-            $drfs = DB::table('dcs_syllabi_drf')->where('syllabi_id', $syl->id)->orderBy('id')->get();
+            $drfs = DB::table('dcs_syllabi_drf as sd')
+                ->leftJoin('dcs_faculties as f', 'f.id', '=', 'sd.faculty_id')
+                ->where('sd.syllabi_id', $syl->id)
+                ->orderBy('sd.id')
+                ->get(['sd.*', 'f.faculty_name']);
             $copies = max(1, (int) $syl->no_copies);
             $rows = [];
             if ($copies === 1) {
@@ -6557,7 +6923,7 @@ class RegisterQueryHelper
                 'id' => $o->office_id,
                 'label' => $o->office_name ?? 'Unknown',
             ])->filter(fn ($o) => $o['id'])->values(),
-            'masterlistOriginatorSeed' => ($ml && $ml->originator_name)
+            'masterlistOriginatorSeed' => ($ml && ($ml->originator_name ?? null))
                 ? [[
                     'type' => !empty($ml->originator_id ?? null) ? 'office' : 'name',
                     'id' => ($ml->originator_id ?? null) ?: ('n' . $ml->id),
@@ -6726,24 +7092,43 @@ class RegisterQueryHelper
         return $distributionOffices->values();
     }
 
-    public static function hydrateRequests(Collection $docs): Collection
+    /**
+     * Attach related rows in bulk.
+     * Pass $only to skip relations a screen does not render (stamp list, reports).
+     * Null loads the full graph.
+     *
+     * @param  list<string>|null  $only
+     */
+    public static function hydrateRequests(Collection $docs, ?array $only = null): Collection
     {
         if ($docs->isEmpty()) {
             return $docs;
         }
 
+        $want = static function (string $part) use ($only): bool {
+            return $only === null || in_array($part, $only, true);
+        };
+
         $ids = $docs->pluck('id')->all();
-        $typeIds = $docs->pluck('doc_type_id')->merge($docs->pluck('sub_type_id'))->filter()->unique()->all();
+        $typeIds = $want('types')
+            ? $docs->pluck('doc_type_id')->merge($docs->pluck('sub_type_id'))->filter()->unique()->all()
+            : [];
         $types = $typeIds
             ? DB::table('dcs_doc_types')->whereIn('id', $typeIds)->get()->keyBy('id')
             : collect();
 
-        $mls = DB::table('dcs_masterlist_registration')->whereIn('request_id', $ids)->get()->keyBy('request_id');
+        $mls = $want('masterlist') || $want('sourceOffices') || $want('relatedDocs')
+            ? DB::table('dcs_masterlist_registration')->whereIn('request_id', $ids)->orderBy('id')->get()
+            : collect();
+        if ($mls->isNotEmpty()) {
+            self::attachOriginatorNames($mls);
+        }
+        $mls = $mls->keyBy('request_id');
         $mlIds = $mls->pluck('id')->all();
 
         $sourceByMl = collect();
         $relatedByMl = collect();
-        if ($mlIds) {
+        if ($mlIds && ($want('sourceOffices') || $only === null)) {
             $sourceByMl = DB::table('dcs_masterlist_source_offices as so')
                 ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'so.office_id')
                 ->whereIn('so.masterlist_id', $mlIds)
@@ -6757,30 +7142,38 @@ class RegisterQueryHelper
 
                     return $row;
                 }));
+        }
 
-            $relatedA = DB::table('dcs_masterlist_related_docs as rd')
-                ->join('dcs_masterlist_registration as rel', 'rel.id', '=', 'rd.related_doc_id')
-                ->whereIn('rd.masterlist_id', $mlIds)
-                ->get(['rd.masterlist_id', 'rel.doc_no', 'rel.doc_title']);
-            $relatedB = DB::table('dcs_masterlist_related_docs as rd')
-                ->join('dcs_masterlist_registration as rel', 'rel.id', '=', 'rd.masterlist_id')
-                ->whereIn('rd.related_doc_id', $mlIds)
-                ->get(['rd.related_doc_id as masterlist_id', 'rel.doc_no', 'rel.doc_title']);
+        if ($mlIds && ($want('relatedDocs') || $only === null)) {
+                $relatedA = DB::table('dcs_masterlist_related_docs as rd')
+                    ->join('dcs_masterlist_registration as rel', 'rel.id', '=', 'rd.related_doc_id')
+                    ->whereIn('rd.masterlist_id', $mlIds)
+                    ->get(['rd.masterlist_id', 'rel.doc_no', 'rel.doc_title']);
+                $relatedB = DB::table('dcs_masterlist_related_docs as rd')
+                    ->join('dcs_masterlist_registration as rel', 'rel.id', '=', 'rd.masterlist_id')
+                    ->whereIn('rd.related_doc_id', $mlIds)
+                    ->get(['rd.related_doc_id as masterlist_id', 'rel.doc_no', 'rel.doc_title']);
             $relatedByMl = $relatedA->concat($relatedB)->groupBy('masterlist_id');
         }
 
-        $drfs = DB::table('dcs_document_request_form')->whereIn('request_id', $ids)->get()->keyBy('request_id');
-        $dcns = DB::table('dcs_document_change_notice')->whereIn('request_id', $ids)->get()->keyBy('request_id');
+        $drfs = ($want('drf') || $only === null)
+            ? DB::table('dcs_document_request_form')->whereIn('request_id', $ids)->orderBy('id')->get()->keyBy('request_id')
+            : collect();
+        $dcns = ($want('dcn') || $only === null)
+            ? DB::table('dcs_document_change_notice')->whereIn('request_id', $ids)->orderBy('id')->get()->keyBy('request_id')
+            : collect();
         $dcnIds = $dcns->pluck('id')->all();
         $revsByDcn = $dcnIds
             ? DB::table('dcs_doc_revision')->whereIn('dcn_id', $dcnIds)->orderBy('id')->get()->groupBy('dcn_id')
             : collect();
 
-        $dists = DB::table('dcs_document_distribution')
-            ->whereIn('request_id', $ids)
-            ->orderBy('id')
-            ->get()
-            ->keyBy('request_id'); // last row per request = latest distribution
+        $dists = ($want('distribution') || $only === null)
+            ? DB::table('dcs_document_distribution')
+                ->whereIn('request_id', $ids)
+                ->orderBy('id')
+                ->get()
+                ->keyBy('request_id') // last row per request = latest distribution
+            : collect();
         $distIds = $dists->pluck('id')->all();
         $distOffices = $distIds
             ? DB::table('dcs_distribution_offices as dof')
@@ -6797,7 +7190,9 @@ class RegisterQueryHelper
                 }))
             : collect();
 
-        $rets = DB::table('dcs_document_retrieval')->whereIn('request_id', $ids)->get()->keyBy('request_id');
+        $rets = ($want('retrieval') || $only === null)
+            ? DB::table('dcs_document_retrieval')->whereIn('request_id', $ids)->orderBy('id')->get()->keyBy('request_id')
+            : collect();
         $retIds = $rets->pluck('id')->all();
         $retOffices = $retIds
             ? DB::table('dcs_retrieval_offices as rof')
@@ -6812,26 +7207,40 @@ class RegisterQueryHelper
                 }))
             : collect();
 
-        $approvals = DB::table('dcs_approval_records')->whereIn('request_id', $ids)->get()->groupBy('request_id');
-        $stamps = DB::table('dcs_document_stamps')->whereIn('document_request_id', $ids)->get()->groupBy('document_request_id');
+        $approvals = ($want('approvals') || $only === null)
+            ? DB::table('dcs_approval_records')->whereIn('request_id', $ids)->get()->groupBy('request_id')
+            : collect();
+        $stamps = ($want('stamps') || $only === null)
+            ? DB::table('dcs_document_stamps')->whereIn('document_request_id', $ids)->get()->groupBy('document_request_id')
+            : collect();
 
         $historySyllabiSelect = ['s.*', 'c.course_name'];
-        if (Schema::hasColumn('dcs_program_courses', 'course_code')) {
+        if (($want('syllabi') || $only === null) && Schema::hasColumn('dcs_program_courses', 'course_code')) {
             $historySyllabiSelect[] = 'c.course_code';
         }
+        if (($want('syllabi') || $only === null) && Schema::hasColumn('dcs_program_courses', 'course_type')) {
+            $historySyllabiSelect[] = 'c.course_type';
+        }
 
-        $syllabi = DB::table('dcs_syllabi as s')
-            ->leftJoin('dcs_program_courses as c', 'c.id', '=', 's.course_id')
-            ->whereIn('s.request_id', $ids)
-            ->get($historySyllabiSelect);
+        $syllabi = ($want('syllabi') || $only === null)
+            ? DB::table('dcs_syllabi as s')
+                ->leftJoin('dcs_program_courses as c', 'c.id', '=', 's.course_id')
+                ->whereIn('s.request_id', $ids)
+                ->get($historySyllabiSelect)
+            : collect();
         $sylIds = $syllabi->pluck('id')->all();
         $drfsBySyl = $sylIds
-            ? DB::table('dcs_syllabi_drf')->whereIn('syllabi_id', $sylIds)->get()->groupBy('syllabi_id')
+            ? DB::table('dcs_syllabi_drf as sd')
+                ->leftJoin('dcs_faculties as f', 'f.id', '=', 'sd.faculty_id')
+                ->whereIn('sd.syllabi_id', $sylIds)
+                ->get(['sd.*', 'f.faculty_name'])
+                ->groupBy('syllabi_id')
             : collect();
         $syllabiByReq = $syllabi->groupBy('request_id')->map(fn ($rows) => $rows->map(function ($row) use ($drfsBySyl) {
             $row->course = (object) [
                 'course_name' => $row->course_name,
                 'course_code' => $row->course_code ?? null,
+                'course_type' => $row->course_type ?? null,
             ];
             $row->drfs = $drfsBySyl->get($row->id, collect());
 
@@ -6871,35 +7280,43 @@ class RegisterQueryHelper
         return $docs;
     }
 
-    public static function hydrateMasterlists(Collection $records): Collection
+    public static function hydrateMasterlists(Collection $records, ?array $only = null): Collection
     {
         if ($records->isEmpty()) {
             return $records;
         }
 
         $requestIds = $records->pluck('request_id')->filter()->unique()->all();
+        $requestOnly = $only === null ? null : array_values(array_unique(array_merge($only, ['types'])));
         $requests = $requestIds
-            ? self::hydrateRequests(DB::table('dcs_document_requests')->whereIn('id', $requestIds)->get())
-                ->keyBy(fn ($row) => (int) $row->id)
+            ? self::hydrateRequests(
+                DB::table('dcs_document_requests')->whereIn('id', $requestIds)->get(['id', 'doc_type_id', 'sub_type_id', 'approval_status', 'deleted_at']),
+                $requestOnly
+            )->keyBy(fn ($row) => (int) $row->id)
             : collect();
         $typeIds = $records->pluck('doc_type_id')->filter()->unique()->all();
         $types = $typeIds
             ? DB::table('dcs_doc_types')->whereIn('id', $typeIds)->get()->keyBy('id')
             : collect();
         $mlIds = $records->pluck('id')->all();
-        $sourceByMl = DB::table('dcs_masterlist_source_offices as so')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'so.office_id')
-            ->whereIn('so.masterlist_id', $mlIds)
-            ->get(['so.masterlist_id', 'so.office_id', 'o.office_name', 'o.office_code'])
-            ->groupBy('masterlist_id')
-            ->map(fn ($rows) => $rows->map(function ($row) {
-                $row->office = (object) [
-                    'office_name' => $row->office_name,
-                    'office_code' => $row->office_code ?? null,
-                ];
+        $loadSources = $only === null || in_array('sourceOffices', $only, true);
+        $sourceByMl = ($loadSources && $mlIds !== [])
+            ? DB::table('dcs_masterlist_source_offices as so')
+                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as o', 'o.id', '=', 'so.office_id')
+                ->whereIn('so.masterlist_id', $mlIds)
+                ->get(['so.masterlist_id', 'so.office_id', 'o.office_name', 'o.office_code'])
+                ->groupBy('masterlist_id')
+                ->map(fn ($rows) => $rows->map(function ($row) {
+                    $row->office = (object) [
+                        'office_name' => $row->office_name,
+                        'office_code' => $row->office_code ?? null,
+                    ];
 
-                return $row;
-            }));
+                    return $row;
+                }))
+            : collect();
+
+        self::attachOriginatorNames($records);
 
         foreach ($records as $ml) {
             $ml->request = $requests->get((int) $ml->request_id);

@@ -666,15 +666,23 @@
         lockRevisionScannedCopyCell(row, doc.scanned_copy_url);
     }
 
-    function clearAllLinkedRevisionRows(tbody, exceptRow) {
-        if (!tbody) return;
+    function clearLinkedRowsForDocument(tbody, docNo, exceptRow) {
+        if (!tbody || !docNo) return;
         [...tbody.querySelectorAll('tr')].forEach((tr) => {
             if (tr === exceptRow) return;
-            if (tr.dataset.linked === 'true') {
-                removeRevisionRowDropdowns(tr);
-                tr.remove();
+            if ((tr.dataset.linkedDocNo || '') !== docNo) {
+                return;
             }
+            removeRevisionRowDropdowns(tr);
+            tr.remove();
         });
+    }
+
+    function lockRevisionHistoryRow(tr) {
+        if (!tr) return;
+        tr.dataset.historyLocked = 'true';
+        const btn = tr.querySelector('.reg-row-del');
+        if (btn) btn.remove();
     }
 
     async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options) {
@@ -684,7 +692,7 @@
             .trim()
             .toLowerCase();
 
-        clearAllLinkedRevisionRows(tbody, anchorRow);
+        clearLinkedRowsForDocument(tbody, pickedDocNo, anchorRow);
         populateRevisionRowFromDoc(anchorRow, docs[0]);
         anchorRow.dataset.linked = 'true';
         anchorRow.dataset.linkedDocNo = pickedDocNo;
@@ -696,7 +704,9 @@
             insertAfter.after(tr);
             bindRevisionRowSearch(tr);
             populateRevisionRowFromDoc(tr, docs[i]);
+            tr.dataset.linked = 'true';
             tr.dataset.linkedDocNo = pickedDocNo;
+            lockRevisionHistoryRow(tr);
             insertAfter = tr;
         }
     }
@@ -743,6 +753,10 @@
             return;
         }
 
+        dd.innerHTML = '<div class="ofi-source-empty">Searching…</div>';
+        positionFixedDropdown(dd, input);
+        dd.style.display = 'block';
+
         revSearchTimers[key] = setTimeout(async () => {
             try {
                 const params = new URLSearchParams({
@@ -750,11 +764,22 @@
                     field: field || '',
                     originator_self: window.__ofiOriginatorSelf ? '1' : '0',
                 });
-                const data = await fetch('/dcs/api/documents/search?' + params.toString()).then((r) => r.json());
+                const raw = await fetch('/dcs/api/documents/search?' + params.toString()).then((r) => r.json());
+                const taken = new Set();
+                document.querySelectorAll('input[name="documentNo[]"]').forEach(function (el) {
+                    if (el === input) return;
+                    const value = String(el.value || '').trim().toLowerCase();
+                    if (value) taken.add(value);
+                });
+                const data = (Array.isArray(raw) ? raw : []).filter(function (doc) {
+                    return !taken.has(String(doc.doc_no || '').trim().toLowerCase());
+                });
                 revSearchCache[key] = data;
                 dd.innerHTML =
                     data.length === 0
-                        ? '<div class="ofi-source-empty">No matching documents (originator must be you)</div>'
+                        ? '<div class="ofi-source-empty">' + (taken.size && Array.isArray(raw) && raw.length
+                            ? 'That document is already in Documents for Revision.'
+                            : 'No matching documents (originator must be you)') + '</div>'
                         : data
                               .map(
                                   (d, idx) =>

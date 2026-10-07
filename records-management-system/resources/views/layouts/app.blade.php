@@ -153,6 +153,7 @@
         </script>
         @endif
         @endauth
+        <x-rms-error />
         <x-chatify.floating-widget />
     </body>
 </html>

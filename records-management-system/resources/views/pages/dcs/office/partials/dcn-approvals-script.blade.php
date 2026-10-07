@@ -19,6 +19,16 @@
             if (badge) badge.textContent = String(i + 1);
             const remove = row.querySelector('[data-approval-remove]');
             if (remove) remove.hidden = items.length < 2;
+            const inputs = Array.from(row.querySelectorAll('input[name="approvalPosition[]"], input[name="approvalName[]"]'));
+            const anyFilled = inputs.some(function (input) { return input.value.trim() !== ''; });
+            const required = i > 0 || anyFilled;
+            inputs.forEach(function (input) {
+                input.required = required;
+            });
+            row.querySelectorAll('.reg-field label').forEach(function (label, labelIndex) {
+                const text = labelIndex === 0 ? 'Position' : 'Name';
+                label.innerHTML = required ? (text + ' <span class="ofi-req">*</span>') : text;
+            });
         });
         addBtn.hidden = items.length >= max;
     }
@@ -30,6 +40,10 @@
         renumber();
         const focus = list.querySelector('[data-approval-row]:last-child input[name="approvalPosition[]"]');
         if (focus) focus.focus();
+    });
+
+    list.addEventListener('input', function () {
+        renumber();
     });
 
     list.addEventListener('click', function (e) {

@@ -60,57 +60,54 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         $typeIds = RegisterQueryHelper::parentTypeIdMap();
-        $queue = DB::table('dcs_document_requests as dr')
-            ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
-            ->whereIn('dr.approval_status', ['applicable', 'not_applicable']);
-        RegisterQueryHelper::applyNotDeleted($queue, 'dr');
-        RegisterQueryHelper::applyRegisteredDocumentScope($queue, 'dr');
         $hasRevStatus = RegisterQueryHelper::supportsRevisionStatus();
-        $queue = $queue->selectRaw('COUNT(dr.id)::int as total');
+        $counts = DB::table('dcs_document_requests as dr');
+        RegisterQueryHelper::joinLatestByRequest($counts, 'dcs_masterlist_registration', 'ml');
+        $counts->whereIn('dr.approval_status', ['applicable', 'not_applicable']);
+        RegisterQueryHelper::applyNotDeleted($counts, 'dr');
+        RegisterQueryHelper::applyRegisteredDocumentScope($counts, 'dr');
+        $counts->groupBy('dr.doc_type_id')
+            ->select('dr.doc_type_id')
+            ->selectRaw('COUNT(*)::int as total');
         if ($hasRevStatus) {
-            $queue = $queue
-                ->selectRaw("COUNT(dr.id) FILTER (WHERE COALESCE(NULLIF(TRIM(ml.revision_status), ''), 'latest') <> 'obsolete')::int as latest")
-                ->selectRaw("COUNT(dr.id) FILTER (WHERE ml.revision_status = 'obsolete')::int as obsolete");
+            $counts->selectRaw("COUNT(*) FILTER (WHERE COALESCE(NULLIF(TRIM(ml.revision_status::text), ''), 'latest') <> 'obsolete')::int as latest")
+                ->selectRaw("COUNT(*) FILTER (WHERE ml.revision_status = 'obsolete')::int as obsolete")
+                ->selectRaw("COUNT(*) FILTER (WHERE ml.revision_status IS NULL OR TRIM(ml.revision_status::text) = '' OR ml.revision_status = 'latest')::int as current");
         } else {
-            $queue = $queue
-                ->selectRaw('COUNT(dr.id)::int as latest')
-                ->selectRaw('0::int as obsolete');
+            $counts->selectRaw('COUNT(*)::int as latest')
+                ->selectRaw('0::int as obsolete')
+                ->selectRaw('COUNT(*)::int as current');
         }
-        $queue = $queue->first();
+        $byTypeId = $counts->get()->keyBy(fn ($row) => (int) $row->doc_type_id);
+        $countFor = function (string $key) use ($byTypeId, $typeIds): int {
+            $row = $byTypeId->get((int) ($typeIds[$key] ?? 0));
 
-        $byType = function (int $typeId) use ($hasRevStatus) {
-            $q = DB::table('dcs_document_requests as dr')
-                ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
-                ->whereIn('dr.approval_status', ['applicable', 'not_applicable'])
-                ->where('dr.doc_type_id', $typeId);
-            if ($hasRevStatus) {
-                RegisterQueryHelper::applyLatestRevisionStatus($q, 'ml');
-            }
-            RegisterQueryHelper::applyNotDeleted($q, 'dr');
-            RegisterQueryHelper::applyRegisteredDocumentScope($q, 'dr');
-
-            return $q->count();
+            return (int) ($row->current ?? 0);
         };
 
         $stats = [
-            'totalDocuments' => (int) ($queue->total ?? 0),
-            'latestCount' => (int) ($queue->latest ?? 0),
-            'obsoleteCount' => (int) ($queue->obsolete ?? 0),
-            'internalCount' => $byType($typeIds['internal_docs']),
-            'internalFormsCount' => $byType($typeIds['internal_forms']),
-            'externalCount' => $byType($typeIds['external_docs']),
-            'formsCount' => $byType($typeIds['forms']),
-            'logbooksCount' => $byType($typeIds['logbooks']),
+            'totalDocuments' => (int) $byTypeId->sum('total'),
+            'latestCount' => (int) $byTypeId->sum('latest'),
+            'obsoleteCount' => (int) $byTypeId->sum('obsolete'),
+            'internalCount' => $countFor('internal_docs'),
+            'internalFormsCount' => $countFor('internal_forms'),
+            'externalCount' => $countFor('external_docs'),
+            'formsCount' => $countFor('forms'),
+            'logbooksCount' => $countFor('logbooks'),
         ];
 
         $year = (int) now('Asia/Manila')->year;
         $holidays = \App\Helpers\CalendarHelper::philippineHolidays($year, $year + 1);
+        $requestCounts = RegisterQueryHelper::canBrowseAllOfficeIntake()
+            ? OfficeIntakeHelper::pendingOfficeRequestCounts()
+            : null;
 
         return [
             'isDcsPathPending' => false,
             'isLimitedDcs' => false,
             'officeDrfCount' => 0,
             'officeDcnCount' => 0,
+            'requestCounts' => $requestCounts,
             'stats' => $stats,
             'typeIds' => $typeIds,
             'userDisplayName' => $userDisplayName,
@@ -459,6 +456,14 @@ document.addEventListener('alpine:init', () => {
                     <div class="dash-queue-chip"><span>Total</span><strong>{{ number_format((int) $stats['totalDocuments']) }}</strong></div>
                     <div class="dash-queue-chip is-latest"><span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong></div>
                     <div class="dash-queue-chip is-obsolete"><span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong></div>
+                @endif
+                @if(!empty($requestCounts))
+                    <a href="{{ route('dcs.requests.index', ['filter' => 'drf'], absolute: false) }}" class="dash-queue-chip is-request-drf">
+                        <span>DRF requests</span><strong>{{ number_format((int) ($requestCounts['drf'] ?? 0)) }}</strong>
+                    </a>
+                    <a href="{{ route('dcs.requests.index', ['filter' => 'dcn'], absolute: false) }}" class="dash-queue-chip is-request-dcn">
+                        <span>DCN requests</span><strong>{{ number_format((int) ($requestCounts['dcn'] ?? 0)) }}</strong>
+                    </a>
                 @endif
             </section>
 

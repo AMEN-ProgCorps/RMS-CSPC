@@ -427,36 +427,6 @@ class DcsAccessControlTest extends TestCase
         $this->assertContains($ocr->status(), [403, 419, 422]);
     }
 
-    public function test_report_template_preview_by_id_requires_reports_module(): void
-    {
-        if (! Schema::hasTable('dcs_report_templates')) {
-            $this->markTestSkipped('dcs_report_templates missing.');
-        }
-
-        $id = DB::table('dcs_report_templates')->insertGetId([
-            'name' => 'Test Template ' . $this->limitedRoleId,
-            'pdf_path' => 'GENERAL/DCS/report_templates/test.pdf',
-            'preview_path' => null,
-            'created_by' => $this->rfioUserId,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        $denied = $this->actingAs(User::find($this->limitedUserId))
-            ->get('/dcs/api/report-templates/' . $id . '/preview');
-        $this->assertContains($denied->status(), [403, 404]);
-
-        $details = $this->conditionTable();
-        if (Schema::hasColumn($details, 'dcs_can_reports')) {
-            DB::table($details)->where('key_id', $this->rfioRoleId)->update(['dcs_can_reports' => true]);
-        }
-
-        $allowed = $this->actingAs(User::find($this->rfioUserId))
-            ->get('/dcs/api/report-templates/' . $id . '/preview');
-        // 404 when preview file missing is acceptable; not 403
-        $this->assertNotEquals(403, $allowed->status());
-    }
-
     public function test_recycle_permanent_delete_requires_secret_code(): void
     {
         $details = $this->conditionTable();

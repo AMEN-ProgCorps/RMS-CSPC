@@ -6,6 +6,12 @@
 @import './top-tabs.css';
 @import './dark.css';
 
+html,
+body {
+    background-color: var(--dcs-bg);
+}
+
+
 /* ═══════════════════════════════════
    Shared loading — same look as Generate Report (rpt-preview-loading)
    Used by Update / Drafts / Request / Database / Office Documents / Stamp

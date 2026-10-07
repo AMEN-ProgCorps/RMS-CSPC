@@ -7,6 +7,7 @@ require_once __DIR__ . '/office-intake.blade.php';
 require_once __DIR__ . '/report-template.blade.php';
 require_once __DIR__ . '/report.blade.php';
 require_once __DIR__ . '/syllabi-monitoring.blade.php';
+require_once __DIR__ . '/distribution-monitoring.blade.php';
 require_once __DIR__ . '/calendar.blade.php';
 require_once __DIR__ . '/settings-recycle.blade.php';
 require_once __DIR__ . '/random-check.blade.php';

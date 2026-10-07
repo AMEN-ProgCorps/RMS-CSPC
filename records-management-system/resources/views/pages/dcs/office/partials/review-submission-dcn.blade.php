@@ -1,5 +1,5 @@
 @php
-    $departmentParts = \App\Helpers\OfficeIntakeHelper::parseDepartmentDate($dcn->department_date ?? null);
+    $departmentParts = \App\Helpers\OfficeIntakeHelper::parseDepartmentDate($dcn);
 @endphp
 <div class="ofi-review">
     <div class="ofi-review-hero">
@@ -68,7 +68,7 @@
         <h4 class="ofi-review-section-title">Signatures &amp; dates</h4>
         <dl class="ofi-review-fields">
             <div class="ofi-review-field">
-                <dt>Originator/ Signature</dt>
+                <dt>Originator</dt>
                 <dd>{{ $dcn->originator_name ?: '—' }}</dd>
             </div>
             <div class="ofi-review-field">
@@ -90,7 +90,7 @@
             @empty
             <div class="ofi-review-field">
                 <dt>Reviewed by</dt>
-                <dd class="ofi-show-reviewed">{{ $dcn->reviewed_by_date ?: '—' }}</dd>
+                <dd class="ofi-show-reviewed">—</dd>
             </div>
             @endforelse
         </dl>

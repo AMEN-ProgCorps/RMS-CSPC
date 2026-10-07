@@ -77,7 +77,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
 
                         <div class="ofi-dcn-box-section">
                             <div class="reg-field">
-                                <label for="originatorName">Originator/ Signature <span class="ofi-req">*</span></label>
+                                <label for="originatorName">Originator <span class="ofi-req">*</span></label>
                                 <input type="text" id="originatorName" name="originatorName" value="{{ old('originatorName') }}" required maxlength="255" placeholder="Enter originator name">
                             </div>
                             <div class="reg-grid-2-1">
@@ -193,6 +193,8 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
             return;
         }
         if (!form.checkValidity()) {
+            e.preventDefault();
+            form.reportValidity();
             return;
         }
         saveBtn.disabled = true;

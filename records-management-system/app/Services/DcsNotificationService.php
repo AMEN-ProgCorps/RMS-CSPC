@@ -34,7 +34,7 @@ class DcsNotificationService
      */
     public static function createNotification(string $officeCode, string $message, ?string $redirectUrl = null): bool
     {
-        $message = trim($message);
+        $message = static::fitContent($message);
         $canonical = static::resolveOfficeCode($officeCode);
 
         if ($canonical === null || $message === '') {
@@ -69,6 +69,19 @@ class DcsNotificationService
 
             return false;
         }
+    }
+
+    /**
+     * sys_notif_content.content is varchar(255). Long titles must not abort the insert.
+     */
+    protected static function fitContent(string $message): string
+    {
+        $message = trim(preg_replace('/\s+/u', ' ', $message) ?? '');
+        if ($message === '' || mb_strlen($message) <= 255) {
+            return $message;
+        }
+
+        return rtrim(mb_substr($message, 0, 252)).'…';
     }
 
     /**

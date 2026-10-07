@@ -156,6 +156,7 @@
     </script>
     @endif
     @endauth
+    <x-rms-error />
     <x-chatify.floating-widget />
     @auth
     <livewire:components.scanner-modal />

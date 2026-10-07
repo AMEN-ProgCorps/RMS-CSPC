@@ -588,18 +588,10 @@
     $changeTo = trim((string) ($dcn->change_to ?? ''));
     $justification = trim((string) ($dcn->brief_purpose ?? ''));
     $originator = trim((string) ($dcn->originator_name ?? ''));
-    $departmentDate = \App\Helpers\OfficeIntakeHelper::departmentDateForPrint(
-        trim((string) ($dcn->department_date ?? ''))
-    );
+    $departmentDate = \App\Helpers\OfficeIntakeHelper::departmentDateForPrint($dcn);
     $printReviewers = \App\Helpers\OfficeIntakeHelper::loadDcnReviewers((int) $dcn->id, $dcn);
     $reviewedByDate = trim((string) ($printReviewers[0]['label'] ?? ''));
     $reviewedByDate2 = trim((string) ($printReviewers[1]['label'] ?? ''));
-    if ($reviewedByDate === '') {
-        $reviewedByDate = trim((string) ($dcn->reviewed_by_date ?? ''));
-    }
-    if ($reviewedByDate2 === '') {
-        $reviewedByDate2 = trim((string) ($dcn->reviewed_by_date_2 ?? ''));
-    }
     $dcnNo = trim((string) ($dcn->dcn_no ?? ''));
 
     $fromLines = array_pad([''], 6, '');

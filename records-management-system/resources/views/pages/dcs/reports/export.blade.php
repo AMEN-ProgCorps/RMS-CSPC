@@ -212,24 +212,6 @@
         .ft-c { text-align: center; }
         .ft-r { text-align: right; }
 
-        /* Letterhead as page background (works in print + Dompdf better than fixed img) */
-        body.has-letterhead {
-            @if(!empty($letterheadUrl))
-            background: #fff url('{{ $letterheadUrl }}') no-repeat center top;
-            background-size: 100% 100%;
-            @else
-            background: #fff;
-            @endif
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-        }
-        body.has-letterhead .print-container {
-            position: relative;
-            z-index: 1;
-            padding: 210px 36px 110px;
-        }
-        body.has-letterhead .rpt-footer { display: none; }
-
         body.is-plain-table .print-container { padding: 8px 10px 12px; max-width: none; width: 100%; }
         body.is-plain-table .rpt-title { text-align: left; margin-bottom: 8px; }
         body.is-plain-table .rpt-title h2 { font-size: 11pt; text-transform: none; }
@@ -263,22 +245,11 @@
             box-shadow: 0 10px 28px rgba(15, 23, 42, 0.28);
             position: relative;
         }
-        body.is-print-preview.has-letterhead .print-sheet {
-            @if(!empty($letterheadUrl))
-            background: #fff url('{{ $letterheadUrl }}') no-repeat center top;
-            background-size: 100% 100%;
-            @else
-            background: #fff;
-            @endif
-        }
         body.is-print-preview .print-container {
             max-width: none;
             width: 100%;
             min-height: 297mm;
             padding: 10mm 8mm 14mm;
-        }
-        body.is-print-preview.has-letterhead .print-container {
-            padding: 200px 28px 100px;
         }
         body.is-print-preview .data-table,
         body.is-print-preview .data-table th,
@@ -317,12 +288,6 @@
                 padding: 0 !important;
                 background: #fff !important;
             }
-            body.is-print-preview.has-letterhead {
-                @if(!empty($letterheadUrl))
-                background: #fff url('{{ $letterheadUrl }}') no-repeat center top !important;
-                background-size: 100% 100% !important;
-                @endif
-            }
             .print-sheet {
                 width: auto !important;
                 min-height: 0 !important;
@@ -331,7 +296,6 @@
                 background: transparent !important;
             }
             .print-container { padding: 0 0 10px 0; max-width: 100%; }
-            body.has-letterhead .print-container { padding: 200px 28px 100px; }
             .data-table,
             .data-table th,
             .data-table td { font-family: Arial, sans-serif; font-size: 10pt; }
@@ -340,7 +304,6 @@
     </style>
 </head>
 <body class="{{ trim(implode(' ', array_filter([
-    !empty($letterheadUrl) ? 'has-letterhead' : null,
     (($activeCategory ?? '') === 'opcr') ? 'is-opcr' : null,
     !empty($plainTable) ? 'is-plain-table' : null,
     !empty($embed) && empty($plainTable) ? 'is-print-preview' : null,
@@ -360,7 +323,7 @@
     <div class="print-container">
 
         {{-- HEADER --}}
-        @if(empty($plainTable) && empty($letterheadUrl))
+        @if(empty($plainTable))
         @php
             $logoPath = public_path('images/logo.png');
             $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
@@ -537,7 +500,7 @@
     </div>
 
     {{-- FOOTER --}}
-    @if(empty($plainTable) && empty($isPdf) && empty($letterheadUrl))
+    @if(empty($plainTable) && empty($isPdf))
     <div class="rpt-footer" id="rptFooter">
         <div class="rpt-footer-line"></div>
         <div class="rpt-footer-inner">

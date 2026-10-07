@@ -154,21 +154,32 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 </tbody>
             </table>
         </div>
-        @if(($list['last_page'] ?? 1) > 1)
+        @php
+            $pg = (int) ($list['current_page'] ?? 1);
+            $pgLast = (int) ($list['last_page'] ?? 1);
+            $pgTotal = (int) ($list['total'] ?? 0);
+            $pgSize = (int) ($list['per_page'] ?? 15);
+            $pgFrom = $pgTotal === 0 ? 0 : (($pg - 1) * $pgSize) + 1;
+            $pgTo = min($pgTotal, $pg * $pgSize);
+            $pgStart = max(1, $pg - 2);
+            $pgEnd = min($pgLast, $pg + 2);
+        @endphp
         <div class="upd-pagination">
             <div class="upd-pagination-info">
-                Page {{ $list['current_page'] }} of {{ $list['last_page'] }} ({{ $list['total'] }} total)
+                Showing {{ $pgFrom }}–{{ $pgTo }} of {{ $pgTotal }}
             </div>
             <div class="upd-pagination-links">
-                @if($list['current_page'] > 1)
-                    <button type="button" class="upd-pg" wire:click="goToPage({{ $list['current_page'] - 1 }})">Prev</button>
+                @if($pg > 1)
+                    <button type="button" class="upd-pg" wire:click="goToPage({{ $pg - 1 }})">Prev</button>
                 @endif
-                @if($list['current_page'] < $list['last_page'])
-                    <button type="button" class="upd-pg" wire:click="goToPage({{ $list['current_page'] + 1 }})">Next</button>
+                @for($p = $pgStart; $p <= $pgEnd; $p++)
+                    <button type="button" class="upd-pg {{ $p === $pg ? 'upd-pg-active' : '' }}" wire:click="goToPage({{ $p }})" @if($p === $pg) disabled @endif>{{ $p }}</button>
+                @endfor
+                @if($pg < $pgLast)
+                    <button type="button" class="upd-pg" wire:click="goToPage({{ $pg + 1 }})">Next</button>
                 @endif
             </div>
         </div>
-        @endif
         @else
         <div class="upd-empty">
             <i class="fa-regular fa-floppy-disk" aria-hidden="true"></i>

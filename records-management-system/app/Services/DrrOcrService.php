@@ -49,7 +49,7 @@ class DrrOcrService
     private static function ocrPagesLocked(Request $request): array
     {
         $request->validate([
-            'file' => 'nullable|file|mimes:pdf,jpeg,jpg,png|max:204800',
+            'file' => 'nullable|file|max:204800',
             'storage_path' => 'nullable|string|max:500',
             'pages' => 'required|array|min:1|max:' . self::MAX_PAGES_PER_REQUEST,
             'pages.*' => 'integer|min:1|max:5000',
@@ -74,13 +74,20 @@ class DrrOcrService
         try {
             if ($hasFile) {
                 $upload = $request->file('file');
+                $imageKind = \App\Support\DcsUploadGuard::imageKind($upload, 204800);
+                $pdfProblem = \App\Support\DcsUploadGuard::pdfProblem($upload, 204800);
+                if ($imageKind === null && $pdfProblem !== null) {
+                    return [
+                        'ok' => false,
+                        'reason' => 'invalid_file',
+                        'message' => 'Only a PDF, JPEG, or PNG can be uploaded.',
+                        'pages' => [],
+                    ];
+                }
                 $tempOwned = $upload->store('temp/drr-ocr', 'local');
                 $absPath = Storage::disk('local')->path($tempOwned);
-                $mime = (string) ($upload->getMimeType() ?: '');
-                $ext = strtolower((string) $upload->getClientOriginalExtension());
 
-                // Canvas fallback sends a single page image — OCR it directly.
-                if (str_starts_with($mime, 'image/') || in_array($ext, ['jpg', 'jpeg', 'png'], true)) {
+                if ($imageKind !== null) {
                     $pageNo = (int) (($request->input('pages')[0] ?? 1));
                     DcsAuditService::log('ocr.page', 'review', null, null, ['page' => $pageNo, 'source' => 'image']);
 

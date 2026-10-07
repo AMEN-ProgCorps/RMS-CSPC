@@ -32,7 +32,7 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
 
         $revisions = OfficeIntakeHelper::dcnRevisions($this->id);
         $firstRev = $revisions->first();
-        $departmentParts = OfficeIntakeHelper::parseDepartmentDate($dcn->department_date ?? null);
+        $departmentParts = OfficeIntakeHelper::parseDepartmentDate($dcn);
 
         return [
             'dcn' => $dcn,
@@ -144,7 +144,7 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
 
                     <div class="ofi-dcn-box-section">
                         <div class="reg-field">
-                            <label>Originator/ Signature</label>
+                            <label>Originator</label>
                             <div class="ofi-show-value">{{ $dcn->originator_name ?: '—' }}</div>
                         </div>
                         <div class="reg-grid-2-1">
@@ -160,18 +160,17 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                         @php
                             $reviewerRows = \App\Helpers\OfficeIntakeHelper::loadDcnReviewers((int) $dcn->id, $dcn);
                         @endphp
-                        @foreach($reviewerRows as $i => $rev)
+                        @forelse($reviewerRows as $i => $rev)
                         <div class="reg-field">
                             <label>Reviewed by{{ count($reviewerRows) > 1 ? ' ('.($i + 1).')' : '' }}</label>
                             <div class="ofi-show-value ofi-show-reviewed">{{ $rev['label'] !== '' ? $rev['label'] : '—' }}</div>
                         </div>
-                        @endforeach
-                        @if($reviewerRows === [])
+                        @empty
                         <div class="reg-field">
                             <label>Reviewed by</label>
-                            <div class="ofi-show-value ofi-show-reviewed">{{ $dcn->reviewed_by_date ?: '—' }}</div>
+                            <div class="ofi-show-value ofi-show-reviewed">—</div>
                         </div>
-                        @endif
+                        @endforelse
                         @php
                             $approvalRows = \App\Helpers\OfficeIntakeHelper::loadDcnApprovals((int) $dcn->id);
                         @endphp

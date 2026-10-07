@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * DCS Random Check — yearly June / December office visits.
- * Saved rows are snapshots. Finalized visits are never rewritten.
+ * Check results are stored on the visit. Document number, title, and type come from the masterlist.
  */
 class RandomCheckHelper
 {
@@ -79,10 +79,24 @@ class RandomCheckHelper
                 ->pluck('check_year')
                 ->map(fn ($y) => (int) $y)
                 ->all();
+            $dateColumns = ['checked_at', 'created_at'];
+            if (Schema::hasColumn('dcs_random_checks', 'check_date')) {
+                $dateColumns[] = 'check_date';
+            }
+            $fromDates = DB::table('dcs_random_checks')
+                ->whereNull('check_year')
+                ->get($dateColumns)
+                ->map(function ($row) {
+                    $stamp = $row->check_date ?: $row->checked_at ?: $row->created_at;
+
+                    return $stamp ? (int) date('Y', strtotime((string) $stamp)) : 0;
+                })
+                ->filter(fn ($y) => $y > 0)
+                ->all();
             $fromSched = Schema::hasTable('dcs_random_check_schedules')
                 ? DB::table('dcs_random_check_schedules')->distinct()->pluck('check_year')->map(fn ($y) => (int) $y)->all()
                 : [];
-            $years = array_values(array_unique(array_merge($years, $fromDb, $fromSched)));
+            $years = array_values(array_unique(array_merge($years, $fromDb, $fromDates, $fromSched)));
         }
         rsort($years);
 
@@ -124,10 +138,35 @@ class RandomCheckHelper
 
         if (self::hasYearColumn()) {
             $checks = DB::table('dcs_random_checks')
-                ->where('check_year', $year)
-                ->where('cycle', $cycle)
-                ->get(['office_id', 'is_draft', 'finalized_at']);
+                ->where(function ($q) use ($year) {
+                    $q->where('check_year', $year);
+                    $q->orWhere(function ($legacy) use ($year) {
+                        $legacy->whereNull('check_year')->whereYear('checked_at', $year);
+                    });
+                    if (Schema::hasColumn('dcs_random_checks', 'check_date')) {
+                        $q->orWhere(function ($legacy) use ($year) {
+                            $legacy->whereNull('check_year')->whereYear('check_date', $year);
+                        });
+                    }
+                })
+                ->get(array_values(array_filter([
+                    'office_id',
+                    'is_draft',
+                    'finalized_at',
+                    Schema::hasColumn('dcs_random_checks', 'cycle') ? 'cycle' : null,
+                    Schema::hasColumn('dcs_random_checks', 'check_date') ? 'check_date' : null,
+                    'checked_at',
+                ])));
             foreach ($checks as $row) {
+                $rowCycle = trim((string) ($row->cycle ?? ''));
+                if ($rowCycle === '') {
+                    $stamp = $row->check_date ?: $row->checked_at;
+                    $month = $stamp ? (int) date('n', strtotime((string) $stamp)) : 1;
+                    $rowCycle = $month <= 6 ? self::CYCLE_JUNE : self::CYCLE_DECEMBER;
+                }
+                if (self::normalizeCycle($rowCycle) !== $cycle) {
+                    continue;
+                }
                 $officeIds[(int) $row->office_id] = true;
                 if (self::rowIsDraft($row)) {
                     $drafts++;
@@ -605,14 +644,16 @@ class RandomCheckHelper
             $item = [
                 'masterlist_id' => $mlId,
                 'item_no' => (int) ($row['item_no'] ?? ($i + 1)),
-                'doc_no' => $docNo,
-                'rev_no' => (int) ($row['rev_no'] ?? 0),
-                'doc_title' => mb_substr((string) ($row['doc_title'] ?? ''), 0, 255),
-                'effectivity_date' => self::normalizeDate($row['effectivity_date_raw'] ?? $row['effectivity_date'] ?? null),
                 'availability' => $availability === '' ? null : $availability,
                 'remarks' => $remarks !== '' ? $remarks : null,
                 'recommended_actions' => $actions !== '' ? $actions : null,
             ];
+            if (Schema::hasColumn('dcs_random_check_items', 'doc_no')) {
+                $item['doc_no'] = $docNo;
+                $item['rev_no'] = (int) ($row['rev_no'] ?? 0);
+                $item['doc_title'] = mb_substr((string) ($row['doc_title'] ?? ''), 0, 255);
+                $item['effectivity_date'] = self::normalizeDate($row['effectivity_date_raw'] ?? $row['effectivity_date'] ?? null);
+            }
             if ($hasCompliance) {
                 $item['compliance_status'] = $compliance === '' ? null : $compliance;
                 $item['notes'] = trim((string) ($row['notes'] ?? '')) ?: null;
@@ -744,27 +785,52 @@ class RandomCheckHelper
             return null;
         }
 
-        $hasItemType = Schema::hasColumn('dcs_random_check_items', 'doc_type_key');
         $hasCompliance = Schema::hasColumn('dcs_random_check_items', 'compliance_status');
-        $items = DB::table('dcs_random_check_items')
-            ->where('random_check_id', $checkId)
-            ->orderBy('item_no')
-            ->get();
+        $parentById = array_flip(RegisterQueryHelper::parentTypeIdMap());
+        $items = DB::table('dcs_random_check_items as i')
+            ->leftJoin('dcs_masterlist_registration as ml', 'ml.id', '=', 'i.masterlist_id')
+            ->leftJoin('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->leftJoin('dcs_doc_types as mlt', 'mlt.id', '=', 'ml.doc_type_id')
+            ->leftJoin('dcs_doc_types as rdt', 'rdt.id', '=', 'dr.doc_type_id')
+            ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
+            ->where('i.random_check_id', $checkId)
+            ->orderBy('i.item_no')
+            ->get([
+                'i.id',
+                'i.masterlist_id',
+                'i.item_no',
+                'i.availability',
+                'i.remarks',
+                'i.recommended_actions',
+                $hasCompliance ? 'i.compliance_status' : DB::raw('null as compliance_status'),
+                $hasCompliance ? 'i.notes' : DB::raw('null as notes'),
+                'ml.doc_no',
+                'ml.revise_no',
+                'ml.doc_title',
+                'ml.effectivity_date',
+                'ml.doc_type_id as ml_doc_type_id',
+                'mlt.parent_id as ml_parent_id',
+                'dr.doc_type_id as request_doc_type_id',
+                'rdt.parent_id as request_parent_id',
+                'st.parent_id as sub_parent_id',
+            ]);
 
         $rows = [];
         foreach ($items as $item) {
             $raw = $item->effectivity_date ?? null;
+            $parentId = (int) ($item->ml_parent_id ?: $item->ml_doc_type_id ?: $item->request_parent_id ?: $item->request_doc_type_id ?: $item->sub_parent_id ?: 0);
+            $groupKey = (string) ($parentById[$parentId] ?? '');
             $rows[] = [
                 'id' => (int) $item->id,
                 'masterlist_id' => (int) ($item->masterlist_id ?? 0),
                 'item_no' => (int) $item->item_no,
                 'doc_no' => (string) ($item->doc_no ?? ''),
-                'rev_no' => (int) ($item->rev_no ?? 0),
+                'rev_no' => (int) ($item->revise_no ?? 0),
                 'doc_title' => (string) ($item->doc_title ?? ''),
                 'effectivity_date' => $raw ? RegisterQueryHelper::formatSmartDate($raw) : null,
                 'effectivity_date_raw' => $raw ? Carbon::parse($raw)->format('Y-m-d') : null,
-                'doc_type_key' => $hasItemType ? (string) ($item->doc_type_key ?? '') : '',
-                'doc_type_label' => $hasItemType ? (string) ($item->doc_type_label ?? '') : '',
+                'doc_type_key' => $groupKey,
+                'doc_type_label' => $groupKey !== '' ? OfficeIntakeHelper::documentGroupLabel($groupKey) : '',
                 'availability' => (string) ($item->availability ?? ''),
                 'remarks' => (string) ($item->remarks ?? ''),
                 'recommended_actions' => (string) ($item->recommended_actions ?? ''),

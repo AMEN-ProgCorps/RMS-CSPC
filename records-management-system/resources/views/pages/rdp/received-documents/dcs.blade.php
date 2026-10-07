@@ -282,19 +282,26 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
         // Sample / recent DCS documents for quick import modal
         $availableDcs = collect();
         if ($this->showImportModal) {
-            $iq = DB::table('dcs_masterlist_registration')
-                ->select('doc_no', 'doc_title', 'originator_name', 'revise_no', 'doc_registered_date');
+            $iq = DB::table('dcs_masterlist_registration as ml')
+                ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
+                ->select(
+                    'ml.doc_no',
+                    'ml.doc_title',
+                    'og.originator_name',
+                    'ml.revise_no',
+                    'ml.doc_registered_date'
+                );
 
             if (!empty($this->importSearch)) {
                 $is = '%' . trim($this->importSearch) . '%';
                 $iq->where(function($q) use ($is) {
-                    $q->where('doc_no', 'ilike', $is)
-                      ->orWhere('doc_title', 'ilike', $is)
-                      ->orWhere('originator_name', 'ilike', $is);
+                    $q->where('ml.doc_no', 'ilike', $is)
+                      ->orWhere('ml.doc_title', 'ilike', $is)
+                      ->orWhere('og.originator_name', 'ilike', $is);
                 });
             }
 
-            $availableDcs = $iq->orderBy('id', 'desc')->limit(12)->get();
+            $availableDcs = $iq->orderByDesc('ml.id')->limit(12)->get();
         }
 
         return [

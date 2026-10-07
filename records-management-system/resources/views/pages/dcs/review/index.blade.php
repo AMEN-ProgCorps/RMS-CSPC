@@ -15,6 +15,8 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
 
     public int $page = 1;
 
+    public int $perPage = 15;
+
     public string $selectedDocNo = '';
 
     public string $leftId = '';
@@ -63,7 +65,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
 
         return [
             'docTypes' => RegisterQueryHelper::parentDocTypes(),
-            'list' => RegisterQueryHelper::reviewList($this->search, $this->docTypeId, $this->page),
+            'list' => RegisterQueryHelper::reviewList($this->search, $this->docTypeId, $this->page, $this->pageSize()),
             'compare' => $compare,
             'pair' => $pair,
             'activeTab' => $activeTab,
@@ -77,6 +79,11 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
     }
 
     public function updatedDocTypeId(): void
+    {
+        $this->page = 1;
+    }
+
+    public function updatedPerPage(): void
     {
         $this->page = 1;
     }
@@ -163,6 +170,11 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
     public function setTab(string $tab): void
     {
         $this->tab = $tab;
+    }
+
+    private function pageSize(): int
+    {
+        return in_array($this->perPage, [10, 15, 25, 50, 100], true) ? $this->perPage : 15;
     }
 }; ?>
 
@@ -326,14 +338,36 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                     @endif
                 </div>
                 <div class="drr-pagination" @if($list['total'] === 0) style="display:none" @endif>
-                    <div>Page {{ $list['current_page'] }} of {{ $list['last_page'] }} ({{ $list['total'] }} total)</div>
-                    <div class="drr-pagination-links">
-                        @if($list['current_page'] > 1)
-                            <button type="button" class="drr-pg" wire:click="goToPage({{ $list['current_page'] - 1 }})">Prev</button>
-                        @endif
-                        @if($list['current_page'] < $list['last_page'])
-                            <button type="button" class="drr-pg" wire:click="goToPage({{ $list['current_page'] + 1 }})">Next</button>
-                        @endif
+                    <div>Showing {{ $list['total'] === 0 ? 0 : (($list['current_page'] - 1) * $list['per_page']) + 1 }}–{{ min($list['total'], $list['current_page'] * $list['per_page']) }} of {{ $list['total'] }}</div>
+                    <div class="drr-pagination-tools">
+                        <label class="drr-page-size" for="drrPerPage">
+                            Show
+                            <select id="drrPerPage" wire:model.live="perPage">
+                                @foreach([10, 15, 25, 50, 100] as $size)
+                                    <option value="{{ $size }}">{{ $size }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                        <div class="drr-pagination-links">
+                            <button type="button" class="drr-pg" wire:click="goToPage({{ $list['current_page'] - 1 }})" @disabled($list['current_page'] <= 1)>Prev</button>
+                            @php
+                                $reviewPages = [];
+                                $reviewLast = (int) $list['last_page'];
+                                $reviewCurrent = (int) $list['current_page'];
+                                for ($reviewPage = 1; $reviewPage <= $reviewLast; $reviewPage++) {
+                                    if ($reviewPage === 1 || $reviewPage === $reviewLast || abs($reviewPage - $reviewCurrent) <= 1) {
+                                        $reviewPages[] = $reviewPage;
+                                    }
+                                }
+                            @endphp
+                            @foreach($reviewPages as $index => $reviewPage)
+                                @if($index > 0 && $reviewPage - $reviewPages[$index - 1] > 1)
+                                    <span class="drr-pg drr-pg-gap">…</span>
+                                @endif
+                                <button type="button" class="drr-pg {{ $reviewPage === $reviewCurrent ? 'is-active' : '' }}" wire:click="goToPage({{ $reviewPage }})">{{ $reviewPage }}</button>
+                            @endforeach
+                            <button type="button" class="drr-pg" wire:click="goToPage({{ $list['current_page'] + 1 }})" @disabled($list['current_page'] >= $list['last_page'])>Next</button>
+                        </div>
                     </div>
                 </div>
             </div>

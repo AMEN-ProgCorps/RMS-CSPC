@@ -6,7 +6,9 @@
     const results = document.getElementById('dcnDocNoResults');
     const confirmed = document.getElementById('dcnDocNoConfirmed');
     const chipRow = document.getElementById('dcnDocNoChip');
-    const chipLabel = document.getElementById('dcnDocNoChipLabel');
+    const chipNo = document.getElementById('dcnDocNoChipNo');
+    const chipTitle = document.getElementById('dcnDocNoChipTitle');
+    const chipRev = document.getElementById('dcnDocNoChipRev');
     const clearBtn = document.getElementById('dcnDocNoClear');
     const useModal = document.getElementById('dcnDocNoUseModal');
     const useNo = document.getElementById('dcnDocNoUseNo');
@@ -27,17 +29,22 @@
 
     function setConfirmed(on, meta) {
         confirmed.value = on ? '1' : '';
-        if (!chipRow || !chipLabel) return;
-        if (on && meta) {
-            const rev = meta.revise_no != null ? ' (Rev ' + meta.revise_no + ')' : '';
-            const titlePart = meta.doc_title ? ' · ' + meta.doc_title : '';
-            chipLabel.textContent = 'Selected registered document — ' + (meta.doc_no || '') + titlePart + rev;
-            chipRow.hidden = false;
-        } else if (on) {
-            chipRow.hidden = false;
-        } else {
+        if (!chipRow) return;
+        if (!on) {
             chipRow.hidden = true;
-            chipLabel.textContent = 'Selected registered document';
+            return;
+        }
+        chipRow.hidden = false;
+        if (!meta) return;
+        if (chipNo) chipNo.textContent = meta.doc_no || '';
+        if (chipTitle) chipTitle.textContent = meta.doc_title || '';
+        if (chipRev) {
+            const hasRev = meta.revise_no != null && meta.revise_no !== '';
+            chipRev.hidden = !hasRev;
+            chipRev.textContent = hasRev ? ('Rev ' + meta.revise_no) : '';
+        }
+        if (meta.revise_no != null && meta.revise_no !== '') {
+            chipRow.dataset.revise = String(meta.revise_no);
         }
     }
 
@@ -144,9 +151,9 @@
             btn.dataset.index = String(idx);
             const rev = item.revise_no != null ? item.revise_no : 0;
             btn.innerHTML =
-                '<span class="ofi-docno-opt-main">' + escapeHtml(item.doc_no || '') +
-                ' · ' + escapeHtml(item.doc_title || '') + '</span>' +
-                '<span class="ofi-docno-opt-meta">Rev ' + escapeHtml(String(rev)) +
+                '<span class="ofi-docno-opt-no">' + escapeHtml(item.doc_no || '') + '</span>' +
+                '<span class="ofi-docno-opt-title">' + escapeHtml(item.doc_title || '') + '</span>' +
+                '<span class="ofi-docno-opt-meta">Latest · Rev ' + escapeHtml(String(rev)) +
                 ' · ' + escapeHtml(item.doc_type || 'Document') + '</span>';
             btn.addEventListener('mousedown', function (e) {
                 e.preventDefault();
@@ -251,10 +258,11 @@
 
     // Restore confirmed state when old input / edit has a doc no.
     if (confirmed.value === '1' && input.value.trim() !== '') {
+        const storedRev = chipRow && chipRow.dataset.revise !== '' ? chipRow.dataset.revise : null;
         setConfirmed(true, {
             doc_no: input.value.trim(),
             doc_title: titleInput ? titleInput.value.trim() : '',
-            revise_no: null,
+            revise_no: storedRev,
         });
     }
 

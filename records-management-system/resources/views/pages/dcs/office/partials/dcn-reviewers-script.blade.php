@@ -22,14 +22,8 @@
 
             const nameInput = row.querySelector('input[name="reviewedByName[]"]');
             const nameLabel = nameInput ? nameInput.closest('.reg-field')?.querySelector('label') : null;
-            const reqHtml = ' <span class="ofi-req">*</span>';
-            if (i === 0) {
-                if (nameInput) nameInput.required = true;
-                if (nameLabel) nameLabel.innerHTML = 'Name' + reqHtml;
-            } else {
-                if (nameInput) nameInput.required = false;
-                if (nameLabel) nameLabel.textContent = 'Name';
-            }
+            if (nameInput) nameInput.required = true;
+            if (nameLabel) nameLabel.innerHTML = 'Name <span class="ofi-req">*</span>';
         });
         addBtn.hidden = items.length >= max;
     }

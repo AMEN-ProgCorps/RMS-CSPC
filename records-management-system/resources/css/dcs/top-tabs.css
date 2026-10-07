@@ -12,6 +12,7 @@
     box-sizing: border-box;
     pointer-events: none;
     transition: left var(--dcs-ease);
+    background: var(--dcs-bg);
 }
 
 .dcs-top-tabs-host .top-nav-tabs-wrapper {

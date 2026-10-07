@@ -21,21 +21,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
         $drf = OfficeIntakeHelper::findOfficeDrf($this->id);
         abort_unless($drf, 404);
 
-        $catalog = collect(RegisterQueryHelper::jsCatalog()['offices'] ?? []);
-        $distributeIds = [];
-        foreach (OfficeIntakeHelper::decodeDistributeTo($drf->distribute_to ?? null) as $stored) {
-            $stored = trim((string) $stored);
-            $match = $catalog->first(function ($o) use ($stored) {
-                $code = trim((string) ($o['office_code'] ?? ''));
-                $name = trim((string) ($o['office_name'] ?? ''));
-
-                return ($code !== '' && strcasecmp($code, $stored) === 0)
-                    || ($name !== '' && strcasecmp($name, $stored) === 0);
-            });
-            if ($match && ! empty($match['office_id'])) {
-                $distributeIds[] = (int) $match['office_id'];
-            }
-        }
+        $distributeIds = OfficeIntakeHelper::distributeOfficeIds((int) $drf->id);
 
         return [
             'drf' => $drf,

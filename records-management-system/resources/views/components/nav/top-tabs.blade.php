@@ -410,7 +410,28 @@
                 ],
             ];
         }
-        // 4. Generate Report
+        // 4. Monitoring
+        elseif (request()->routeIs('dcs.reports.monitoring', 'dcs.reports.distributionRetrieval', 'dcs.reports.syllabiTos')) {
+            $sectionTitle = 'Monitoring';
+            $tabs = [
+                [
+                    'label' => 'Monitoring Reports',
+                    'url' => route('dcs.reports.monitoring'),
+                    'active' => request()->routeIs('dcs.reports.monitoring'),
+                ],
+                [
+                    'label' => 'Distribution & Retrieval',
+                    'url' => route('dcs.reports.distributionRetrieval'),
+                    'active' => request()->routeIs('dcs.reports.distributionRetrieval'),
+                ],
+                [
+                    'label' => 'Syllabi & TOS/Rubrics',
+                    'url' => route('dcs.reports.syllabiTos'),
+                    'active' => request()->routeIs('dcs.reports.syllabiTos'),
+                ],
+            ];
+        }
+        // 4b. Generate Report
         elseif (request()->routeIs('dcs.reports.*')) {
             $sectionTitle = 'Generate Report';
             $tabs = [
@@ -418,16 +439,6 @@
                     'label' => 'Masterlists',
                     'url' => route('dcs.reports.masterlist'),
                     'active' => request()->routeIs('dcs.reports.masterlist'),
-                ],
-                [
-                    'label' => 'Monitoring Reports',
-                    'url' => route('dcs.reports.monitoring'),
-                    'active' => request()->routeIs('dcs.reports.monitoring'),
-                ],
-                [
-                    'label' => 'Syllabi & TOS/Rubrics',
-                    'url' => route('dcs.reports.syllabiTos'),
-                    'active' => request()->routeIs('dcs.reports.syllabiTos'),
                 ],
                 [
                     'label' => 'OPCR Targets',

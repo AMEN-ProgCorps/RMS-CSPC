@@ -38,11 +38,13 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(function (\Illuminate\Auth\AuthenticationException $e, \Illuminate\Http\Request $request) {
-            if ($request->ajax() || $request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest' || $request->is('rdp/api/*')) {
-                return response()->json([
+            if ($request->ajax() || $request->wantsJson() || $request->header('X-Requested-With') === 'XMLHttpRequest' || $request->is('rdp/api/*') || \App\Support\ErrorDiagnosis::wantsJson($request)) {
+                $diagnosed = \App\Support\ErrorDiagnosis::forStatus(401);
+
+                return response()->json(array_merge($diagnosed->toArray(), [
                     'error' => 'Unauthenticated',
                     'redirect' => route('login'),
-                ], 401);
+                ]), 401);
             }
 
             if ($request->is('chat/unread-count')) {
@@ -67,27 +69,19 @@ return Application::configure(basePath: dirname(__DIR__))
             if (app()->runningInConsole() || app()->environment('testing') || app()->runningUnitTests()) {
                 return null;
             }
-
-            if ($request->is('api/*')) {
+            if ($e instanceof \Illuminate\Validation\ValidationException
+                || $e instanceof \Illuminate\Auth\AuthenticationException) {
                 return null;
             }
 
-            if ($e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException ||
-                $e instanceof \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException ||
-                $e instanceof \Illuminate\Auth\Access\AuthorizationException ||
-                ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpException && in_array($e->getStatusCode(), [403, 404]))) {
-                if ($request->expectsJson() || $request->ajax() || $request->wantsJson()
-                    || $request->header('X-Requested-With') === 'XMLHttpRequest') {
-                    return null;
-                }
+            $diagnosed = \App\Support\ErrorDiagnosis::from($e);
 
-                if ($request->is('dcs/view-document', 'dcs/view-document/*', 'dts/view-document', 'dcs/api/*')) {
-                    return null;
-                }
-
-                return new \Illuminate\Http\RedirectResponse(route('portal'));
+            if (\App\Support\ErrorDiagnosis::isFileResponse($request) && ! \App\Support\ErrorDiagnosis::wantsJson($request)) {
+                return response($diagnosed->message, $diagnosed->status)
+                    ->header('Content-Type', 'text/plain; charset=UTF-8')
+                    ->header('X-Content-Type-Options', 'nosniff');
             }
 
-            return null;
+            return $diagnosed->toResponse($request);
         });
     })->create();

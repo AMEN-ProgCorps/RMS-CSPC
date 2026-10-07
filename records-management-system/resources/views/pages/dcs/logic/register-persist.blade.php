@@ -163,6 +163,7 @@ class RegisterPersistHelper
             'dcs.office.dcn.print' => 'Printed Office DCN',
             'dcs.reports.masterlist' => 'Opened Masterlist Report',
             'dcs.reports.monitoring' => 'Opened Monitoring Report',
+            'dcs.reports.distributionRetrieval' => 'Opened Distribution and Retrieval monitor',
             'dcs.reports.opcr' => 'Opened OPCR Report',
             'dcs.reports.others' => 'Opened Other Reports',
             'dcs.reports.syllabiTos' => 'Opened Syllabi/TOS Report',
@@ -201,7 +202,15 @@ class RegisterPersistHelper
 
     public static function scanFileRules(): array
     {
-        $rule = 'nullable|file|mimes:pdf|max:' . self::SCAN_MAX_KB;
+        $rule = ['nullable', 'file', 'max:'.self::SCAN_MAX_KB, function (string $attribute, mixed $value, \Closure $fail): void {
+            if (! $value instanceof \Illuminate\Http\UploadedFile) {
+                return;
+            }
+            $problem = \App\Support\DcsUploadGuard::pdfProblem($value, self::SCAN_MAX_KB);
+            if ($problem !== null) {
+                $fail($problem);
+            }
+        }];
 
         return [
             'drfFile' => $rule,
@@ -217,12 +226,8 @@ class RegisterPersistHelper
     public static function masterlistOriginalNameFromRequest(Request $request): ?string
     {
         $convention = self::buildScanBasename($request, 'DOC', $request->input('masterlistEffectivityDate'));
-        $ext = 'pdf';
-        if ($request->hasFile('uploadScannedCopy')) {
-            $ext = $request->file('uploadScannedCopy')->getClientOriginalExtension() ?: 'pdf';
-        }
 
-        return DocumentStorageService::sanitizeDcsScanBasename($convention) . '.' . $ext;
+        return DocumentStorageService::sanitizeDcsScanBasename($convention) . '.pdf';
     }
 
     public static function applyMasterlistOriginalName(array &$row, Request $request, bool $onlyIfUploaded = true): void
@@ -489,7 +494,7 @@ class RegisterPersistHelper
     public static function resolveReviseNo(Request $request, mixed $fallback = null): int
     {
         $mode = $request->input('registration_mode', 'new');
-        if ($mode !== 'revised' && $request->boolean('insert_shift_confirmed')) {
+        if ($mode !== 'revised' && ($request->boolean('insert_shift_confirmed') || $request->boolean('allow_duplicate_doc_no'))) {
             return 0;
         }
 
@@ -870,9 +875,6 @@ class RegisterPersistHelper
         $useConvention = false;
         if ($conventionBase !== null && trim($conventionBase) !== '') {
             $ext = 'pdf';
-            if ($file instanceof \Illuminate\Http\UploadedFile) {
-                $ext = $file->getClientOriginalExtension() ?: 'pdf';
-            }
             $base = pathinfo($conventionBase, PATHINFO_FILENAME) ?: $conventionBase;
             $original = DocumentStorageService::sanitizeDcsScanBasename($base) . '.' . $ext;
             $useConvention = true;
@@ -904,10 +906,49 @@ class RegisterPersistHelper
         return DocumentStorageService::dcsScanFields($table, $pathColumn, $path);
     }
 
+    /**
+     * @param  list<int|string>  $ids
+     * @return array<int, int> office id => office id, for isset() checks
+     */
+    public static function existingOfficeIdSet(array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids), static fn (int $id) => $id > 0)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $table = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        if (! Schema::hasTable($table)) {
+            return [];
+        }
+
+        return DB::table($table)
+            ->whereIn('id', $ids)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->flip()
+            ->all();
+    }
+
+    /**
+     * @return array{college_id: int, program_id: int, semester_id: int, school_year_id: int, course_type: string}
+     */
+    public static function syllabiDraftContext(Request $request): array
+    {
+        return [
+            'college_id' => (int) $request->input('college_id', 0),
+            'program_id' => (int) $request->input('program_id', 0),
+            'semester_id' => (int) $request->input('semester_id', 0),
+            'school_year_id' => (int) $request->input('school_year_id', 0),
+            'course_type' => trim((string) $request->input('course_type', '')),
+        ];
+    }
+
     public static function saveDistributionOffices(int $distributionId, Request $request): void
     {
         $officeIds = array_values(array_filter(array_map('intval', (array) $request->input('distOffice', []))));
         $copies = (array) $request->input('distCopies', []);
+        $validOffices = self::existingOfficeIdSet($officeIds);
 
         // DRF office intake: distribution offices are fixed to what the submitter selected.
         $intakeType = strtolower(trim((string) $request->input('office_intake_type', '')));
@@ -935,7 +976,7 @@ class RegisterPersistHelper
         DB::table('dcs_distribution_offices')->where('distribution_id', $distributionId)->delete();
 
         foreach ($officeIds as $i => $id) {
-            if ($id <= 0) {
+            if ($id <= 0 || ! isset($validOffices[$id])) {
                 continue;
             }
             $row = [
@@ -968,23 +1009,7 @@ class RegisterPersistHelper
             return [];
         }
 
-        $ids = [];
-        foreach (OfficeIntakeHelper::decodeDistributeTo($drf->distribute_to ?? null) as $stored) {
-            $stored = trim((string) $stored);
-            if ($stored === '') {
-                continue;
-            }
-            $row = DB::table(Schema::hasTable('sys_office') ? 'sys_office' : 'office')
-                ->where(function ($q) use ($stored) {
-                    $q->where('office_code', $stored)->orWhere('office_name', $stored);
-                })
-                ->first(['id']);
-            if ($row) {
-                $ids[] = (int) $row->id;
-            }
-        }
-
-        return array_values(array_unique(array_filter($ids)));
+        return OfficeIntakeHelper::distributeOfficeIds($drfId);
     }
 
     public static function isAutosaveRequest(Request $request): bool
@@ -1104,7 +1129,35 @@ class RegisterPersistHelper
             }
         }
 
-        if ($mode === 'new' && $request->boolean('insert_shift_confirmed')) {
+        $stackTarget = (int) $request->input('stack_with_request_id', 0);
+        if ($stackTarget > 0) {
+            $mode = 'new';
+            $stackMerge = [
+                'registration_mode' => 'new',
+                'allow_duplicate_doc_no' => '1',
+                'masterlistRevisionNo' => 0,
+                'revised_from_doc_no' => null,
+                'stack_with_request_id' => $stackTarget,
+            ];
+            $newVersionId = self::newVersionTypeId();
+            if ($newVersionId) {
+                $stackMerge['version_id'] = $newVersionId;
+            }
+            $request->merge($stackMerge);
+        } elseif (
+            ! $request->boolean('allow_duplicate_doc_no')
+            && ! $request->boolean('insert_shift_confirmed')
+        ) {
+            $versionName = strtolower((string) DB::table('dcs_version_type')
+                ->where('id', $request->input('version_id'))
+                ->value('version_name'));
+            if (str_contains($versionName, 'revis')) {
+                $mode = 'revised';
+                $request->merge(['registration_mode' => 'revised']);
+            }
+        }
+
+        if ($mode === 'new' && ($request->boolean('insert_shift_confirmed') || $request->boolean('allow_duplicate_doc_no'))) {
             $request->merge([
                 'masterlistRevisionNo' => 0,
                 'revised_from_doc_no' => null,
@@ -1241,11 +1294,15 @@ class RegisterPersistHelper
 
         if ($saveAsDraft && RegisterQueryHelper::supportsDrafts()) {
             $draftDocNo = trim((string) $request->input('masterlistDocNo', ''));
+            $draftSubTypeId = $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null;
+            $draftContext = $isSyllabi ? self::syllabiDraftContext($request) : null;
             $existingDraftId = $draftDocNo !== ''
                 ? RegisterQueryHelper::findExistingDraftRequestId(
                     $draftDocNo,
                     (int) $request->input('doc_type_id'),
-                    $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null
+                    $draftSubTypeId,
+                    0,
+                    $draftContext
                 )
                 : null;
             if ($existingDraftId) {
@@ -1253,7 +1310,9 @@ class RegisterPersistHelper
                 $existingDraftId = RegisterQueryHelper::findExistingDraftRequestId(
                     $draftDocNo,
                     (int) $request->input('doc_type_id'),
-                    $request->input('sub_type_id') ? (int) $request->input('sub_type_id') : null
+                    $draftSubTypeId,
+                    0,
+                    $draftContext
                 ) ?: $existingDraftId;
 
                 return RegisterUpdateHelper::update($request, $existingDraftId);
@@ -1274,7 +1333,9 @@ class RegisterPersistHelper
                     if (RegisterQueryHelper::supportsDrafts()) {
                         $publishedMatches = $publishedMatches->filter(fn ($row) => empty($row->is_draft))->values();
                     }
-                    if ($publishedMatches->isNotEmpty() && ! $request->boolean('insert_shift_confirmed')) {
+                    if ($publishedMatches->isNotEmpty()
+                        && ! $request->boolean('insert_shift_confirmed')
+                        && ! $request->boolean('allow_duplicate_doc_no')) {
                         $latest = DB::table('dcs_masterlist_registration')
                             ->whereIn('request_id', $publishedMatches->pluck('id'))
                             ->where('doc_no', $docNo)
@@ -1300,7 +1361,7 @@ class RegisterPersistHelper
             $now = now();
             $userId = auth()->id();
 
-            if ($mode === 'new' && $allowsRevision && ! $saveAsDraft && $request->boolean('insert_shift_confirmed')) {
+            if ($mode === 'new' && ! $saveAsDraft && $request->boolean('insert_shift_confirmed')) {
                 $shift = \App\Helpers\DocumentNumberSeriesHelper::applyInsertShift($request);
                 if (empty($shift['ok'])) {
                     DB::rollBack();
@@ -1464,7 +1525,6 @@ class RegisterPersistHelper
                     'effectivity_date' => $request->masterlistEffectivityDate,
                     'revise_no' => self::resolveReviseNo($request),
                     'no_pages' => $request->masterlistNoOfPages,
-                    'originator_name' => $originator['originator_name'],
                     'deadline' => self::masterlistDeadlineValue($request),
                     'created_by' => $userId,
                     'created_at' => $now,
@@ -1476,12 +1536,18 @@ class RegisterPersistHelper
                     // so they stay out of the live unique index and inventory listings.
                     $masterlistRow['revision_status'] = $saveAsDraft ? 'obsolete' : 'latest';
                 }
-                self::applyAllowsRevisionToMasterlistRow($masterlistRow, $allowsRevision);
+                self::applyAllowsRevisionToMasterlistRow(
+                    $masterlistRow,
+                    $allowsRevision && ! $request->boolean('allow_duplicate_doc_no')
+                );
                 if (! $allowsRevision) {
                     $masterlistRow['revise_no'] = 0;
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistRow['originator_id'] = $originator['originator_id'];
+                }
+                if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+                    $masterlistRow['originator_name'] = $originator['originator_name'];
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
                     $masterlistRow['originator_account_id'] = RegisterQueryHelper::resolveOriginatorAccountIdForName($originator['originator_name']);
@@ -1490,6 +1556,7 @@ class RegisterPersistHelper
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                     $masterlistRow['keywords'] = $keywordVal;
                 }
+                self::applyRelatedStackGroup($masterlistRow, $request);
                 if ($mode === 'revised' && Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
                     $fromDocNo = self::resolveRevisedFromDocNo(
                         $request,
@@ -1552,7 +1619,6 @@ class RegisterPersistHelper
                     'deadline' => self::masterlistDeadlineValue($request),
                     'revise_no' => self::resolveReviseNo($request),
                     'no_pages' => $totalPages,
-                    'originator_name' => $originator['originator_name'],
                     'updated_at' => $now,
                 ];
                 $masterlistData = array_merge(
@@ -1563,12 +1629,18 @@ class RegisterPersistHelper
                 if (RegisterQueryHelper::supportsRevisionStatus()) {
                     $masterlistData['revision_status'] = $saveAsDraft ? 'obsolete' : 'latest';
                 }
-                self::applyAllowsRevisionToMasterlistRow($masterlistData, $allowsRevision);
+                self::applyAllowsRevisionToMasterlistRow(
+                    $masterlistData,
+                    $allowsRevision && ! $request->boolean('allow_duplicate_doc_no')
+                );
                 if (! $allowsRevision) {
                     $masterlistData['revise_no'] = 0;
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
+                }
+                if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+                    $masterlistData['originator_name'] = $originator['originator_name'];
                 }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_account_id')) {
                     $masterlistData['originator_account_id'] = RegisterQueryHelper::resolveOriginatorAccountIdForName($originator['originator_name']);
@@ -1577,6 +1649,7 @@ class RegisterPersistHelper
                 if (Schema::hasColumn('dcs_masterlist_registration', 'keywords')) {
                     $masterlistData['keywords'] = $keywordVal;
                 }
+                self::applyRelatedStackGroup($masterlistData, $request);
                 if ($mode === 'revised' && Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
                     $fromDocNo = self::resolveRevisedFromDocNo(
                         $request,
@@ -1618,9 +1691,10 @@ class RegisterPersistHelper
                 ]);
 
                 if ($request->has('retrievalOffice')) {
+                    $validRetrievalOffices = self::existingOfficeIdSet((array) $request->retrievalOffice);
                     foreach ($request->retrievalOffice as $i => $officeId) {
                         $id = (int) $officeId;
-                        if ($id <= 0) {
+                        if ($id <= 0 || ! isset($validRetrievalOffices[$id])) {
                             continue;
                         }
                         $retrievalOfficeRow = [
@@ -1696,25 +1770,6 @@ class RegisterPersistHelper
                 if ($rowAllowsRevision) {
                     self::syncRevisionStatusForMasterlist((int) $savedMl->id);
 
-                    // When a revision renumbers the document, mark the previous number's family obsolete.
-                    if ($mode === 'revised') {
-                        $fromDocNo = trim((string) ($savedMl->revised_from_doc_no
-                            ?? $request->input('revised_from_doc_no', '')));
-                        $newDocNo = trim((string) ($savedMl->doc_no ?? ''));
-                        if ($fromDocNo !== '' && $newDocNo !== '' && strcasecmp($fromDocNo, $newDocNo) !== 0
-                            && RegisterQueryHelper::supportsRevisionStatus()) {
-                            $requestIds = RegisterQueryHelper::requestIdsWithSameDocType((object) [
-                                'doc_type_id' => $docTypeId,
-                                'sub_type_id' => $request->sub_type_id ? (int) $request->sub_type_id : null,
-                            ]);
-                            DB::table('dcs_masterlist_registration')
-                                ->where('doc_no', $fromDocNo)
-                                ->whereIn('request_id', $requestIds)
-                                ->whereIn('revision_status', ['latest', 'obsolete'])
-                                ->update(['revision_status' => 'obsolete', 'updated_at' => now()]);
-                        }
-                    }
-
                     // Re-assert tip = max revise_no across the whole renumber family.
                     self::promoteLatestForDoc(
                         trim((string) $savedMl->doc_no),
@@ -1725,6 +1780,14 @@ class RegisterPersistHelper
                     DB::table('dcs_masterlist_registration')
                         ->where('id', $savedMl->id)
                         ->update(['revision_status' => 'latest', 'revise_no' => 0, 'updated_at' => now()]);
+                }
+
+                if ($mode === 'revised') {
+                    self::obsoleteSelectedRevisionSources(
+                        $request,
+                        (int) $requestId,
+                        trim((string) ($savedMl->doc_no ?? ''))
+                    );
                 }
             }
 
@@ -2086,6 +2149,42 @@ class RegisterPersistHelper
             return null;
         }
 
+        $courseNames = collect((array) $request->input('syllabiCourseName', []))
+            ->map(fn ($name) => trim((string) $name))
+            ->filter();
+        $missingContext = [];
+        foreach ([
+            'college_id' => 'College',
+            'program_id' => 'Program',
+            'semester_id' => 'Semester',
+            'course_type' => 'Course type',
+            'school_year_id' => 'School year',
+        ] as $field => $label) {
+            if (trim((string) $request->input($field, '')) === '') {
+                $missingContext[] = $label;
+            }
+        }
+        if ($missingContext !== []) {
+            return back()->withInput()->with(
+                'error',
+                'Select ' . implode(', ', $missingContext) . ' before registering this document.'
+            );
+        }
+
+        if (! self::settingsHasSyllabiCourses($request)) {
+            return back()->withInput()->with(
+                'error',
+                'There are no course names in Settings for this program, semester, and course type. Add them in Settings before registering.'
+            );
+        }
+
+        if ($courseNames->isEmpty()) {
+            return back()->withInput()->with(
+                'error',
+                'Add at least one course from Settings before registering this document.'
+            );
+        }
+
         if ($redirect = self::rejectDuplicateSyllabiContext($request, $exceptRequestId)) {
             return $redirect instanceof \Illuminate\Http\RedirectResponse ? $redirect : back()->withInput()->with(
                 'error',
@@ -2117,6 +2216,13 @@ class RegisterPersistHelper
             if ($rowYear === null && Schema::hasColumn('dcs_program_courses', 'year_level')) {
                 return back()->withInput()->with('error',
                     "{$courseLabel}: Year level is required.");
+            }
+
+            if (! self::settingsCourseForSyllabiRow($request, trim((string) $courseName), $rowYear)) {
+                return back()->withInput()->with(
+                    'error',
+                    "\"{$courseLabel}\" is not a course name in Settings for this program, semester, and course type."
+                );
             }
 
             $usedFaculty = [];
@@ -2246,6 +2352,13 @@ class RegisterPersistHelper
             $query->whereNull('dr.deleted_at');
         }
 
+        // Drafts are not registrations. Only a saved document blocks the same context.
+        if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+            $query->where(function ($q) {
+                $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            });
+        }
+
         if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
             $query->join('dcs_program_courses as pc', 'pc.id', '=', 's.course_id')
                 ->where('pc.course_type', $courseType);
@@ -2371,9 +2484,10 @@ class RegisterPersistHelper
         DB::table('dcs_dcn_offices')->where('dcn_id', $dcnId)->delete();
         $now = now();
         $seen = [];
+        $validOffices = self::existingOfficeIdSet($officeIds);
         foreach ($officeIds as $officeId) {
             $id = (int) trim((string) $officeId);
-            if ($id <= 0 || isset($seen[$id])) {
+            if ($id <= 0 || isset($seen[$id]) || ! isset($validOffices[$id])) {
                 continue;
             }
             $seen[$id] = true;
@@ -2390,9 +2504,10 @@ class RegisterPersistHelper
     {
         $now = now();
         $seen = [];
+        $validOffices = self::existingOfficeIdSet($officeIds);
         foreach ($officeIds as $officeId) {
             $id = (int) trim((string) $officeId);
-            if ($id <= 0 || isset($seen[$id])) {
+            if ($id <= 0 || isset($seen[$id]) || ! isset($validOffices[$id])) {
                 continue;
             }
             $seen[$id] = true;
@@ -2428,6 +2543,53 @@ class RegisterPersistHelper
         }
     }
 
+    private static function settingsHasSyllabiCourses(Request $request): bool
+    {
+        if (! Schema::hasTable('dcs_program_courses') || empty($request->program_id) || empty($request->semester_id)) {
+            return false;
+        }
+
+        $query = DB::table('dcs_program_courses')
+            ->where('program_id', $request->program_id)
+            ->where('semester_id', $request->semester_id)
+            ->whereRaw("TRIM(COALESCE(course_name, '')) <> ''");
+
+        if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
+            $courseType = trim((string) $request->input('course_type', ''));
+            if ($courseType !== '') {
+                $query->where('course_type', $courseType);
+            }
+        }
+
+        return $query->exists();
+    }
+
+    private static function settingsCourseForSyllabiRow(Request $request, string $courseName, ?string $yearLevel): ?object
+    {
+        $courseName = trim($courseName);
+        if ($courseName === '' || ! Schema::hasTable('dcs_program_courses') || empty($request->program_id) || empty($request->semester_id)) {
+            return null;
+        }
+
+        $query = DB::table('dcs_program_courses')
+            ->where('program_id', $request->program_id)
+            ->where('semester_id', $request->semester_id)
+            ->whereRaw('LOWER(TRIM(course_name)) = ?', [mb_strtolower($courseName)]);
+
+        if (Schema::hasColumn('dcs_program_courses', 'course_type')) {
+            $courseType = trim((string) $request->input('course_type', ''));
+            if ($courseType !== '') {
+                $query->where('course_type', $courseType);
+            }
+        }
+
+        if ($yearLevel !== null && Schema::hasColumn('dcs_program_courses', 'year_level')) {
+            $query->where('year_level', $yearLevel);
+        }
+
+        return $query->first();
+    }
+
     public static function saveSyllabiRowsFromRequest(
         int $requestId,
         Request $request,
@@ -2439,7 +2601,6 @@ class RegisterPersistHelper
         }
 
         $courseNames = $request->syllabiCourseName;
-        $courseCodes = $request->syllabiCourseCode ?? [];
         $availability = $request->syllabiAvailability ?? [];
         $copiesArr = $request->syllabiCopies ?? [];
         $pagesArr = $request->syllabiNoPages ?? [];
@@ -2455,12 +2616,8 @@ class RegisterPersistHelper
         $total = count($courseNames);
         $i = 0;
         $now = now();
-        $hasCourseCode = Schema::hasColumn('dcs_program_courses', 'course_code');
         $hasYearLevel = Schema::hasColumn('dcs_program_courses', 'year_level');
-        $hasCourseType = Schema::hasColumn('dcs_program_courses', 'course_type');
         $yearArr = $request->syllabiYearLevel ?? [];
-        $courseType = $hasCourseType ? trim((string) ($request->input('course_type') ?? '')) : '';
-        $courseType = $courseType !== '' ? $courseType : null;
 
         while ($i < $total) {
             $courseName = $courseNames[$i];
@@ -2477,58 +2634,12 @@ class RegisterPersistHelper
                 continue;
             }
 
-            $courseQuery = DB::table('dcs_program_courses')
-                ->where('program_id', $request->program_id)
-                ->where('semester_id', $request->semester_id)
-                ->where('course_name', $courseName);
-            if ($hasYearLevel && $yearLevel !== null) {
-                $courseQuery->where('year_level', $yearLevel);
+            $course = self::settingsCourseForSyllabiRow($request, trim((string) $courseName), $yearLevel);
+            if (! $course) {
+                $i += $copies;
+                continue;
             }
-            if ($hasCourseType && $courseType !== null) {
-                $courseQuery->where('course_type', $courseType);
-            }
-            $course = $courseQuery->first();
-
-            $courseCode = trim((string) ($courseCodes[$i] ?? ''));
-            $courseCode = $courseCode !== '' ? $courseCode : null;
-            $codeInUse = $hasCourseCode && $courseCode
-                ? self::programCourseCodeTaken(
-                    (int) $request->program_id,
-                    (int) $request->semester_id,
-                    $courseCode,
-                    $course?->id,
-                    $yearLevel,
-                    $courseType
-                )
-                : false;
-
-            if (!$course) {
-                $insert = [
-                    'program_id' => $request->program_id,
-                    'semester_id' => $request->semester_id,
-                    'course_name' => $courseName,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-                if ($hasYearLevel && $yearLevel !== null) {
-                    $insert['year_level'] = $yearLevel;
-                }
-                if ($hasCourseType && $courseType !== null) {
-                    $insert['course_type'] = $courseType;
-                }
-                if ($hasCourseCode) {
-                    $insert['course_code'] = $codeInUse ? null : $courseCode;
-                }
-                $courseId = DB::table('dcs_program_courses')->insertGetId($insert);
-            } else {
-                $courseId = $course->id;
-                if ($hasCourseCode && $courseCode && !$codeInUse && ($course->course_code ?? null) !== $courseCode) {
-                    DB::table('dcs_program_courses')->where('id', $courseId)->update([
-                        'course_code' => $courseCode,
-                        'updated_at' => $now,
-                    ]);
-                }
-            }
+            $courseId = $course->id;
 
             $syllabiId = DB::table('dcs_syllabi')->insertGetId([
                 'request_id' => $requestId,
@@ -2586,17 +2697,23 @@ class RegisterPersistHelper
                         }
                     }
 
-                    DB::table('dcs_syllabi_drf')->insert(array_merge([
+                    $syllabiDrfRow = [
                         'syllabi_id' => $syllabiId,
                         'faculty_id' => $facultyId,
-                        'faculty_name' => $facultyName,
                         'is_drf_available' => ($drfAvailArr[$rowIdx] ?? 'not available') === 'available',
                         'drf_no' => $drfNoArr[$rowIdx] ?? null,
                         'drf_date' => $drfDateArr[$rowIdx] ?? null,
                         'drf_received_date' => $drfRecvArr[$rowIdx] ?? null,
                         'created_at' => $now,
                         'updated_at' => $now,
-                    ], self::dcsScanFields('dcs_syllabi_drf', 'scanned_drf', $scannedDrf)));
+                    ];
+                    if (Schema::hasColumn('dcs_syllabi_drf', 'faculty_name')) {
+                        $syllabiDrfRow['faculty_name'] = $facultyName;
+                    }
+                    DB::table('dcs_syllabi_drf')->insert(array_merge(
+                        $syllabiDrfRow,
+                        self::dcsScanFields('dcs_syllabi_drf', 'scanned_drf', $scannedDrf)
+                    ));
                 }
             }
 
@@ -2649,8 +2766,7 @@ class RegisterPersistHelper
         $original = null;
         $useConvention = false;
         if ($convention) {
-            $ext = $file->getClientOriginalExtension() ?: 'pdf';
-            $original = DocumentStorageService::sanitizeDcsScanBasename($convention) . '.' . $ext;
+            $original = DocumentStorageService::sanitizeDcsScanBasename($convention) . '.pdf';
             $useConvention = true;
         }
 
@@ -2852,5 +2968,101 @@ class RegisterPersistHelper
             ->update(['revision_status' => 'latest', 'updated_at' => now()]);
 
         DocumentStorageService::moveObsoleteDocinfoFilesForFamily($familyNos, $requestIds, $tipId);
+    }
+
+
+    public static function obsoleteSelectedRevisionSources(Request $request, int $newRequestId, string $newDocNo): void
+    {
+        if (! RegisterQueryHelper::supportsRevisionStatus()) {
+            return;
+        }
+        if (self::isSyllabiLikeSubTypeRow(self::dcsDocType($request->input('sub_type_id')))) {
+            return;
+        }
+        $versionName = strtolower((string) DB::table('dcs_version_type')->where('id', $request->input('version_id'))->value('version_name'));
+        $mode = strtolower((string) $request->input('registration_mode', ''));
+        if ($mode !== 'revised' && ! str_contains($versionName, 'revis')) {
+            return;
+        }
+
+        $numbers = collect((array) $request->input('documentNo', []))
+            ->map(fn ($no) => trim((string) $no))
+            ->filter()
+            ->unique(fn ($no) => strtolower($no))
+            ->values();
+        $fromDoc = trim((string) $request->input('revised_from_doc_no', ''));
+        if ($fromDoc !== '' && ! $numbers->contains(fn ($no) => strcasecmp($no, $fromDoc) === 0)) {
+            $numbers->push($fromDoc);
+        }
+        if ($numbers->isEmpty()) {
+            return;
+        }
+
+        $stackGroup = null;
+        if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            $stackGroup = trim((string) DB::table('dcs_masterlist_registration')->where('request_id', $newRequestId)->value('stack_group'));
+            if ($stackGroup === '') {
+                $stackGroup = (string) \Illuminate\Support\Str::uuid();
+                DB::table('dcs_masterlist_registration')
+                    ->where('request_id', $newRequestId)
+                    ->update(['stack_group' => $stackGroup, 'updated_at' => now()]);
+            }
+        }
+
+        $docTypeId = (int) $request->input('doc_type_id');
+        foreach ($numbers as $docNo) {
+            $rows = DB::table('dcs_masterlist_registration as ml')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                ->where('ml.doc_no', $docNo)
+                ->where('dr.doc_type_id', $docTypeId)
+                ->where('ml.request_id', '!=', $newRequestId)
+                ->select('ml.id', 'ml.revision_status', 'ml.revise_no');
+            RegisterQueryHelper::applyNotDeleted($rows, 'dr');
+            RegisterQueryHelper::applyExcludeDrafts($rows, 'dr');
+            $matched = $rows->get();
+            $latestId = null;
+            $latestRev = -1;
+            foreach ($matched as $row) {
+                $status = strtolower(trim((string) ($row->revision_status ?? '')));
+                if ($status !== '' && $status !== 'latest') {
+                    continue;
+                }
+                $rev = (int) ($row->revise_no ?? 0);
+                if ($rev >= $latestRev) {
+                    $latestRev = $rev;
+                    $latestId = (int) $row->id;
+                }
+            }
+            foreach ($matched as $row) {
+                $update = ['updated_at' => now()];
+                if ($stackGroup !== null) {
+                    $update['stack_group'] = $stackGroup;
+                }
+                if ($latestId !== null && (int) $row->id === $latestId) {
+                    $update['revision_status'] = 'obsolete';
+                }
+                if (count($update) > 1) {
+                    DB::table('dcs_masterlist_registration')->where('id', $row->id)->update($update);
+                }
+            }
+        }
+    }
+
+    /** @param  array<string, mixed>  $row */
+    private static function applyRelatedStackGroup(array &$row, Request $request): void
+    {
+        if (! Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            return;
+        }
+        $targetId = (int) $request->input('stack_with_request_id', 0);
+        if ($targetId < 1 || ! $request->boolean('allow_duplicate_doc_no')) {
+            return;
+        }
+        $existing = trim((string) DB::table('dcs_masterlist_registration')->where('request_id', $targetId)->value('stack_group'));
+        $group = $existing !== '' ? $existing : (string) \Illuminate\Support\Str::uuid();
+        DB::table('dcs_masterlist_registration')
+            ->where('request_id', $targetId)
+            ->update(['stack_group' => $group, 'updated_at' => now()]);
+        $row['stack_group'] = $group;
     }
 }

@@ -62,8 +62,8 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                             <th>Submitted by</th>
                         @endif
                         <th>Status</th>
-                        <th>Date</th>
-                        <th>Date Created</th>
+                        <th class="ofi-nowrap">Date</th>
+                        <th class="ofi-nowrap">Date Created</th>
                         <th>Originator</th>
                         <th style="width:160px;">Actions</th>
                     </tr>
@@ -83,8 +83,8 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                                     <span class="ofi-status-pill is-pending">Submitted</span>
                                 @endif
                             </td>
-                            <td>{{ $row->dcn_date ? \Carbon\Carbon::parse($row->dcn_date)->format('M d, Y') : '—' }}</td>
-                            <td>{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->timezone('Asia/Manila')->format('M d, Y g:i A') : '—' }}</td>
+                            <td class="ofi-nowrap">{{ $row->dcn_date ? \Carbon\Carbon::parse($row->dcn_date)->format('M d, Y') : '—' }}</td>
+                            <td class="ofi-nowrap">{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->timezone('Asia/Manila')->format('M d, Y g:i A') : '—' }}</td>
                             <td>{{ $row->originator_name ?: '—' }}</td>
                             <td class="ofi-actions">
                                 <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}" title="View"><i class="fa-solid fa-eye"></i></a>

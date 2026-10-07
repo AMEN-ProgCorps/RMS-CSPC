@@ -5,6 +5,7 @@ use App\Helpers\RegisterQueryHelper;
 use App\Models\PersonalSetting;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -214,6 +215,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     private function catalog(): array
     {
+        return Cache::remember('dcs.database.catalog.v1', 90, function () {
+            return $this->loadCatalog();
+        });
+    }
+
+    private function loadCatalog(): array
+    {
         $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
         $allOffices = \App\Helpers\RegisterQueryHelper::applySelectableOfficesFilter(
             DB::table($officeTable)->where('is_active', true)
@@ -265,26 +273,68 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
             if ($this->search !== '') {
                 $like = '%' . $this->search . '%';
-                $query->where(function ($q) use ($like) {
-                    $q->whereExists(function ($q2) use ($like) {
-                        $q2->select(DB::raw(1))
-                            ->from('dcs_document_request_form as drf')
-                            ->whereColumn('drf.request_id', 'dr.id')
-                            ->where(function ($q3) use ($like) {
-                                $q3->where('drf.doc_title', 'ilike', $like)
-                                    ->orWhere('drf.drf_no', 'ilike', $like);
-                            });
-                    })
-                    ->orWhereExists(function ($q2) use ($like) {
-                        $q2->select(DB::raw(1))
-                            ->from('dcs_masterlist_registration as ml')
-                            ->whereColumn('ml.request_id', 'dr.id')
-                            ->where(function ($q3) use ($like) {
-                                $q3->where('ml.doc_no', 'ilike', $like)
-                                    ->orWhere('ml.doc_title', 'ilike', $like);
-                            });
-                    })
-                    ->orWhereRaw('dr.id::text ilike ?', [$like]);
+                $tokens = RegisterQueryHelper::searchTokens($this->search);
+                $query->where(function ($q) use ($like, $tokens) {
+                    $q->where(function ($phrase) use ($like) {
+                        $phrase->whereExists(function ($q2) use ($like) {
+                            $q2->select(DB::raw(1))
+                                ->from('dcs_document_request_form as drf')
+                                ->whereColumn('drf.request_id', 'dr.id')
+                                ->where(function ($q3) use ($like) {
+                                    $q3->where('drf.doc_title', 'ilike', $like)
+                                        ->orWhere('drf.drf_no', 'ilike', $like);
+                                });
+                        })
+                        ->orWhereExists(function ($q2) use ($like) {
+                            $q2->select(DB::raw(1))
+                                ->from('dcs_masterlist_registration as ml')
+                                ->whereColumn('ml.request_id', 'dr.id')
+                                ->where(function ($q3) use ($like) {
+                                    $q3->where('ml.doc_no', 'ilike', $like)
+                                        ->orWhere('ml.doc_title', 'ilike', $like)
+                                        ->orWhereExists(function ($name) use ($like) {
+                                            $name->select(DB::raw(1))
+                                                ->from('dcs_originators as og')
+                                                ->whereColumn('og.id', 'ml.originator_id')
+                                                ->where('og.originator_name', 'ilike', $like);
+                                        });
+                                });
+                        })
+                        ->orWhereRaw('dr.id::text ilike ?', [$like]);
+                    });
+
+                    if (count($tokens) > 1) {
+                        $q->orWhere(function ($all) use ($tokens) {
+                            foreach ($tokens as $token) {
+                                $tokenLike = '%' . $token . '%';
+                                $all->where(function ($one) use ($tokenLike) {
+                                    $one->whereExists(function ($q2) use ($tokenLike) {
+                                        $q2->select(DB::raw(1))
+                                            ->from('dcs_masterlist_registration as ml')
+                                            ->whereColumn('ml.request_id', 'dr.id')
+                                            ->where(function ($q3) use ($tokenLike) {
+                                                $q3->where('ml.doc_no', 'ilike', $tokenLike)
+                                                    ->orWhere('ml.doc_title', 'ilike', $tokenLike)
+                                                    ->orWhereExists(function ($name) use ($tokenLike) {
+                                                        $name->select(DB::raw(1))
+                                                            ->from('dcs_originators as og')
+                                                            ->whereColumn('og.id', 'ml.originator_id')
+                                                            ->where('og.originator_name', 'ilike', $tokenLike);
+                                                    });
+                                            });
+                                    })->orWhereExists(function ($q2) use ($tokenLike) {
+                                        $q2->select(DB::raw(1))
+                                            ->from('dcs_document_request_form as drf')
+                                            ->whereColumn('drf.request_id', 'dr.id')
+                                            ->where(function ($q3) use ($tokenLike) {
+                                                $q3->where('drf.doc_title', 'ilike', $tokenLike)
+                                                    ->orWhere('drf.drf_no', 'ilike', $tokenLike);
+                                            });
+                                    });
+                                });
+                            }
+                        });
+                    }
                 });
             }
 
@@ -293,8 +343,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 $query->whereExists(function ($q) use ($originator) {
                     $q->select(DB::raw(1))
                         ->from('dcs_masterlist_registration as ml')
+                        ->join('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
                         ->whereColumn('ml.request_id', 'dr.id')
-                        ->where('ml.originator_name', $originator);
+                        ->where('og.originator_name', $originator);
                 });
             }
 
@@ -360,8 +411,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 });
             }
 
-            $allRows = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get())
-                ->map(fn ($doc) => $this->mapDocument($doc));
+            $usedLight = $paginate;
+            $allRows = $usedLight
+                ? $this->lightInventoryRows($query, (int) $this->receivedBy)
+                : RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get())
+                    ->map(fn ($doc) => $this->mapDocument($doc));
 
             // Keep only documents whose displayed receiving offices include the selected office.
             if ($this->receivedBy !== '') {
@@ -381,7 +435,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         return false;
                     }
                     // Also require the office name to appear in the displayed receiving-office list.
-                    if ($officeName === '') {
+                    // Light rows have no names yet; the SQL filter already matched the latest distribution.
+                    if ($officeName === '' || trim((string) ($row['dist_offices'] ?? '')) === '') {
                         return true;
                     }
                     $names = collect(explode(',', (string) ($row['dist_offices'] ?? '')))
@@ -392,20 +447,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 })->values();
             }
 
-            $grouped = $allRows->groupBy(function ($row) {
-                if (! $row['doc_no'] || $row['doc_no'] === 'N/A') {
-                    return 'no_ml_' . $row['request_id'];
-                }
-
-                return $row['doc_no'] . '||' . ($row['doc_type_id'] ?? 0) . '||' . ($row['sub_type_id'] ?? 0);
-            });
+            $grouped = $allRows->groupBy(fn ($row) => RegisterQueryHelper::inventoryStackKey($row));
 
             $groups = collect();
             foreach ($grouped as $rows) {
                 $allowsRevision = (bool) ($rows->first()['allows_revision'] ?? true);
                 $sorted = $allowsRevision
                     ? $rows->sortByDesc('rev_no')->values()
-                    : $rows->sortByDesc('request_id')->values();
+                    : $rows->sortByDesc(fn ($r) => sprintf('%s|%010d', (string) ($r['effectivity_sort'] ?? ''), (int) ($r['request_id'] ?? 0)))->values();
                 $parent = $allowsRevision
                     ? ($rows->first(fn ($r) => strtolower((string) $r['status']) === 'latest') ?? $sorted->first())
                     : $sorted->first();
@@ -424,7 +473,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                     'revision_count' => $rows->count(),
                     'obsolete_count' => $children->count(),
                     'allows_revision' => $allowsRevision,
-                    'stack_label' => $allowsRevision ? 'older revisions' : 'more registrations',
+                    'stack_label' => trim((string) ($parent['stack_group'] ?? '')) !== '' && ! $allowsRevision
+                        ? 'related registrations'
+                        : ($allowsRevision ? 'older revisions' : 'more registrations'),
                 ]);
             }
 
@@ -523,7 +574,27 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 'logbooks' => 4,
             ];
 
-            $groups = $groups->sort(function ($a, $b) use ($categoryOrder) {
+            $searchNeedle = trim($this->search);
+            $groups = $groups->sort(function ($a, $b) use ($categoryOrder, $searchNeedle) {
+                if ($searchNeedle !== '') {
+                    $score = function ($group) use ($searchNeedle) {
+                        $bits = [
+                            $group['parent']['doc_no'] ?? '',
+                            $group['parent']['title'] ?? '',
+                            $group['parent']['originator'] ?? '',
+                        ];
+                        foreach ($group['children'] ?? [] as $child) {
+                            $bits[] = ($child['doc_no'] ?? '') . ' ' . ($child['title'] ?? '');
+                        }
+
+                        return RegisterQueryHelper::looseSearchScore($searchNeedle, implode(' ', $bits));
+                    };
+                    $byScore = $score($b) <=> $score($a);
+                    if ($byScore !== 0) {
+                        return $byScore;
+                    }
+                }
+
                 $catA = $a['parent']['doc_type_name'] ?? 'zzz';
                 $catB = $b['parent']['doc_type_name'] ?? 'zzz';
 
@@ -561,13 +632,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             })->values();
 
             $total = $groups->count();
-            $perPage = 50;
+            $perPage = 20;
             $lastPage = max(1, (int) ceil($total / $perPage));
             $page = min(max(1, $this->page), $lastPage);
 
             $data = $paginate
                 ? $groups->slice(($page - 1) * $perPage, $perPage)->values()->all()
                 : $groups->values()->all();
+
+            if ($usedLight) {
+                $data = $this->hydrateListingPage($data);
+            }
 
             return [
                 'data' => $data,
@@ -578,7 +653,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ];
         } catch (\Throwable $e) {
             $refId = uniqid('err_');
-            Log::error("Database listing error [{$refId}]: " . $e->getMessage());
+            try {
+                Log::error("Database listing error [{$refId}]: " . $e->getMessage());
+            } catch (\Throwable) {
+            }
 
             return [
                 'data' => [],
@@ -591,9 +669,149 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
     }
 
+    private function lightInventoryRows($query, int $receivedOfficeId = 0): \Illuminate\Support\Collection
+    {
+        $select = [
+            'dr.id as request_id',
+            'dr.doc_type_id',
+            'dr.sub_type_id',
+            'dt.doc_type_name',
+            'ml.doc_no',
+            'ml.doc_title',
+            'ml.revise_no',
+            'ml.revision_status',
+        ];
+        if (Schema::hasColumn('dcs_masterlist_registration', 'effectivity_date')) {
+            $select[] = 'ml.effectivity_date';
+        }
+        if (Schema::hasColumn('dcs_document_requests', 'deleted_at')) {
+            $select[] = 'dr.deleted_at';
+        }
+        $hasAllows = Schema::hasColumn('dcs_masterlist_registration', 'allows_revision');
+        if ($hasAllows) {
+            $select[] = 'ml.allows_revision';
+        }
+        $hasStack = Schema::hasColumn('dcs_masterlist_registration', 'stack_group');
+        if ($hasStack) {
+            $select[] = 'ml.stack_group';
+        }
+        $hasRevisedFrom = Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no');
+        if ($hasRevisedFrom) {
+            $select[] = 'ml.revised_from_doc_no';
+        }
+
+        $mlColumns = ['doc_no', 'doc_title', 'revise_no', 'revision_status'];
+        if (Schema::hasColumn('dcs_masterlist_registration', 'effectivity_date')) {
+            $mlColumns[] = 'effectivity_date';
+        }
+        if ($hasAllows) {
+            $mlColumns[] = 'allows_revision';
+        }
+        if ($hasStack) {
+            $mlColumns[] = 'stack_group';
+        }
+        if ($hasRevisedFrom) {
+            $mlColumns[] = 'revised_from_doc_no';
+        }
+        $mlSql = implode(', ', $mlColumns);
+        $docsQuery = clone $query;
+        $docsQuery->leftJoin(DB::raw(
+            "(SELECT DISTINCT ON (request_id) request_id, {$mlSql} FROM dcs_masterlist_registration ORDER BY request_id, id DESC) AS ml"
+        ), 'ml.request_id', '=', 'dr.id');
+        $docs = $docsQuery
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
+            ->orderByDesc('dr.id')
+            ->get($select)
+            ->unique('request_id')
+            ->values();
+
+        $syllabiIds = $docs
+            ->filter(function ($doc) {
+                $name = mb_strtolower((string) ($doc->doc_type_name ?? ''));
+
+                return str_contains($name, 'syllab') || str_contains($name, 'rubric') || str_contains($name, 'tos');
+            })
+            ->pluck('request_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+        $stacks = RegisterQueryHelper::syllabiStackByRequest($syllabiIds);
+
+        return $docs->map(function ($doc) use ($stacks, $hasAllows, $hasStack, $hasRevisedFrom, $receivedOfficeId) {
+            $status = strtolower(trim((string) ($doc->revision_status ?? '')));
+            if ($status === '') {
+                $status = 'latest';
+            }
+
+            return [
+                'request_id' => (int) $doc->request_id,
+                'doc_type_id' => (int) ($doc->doc_type_id ?? 0),
+                'sub_type_id' => (int) ($doc->sub_type_id ?? 0),
+                'doc_type_name' => $doc->doc_type_name ?? 'Uncategorized',
+                'doc_no' => trim((string) ($doc->doc_no ?? '')) !== '' ? trim((string) $doc->doc_no) : 'N/A',
+                'title' => trim((string) ($doc->doc_title ?? '')),
+                'effectivity_sort' => ! empty($doc->effectivity_date)
+                    ? \Carbon\Carbon::parse($doc->effectivity_date)->format('Y-m-d')
+                    : '',
+                'rev_no' => (int) ($doc->revise_no ?? 0),
+                'status' => $status,
+                'stack_group' => $hasStack ? trim((string) ($doc->stack_group ?? '')) : '',
+                'revised_from_doc_no' => $hasRevisedFrom ? trim((string) ($doc->revised_from_doc_no ?? '')) : '',
+                'allows_revision' => $hasAllows
+                    ? (bool) ($doc->allows_revision ?? true)
+                    : RegisterQueryHelper::effectiveTypeAllowsRevision($doc->doc_type_id ?? null, $doc->sub_type_id ?? null),
+                'syllabi_stack' => $stacks[(int) $doc->request_id] ?? '',
+                'is_deleted' => ! empty($doc->deleted_at ?? null),
+                // SQL already limited rows to this receiving office, so later filters can keep them.
+                'dist_office_ids' => $receivedOfficeId > 0 ? [$receivedOfficeId] : [],
+            ];
+        })->values();
+    }
+
+    /** @param  list<array<string, mixed>>  $groups */
+    private function hydrateListingPage(array $groups): array
+    {
+        $ids = [];
+        foreach ($groups as $group) {
+            $ids[] = (int) ($group['parent']['request_id'] ?? 0);
+            foreach ($group['children'] ?? [] as $child) {
+                $ids[] = (int) ($child['request_id'] ?? 0);
+            }
+        }
+        $ids = array_values(array_unique(array_filter($ids)));
+        if ($ids === []) {
+            return $groups;
+        }
+
+        $full = RegisterQueryHelper::hydrateRequests(
+            DB::table('dcs_document_requests')->whereIn('id', $ids)->get()
+        )->mapWithKeys(fn ($doc) => [(int) $doc->id => $this->mapDocument($doc)]);
+
+        return array_map(function (array $group) use ($full) {
+            $pid = (int) ($group['parent']['request_id'] ?? 0);
+            if (isset($full[$pid])) {
+                $group['parent'] = $full[$pid];
+            }
+            $group['children'] = array_map(function ($child) use ($full) {
+                $cid = (int) ($child['request_id'] ?? 0);
+
+                return $full[$cid] ?? $child;
+            }, $group['children'] ?? []);
+
+            return $group;
+        }, $groups);
+    }
+
     private function mapDocument(object $doc): array
     {
         $hasSyllabi = $doc->syllabi->isNotEmpty();
+        $firstSyl = $hasSyllabi ? $doc->syllabi->first() : null;
+        $syllabiCourseType = trim((string) ($firstSyl?->course?->course_type ?? ''));
+        $syllabiStack = '';
+        if ($hasSyllabi && $firstSyl) {
+            $syllabiStack = (int) ($firstSyl->college_id ?? 0)
+                . '|' . (int) ($firstSyl->program_id ?? 0)
+                . '|' . mb_strtolower($syllabiCourseType);
+        }
         $drf = ($doc->documentRequestForm && ! $hasSyllabi) ? $doc->documentRequestForm : null;
         $syllabiCourses = $doc->syllabi->map(function ($syl) {
             $name = $syl->course->course_name ?? null;
@@ -689,7 +907,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'rev_no' => $ml ? (int) $ml->revise_no : 0,
             'title' => ($ml && $ml->doc_title) ? $ml->doc_title : (($drf && $drf->doc_title) ? $drf->doc_title : 'N/A'),
             'effectivity' => ($ml && $ml->effectivity_date) ? RegisterQueryHelper::formatSmartDate($ml->effectivity_date) : null,
-            'originator' => $ml?->originator_name,
+            'originator' => $ml ? ($ml->originator_name ?? null) : null,
             'pages' => $ml?->no_pages,
             'status' => $status,
             'allows_revision' => $allowsRevision,
@@ -700,13 +918,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'is_deleted' => $isDeleted,
             'deleted_at' => $isDeleted ? Carbon::parse($doc->deleted_at)->format('M d, Y h:i A') : null,
             'revised_from_doc_no' => $ml->revised_from_doc_no ?? null,
-            'pdf_path' => ($ml && $ml->scanned_masterlist) ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
+            'pdf_path' => ($ml && $ml->scanned_masterlist) ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist, false) : null,
             'source_unit' => $sourceUnitName,
             'related' => $ml ? ($ml->relatedList ?? collect())->map(fn ($r) => [
                 'doc_no' => $r->doc_no,
                 'title' => $r->doc_title,
             ])->values() : [],
             'syllabi_courses' => $syllabiCourses,
+            'syllabi_stack' => $syllabiStack,
             'approval_no' => $appr?->approval_no,
             'approval_date' => ($appr && $appr->approval_date) ? RegisterQueryHelper::formatSmartDate($appr->approval_date) : null,
             'deadline_date' => ($ml && $ml->deadline) ? RegisterQueryHelper::formatSmartDate($ml->deadline) : 'N/A',
@@ -721,19 +940,19 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'dcn_receipt_date' => ($dcn && $dcn->dcn_receipt_date) ? RegisterQueryHelper::formatSmartDate($dcn->dcn_receipt_date) : null,
             'dcn_receipt_time' => $dcn && $dcn->dcn_receipt_time ? $this->formatTime($dcn->dcn_receipt_time) : null,
             'dcn_purpose' => $dcnPurpose,
-            'dcn_scan' => ($dcn && $dcn->scanned_dcn) ? RegisterQueryHelper::scanUrl($dcn->scanned_dcn) : null,
+            'dcn_scan' => ($dcn && $dcn->scanned_dcn) ? RegisterQueryHelper::scanUrl($dcn->scanned_dcn, false) : null,
             'drf_no' => $drf?->drf_no,
             'drf_date' => ($drf && $drf->drf_date) ? RegisterQueryHelper::formatSmartDate($drf->drf_date) : null,
             'drf_receipt_date' => ($drf && $drf->drf_receipt_date) ? RegisterQueryHelper::formatSmartDate($drf->drf_receipt_date) : null,
             'drf_receipt_time' => $drf && $drf->drf_receipt_time ? $this->formatTime($drf->drf_receipt_time) : null,
-            'drf_scan' => ($drf && $drf->scanned_drf) ? RegisterQueryHelper::scanUrl($drf->scanned_drf) : null,
+            'drf_scan' => ($drf && $drf->scanned_drf) ? RegisterQueryHelper::scanUrl($drf->scanned_drf, false) : null,
             'dist_onfile_date' => ($dist && $dist->doc_distribution_date_file) ? RegisterQueryHelper::formatSmartDate($dist->doc_distribution_date_file) : null,
             'dist_onfile_time' => $dist && $dist->doc_distribution_time_file ? $this->formatTime($dist->doc_distribution_time_file) : null,
             'dist_actual_date' => ($dist && $dist->doc_distribution_date_actual) ? RegisterQueryHelper::formatSmartDate($dist->doc_distribution_date_actual) : null,
             'dist_actual_time' => $dist && $dist->doc_distribution_time_actual ? $this->formatTime($dist->doc_distribution_time_actual) : null,
             'dist_offices' => $distOffices,
             'dist_office_ids' => $distOfficeIds,
-            'dist_scan' => ($dist && $dist->scanned_distribution) ? RegisterQueryHelper::scanUrl($dist->scanned_distribution) : null,
+            'dist_scan' => ($dist && $dist->scanned_distribution) ? RegisterQueryHelper::scanUrl($dist->scanned_distribution, false) : null,
             'ret_offices' => $retOffices,
         ];
     }
@@ -753,25 +972,27 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             return $groups;
         }
 
+        $standalone = $groups->filter(function ($g) {
+            return empty($g['allows_revision'])
+                || trim((string) ($g['parent']['syllabi_stack'] ?? '')) !== '';
+        })->values();
+        $groups = $groups->reject(function ($g) {
+            return empty($g['allows_revision'])
+                || trim((string) ($g['parent']['syllabi_stack'] ?? '')) !== '';
+        })->values();
+        if ($groups->isEmpty()) {
+            return $standalone;
+        }
+
         $indexed = $groups->values();
         $byKey = [];
         $groupTips = [];
-        $mergeScopeIds = [];
         foreach ($indexed as $i => $g) {
             $key = $this->renumberGroupKey($g['doc_no'] ?? '', $g['doc_type_id'] ?? 0, $g['sub_type_id'] ?? 0);
             $byKey[$key] = $i;
             $parent = $g['parent'] ?? [];
             $rev = (int) ($parent['rev_no'] ?? 0);
             $rid = (int) ($parent['request_id'] ?? 0);
-            if ($rid > 0) {
-                $mergeScopeIds[$rid] = $rid;
-            }
-            foreach ($g['children'] ?? [] as $child) {
-                $cid = (int) ($child['request_id'] ?? 0);
-                if ($cid > 0) {
-                    $mergeScopeIds[$cid] = $cid;
-                }
-            }
             $groupTips[$key] = [
                 'doc_no' => (string) ($g['doc_no'] ?? ''),
                 'doc_type_id' => (int) ($g['doc_type_id'] ?? 0),
@@ -784,13 +1005,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ];
         }
 
-        $mergeScopeIds = array_values($mergeScopeIds);
-        $visibleIds = $mergeScopeIds !== []
-            ? $mergeScopeIds
-            : RegisterQueryHelper::visibleRequestIds();
-        $edges = RegisterQueryHelper::buildLineageMergeEdges($groupTips, $visibleIds);
+        // revised_from is already on each row. Skip the per-family database walk;
+        // that walk runs several queries for every revised document on each page load.
+        $edges = RegisterQueryHelper::buildLineageMergeEdges($groupTips, []);
         if ($edges === []) {
-            return $groups;
+            return $groups->concat($standalone)->values();
         }
 
         $absorbedAsTopLevel = [];
@@ -872,7 +1091,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $merged->push($g);
         }
 
-        return $merged->values();
+        return $merged->concat($standalone)->values();
     }
 
     private function renumberGroupKey(mixed $docNo, mixed $docTypeId, mixed $subTypeId): string
@@ -960,7 +1179,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     foreach (($list['data'] ?? []) as $group) {
         $name = $group['parent']['doc_type_name'] ?? 'Uncategorized';
         $slug = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $name));
-        $categoryState[$slug] = true;
+        $categoryState[$slug] = false;
     }
     $visibleGroups = $visibleGroups ?? \App\Helpers\DcsDatabaseColumns::defaultVisibleGroups();
     $groupColspans = $groupColspans ?? \App\Helpers\DcsDatabaseColumns::BUILTIN_COUNTS;
@@ -995,9 +1214,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     init() {
         try {
             const saved = JSON.parse(sessionStorage.getItem('dcs-db-expand') || '{}');
-            if (saved.categories && typeof saved.categories === 'object') {
-                this.categories = Object.assign({}, this.categories, saved.categories);
-            }
+            // Each visit starts with category rows collapsed. Expansion is only for this page view.
             if (saved.expandedRevs && typeof saved.expandedRevs === 'object') {
                 this.expandedRevs = saved.expandedRevs;
             }
@@ -1574,17 +1791,28 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </table>
         </div>
 
-        @if(($list['last_page'] ?? 1) > 1)
-            <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 16px;">
-                @if(($list['page'] ?? 1) > 1)
-                    <button type="button" class="db-btn" wire:click="goToPage({{ $list['page'] - 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Previous</button>
-                @endif
-                <span>Page {{ $list['page'] }} of {{ $list['last_page'] }}</span>
-                @if(($list['page'] ?? 1) < ($list['last_page'] ?? 1))
-                    <button type="button" class="db-btn" wire:click="goToPage({{ $list['page'] + 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Next</button>
-                @endif
-            </div>
-        @endif
+        @php
+            $pg = (int) ($list['page'] ?? 1);
+            $pgLast = (int) ($list['last_page'] ?? 1);
+            $pgTotal = (int) ($list['total'] ?? 0);
+            $pgSize = (int) ($list['per_page'] ?? 20);
+            $pgFrom = $pgTotal === 0 ? 0 : (($pg - 1) * $pgSize) + 1;
+            $pgTo = min($pgTotal, $pg * $pgSize);
+            $pgStart = max(1, $pg - 2);
+            $pgEnd = min($pgLast, $pg + 2);
+        @endphp
+        <div style="display:flex;gap:8px;align-items:center;justify-content:flex-end;padding:12px 16px;flex-wrap:wrap;">
+            <span style="margin-right:auto;color:#475569;font-size:13px;">Showing {{ $pgFrom }}–{{ $pgTo }} of {{ $pgTotal }}</span>
+            @if($pg > 1)
+                <button type="button" class="db-btn" wire:click="goToPage({{ $pg - 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Previous</button>
+            @endif
+            @for($p = $pgStart; $p <= $pgEnd; $p++)
+                <button type="button" class="db-btn {{ $p === $pg ? 'active' : '' }}" wire:click="goToPage({{ $p }})" wire:loading.attr="disabled" wire:target="goToPage" @if($p === $pg) disabled @endif>{{ $p }}</button>
+            @endfor
+            @if($pg < $pgLast)
+                <button type="button" class="db-btn" wire:click="goToPage({{ $pg + 1 }})" wire:loading.attr="disabled" wire:target="goToPage">Next</button>
+            @endif
+        </div>
 
     </section>
 

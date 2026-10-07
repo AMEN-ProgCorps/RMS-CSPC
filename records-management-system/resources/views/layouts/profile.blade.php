@@ -116,6 +116,7 @@
             {{ $slot }}
         </div>
     </section>
+    <x-rms-error />
     @stack('scripts')
     <script>
     (function () {

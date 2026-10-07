@@ -106,6 +106,12 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
 
         <form id="masterForm" method="POST" action="{{ route('dcs.register.updateDoc', $docRequest->id) }}" enctype="multipart/form-data" class="{{ $readOnly ? 'is-readonly' : '' }}">
             <input type="hidden" id="requestId" value="{{ $docRequest->id }}">
+            <input type="hidden" id="registrationMode" name="registration_mode" value="new">
+            <input type="hidden" id="insertShiftConfirmed" name="insert_shift_confirmed" value="0">
+            <input type="hidden" id="allowDuplicateDocNo" name="allow_duplicate_doc_no" value="0">
+            <input type="hidden" id="stackWithRequestId" name="stack_with_request_id" value="">
+            <input type="hidden" id="insertShiftDocNo" name="insert_shift_doc_no" value="">
+            <input type="hidden" id="insertShiftRenameLetters" name="insert_shift_rename_letters" value="0">
             <input type="hidden" id="saveAsDraft" name="save_as_draft" value="0">
             <input type="hidden" name="has_existing_masterlist_scan" value="{{ !empty($masterlist?->scanned_masterlist) ? '1' : '0' }}">
             @csrf
@@ -204,7 +210,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                         <input type="hidden" name="college_id" id="syllabiCollegeHidden" value="{{ $syllabiContextSeed->college_id }}">
                         <input type="hidden" name="program_id" id="syllabiProgramHidden" value="{{ $syllabiContextSeed->program_id }}">
                         <input type="hidden" name="semester_id" id="syllabiSemesterHidden" value="{{ $syllabiContextSeed->semester_id }}">
-                        <input type="hidden" name="course_type" id="syllabiCourseTypeHidden" value="">
+                        <input type="hidden" name="course_type" id="syllabiCourseTypeHidden" value="{{ $syllabiContextSeed->course_type ?? '' }}">
                         <input type="hidden" name="school_year_id" id="syllabiSchoolYearHidden" value="{{ $syllabiContextSeed->school_year_id }}">
                     @else
                         <input type="hidden" name="college_id" id="syllabiCollegeHidden" value="">
@@ -541,7 +547,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <div class="reg-ml-grid">
                         <div class="reg-field">
                             <label>Document No.</label>
-                            <input type="text" id="masterlistDocNo" name="masterlistDocNo" placeholder="CSPC-F-YYY-XX" value="{{ $masterlist->doc_no ?? '' }}" autocomplete="off">
+                            <input type="text" id="masterlistDocNo" name="masterlistDocNo" placeholder="CSPC-F-YYY-XX" value="{{ $masterlist->doc_no ?? '' }}" data-original-doc-no="{{ $masterlist->doc_no ?? '' }}" autocomplete="off">
                             <span id="docNoPrefixHint" style="display:none;margin-top:4px;font-size:12px;color:#475569;"></span>
                             <span id="docNoSuggestHint" class="reg-number-hint" style="display:none;"></span>
                             <span id="docNoHint" style="display:block;margin-top:4px;font-size:12px;"></span>
@@ -551,7 +557,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                             <div class="reg-deadline-row">
                                 <input type="date" id="deadlineOfSubmission" name="deadlineOfSubmission" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($masterlist->deadline ?? '') }}">
                                 <label class="reg-na-check" for="deadlineNotApplicable">
-                                    <input type="checkbox" id="deadlineNotApplicable" name="deadlineNotApplicable" value="1" @checked(empty($masterlist->deadline))>
+                                    <input type="checkbox" id="deadlineNotApplicable" name="deadlineNotApplicable" value="1">
                                     N/A
                                 </label>
                             </div>
@@ -1040,6 +1046,65 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
         </div>
     </div>
     </template>
+
+    <div class="reg-modal-overlay" id="docNoInsertModal" aria-hidden="true">
+        <div class="reg-modal reg-modal--insert">
+            <div class="reg-modal-header">
+                <i class="fa-solid fa-hashtag"></i>
+                <h3>Document number already exists</h3>
+                <button type="button" class="reg-modal-close" id="docNoInsertClose" aria-label="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="reg-modal-body">
+                <p id="docNoInsertLead" class="reg-insert-lead"></p>
+                <div class="reg-insert-choices" id="docNoInsertChoices">
+                    <button type="button" class="reg-insert-choice" id="docNoInsertRevise">
+                        <strong>Revise this document</strong>
+                        <span>Keep this number and create the next revision (DCN).</span>
+                    </button>
+                    <button type="button" class="reg-insert-choice" id="docNoInsertNext">
+                        <strong>Use next free number</strong>
+                        <span id="docNoInsertNextLabel">Use the next number in this group.</span>
+                    </button>
+                    <button type="button" class="reg-insert-choice" id="docNoInsertShift">
+                        <strong>Insert here and shift later numbers</strong>
+                        <span>Only later numbers in this same group move up. Preview first.</span>
+                    </button>
+                    <button type="button" class="reg-insert-choice" id="docNoInsertKeep">
+                        <strong>Register another copy with this number</strong>
+                        <span>Keep this number as its own registration. It will not become a revision, and other numbers stay where they are.</span>
+                    </button>
+                    <button type="button" class="reg-insert-choice" id="docNoInsertStack">
+                        <strong>Stack with the existing registration</strong>
+                        <span>Related copy. Both stay Latest and appear together. Neither becomes Obsolete.</span>
+                    </button>
+                </div>
+                <div id="docNoInsertStackPick" class="reg-insert-preview" hidden>
+                    <button type="button" class="reg-insert-back" id="docNoInsertStackBack">Back to choices</button>
+                    <p class="reg-insert-lead">Choose one registration to stack with. This copy stays New, Rev 0.</p>
+                    <div id="docNoInsertStackList" class="reg-stack-list"></div>
+                </div>
+                <label class="reg-insert-letters" id="docNoInsertLettersWrap" hidden>
+                    <input type="checkbox" id="docNoInsertRenameLetters">
+                    Also rename letter variants in this group (e.g. 11A → 12A)
+                </label>
+                <div id="docNoInsertPreview" class="reg-insert-preview" hidden>
+                    <button type="button" class="reg-insert-back" id="docNoInsertShiftBack">Back to choices</button>
+                    <p>These latest/obsolete rows will be renamed:</p>
+                    <div class="reg-insert-preview-table-wrap">
+                        <table>
+                            <thead><tr><th>From</th><th>To</th><th>Title</th></tr></thead>
+                            <tbody id="docNoInsertPreviewBody"></tbody>
+                        </table>
+                    </div>
+                    <p id="docNoInsertDateWarning" class="reg-insert-error" hidden></p>
+                    <p id="docNoInsertPreviewError" class="reg-insert-error" hidden></p>
+                    <button type="button" class="reg-btn reg-btn-save" id="docNoInsertConfirmShift">Confirm shift</button>
+                </div>
+            </div>
+        </div>
+    </div>
     </div>
 
 
@@ -1778,6 +1843,19 @@ document.addEventListener("DOMContentLoaded", async function () {
 
         // ── Wire initial DCN revision row search ──
         document.querySelectorAll('#revisionTableBody tr').forEach(tr => bindRevisionRowSearch(tr));
+        const savedRevGroups = {};
+        document.querySelectorAll('#revisionTableBody tr').forEach(tr => {
+            const no = (tr.querySelector('input[name="documentNo[]"]')?.value || '').trim().toLowerCase();
+            if (!no) return;
+            tr.dataset.linked = 'true';
+            tr.dataset.linkedDocNo = no;
+            const rev = parseInt(tr.querySelector('input[name="revisionNo[]"]')?.value || '0', 10) || 0;
+            if (!savedRevGroups[no] || rev >= savedRevGroups[no].rev) savedRevGroups[no] = { rev, tr };
+        });
+        document.querySelectorAll('#revisionTableBody tr').forEach(tr => {
+            const no = tr.dataset.linkedDocNo || '';
+            if (no && savedRevGroups[no] && savedRevGroups[no].tr !== tr) lockRevisionHistoryRow(tr);
+        });
 
         // ── Version type change → apply revision mode ──
         const versionTypeEl = document.getElementById("versionType");
@@ -2326,6 +2404,10 @@ function initializeEditState() {
         }
     });
     syncChecklistHiddenInputs();
+    if (window.__isSyllabiMode) {
+        const drfSection = document.getElementById('section-1');
+        if (drfSection) drfSection.style.display = 'none';
+    }
     showFormActions();
     enableApproval();
     setTimeout(initFileInputs, 100);
@@ -2356,23 +2438,39 @@ function hideFormActions() {
 // ══════════════════════════════════════════════
 // DOCUMENT NO. LOOKUP
 // ══════════════════════════════════════════════
+function isSharedSyllabiForm() {
+    if (window.__isSyllabiMode) return true;
+    const subTypeId = document.getElementById('subType')?.value;
+    if (subTypeId && typeof isSyllabiLikeSubType === 'function' && isSyllabiLikeSubType(subTypeId)) return true;
+    const typed = String(document.getElementById('masterlistDocNo')?.value || '').trim();
+    return /^CSPC-F-COL-13$/i.test(typed) || /^CSPC-F-COL-16$/i.test(typed);
+}
+
+window.acceptDuplicateDocNoCopy = function () {
+    docNoDuplicate = false;
+};
+
 function initDocNoLookup(revField) {
     const docNoInput = document.getElementById('masterlistDocNo');
     const hintEl = document.getElementById('docNoHint');
     if (!docNoInput) return;
 
     let docNoTimer = null;
-    docNoInput.addEventListener('input', () => {
+    const scheduleLookup = () => {
         clearTimeout(docNoTimer);
         const docNo = docNoInput.value.trim();
         if (!docNo) { handleEmptyDocNo(hintEl, revField); return; }
-        if (hintEl) {
+        if (hintEl && document.getElementById('allowDuplicateDocNo')?.value !== '1') {
             hintEl.innerHTML = '<span style="color:#475569"><i class="fa-solid fa-spinner fa-spin"></i> Checking document...</span>';
             hintEl.style.color = '';
             hintEl.dataset.valid = '';
         }
         docNoTimer = setTimeout(() => runDocNoLookup(docNo, hintEl, revField), 500);
-    });
+    };
+    docNoInput.addEventListener('input', scheduleLookup);
+    if (window.__isDraftDoc && docNoInput.value.trim()) {
+        scheduleLookup();
+    }
 }
 
 /** Drafts may change Revision No; published edits keep it locked. */
@@ -2466,23 +2564,42 @@ async function runDocNoLookup(docNo, hintEl, revField) {
         const res = await fetch(url);
         const data = await res.json();
 
-        if (data.exists && !data.is_self && data.allows_revision === false) {
+        if (data.exists && !data.is_self && document.getElementById('allowDuplicateDocNo')?.value === '1' && !isSharedSyllabiForm()) {
+            docNoDuplicate = false;
+            return;
+        }
+        if (data.exists && !data.is_self && isSharedSyllabiForm()) {
             docNoDuplicate = false;
             if (hintEl) {
-                hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> Document number is shared by stacked Rev 0 registrations for this type.';
+                hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> This form number is shared. College, program, and course type keep each copy separate.';
                 hintEl.style.color = '#16a34a';
                 hintEl.dataset.valid = 'stackable';
             }
         } else if (data.exists && !data.is_self) {
-            docNoDuplicate = true;
-            if (hintEl) {
-                hintEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> ' +
-                    'This document number is already registered under <strong>' +
-                    escapeHtml(data.existing_type_name || 'this document type') +
-                    '</strong>. Please use a unique document number.' +
-                    '<br><span style="font-weight:400;font-size:11px;">You cannot save until you enter a unique document number.</span>';
-                hintEl.style.color = '#dc2626';
-                hintEl.dataset.valid = 'duplicate';
+            const input = document.getElementById('masterlistDocNo');
+            const original = String(input?.dataset.originalDocNo || '').trim();
+            const current = String(input?.value || '').trim();
+            const stillOriginal = original !== '' && current.toLowerCase() === original.toLowerCase();
+            if (stillOriginal) {
+                docNoDuplicate = false;
+                if (hintEl) {
+                    hintEl.innerHTML = '<i class="fa-solid fa-circle-check"></i> This document keeps its current number.';
+                    hintEl.style.color = '#16a34a';
+                    hintEl.dataset.valid = 'available';
+                }
+            } else {
+                docNoDuplicate = true;
+                if (hintEl) {
+                    hintEl.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> This document number is already registered. Choose Revise, the next free number, insert into this group, or register another copy.';
+                    hintEl.style.color = '#dc2626';
+                    hintEl.dataset.valid = 'duplicate';
+                }
+                window.markDocNoInsertReady = function () {
+                    docNoDuplicate = false;
+                };
+                if (typeof window.openDocNoInsertModal === 'function') {
+                    window.openDocNoInsertModal(data);
+                }
             }
         } else if (data.wrong_type) {
             docNoDuplicate = false;
@@ -2690,7 +2807,7 @@ async function bridgeDcnPickToMasterlist(docNo, options = {}) {
                     '&include_drafts=1';
         const res = await fetch(url);
         const data = await res.json();
-        if (data.exists) {
+        if (data.exists && !otherLinkedRevisionDocuments(docNo)) {
             applyRevisedDocumentContext(data, { docNo, hintEl, revField, forceNextRev: true });
         }
         return data;
@@ -2732,30 +2849,30 @@ function resolveSelectedDocTypeName() {
 }
 
 const SYLLABI_FORM_DOC_NO = 'CSPC-F-COL-13';
+const TOS_FORM_DOC_NO = 'CSPC-F-COL-16';
+
+function isFixedFormDocNo(value) {
+    const text = String(value || '').trim().toUpperCase();
+    return text === SYLLABI_FORM_DOC_NO || text === TOS_FORM_DOC_NO;
+}
 
 function docNoPrefixForSelection() {
+    const name = resolveSelectedDocTypeName().toLowerCase();
+    if (name.includes('tos') || name.includes('rubric')) return TOS_FORM_DOC_NO;
     const subTypeId = document.getElementById('subType')?.value || CURRENT_SUB_TYPE_ID;
     if (subTypeId && typeof isSyllabiLikeSubType === 'function' && isSyllabiLikeSubType(subTypeId)) {
         return SYLLABI_FORM_DOC_NO;
     }
-    const name = resolveSelectedDocTypeName().toLowerCase();
     if (!name) return null;
-    if (name.includes('syllab') || name.includes('tos') || name.includes('rubric')) {
-        return SYLLABI_FORM_DOC_NO;
-    }
+    if (name.includes('syllab')) return SYLLABI_FORM_DOC_NO;
     return DOC_NO_PREFIX_BY_NAME[name] || null;
 }
 
-function updateDocNoPrefixHint(prefix) {
+function updateDocNoPrefixHint() {
     const hint = document.getElementById('docNoPrefixHint');
     if (!hint) return;
-    if (prefix && prefix !== SYLLABI_FORM_DOC_NO) {
-        hint.textContent = 'Prefix filled — add dept/section code and control # (e.g. ' + prefix + 'YYY-XX).';
-        hint.style.display = 'block';
-    } else {
-        hint.textContent = '';
-        hint.style.display = 'none';
-    }
+    hint.textContent = '';
+    hint.style.display = 'none';
 }
 
 function clearDocNoAvailabilityHint() {
@@ -2780,6 +2897,10 @@ function maybeAutofillDocNo() {
 
     const prefix = docNoPrefixForSelection();
     const current = input.value.trim();
+    const lockFixed = isFixedFormDocNo(prefix) || isFixedFormDocNo(current);
+    input.readOnly = lockFixed;
+    input.style.background = lockFixed ? '#f1f5f9' : '';
+    input.style.cursor = lockFixed ? 'default' : '';
     const priorAuto = (input.dataset.autodocno || '').trim();
     const canOverwrite = current === '' || (priorAuto !== '' && current === priorAuto);
 
@@ -2802,7 +2923,10 @@ function maybeAutofillDocNo() {
     input.value = prefix;
     input.dataset.autodocno = prefix;
     updateDocNoPrefixHint(prefix);
-    if (prefix === SYLLABI_FORM_DOC_NO) {
+    if (isFixedFormDocNo(prefix)) {
+        input.readOnly = true;
+        input.style.background = '#f1f5f9';
+        input.style.cursor = 'default';
         input.dispatchEvent(new Event('input'));
         return;
     }
@@ -2872,6 +2996,16 @@ function removeRevSearchDropdown(key) {
     if (dd) dd.remove();
 }
 
+function takenRevisionDocNos(exceptInput) {
+    const taken = new Set();
+    document.querySelectorAll('input[name="documentNo[]"]').forEach(function (el) {
+        if (el === exceptInput) return;
+        const value = String(el.value || '').trim().toLowerCase();
+        if (value) taken.add(value);
+    });
+    return taken;
+}
+
 function handleRevisionSearchInput(input, key, field) {
     if (input.readOnly) return;
     clearTimeout(revSearchTimers[key]);
@@ -2896,6 +3030,10 @@ function handleRevisionSearchInput(input, key, field) {
         return;
     }
 
+    dd.innerHTML = '<div class="reg-reldocs-noresult">Searching…</div>';
+    positionFixedDropdown(dd, input);
+    dd.style.display = 'block';
+
     revSearchTimers[key] = setTimeout(async () => {
         try {
             const params = new URLSearchParams({
@@ -2908,11 +3046,17 @@ function handleRevisionSearchInput(input, key, field) {
             const excludeId = document.getElementById('requestId')?.value;
             if (excludeId) params.set('exclude_request_id', excludeId);
 
-            const data = await fetch('/dcs/api/documents/search?' + params.toString()).then(r => r.json());
+            const raw = await fetch('/dcs/api/documents/search?' + params.toString()).then(r => r.json());
+            const taken = takenRevisionDocNos(input);
+            const data = (Array.isArray(raw) ? raw : []).filter(function (doc) {
+                return !taken.has(String(doc.doc_no || '').trim().toLowerCase());
+            });
             revSearchCache[key] = data;
 
             dd.innerHTML = data.length === 0
-                ? '<div class="reg-reldocs-noresult">No matching documents. Save the New registration first, then search the full Document No.</div>'
+                ? '<div class="reg-reldocs-noresult">' + (taken.size && Array.isArray(raw) && raw.length
+                    ? 'That document is already in Documents for Revision.'
+                    : 'No matching documents. Save the New registration first, then search the full Document No.') + '</div>'
                 : data.map((d, idx) => `<div onmousedown="pickRevisionDocument('${key}', ${idx})">${escapeHtml(d.label)}</div>`).join('');
 
             positionFixedDropdown(dd, input);
@@ -2933,6 +3077,7 @@ function populateRevisionRowFromDoc(row, doc) {
 
     if (titleInput) titleInput.value = doc.doc_title || '';
     if (noInput) noInput.value = doc.doc_no || '';
+    row.dataset.revisionStatus = String(doc.revision_status || '').toLowerCase();
     if (effField) effField.value = doc.effectivity_date || '';
     if (revField) revField.value = (doc.revise_no !== null && doc.revise_no !== undefined) ? doc.revise_no : '';
     if (pathInput) pathInput.value = doc.scanned_copy_path || '';
@@ -2960,15 +3105,31 @@ function getRevisedFromDocNo() {
     return (window.__revisedFromDocNo || '').trim();
 }
 
-function clearAllLinkedRevisionRows(tbody, exceptRow) {
-    if (!tbody) return;
+function clearLinkedRowsForDocument(tbody, docNo, exceptRow) {
+    if (!tbody || !docNo) return;
     [...tbody.querySelectorAll('tr')].forEach(tr => {
         if (tr === exceptRow) return;
-        if (tr.dataset.linked === 'true') {
-            removeRevisionRowDropdowns(tr);
-            tr.remove();
-        }
+        if ((tr.dataset.linkedDocNo || '') !== docNo) return;
+        removeRevisionRowDropdowns(tr);
+        tr.remove();
     });
+}
+
+function lockRevisionHistoryRow(tr) {
+    if (!tr) return;
+    tr.dataset.historyLocked = 'true';
+    const btn = tr.querySelector('.reg-row-del');
+    if (btn) btn.remove();
+}
+
+function otherLinkedRevisionDocuments(exceptDocNo) {
+    const except = String(exceptDocNo || '').trim().toLowerCase();
+    let found = false;
+    document.querySelectorAll('#revisionTableBody tr').forEach(tr => {
+        const no = (tr.dataset.linkedDocNo || '').trim().toLowerCase();
+        if (no && no !== except) found = true;
+    });
+    return found;
 }
 
 function revisionHistoryRowsForDcn(docs, latestRev) {
@@ -2993,7 +3154,7 @@ async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {
 
     const pickedDocNo = String((options.docNo || docs[0].doc_no) || '').trim().toLowerCase();
 
-    clearAllLinkedRevisionRows(tbody, anchorRow);
+    clearLinkedRowsForDocument(tbody, pickedDocNo, anchorRow);
 
     const rowsToFill = revisionHistoryRowsForDcn(docs, options.latestRev);
 
@@ -3008,9 +3169,12 @@ async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {
         insertAfter.after(tr);
         bindRevisionRowSearch(tr);
         populateRevisionRowFromDoc(tr, rowsToFill[i]);
+        tr.dataset.linked = 'true';
         tr.dataset.linkedDocNo = pickedDocNo;
+        lockRevisionHistoryRow(tr);
         insertAfter = tr;
     }
+    if (typeof suggestRevisionForSources === 'function') suggestRevisionForSources();
 }
 
 window.pickRevisionDocument = async function (key, idx) {
@@ -3165,9 +3329,39 @@ function removeRevisionRowDropdowns(tr) {
     removeRevSearchDropdown(tr.dataset.uid + '_no');
 }
 
+function suggestRevisionForSources() {
+    const revField = document.getElementById('masterlistRevisionNo');
+    const master = (document.getElementById('masterlistDocNo')?.value || '').trim().toLowerCase();
+    if (!revField || !master || !isRevisedMode()) return;
+    const byDoc = {};
+    document.querySelectorAll('#revisionTableBody tr').forEach(tr => {
+        const no = (tr.querySelector('input[name="documentNo[]"]')?.value || '').trim();
+        if (!no) return;
+        const rev = parseInt(tr.querySelector('input[name="revisionNo[]"]')?.value || '0', 10) || 0;
+        const key = no.toLowerCase();
+        if (!Object.prototype.hasOwnProperty.call(byDoc, key) || rev > byDoc[key]) byDoc[key] = rev;
+    });
+    const userPinned = revField.dataset.userEdited === 'true' && String(revField.value || '').trim() !== '';
+    if (!userPinned) {
+        revField.value = Object.prototype.hasOwnProperty.call(byDoc, master) ? String(byDoc[master] + 1) : '0';
+    }
+}
+
 window.removeRevisionRow = function (btn) {
     const tr = btn.closest('tr');
-    if (tr) { removeRevisionRowDropdowns(tr); tr.remove(); }
+    if (!tr || tr.dataset.historyLocked === 'true') return;
+    const docNo = tr.dataset.linkedDocNo || '';
+    const tbody = tr.parentElement;
+    if (docNo && tbody) {
+        [...tbody.querySelectorAll('tr')].forEach(row => {
+            if ((row.dataset.linkedDocNo || '') !== docNo) return;
+            removeRevisionRowDropdowns(row);
+            row.remove();
+        });
+        return;
+    }
+    removeRevisionRowDropdowns(tr);
+    tr.remove();
 };
 
 document.addEventListener('click', function (e) {
@@ -3889,15 +4083,16 @@ function processUploadAreaFile(input, container, icon, label, originalText) {
     label.style.fontWeight = '600';
     attachUploadFieldActions(container, input, file, icon, label, originalText);
 
-    if (input.id === 'drfFile' && check.ext === 'pdf' && file.size <= OCR_MAX_FILE_SIZE) {
-        triggerScanExtraction(input, file);
+    if (check.ext === 'pdf' && file.size <= OCR_MAX_FILE_SIZE && (input.id === 'drfFile' || input.id === 'scanneddist')) {
+        triggerScanExtraction(input, file, input.id === 'scanneddist' ? 'distribution' : 'drf');
     }
 }
 
-function triggerScanExtraction(input, file) {
+function triggerScanExtraction(input, file, section) {
+    section = section || 'drf';
     const formData = new FormData();
     formData.append('scan', file);
-    formData.append('section', 'drf');
+    formData.append('section', section);
     formData.append('_token', document.querySelector('meta[name="csrf-token"]')?.content
         || document.querySelector('input[name="_token"]')?.value);
 
@@ -3914,13 +4109,17 @@ function triggerScanExtraction(input, file) {
             container?.classList.add('reg-upload-success');
 
             if (data.extracted) {
-                const filled = autofillDrfFields(data.fields || {});
+                const fields = data.fields || {};
+                const filled = section === 'distribution'
+                    ? applyDistributionOffices(fields)
+                    : (autofillDrfFields(fields) || applyDistributionOffices(fields));
                 if (filled) {
                     removeExistingError(container);
                     return;
                 }
-                if (data.fields && (data.fields.drfNo || data.fields.drfTitle || data.fields.drfDate
-                    || (data.fields.sourceOffices || []).length)) {
+                if (fields.drfNo || fields.drfTitle || fields.drfDate
+                    || (fields.distributionOffices || []).length
+                    || (fields.sourceOffices || []).length) {
                     removeExistingError(container);
                     return;
                 }
@@ -3976,6 +4175,33 @@ function autofillDrfFields(fields) {
     }
     window.DCSScanNamePreview?.update();
     return filled;
+}
+
+function revealDistributionSection() {
+    const cb = document.querySelector('#dynamicCheckboxes input[name="checklists[]"][value="5"]');
+    if (cb && !cb.checked) {
+        cb.checked = true;
+        cb.dataset.lastChecked = 'true';
+    }
+    if (typeof toggleSection === 'function') toggleSection(5, true);
+    const section = document.getElementById('section-5');
+    if (section) section.style.display = 'block';
+}
+
+function applyDistributionOffices(fields) {
+    const offices = Array.isArray(fields?.distributionOffices) ? fields.distributionOffices : [];
+    if (!offices.length || typeof addOffice !== 'function') return false;
+    revealDistributionSection();
+    let added = false;
+    offices.forEach((office) => {
+        const id = office?.id ?? office?.office_id;
+        const name = office?.office_name || office?.office_code;
+        if (!id || !name) return;
+        addOffice(id, name, 'distBody', 'distTotal', 'distResults');
+        added = true;
+    });
+    if (typeof syncDistClusterChipState === 'function') syncDistClusterChipState();
+    return added;
 }
 
 /** Map OCR office payload → active catalog offices only (no free-text / inactive). */
@@ -4450,7 +4676,11 @@ function validateMasterlistRequired(errors, { requireScan = false, forDraft = fa
 }
 
 window.toggleSection = function (checklistId, show) {
-    if (checklistId === 1 && window.__isSyllabiMode) return;
+    if (checklistId === 1 && window.__isSyllabiMode) {
+        const drfSection = document.getElementById('section-1');
+        if (drfSection) drfSection.style.display = 'none';
+        return;
+    }
     // Retrieval only exists once the document has been revised (revise_no > 0)
     if (checklistId === 4 && !allowsDocumentRetrieval()) {
         const ret = document.getElementById('section-4');
@@ -4690,6 +4920,26 @@ function onSyllabiYearLevelToggle() {
     applySyllabiYearLevelFilterToTable();
 }
 
+function lockSyllabiYearFromSettings(sel) {
+    if (!sel) return;
+    const value = String(sel.value || '').trim();
+    if (!value) return;
+    sel.disabled = true;
+    sel.removeAttribute('name');
+    sel.classList.add('is-locked');
+    const cell = sel.parentElement;
+    if (!cell) return;
+    let hidden = cell.querySelector('input.syllabi-year-posted');
+    if (!hidden) {
+        hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = 'syllabiYearLevel[]';
+        hidden.className = 'syllabi-year-posted';
+        cell.appendChild(hidden);
+    }
+    hidden.value = value;
+}
+
 function appendSyllabiCatalogCourseRow(c) {
     const tbody = document.getElementById('syllabiTableBody');
     if (!tbody || !c) return null;
@@ -4716,6 +4966,7 @@ function appendSyllabiCatalogCourseRow(c) {
     const yearSel = newRow.querySelector('.syllabi-merged-year');
     if (yearSel) {
         yearSel.value = c.year_level || '';
+        lockSyllabiYearFromSettings(yearSel);
     }
 
     if (typeof cascadeDrfToNewRow === 'function') cascadeDrfToNewRow(newRow);
@@ -4778,6 +5029,22 @@ function applySyllabiYearLevelFilterToTable() {
 
 function refreshSyllabiYearLevelsFromRows() {
     syncSyllabiYearLevelHiddens();
+    refreshSyllabiYearSectionHeaders();
+}
+
+function onSyllabiRowYearChanged(selectEl) {
+    if (!selectEl) return;
+    selectEl.disabled = false;
+    const groupId = selectEl.closest('tr')?.dataset.group;
+    if (groupId && typeof syncSyllabiMergedFields === 'function') syncSyllabiMergedFields(groupId);
+    const year = (selectEl.value || '').trim();
+    if (year) {
+        const box = document.querySelector('#syllabiYearLevelPicker input[type="checkbox"][value="' + CSS.escape(year) + '"]');
+        if (box && !box.checked) {
+            box.checked = true;
+            syncSyllabiYearLevelHiddens();
+        }
+    }
     refreshSyllabiYearSectionHeaders();
 }
 
@@ -5627,7 +5894,11 @@ async function seedExistingSyllabiGroups() {
     if (courseTypeSel && first.course_type) courseTypeSel.value = first.course_type;
     if (sySel && first.school_year_id) sySel.value = first.school_year_id;
 
-    lockSyllabiContextDropdowns();
+    if (window.__isDraftDoc) {
+        unlockSyllabiContextDropdowns();
+    } else {
+        lockSyllabiContextDropdowns();
+    }
     syncSyllabiContextHidden();
     if (first.college_id) await reloadFacultiesForCollege();
 
@@ -5650,6 +5921,7 @@ async function seedExistingSyllabiGroups() {
         const yearSel = firstRow.querySelector('.syllabi-merged-year');
         if (yearSel) {
             yearSel.value = group.year_level || '';
+            lockSyllabiYearFromSettings(yearSel);
         }
         if (availCheckbox) { availCheckbox.checked = !!group.availability; if (availHidden) availHidden.value = group.availability ? 'available' : 'not available'; }
         if (copiesInput) copiesInput.value = rowCount;
@@ -6169,7 +6441,7 @@ function buildSyllabiGroupFirstRow(groupId, rowspan) {
         </td>
         <td class="col-pinned col-year" rowspan="${rowspan}">
             <select name="syllabiYearLevel[]" class="syllabi-merged-year"
-                onchange="syncSyllabiMergedFields('${groupId}'); refreshSyllabiYearLevelsFromRows();">
+                onchange="onSyllabiRowYearChanged(this)">
                 ${syllabiYearLevelOptionsHtml('')}
             </select>
         </td>
@@ -6474,7 +6746,7 @@ function renderDistClusterChips() {
     if (!wrap) return;
     const clusters = (window.__registerCatalog || {}).clusters || [];
     wrap.innerHTML = clusters.map((c) => (
-        '<button type="button" class="reg-cluster-chip" data-cluster="' + escapeHtml(c.cluster_code) + '">' +
+        '<button type="button" class="reg-cluster-chip" data-cluster="' + escapeHtml(c.cluster_code) + '" data-cluster-name="' + escapeHtml(c.cluster_name) + '">' +
         'Select all ' + escapeHtml(c.cluster_name) + '</button>'
     )).join('');
     wrap.querySelectorAll('.reg-cluster-chip').forEach((btn) => {
@@ -6545,9 +6817,15 @@ function toggleOfficesByCluster(clusterCode) {
 }
 
 function syncDistClusterChipState() {
+    const selected = new Set(getSelectedOfficeIds('distBody'));
     document.querySelectorAll('#distClusterChips .reg-cluster-chip').forEach((btn) => {
-        const code = btn.getAttribute('data-cluster');
-        btn.classList.toggle('is-active', isClusterFullySelected(code));
+        const offices = clusterOffices(btn.getAttribute('data-cluster'));
+        const hits = offices.filter((office) => selected.has(String(office.office_id))).length;
+        const complete = offices.length > 0 && hits === offices.length;
+        const name = btn.getAttribute('data-cluster-name') || 'cluster';
+        btn.classList.toggle('is-active', complete);
+        btn.classList.remove('is-partial');
+        btn.textContent = (complete ? 'Remove ' : 'Select all ') + name;
     });
 }
 
@@ -6651,6 +6929,39 @@ function sectionVisible(id) {
     return el && el.style.display !== "none";
 }
 
+function syllabiSelectionErrors() {
+    if (!window.__isSyllabiMode) return [];
+    const required = [
+        ['syllabiCollege', 'College'],
+        ['syllabiProgram', 'Program'],
+        ['syllabiSemester', 'Semester'],
+        ['syllabiCourseType', 'Course type'],
+        ['syllabiSchoolYear', 'School year'],
+    ];
+    return required.flatMap(([id, label]) => {
+        const el = document.getElementById(id);
+        if (el && String(el.value || '').trim() !== '') return [];
+        return [{ field: id, message: label + ' is required before registering.' }];
+    });
+}
+
+function syllabiRegistrationHasCourses() {
+    return [...document.querySelectorAll('#syllabiTableBody .syllabi-merged-course, #syllabiTableBody [name="syllabiCourseName[]"]')]
+        .some((el) => String(el.value || '').trim() !== '');
+}
+
+function syllabiCoursesMissingFromSettings() {
+    const known = new Set(
+        (typeof catalogCoursesForContext === 'function' ? catalogCoursesForContext() : [])
+            .map((c) => String(c.course_name || '').trim().toLowerCase())
+            .filter(Boolean)
+    );
+    return [...document.querySelectorAll('#syllabiTableBody .syllabi-merged-course, #syllabiTableBody [name="syllabiCourseName[]"]')]
+        .map((el) => String(el.value || '').trim())
+        .filter(Boolean)
+        .filter((name) => !known.has(name.toLowerCase()));
+}
+
 function validateForm() {
     clearValidation();
     const errors = [];
@@ -6668,6 +6979,38 @@ function validateForm() {
                 || "This semester and school year are already registered. You cannot save another copy.",
         });
         return errors;
+    }
+
+    if (window.__isSyllabiMode) {
+        const selectionErrors = syllabiSelectionErrors();
+        if (selectionErrors.length) return selectionErrors;
+    }
+
+    if (window.__isSyllabiMode && typeof catalogCoursesForContext === 'function' && !catalogCoursesForContext().length) {
+        errors.push({
+            field: "btnAddSyllabiRow",
+            message: "There are no course names in Settings for this program, semester, and course type. Add them in Settings before registering.",
+        });
+        return errors;
+    }
+
+    if (window.__isSyllabiMode && !syllabiRegistrationHasCourses()) {
+        errors.push({
+            field: "btnAddSyllabiRow",
+            message: "Add at least one course from Settings before registering this document.",
+        });
+        return errors;
+    }
+
+    if (window.__isSyllabiMode) {
+        const missingCourses = syllabiCoursesMissingFromSettings();
+        if (missingCourses.length) {
+            errors.push({
+                field: "btnAddSyllabiRow",
+                message: "Course names must come from Settings. These are not in Settings for this selection: " + missingCourses.join(", ") + ".",
+            });
+            return errors;
+        }
     }
 
     if (docNoDuplicate) {
@@ -7033,7 +7376,8 @@ function addReviewSection(container, title, fields) {
     section.className = "review-section";
     let html = '<div class="review-section-title">' + escapeHtml(title) + '</div>';
     fields.forEach(f => {
-        const hasValue = f.value && String(f.value).trim() !== "" && f.value !== "N/A";
+        const raw = f.value == null ? "" : String(f.value).trim();
+        const hasValue = raw !== "" && raw !== "N/A";
         html += '<div class="review-row' + (hasValue ? '' : ' review-row-empty') + '">';
         html += '<span class="review-label">' + escapeHtml(f.label) + '</span>';
         if (hasValue) {
@@ -7228,7 +7572,7 @@ function buildMasterlistReview(reviewContent) {
         { label: "Registered", value: formatInputDate("masterlistRegisteredDate") + " " + getInputVal("masterlistRegisteredTime") },
         { label: "Time Spent", value: document.getElementById("masterlistTimeSpentDisplay")?.value || null },
         { label: "Effectivity", value: formatInputDate("masterlistEffectivityDate") },
-        { label: "Revision No.", value: getInputVal("masterlistRevisionNo") },
+        { label: "Revision No.", value: getInputVal("masterlistRevisionNo") || "0" },
         { label: "Pages", value: getInputVal("masterlistNoOfPages") },
         { label: "Originator", value: window.__sourceWidgets.masterlistOriginator?.selected.length > 0 ? window.__sourceWidgets.masterlistOriginator.selected.map(o => o.label).join(', ') : null },
         { label: "Source Unit", value: window.__sourceWidgets.masterlist?.selected.length > 0 ? window.__sourceWidgets.masterlist.selected.map(i => i.label).join(', ') : null },
@@ -7387,6 +7731,7 @@ function prepareDraftSubmitDefaults() {
 }
 
 window.__regDraftCanSave = function () {
+    if (typeof syncSyllabiToMasterlistFields === 'function') syncSyllabiToMasterlistFields();
     if (window.__isSyllabiMode && window.syllabiContextTaken) return false;
     const version = document.getElementById('versionType')?.value;
     const docType = document.getElementById('docType')?.value;
@@ -7397,6 +7742,19 @@ window.__regDraftCanSave = function () {
 };
 
 window.__regDraftHasProgress = function () {
+    if (window.__isSyllabiMode) {
+        const ids = ['syllabiDocTitle', 'syllabiCollege', 'syllabiProgram', 'syllabiSemester', 'syllabiCourseType', 'syllabiSchoolYear'];
+        const syllabiStarted = ids.some((id) => (document.getElementById(id)?.value || '').trim() !== '')
+            || [...document.querySelectorAll('#syllabiTableBody .syllabi-merged-course, #syllabiTableBody .syllabi-merged-code')]
+                .some((el) => (el.value || '').trim() !== '');
+        if (syllabiStarted && window.__isDraftDoc && typeof window.__regEditIsDirty === 'function') {
+            try {
+                return !!window.__regEditIsDirty();
+            } catch (_) {
+                return true;
+            }
+        }
+    }
     // Update/Edit: only block leave when the user actually changed loaded data.
     if (typeof window.__regEditIsDirty === 'function') {
         try {

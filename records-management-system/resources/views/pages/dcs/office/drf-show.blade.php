@@ -30,24 +30,8 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
         $drf = OfficeIntakeHelper::findOfficeDrf($this->id);
         abort_unless($drf, 404);
 
-        $catalog = collect(RegisterQueryHelper::jsCatalog()['offices'] ?? []);
-        $distributeOffices = collect(OfficeIntakeHelper::decodeDistributeTo($drf->distribute_to ?? null))
-            ->map(function ($stored) use ($catalog) {
-                $stored = trim((string) $stored);
-                $match = $catalog->first(function ($o) use ($stored) {
-                    $code = trim((string) ($o['office_code'] ?? ''));
-                    $name = trim((string) ($o['office_name'] ?? ''));
-
-                    return ($code !== '' && strcasecmp($code, $stored) === 0)
-                        || ($name !== '' && strcasecmp($name, $stored) === 0);
-                });
-
-                return [
-                    'code' => $match ? trim((string) ($match['office_code'] ?? '')) : $stored,
-                    'name' => $match ? trim((string) ($match['office_name'] ?? '')) : '',
-                ];
-            })
-            ->filter(fn ($o) => $o['code'] !== '' || $o['name'] !== '')
+        $distributeOffices = collect(OfficeIntakeHelper::drfDistributeOffices($drf))
+            ->filter(fn ($o) => ($o['code'] ?? '') !== '' || ($o['name'] ?? '') !== '')
             ->values()
             ->all();
 

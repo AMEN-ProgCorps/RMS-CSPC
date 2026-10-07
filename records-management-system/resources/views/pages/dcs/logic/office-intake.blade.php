@@ -93,7 +93,6 @@ class OfficeIntakeHelper
             'drf.drf_no',
             'drf.drf_date',
             'drf.doc_title',
-            'drf.drf_receipt_date',
             'drf.created_at',
             'drf.created_by',
         ];
@@ -432,22 +431,19 @@ class OfficeIntakeHelper
             $select[] = 'ml.allows_revision';
         }
 
-        $row = $query->orderByDesc('ml.id')->first($select);
-        if (! $row) {
-            return null;
+        $rows = $query->orderByDesc('ml.revise_no')->orderByDesc('ml.id')->limit(20)->get($select);
+        foreach ($rows as $row) {
+            $allows = RegisterQueryHelper::supportsAllowsRevisionColumn()
+                && property_exists($row, 'allows_revision')
+                && $row->allows_revision !== null
+                ? (bool) $row->allows_revision
+                : RegisterQueryHelper::effectiveTypeAllowsRevision($row->doc_type_id ?? null, $row->sub_type_id ?? null);
+            if ($allows) {
+                return $row;
+            }
         }
 
-        $allows = RegisterQueryHelper::supportsAllowsRevisionColumn()
-            && property_exists($row, 'allows_revision')
-            && $row->allows_revision !== null
-            ? (bool) $row->allows_revision
-            : RegisterQueryHelper::effectiveTypeAllowsRevision($row->doc_type_id ?? null, $row->sub_type_id ?? null);
-
-        if (! $allows) {
-            return null;
-        }
-
-        return $row;
+        return null;
     }
 
     /**
@@ -481,15 +477,11 @@ class OfficeIntakeHelper
             return [];
         }
 
-        $like = '%' . $q . '%';
         $query = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
-            ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
-            ->where(function ($qr) use ($like) {
-                $qr->where('ml.doc_no', 'ilike', $like)
-                    ->orWhere('ml.doc_title', 'ilike', $like);
-            });
+            ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id');
+        RegisterQueryHelper::applyLooseColumnSearch($query, $q, ['ml.doc_no', 'ml.doc_title']);
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
         RegisterQueryHelper::applyExcludeOfficeIntakeRequests($query, 'dr');
@@ -497,6 +489,7 @@ class OfficeIntakeHelper
         self::applyDcnDocumentTypeFilter($query);
 
         $select = [
+            'ml.id as ml_id',
             'ml.doc_no',
             'ml.doc_title',
             'ml.revise_no',
@@ -510,8 +503,9 @@ class OfficeIntakeHelper
         }
 
         $rows = $query
-            ->orderBy('ml.doc_no')
-            ->limit(40)
+            ->orderByDesc('ml.revise_no')
+            ->orderByDesc('ml.id')
+            ->limit(200)
             ->get($select);
 
         $out = [];
@@ -530,17 +524,93 @@ class OfficeIntakeHelper
                 : trim((string) ($row->doc_type_name ?? 'Document'));
 
             $out[] = [
+                'ml_id' => (int) ($row->ml_id ?? 0),
                 'doc_no' => trim((string) ($row->doc_no ?? '')),
                 'doc_title' => trim((string) ($row->doc_title ?? '')),
                 'revise_no' => (int) ($row->revise_no ?? 0),
                 'doc_type' => $typeLabel !== '' ? $typeLabel : 'Document',
             ];
-            if (count($out) >= 15) {
-                break;
+        }
+
+        $out = self::keepLatestDocumentPerNumber($out);
+
+        usort($out, function ($a, $b) use ($q) {
+            $score = fn ($row) => RegisterQueryHelper::looseSearchScore(
+                $q,
+                trim(($row['doc_no'] ?? '') . ' ' . ($row['doc_title'] ?? '') . ' ' . ($row['doc_type'] ?? ''))
+            );
+
+            return $score($b) <=> $score($a);
+        });
+
+        return array_slice($out, 0, 15);
+    }
+
+    /**
+     * One row per document number: the highest revision, then the newest registration.
+     *
+     * @param  list<array{ml_id?: int, doc_no: string, doc_title: string, revise_no: int, doc_type: string}>  $rows
+     * @return list<array{doc_no: string, doc_title: string, revise_no: int, doc_type: string}>
+     */
+    private static function keepLatestDocumentPerNumber(array $rows): array
+    {
+        $best = [];
+        foreach ($rows as $row) {
+            $key = mb_strtolower(trim((string) ($row['doc_no'] ?? '')));
+            if ($key === '') {
+                continue;
+            }
+            $current = $best[$key] ?? null;
+            if ($current === null
+                || (int) ($row['revise_no'] ?? 0) > (int) ($current['revise_no'] ?? 0)
+                || (
+                    (int) ($row['revise_no'] ?? 0) === (int) ($current['revise_no'] ?? 0)
+                    && (int) ($row['ml_id'] ?? 0) > (int) ($current['ml_id'] ?? 0)
+                )) {
+                $best[$key] = $row;
             }
         }
 
-        return $out;
+        return array_map(function (array $row) {
+            unset($row['ml_id']);
+
+            return $row;
+        }, array_values($best));
+    }
+
+    /**
+     * Office DRF and DCN still waiting in the Request queue.
+     *
+     * @return array{drf: int, dcn: int}
+     */
+    public static function pendingOfficeRequestCounts(): array
+    {
+        return [
+            'drf' => self::countOpenIntake('dcs_office_intake_drf'),
+            'dcn' => self::countOpenIntake('dcs_office_intake_dcn'),
+        ];
+    }
+
+    private static function countOpenIntake(string $table): int
+    {
+        if (! Schema::hasTable($table)) {
+            return 0;
+        }
+
+        $query = DB::table($table);
+        if (Schema::hasColumn($table, 'rfio_registered_at')) {
+            $query->whereNull('rfio_registered_at');
+        }
+        if (Schema::hasColumn($table, 'registered_request_id')) {
+            $query->where(function ($sub) {
+                $sub->whereNull('registered_request_id')->orWhere('registered_request_id', 0);
+            });
+        }
+        if (Schema::hasColumn($table, 'rfio_claimed_at')) {
+            $query->whereNull('rfio_claimed_at');
+        }
+
+        return (int) $query->count();
     }
 
     /**
@@ -735,15 +805,10 @@ class OfficeIntakeHelper
         $userId = (int) auth()->id();
         $now = now();
 
-        $drfFile = null;
-
-        try {
-            $id = DB::transaction(function () use ($data, $officeIds, $userId, $now, $drfFile, $sourceDcnId) {
-                $row = array_merge([
+        $id = DB::transaction(function () use ($data, $officeIds, $userId, $now, $sourceDcnId) {
+                $row = [
                     'drf_no' => null,
                     'drf_date' => $data['drfDate'] ?? null,
-                    'drf_receipt_date' => null,
-                    'drf_receipt_time' => null,
                     'doc_title' => $data['drfTitle'],
                     'created_by' => $userId,
                     'created_at' => $now,
@@ -752,10 +817,7 @@ class OfficeIntakeHelper
                     'originator_name' => trim((string) ($data['originatorName'] ?? '')) ?: null,
                     'doc_type_kind' => $data['docTypeKind'] ?? null,
                     'description_reason' => trim((string) ($data['descriptionReason'] ?? '')) ?: null,
-                    'distribute_to' => self::encodeDistributeTo(
-                        self::officeCodesForIds($data['distributeToOffice'] ?? [])
-                    ),
-                ], RegisterPersistHelper::dcsScanFields('dcs_office_intake_drf', 'scanned_drf', $drfFile));
+                ];
 
                 if ($sourceDcnId > 0) {
                     $row['source_office_dcn_id'] = $sourceDcnId;
@@ -771,6 +833,7 @@ class OfficeIntakeHelper
                 }
 
                 $drfId = DB::table('dcs_office_intake_drf')->insertGetId($row);
+                self::syncDistributeOffices($drfId, $data['distributeToOffice'] ?? []);
 
                 foreach ($officeIds as $officeId) {
                     if ($officeId <= 0) {
@@ -786,12 +849,6 @@ class OfficeIntakeHelper
 
                 return $drfId;
             });
-        } catch (\Throwable $e) {
-            if ($drfFile) {
-                DocumentStorageService::deleteDcsScan($drfFile);
-            }
-            throw $e;
-        }
 
         RegisterPersistHelper::logAdminChange(
             'Created office DRF #' . $id . ': ' . $data['drfTitle']
@@ -840,15 +897,18 @@ class OfficeIntakeHelper
             'originatorName' => 'required|string|max:255',
             'departmentDate' => 'required|date',
             'reviewedByName' => 'required|array|min:1|max:9',
-            'reviewedByName.0' => 'required|string|max:255',
-            'reviewedByName.*' => 'nullable|string|max:255',
+            'reviewedByName.*' => 'required|string|max:255',
             'approvalPosition' => 'nullable|array|max:9',
             'approvalPosition.*' => 'nullable|string|max:255',
             'approvalName' => 'nullable|array|max:9',
             'approvalName.*' => 'nullable|string|max:255',
             'alsoCreateDrf' => 'nullable|boolean',
             'confirmDataCorrect' => 'accepted',
+        ], [
+            'reviewedByName.*.required' => 'Each reviewer needs a name. Remove a reviewer you are not using.',
         ]);
+
+        self::assertApprovalRowsComplete($request);
 
         $docNo = trim((string) ($data['documentNo'] ?? ''));
         $matched = self::assertRegisteredRevisableDocNo($docNo);
@@ -861,24 +921,17 @@ class OfficeIntakeHelper
                 'documentTitle' => 'Document title is required.',
             ]);
         }
-        $departmentDateLabel = self::formatDepartmentDateLabel(
-            self::lockedDepartmentOfficeId(),
-            $data['departmentDate'] ?? null
-        );
         $reviewers = self::reviewersPayloadFromRequest($data);
         $approvals = self::approvalsPayloadFromRequest($data);
-        $reviewed = self::legacyReviewedByFromRows($reviewers);
 
         $userId = (int) auth()->id();
         $now = now();
 
         try {
-            $id = DB::transaction(function () use ($data, $docNo, $docTitle, $departmentDateLabel, $reviewed, $reviewers, $approvals, $userId, $now) {
+            $id = DB::transaction(function () use ($data, $docNo, $docTitle, $reviewers, $approvals, $userId, $now) {
                 $row = [
                     'dcn_no' => null,
                     'dcn_date' => now()->toDateString(),
-                    'dcn_receipt_date' => null,
-                    'dcn_receipt_time' => null,
                     'created_by' => $userId,
                     'created_at' => $now,
                     'updated_at' => $now,
@@ -888,13 +941,7 @@ class OfficeIntakeHelper
                     'change_from' => trim((string) ($data['changeFrom'] ?? '')) ?: null,
                     'change_to' => trim((string) ($data['changeTo'] ?? '')) ?: null,
                     'originator_name' => trim((string) ($data['originatorName'] ?? '')) ?: null,
-                    'department_date' => $departmentDateLabel,
-                    'reviewed_by_date' => $reviewed['reviewed_by_date'],
-                    'reviewed_by_name' => $reviewed['reviewed_by_name'],
-                    'reviewed_by_on' => $reviewed['reviewed_by_on'],
-                    'reviewed_by_date_2' => $reviewed['reviewed_by_date_2'],
-                    'reviewed_by_name_2' => $reviewed['reviewed_by_name_2'],
-                    'reviewed_by_on_2' => $reviewed['reviewed_by_on_2'],
+                    'department_on' => $data['departmentDate'] ?? null,
                 ];
 
                 $dcnId = DB::table('dcs_office_intake_dcn')->insertGetId($row);
@@ -999,11 +1046,7 @@ class OfficeIntakeHelper
             if (Schema::hasColumn('dcs_office_intake_drf', 'description_reason')) {
                 $row['description_reason'] = trim((string) ($data['descriptionReason'] ?? '')) ?: null;
             }
-            if (Schema::hasColumn('dcs_office_intake_drf', 'distribute_to')) {
-                $row['distribute_to'] = self::encodeDistributeTo(
-                    self::officeCodesForIds($data['distributeToOffice'] ?? [])
-                );
-            }
+            self::syncDistributeOffices($id, $data['distributeToOffice'] ?? []);
             if (Schema::hasColumn('dcs_office_intake_drf', 'prepared_by_name')) {
                 $row['prepared_by_name'] = trim((string) ($data['preparedByName'] ?? '')) ?: null;
             }
@@ -1072,14 +1115,17 @@ class OfficeIntakeHelper
             'originatorName' => 'required|string|max:255',
             'departmentDate' => 'required|date',
             'reviewedByName' => 'required|array|min:1|max:9',
-            'reviewedByName.0' => 'required|string|max:255',
-            'reviewedByName.*' => 'nullable|string|max:255',
+            'reviewedByName.*' => 'required|string|max:255',
             'approvalPosition' => 'nullable|array|max:9',
             'approvalPosition.*' => 'nullable|string|max:255',
             'approvalName' => 'nullable|array|max:9',
             'approvalName.*' => 'nullable|string|max:255',
             'confirmDataCorrect' => 'accepted',
+        ], [
+            'reviewedByName.*.required' => 'Each reviewer needs a name. Remove a reviewer you are not using.',
         ]);
+
+        self::assertApprovalRowsComplete($request);
 
         $docNo = trim((string) ($data['documentNo'] ?? ''));
         $matched = self::assertRegisteredRevisableDocNo($docNo);
@@ -1092,16 +1138,11 @@ class OfficeIntakeHelper
                 'documentTitle' => 'Document title is required.',
             ]);
         }
-        $departmentDateLabel = self::formatDepartmentDateLabel(
-            self::lockedDepartmentOfficeId(),
-            $data['departmentDate'] ?? null
-        );
         $reviewers = self::reviewersPayloadFromRequest($data);
         $approvals = self::approvalsPayloadFromRequest($data);
-        $reviewed = self::legacyReviewedByFromRows($reviewers);
         $now = now();
 
-        DB::transaction(function () use ($data, $id, $docNo, $docTitle, $departmentDateLabel, $reviewed, $reviewers, $approvals, $now) {
+        DB::transaction(function () use ($data, $id, $docNo, $docTitle, $reviewers, $approvals, $now) {
             $row = [
                 'updated_at' => $now,
             ];
@@ -1114,19 +1155,7 @@ class OfficeIntakeHelper
                 $row['change_from'] = trim((string) ($data['changeFrom'] ?? '')) ?: null;
                 $row['change_to'] = trim((string) ($data['changeTo'] ?? '')) ?: null;
                 $row['originator_name'] = trim((string) ($data['originatorName'] ?? '')) ?: null;
-                $row['department_date'] = $departmentDateLabel;
-                $row['reviewed_by_date'] = $reviewed['reviewed_by_date'];
-                if (Schema::hasColumn('dcs_office_intake_dcn', 'reviewed_by_name')) {
-                    $row['reviewed_by_name'] = $reviewed['reviewed_by_name'];
-                    $row['reviewed_by_on'] = $reviewed['reviewed_by_on'];
-                }
-                if (Schema::hasColumn('dcs_office_intake_dcn', 'reviewed_by_date_2')) {
-                    $row['reviewed_by_date_2'] = $reviewed['reviewed_by_date_2'];
-                }
-                if (Schema::hasColumn('dcs_office_intake_dcn', 'reviewed_by_name_2')) {
-                    $row['reviewed_by_name_2'] = $reviewed['reviewed_by_name_2'];
-                    $row['reviewed_by_on_2'] = $reviewed['reviewed_by_on_2'];
-                }
+                $row['department_on'] = $data['departmentDate'] ?? null;
             }
             if (Schema::hasColumn('dcs_office_intake_dcn', 'edit_unlocked_at')) {
                 $row['edit_unlocked_at'] = null;
@@ -1165,44 +1194,6 @@ class OfficeIntakeHelper
             ->with('locked', true);
     }
 
-    private static function formatDepartmentDateLabel(?int $officeId, ?string $date): ?string
-    {
-        $department = '';
-        if ($officeId && $officeId > 0) {
-            $row = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
-                ->where('id', $officeId)
-                ->whereNotIn('office_code', RegisterQueryHelper::SYSTEM_OFFICE_CODES)
-                ->first(['office_name', 'office_code']);
-            if ($row) {
-                $department = trim((string) ($row->office_code ?? ''));
-                if ($department === '') {
-                    $department = trim((string) ($row->office_name ?? ''));
-                }
-            }
-        }
-
-        $dateLabel = '';
-        $date = trim((string) $date);
-        if ($date !== '') {
-            try {
-                $dateLabel = \Carbon\Carbon::parse($date)->format('M d, Y');
-            } catch (\Throwable) {
-                $dateLabel = '';
-            }
-        }
-
-        if ($department !== '' && $dateLabel !== '') {
-            return $department . ' / ' . $dateLabel;
-        }
-        if ($department !== '') {
-            return $department;
-        }
-        if ($dateLabel !== '') {
-            return $dateLabel;
-        }
-
-        return null;
-    }
 
     /** Format Reviewed by display: name only (dates are left blank for wet-ink). */
     private static function formatReviewedByLabel(?string $name, ?string $date = null): ?string
@@ -1250,109 +1241,31 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Keep first two reviewers mirrored on legacy DCN columns for older print/list code.
-     *
-     * @param  list<array{name: string, date: string|null}>  $rows
-     * @return array{reviewed_by_name:?string,reviewed_by_on:?string,reviewed_by_date:?string,reviewed_by_name_2:?string,reviewed_by_on_2:?string,reviewed_by_date_2:?string}
-     */
-    public static function legacyReviewedByFromRows(array $rows): array
-    {
-        $r1 = $rows[0] ?? ['name' => '', 'date' => null];
-        $r2 = $rows[1] ?? null;
-        $name1 = trim((string) ($r1['name'] ?? ''));
-        $on1 = trim((string) ($r1['date'] ?? ''));
-
-        $payload = [
-            'reviewed_by_name' => $name1 !== '' ? $name1 : null,
-            'reviewed_by_on' => $on1 !== '' ? $on1 : null,
-            'reviewed_by_date' => self::formatReviewedByLabel($name1, $on1),
-            'reviewed_by_name_2' => null,
-            'reviewed_by_on_2' => null,
-            'reviewed_by_date_2' => null,
-        ];
-
-        if (is_array($r2)) {
-            $name2 = trim((string) ($r2['name'] ?? ''));
-            $on2 = trim((string) ($r2['date'] ?? ''));
-            if ($name2 !== '' || $on2 !== '') {
-                $payload['reviewed_by_name_2'] = $name2 !== '' ? $name2 : null;
-                $payload['reviewed_by_on_2'] = $on2 !== '' ? $on2 : null;
-                $payload['reviewed_by_date_2'] = self::formatReviewedByLabel($name2, $on2);
-            }
-        }
-
-        return $payload;
-    }
-
-    /**
      * @return list<array{name: string, date: string|null, label: string}>
      */
     public static function loadDcnReviewers(int $dcnId, ?object $dcn = null): array
     {
-        if (Schema::hasTable('dcs_office_dcn_reviewers')) {
-            $rows = DB::table('dcs_office_dcn_reviewers')
-                ->where('office_intake_dcn_id', $dcnId)
-                ->orderBy('sort_order')
-                ->orderBy('id')
-                ->get();
-            if ($rows->isNotEmpty()) {
-                return $rows->map(function ($row) {
-                    $name = trim((string) ($row->name ?? ''));
-                    $date = ! empty($row->reviewed_on)
-                        ? \Carbon\Carbon::parse($row->reviewed_on)->format('Y-m-d')
-                        : null;
-
-                    return [
-                        'name' => $name,
-                        'date' => $date,
-                        'label' => self::formatReviewedByLabel($name, (string) ($date ?? '')) ?? '',
-                    ];
-                })->all();
-            }
-        }
-
-        // Legacy fallback from DCN columns.
-        if ($dcn === null) {
-            $dcn = DB::table('dcs_office_intake_dcn')->where('id', $dcnId)->first();
-        }
-        if (! $dcn) {
+        if (! Schema::hasTable('dcs_office_dcn_reviewers')) {
             return [];
         }
 
-        $out = [];
-        $name1 = trim((string) ($dcn->reviewed_by_name ?? ''));
-        $on1 = ! empty($dcn->reviewed_by_on)
-            ? \Carbon\Carbon::parse($dcn->reviewed_by_on)->format('Y-m-d')
-            : null;
-        if ($name1 === '' && trim((string) ($dcn->reviewed_by_date ?? '')) !== '') {
-            $name1 = trim((string) $dcn->reviewed_by_date);
-        }
-        if ($name1 !== '' || $on1) {
-            $out[] = [
-                'name' => $name1,
-                'date' => $on1,
-                'label' => self::formatReviewedByLabel($name1, (string) ($on1 ?? ''))
-                    ?? trim((string) ($dcn->reviewed_by_date ?? '')),
-            ];
-        }
+        return DB::table('dcs_office_dcn_reviewers')
+            ->where('office_intake_dcn_id', $dcnId)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get()
+            ->map(function ($row) {
+                $name = trim((string) ($row->name ?? ''));
+                $date = ! empty($row->reviewed_on)
+                    ? \Carbon\Carbon::parse($row->reviewed_on)->format('Y-m-d')
+                    : null;
 
-        $name2 = trim((string) ($dcn->reviewed_by_name_2 ?? ''));
-        $on2 = ! empty($dcn->reviewed_by_on_2)
-            ? \Carbon\Carbon::parse($dcn->reviewed_by_on_2)->format('Y-m-d')
-            : null;
-        if ($name2 === '' && trim((string) ($dcn->reviewed_by_date_2 ?? '')) !== '') {
-            $name2 = trim((string) $dcn->reviewed_by_date_2);
-        }
-        if ($name2 !== '' || $on2) {
-            $out[] = [
-                'name' => $name2,
-                'date' => $on2,
-                'label' => self::formatReviewedByLabel($name2, (string) ($on2 ?? ''))
-                    ?? trim((string) ($dcn->reviewed_by_date_2 ?? '')),
-            ];
-        }
-
-        return $out;
+                return [
+                    'name' => $name,
+                    'date' => $date,
+                    'label' => self::formatReviewedByLabel($name, (string) ($date ?? '')) ?? '',
+                ];
+            })->all();
     }
 
     /**
@@ -1538,10 +1451,46 @@ class OfficeIntakeHelper
         return $rows;
     }
 
-    /** Prefer office code on print when a stored department label matches an office name/code. */
-    public static function departmentDateForPrint(?string $stored): string
+    /**
+     * An added approval card must have both a position and a name.
+     * The first card may stay blank when no approval is used.
+     */
+    private static function assertApprovalRowsComplete(Request $request): void
     {
-        $parts = self::parseDepartmentDate($stored);
+        $positions = $request->input('approvalPosition', []);
+        $names = $request->input('approvalName', []);
+        if (! is_array($positions)) {
+            $positions = [];
+        }
+        if (! is_array($names)) {
+            $names = [];
+        }
+
+        $count = max(count($positions), count($names));
+        $errors = [];
+        for ($i = 0; $i < $count; $i++) {
+            $position = trim((string) ($positions[$i] ?? ''));
+            $name = trim((string) ($names[$i] ?? ''));
+            if ($i === 0 && $position === '' && $name === '') {
+                continue;
+            }
+            if ($position === '') {
+                $errors['approvalPosition.'.$i] = 'Approval '.($i + 1).' needs a position. Remove an approval you are not using.';
+            }
+            if ($name === '') {
+                $errors['approvalName.'.$i] = 'Approval '.($i + 1).' needs a name. Remove an approval you are not using.';
+            }
+        }
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
+    }
+
+    /** Office code plus the department date, joined for the printed DCN line. */
+    public static function departmentDateForPrint(object $dcn): string
+    {
+        $parts = self::parseDepartmentDate($dcn);
         $department = $parts['department_code'] !== ''
             ? $parts['department_code']
             : $parts['department'];
@@ -1555,48 +1504,44 @@ class OfficeIntakeHelper
     }
 
     /**
-     * Split stored "Department / Date" for show/print.
+     * Department from the submitting office and the date stored on the DCN.
      *
      * @return array{department: string, department_code: string, department_label: string, date_label: string, date_iso: string}
      */
-    public static function parseDepartmentDate(?string $stored): array
+    public static function parseDepartmentDate(object $dcn): array
     {
-        $stored = trim((string) $stored);
-        $department = $stored;
-        $dateLabel = '';
-        if ($stored !== '' && str_contains($stored, ' / ')) {
-            [$department, $dateLabel] = array_map('trim', explode(' / ', $stored, 2));
-        }
-
-        $departmentCode = '';
-        $departmentLabel = $department;
-        if ($department !== '') {
-            $row = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
-                ->whereNotIn('office_code', RegisterQueryHelper::SYSTEM_OFFICE_CODES)
-                ->where(function ($q) use ($department) {
-                    $q->where('office_code', $department)
-                        ->orWhere('office_name', $department);
-                })
-                ->first(['office_code', 'office_name']);
-
-            if ($row) {
-                $code = trim((string) ($row->office_code ?? ''));
-                $name = trim((string) ($row->office_name ?? ''));
-                $departmentCode = $code;
-                $departmentLabel = $code !== '' && $name !== ''
-                    ? $code . ' — ' . $name
-                    : ($name !== '' ? $name : $code);
-                $department = $code !== '' ? $code : $name;
+        $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $office = null;
+        if (Schema::hasTable('dcs_office_dcn_offices')) {
+            $officeId = (int) DB::table('dcs_office_dcn_offices')
+                ->where('office_intake_dcn_id', (int) ($dcn->id ?? 0))
+                ->orderBy('id')
+                ->value('office_id');
+            if ($officeId > 0) {
+                $office = DB::table($officeTable)
+                    ->where('id', $officeId)
+                    ->whereNotIn('office_code', RegisterQueryHelper::SYSTEM_OFFICE_CODES)
+                    ->first(['office_code', 'office_name']);
             }
         }
 
+        $departmentCode = trim((string) ($office->office_code ?? ''));
+        $name = trim((string) ($office->office_name ?? ''));
+        $department = $departmentCode !== '' ? $departmentCode : $name;
+        $departmentLabel = $departmentCode !== '' && $name !== ''
+            ? $departmentCode . ' — ' . $name
+            : ($name !== '' ? $name : $departmentCode);
+
         $dateIso = '';
-        if ($dateLabel !== '') {
+        $dateLabel = '';
+        if (! empty($dcn->department_on)) {
             try {
-                $dateIso = \Carbon\Carbon::parse($dateLabel)->format('Y-m-d');
-                $dateLabel = \Carbon\Carbon::parse($dateLabel)->format('M d, Y');
+                $parsed = \Carbon\Carbon::parse($dcn->department_on);
+                $dateIso = $parsed->format('Y-m-d');
+                $dateLabel = $parsed->format('M d, Y');
             } catch (\Throwable) {
                 $dateIso = '';
+                $dateLabel = '';
             }
         }
 
@@ -2351,30 +2296,92 @@ class OfficeIntakeHelper
         };
     }
 
-    /** @return array<int, array{code: string, name: string}> */
-    public static function drfDistributeOffices(object $drf): array
+    /** @return list<int> */
+    public static function distributeOfficeIds(int $drfId): array
     {
-        $catalog = collect(RegisterQueryHelper::jsCatalog()['offices'] ?? []);
+        if ($drfId <= 0 || ! Schema::hasTable('dcs_office_drf_distribute_offices')) {
+            return [];
+        }
 
-        return collect(self::decodeDistributeTo($drf->distribute_to ?? null))
-            ->map(function ($stored) use ($catalog) {
-                $stored = trim((string) $stored);
-                $match = $catalog->first(function ($office) use ($stored) {
-                    $code = trim((string) ($office['office_code'] ?? ''));
-                    $name = trim((string) ($office['office_name'] ?? ''));
-
-                    return ($code !== '' && strcasecmp($code, $stored) === 0)
-                        || ($name !== '' && strcasecmp($name, $stored) === 0);
-                });
-
-                return [
-                    'code' => $match ? trim((string) ($match['office_code'] ?? '')) : $stored,
-                    'name' => $match ? trim((string) ($match['office_name'] ?? '')) : '',
-                ];
-            })
-            ->filter(fn (array $office) => $office['code'] !== '' || $office['name'] !== '')
+        return DB::table('dcs_office_drf_distribute_offices')
+            ->where('office_intake_drf_id', $drfId)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->pluck('office_id')
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn (int $id) => $id > 0)
             ->values()
             ->all();
+    }
+
+    /** @param  array<int|string|null>  $officeIds */
+    public static function syncDistributeOffices(int $drfId, array $officeIds): void
+    {
+        if ($drfId <= 0 || ! Schema::hasTable('dcs_office_drf_distribute_offices')) {
+            return;
+        }
+
+        DB::table('dcs_office_drf_distribute_offices')
+            ->where('office_intake_drf_id', $drfId)
+            ->delete();
+
+        $ids = array_values(array_unique(array_filter(array_map('intval', $officeIds))));
+        if ($ids === []) {
+            return;
+        }
+
+        $now = now();
+        $rows = [];
+        foreach ($ids as $index => $officeId) {
+            if ($officeId <= 0) {
+                continue;
+            }
+            $rows[] = [
+                'office_intake_drf_id' => $drfId,
+                'office_id' => $officeId,
+                'sort_order' => $index,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+        if ($rows !== []) {
+            DB::table('dcs_office_drf_distribute_offices')->insert($rows);
+        }
+    }
+
+    /** @return array<int, array{office_id: int, code: string, name: string}> */
+    public static function drfDistributeOffices(object $drf): array
+    {
+        $ids = self::distributeOfficeIds((int) ($drf->id ?? 0));
+        if ($ids === []) {
+            return [];
+        }
+
+        $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $byId = DB::table($officeTable)
+            ->whereIn('id', $ids)
+            ->get(['id', 'office_code', 'office_name'])
+            ->keyBy('id');
+
+        $offices = [];
+        foreach ($ids as $officeId) {
+            $row = $byId[$officeId] ?? null;
+            if (! $row) {
+                continue;
+            }
+            $code = trim((string) ($row->office_code ?? ''));
+            $name = trim((string) ($row->office_name ?? ''));
+            if ($code === '' && $name === '') {
+                continue;
+            }
+            $offices[] = [
+                'office_id' => $officeId,
+                'code' => $code,
+                'name' => $name,
+            ];
+        }
+
+        return $offices;
     }
 
     /** @return array<string, mixed>|null */
@@ -2630,28 +2637,13 @@ class OfficeIntakeHelper
             ->all();
 
         $distribute = self::drfDistributeOffices($drf);
-        $distributeIds = collect(self::decodeDistributeTo($drf->distribute_to ?? null))
-            ->map(function ($stored) {
-                $stored = trim((string) $stored);
-                if ($stored === '') {
-                    return null;
-                }
-                $row = DB::table(Schema::hasTable('sys_office') ? 'sys_office' : 'office')
-                    ->where(function ($q) use ($stored) {
-                        $q->where('office_code', $stored)->orWhere('office_name', $stored);
-                    })
-                    ->first(['id', 'office_name', 'office_code']);
-                if (! $row) {
-                    return null;
-                }
-
-                return [
-                    'office_id' => (int) $row->id,
-                    'office_name' => trim((string) ($row->office_name ?? '')),
-                    'office_code' => trim((string) ($row->office_code ?? '')),
-                ];
-            })
-            ->filter()
+        $distributeIds = collect($distribute)
+            ->map(fn (array $office) => [
+                'office_id' => (int) ($office['office_id'] ?? 0),
+                'office_name' => trim((string) ($office['name'] ?? '')),
+                'office_code' => trim((string) ($office['code'] ?? '')),
+            ])
+            ->filter(fn (array $office) => $office['office_id'] > 0)
             ->values()
             ->all();
 
@@ -2701,23 +2693,6 @@ class OfficeIntakeHelper
             ->values()
             ->all();
 
-        $dept = self::parseDepartmentDate($dcn->department_date ?? null);
-        if (($dept['department'] ?? '') !== '' || ($dept['department_code'] ?? '') !== '') {
-            $needle = trim((string) (($dept['department_code'] ?? '') !== '' ? $dept['department_code'] : $dept['department']));
-            $match = DB::table(Schema::hasTable('sys_office') ? 'sys_office' : 'office')
-                ->where(function ($q) use ($needle) {
-                    $q->where('office_code', $needle)->orWhere('office_name', $needle);
-                })
-                ->first(['id', 'office_name', 'office_code']);
-            if ($match && empty($sourceOffices)) {
-                $sourceOffices[] = [
-                    'office_id' => (int) $match->id,
-                    'office_name' => trim((string) ($match->office_name ?? '')),
-                    'office_code' => trim((string) ($match->office_code ?? '')),
-                ];
-            }
-        }
-
         $justification = trim((string) ($dcn->brief_purpose ?? ''));
         $changeFrom = trim((string) ($dcn->change_from ?? ''));
         $changeTo = trim((string) ($dcn->change_to ?? ''));
@@ -2744,53 +2719,6 @@ class OfficeIntakeHelper
             'changeTo' => $changeTo,
             'sourceOffices' => $sourceOffices,
         ];
-    }
-
-    public static function decodeDistributeTo(?string $json): array
-    {
-        if ($json === null || $json === '') {
-            return [];
-        }
-        $decoded = json_decode($json, true);
-
-        return is_array($decoded) ? array_values($decoded) : [];
-    }
-
-    /** @param  array<int|string|null>  $officeIds */
-    public static function officeCodesForIds(array $officeIds): array
-    {
-        $ids = array_values(array_unique(array_filter(array_map('intval', $officeIds))));
-        if ($ids === []) {
-            return [];
-        }
-
-        $byId = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')
-            ->whereIn('id', $ids)
-            ->get(['id', 'office_code', 'office_name'])
-            ->keyBy('id');
-
-        $codes = [];
-        foreach ($ids as $id) {
-            $row = $byId[$id] ?? null;
-            if (!$row) {
-                continue;
-            }
-            $code = trim((string) ($row->office_code ?? ''));
-            $label = $code !== '' ? $code : trim((string) ($row->office_name ?? ''));
-            if ($label !== '') {
-                $codes[] = $label;
-            }
-        }
-
-        return $codes;
-    }
-
-    /** @param  array<int, string>  $labels */
-    public static function encodeDistributeTo(array $labels): ?string
-    {
-        $labels = collect($labels)->map(fn ($v) => trim((string) $v))->filter()->values();
-
-        return $labels->isEmpty() ? null : json_encode($labels->all());
     }
 
     /** Parent doc-type groups shown in office document inventory. */

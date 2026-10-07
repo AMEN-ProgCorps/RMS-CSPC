@@ -549,7 +549,10 @@ class StampService
                 'auto_detected'    => $validated['position'] === 'auto',
             ]);
         } catch (\Throwable $e) {
-            Log::error('Stamp preview error: ' . $e->getMessage());
+            try {
+                Log::error('Stamp preview error: ' . $e->getMessage());
+            } catch (\Throwable) {
+            }
 
             return response()->json([
                 'success' => false,
@@ -741,12 +744,15 @@ class StampService
             ]);
 
         } catch (\Throwable $e) {
-            Log::error('Stamp apply error', [
-                'file'    => $validated['file_path'] ?? null,
-                'type'    => $validated['stamp_type'] ?? null,
-                'message' => $e->getMessage(),
-                'trace'   => $e->getTraceAsString(),
-            ]);
+            try {
+                Log::error('Stamp apply error', [
+                    'file'    => $validated['file_path'] ?? null,
+                    'type'    => $validated['stamp_type'] ?? null,
+                    'message' => $e->getMessage(),
+                    'trace'   => $e->getTraceAsString(),
+                ]);
+            } catch (\Throwable) {
+            }
 
             return response()->json([
                 'success' => false,
@@ -878,7 +884,10 @@ class StampService
                 ->deleteFileAfterSend(true);
 
         } catch (\Throwable $e) {
-            Log::error('Stamp download error: ' . $e->getMessage());
+            try {
+                Log::error('Stamp download error: ' . $e->getMessage());
+            } catch (\Throwable) {
+            }
 
             return response()->json([
                 'success' => false,

@@ -208,6 +208,7 @@
     @if(\App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake())
         <x-dcs.office-intake-modal />
     @endif
+    <x-rms-error />
     <x-dcs.toast />
     <x-chatify.floating-widget />
     @stack('scripts')

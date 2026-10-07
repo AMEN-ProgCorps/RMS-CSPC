@@ -531,7 +531,36 @@ body {
 
 .st-page-info strong { color: var(--st-text); font-weight: 700; }
 
-.st-page-links { display: flex; gap: 4px; }
+.st-page-tools {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.st-page-size {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    color: var(--st-text-muted);
+}
+
+.st-page-size select {
+    height: 34px;
+    border: 1px solid var(--st-border);
+    border-radius: 7px;
+    padding: 0 28px 0 10px;
+    font: inherit;
+    font-size: 0.82rem;
+    color: var(--st-text);
+    background: var(--st-surface);
+    cursor: pointer;
+}
+
+.st-page-links { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 
 .st-pg {
     display: inline-flex;

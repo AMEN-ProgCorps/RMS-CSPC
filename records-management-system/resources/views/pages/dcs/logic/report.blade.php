@@ -148,6 +148,46 @@ class ReportHelper
         return (int) $year;
     }
 
+    /** Print the same HTML the preview uses, so the downloaded PDF matches print. */
+    private function renderPreviewPdf(string $html): ?string
+    {
+        $binary = null;
+        foreach (['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable'] as $path) {
+            if (is_executable($path)) {
+                $binary = $path;
+                break;
+            }
+        }
+        if ($binary === null) {
+            return null;
+        }
+
+        $dir = sys_get_temp_dir();
+        $id = bin2hex(random_bytes(8));
+        $htmlFile = $dir.'/ml-'.$id.'.html';
+        $pdfFile = $dir.'/ml-'.$id.'.pdf';
+        file_put_contents($htmlFile, $html);
+
+        $cmd = 'HOME='.escapeshellarg($dir).' '.implode(' ', [
+            escapeshellarg($binary),
+            '--headless=new',
+            '--disable-gpu',
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            '--no-pdf-header-footer',
+            '--print-to-pdf-no-header',
+            '--print-to-pdf='.escapeshellarg($pdfFile),
+            escapeshellarg($htmlFile),
+        ]);
+
+        exec($cmd.' 2>/dev/null', $unused, $code);
+        $pdf = ($code === 0 && is_file($pdfFile)) ? file_get_contents($pdfFile) : false;
+        @unlink($htmlFile);
+        @unlink($pdfFile);
+
+        return is_string($pdf) && $pdf !== '' ? $pdf : null;
+    }
+
     /** CSPC form code shown on the report letterhead (right of blue rule). */
     private function letterNumberForReport(?string $category, ?string $sub): string
     {
@@ -351,7 +391,13 @@ class ReportHelper
     private function applyMasterlistCommonFilters($query, array $filters)
     {
         if (!empty($filters['originator'])) {
-            $query->where('ml.originator_name', $filters['originator']);
+            $originator = $filters['originator'];
+            $query->whereExists(function ($q) use ($originator) {
+                $q->select(DB::raw(1))
+                    ->from('dcs_originators as og')
+                    ->whereColumn('og.id', 'ml.originator_id')
+                    ->where('og.originator_name', $originator);
+            });
         }
 
         if (!empty($filters['source_unit'])) {
@@ -447,8 +493,9 @@ class ReportHelper
             $query->whereExists(function ($q) use ($originator) {
                 $q->select(DB::raw(1))
                     ->from('dcs_masterlist_registration as ml')
+                    ->join('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
                     ->whereColumn('ml.request_id', 'dr.id')
-                    ->where('ml.originator_name', $originator);
+                    ->where('og.originator_name', $originator);
             });
         }
 
@@ -520,9 +567,8 @@ class ReportHelper
     }
 
     /**
-     * Keep each document's revisions together. Date sorts use the earliest
-     * (ASC) or latest (DESC) effectivity in the family so years run in order
-     * instead of following the newest revision.
+     * Keep each document's revisions together. Date sorts use only the latest
+     * document in the family, so an older revision does not move the group.
      */
     private function sortRevisionFamilies($rows, array $filters, callable $masterlistOf)
     {
@@ -536,6 +582,13 @@ class ReportHelper
                     $this->familyDateSortValue($a, $sort, $masterlistOf, $descending),
                     $this->familyDateSortValue($b, $sort, $masterlistOf, $descending),
                     $descending
+                );
+                if ($cmp !== 0) {
+                    return $cmp;
+                }
+                $cmp = strnatcasecmp(
+                    (string) ($masterlistOf($this->latestInFamily($a, $masterlistOf))?->doc_no ?? ''),
+                    (string) ($masterlistOf($this->latestInFamily($b, $masterlistOf))?->doc_no ?? '')
                 );
                 if ($cmp !== 0) {
                     return $cmp;
@@ -620,8 +673,14 @@ class ReportHelper
 
         return $pool->sortByDesc(function ($row) use ($masterlistOf) {
             $ml = $masterlistOf($row);
+            $stamp = $this->sortDateStamp($ml?->effectivity_date ?? null);
 
-            return sprintf('%010d-%010d', (int) ($ml?->revise_no ?? 0), (int) ($ml?->id ?? 0));
+            return sprintf(
+                '%010d-%s-%010d',
+                (int) ($ml?->revise_no ?? 0),
+                $stamp !== '' ? $stamp : '0000-00-00',
+                (int) ($ml?->id ?? 0)
+            );
         })->first();
     }
 
@@ -632,22 +691,16 @@ class ReportHelper
 
     private function familyDateSortValue(array $family, string $sort, callable $masterlistOf, bool $descending): string
     {
-        $stamps = collect($family)
-            ->map(fn ($row) => (string) $this->familySortValue($row, $sort, $masterlistOf))
-            ->filter(fn ($value) => $value !== '')
-            ->values();
+        $latest = $this->latestInFamily($family, $masterlistOf);
 
-        if ($stamps->isEmpty()) {
-            return '';
-        }
-
-        return $descending ? (string) $stamps->max() : (string) $stamps->min();
+        return (string) $this->familySortValue($latest, $sort, $masterlistOf);
     }
 
     private function orderFamilyMembers(array $family, callable $masterlistOf, string $sort = 'effectivity_date', bool $descending = false)
     {
         if ($this->isDateSort($sort)) {
-            return collect($family)->sort(function ($a, $b) use ($masterlistOf, $sort, $descending) {
+            $reference = $this->latestInFamily($family, $masterlistOf);
+            $rest = collect($family)->reject(fn ($row) => $row === $reference)->sort(function ($a, $b) use ($masterlistOf, $sort, $descending) {
                 $cmp = $this->compareSortValues(
                     $this->familySortValue($a, $sort, $masterlistOf),
                     $this->familySortValue($b, $sort, $masterlistOf),
@@ -666,6 +719,8 @@ class ReportHelper
 
                 return $descending ? -$id : $id;
             })->values();
+
+            return $reference === null ? $rest : collect([$reference])->merge($rest)->values();
         }
 
         return collect($family)->sort(function ($a, $b) use ($masterlistOf) {
@@ -782,6 +837,17 @@ class ReportHelper
         return $counter;
     }
 
+    /** Narrow request rows for report builders. Relations are loaded separately. */
+    private function reportRequestRows($query)
+    {
+        return $query->orderByDesc('dr.id')->get([
+            'dr.id',
+            'dr.doc_type_id',
+            'dr.sub_type_id',
+            'dr.created_at',
+        ]);
+    }
+
     // ════════════════════════════════════════════
     // MASTERLIST REPORT
     // ════════════════════════════════════════════
@@ -803,7 +869,7 @@ class ReportHelper
         $query = $this->applyMasterlistPeriodFilter($query, $dateFrom, $dateTo);
         $query = $this->applyMasterlistCommonFilters($query, $filters);
 
-        $records = RegisterQueryHelper::hydrateMasterlists($query->get());
+        $records = RegisterQueryHelper::hydrateMasterlists($query->get(), ['types']);
         $records = $this->sortMasterlistFamilies($records, $filters);
 
         $counter = 0;
@@ -811,20 +877,21 @@ class ReportHelper
             $doc = $ml->request;
 
             return [
+                'ml_id'            => (int) ($ml->id ?? 0),
                 'item_no'          => $this->masterlistItemNumber($ml, $counter, $filters),
                 'doc_no'           => $ml->doc_no,
                 'rev_no'           => (int) ($ml->revise_no ?? 0),
                 'doc_title'        => $ml->doc_title,
                 'effectivity_date' => $ml->effectivity_date
                     ? RegisterQueryHelper::formatSmartDate($ml->effectivity_date) : null,
-                'originator'       => $ml->originator_name,
+                'originator'       => $ml->originator_name ?? null,
                 'no_pages'         => $ml->no_pages,
                 'doc_type'         => $doc?->docType?->doc_type_name ?? $ml->docType?->doc_type_name ?? 'N/A',
                 'sub_type'         => $doc?->subType?->doc_type_name ?? null,
                 'type_key'         => (int) ($doc?->doc_type_id ?? $ml->doc_type_id ?? 0)
                     . '|' . (int) ($doc?->sub_type_id ?? 0),
                 'pdf_path'         => $ml->scanned_masterlist
-                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
+                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist, false) : null,
                 'revision_status'  => strtolower(trim((string) ($ml->revision_status ?? ''))),
             ];
         })->values();
@@ -909,7 +976,9 @@ class ReportHelper
         $query = $this->applySubTypeFilter($query, $filters);
         $query = $this->applyUiMonitoringFilters($query, $filters);
 
-        $docs = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
+        $docs = RegisterQueryHelper::hydrateRequests($this->reportRequestRows($query), [
+            'types', 'masterlist', 'sourceOffices', 'drf', 'dcn', 'distribution',
+        ]);
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
         $docs = $this->sortMonitoringDocs($docs, $filters);
         $remarksByRequest = $this->monitoringRemarksByRequestId($docs);
@@ -997,7 +1066,7 @@ class ReportHelper
                 'forwarded_drr' => $forwardedDRR,
                 'remarks'       => $remarksByRequest[(int) $doc->id] ?? null,
                 'pdf_path'      => $ml && $ml->scanned_masterlist
-                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
+                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist, false) : null,
             ];
         })->values();
 
@@ -1098,7 +1167,9 @@ class ReportHelper
         $query = $this->applySubTypeFilter($query, $filters);
         $query = $this->applyUiMonitoringFilters($query, $filters);
 
-        $docs = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
+        $docs = RegisterQueryHelper::hydrateRequests($this->reportRequestRows($query), [
+            'types', 'masterlist', 'sourceOffices', 'drf', 'dcn', 'distribution',
+        ]);
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
         $docs = $this->sortMonitoringDocs($docs, $filters);
         $remarksByRequest = $this->monitoringRemarksByRequestId($docs);
@@ -1169,7 +1240,7 @@ class ReportHelper
                 'time_registered'  => $timeRegistered,
                 'mins_spent'       => $minsSpent,
                 'source'           => $source,
-                'in_charge'        => $ml ? ($ml->originator_name ?: null) : null,
+                'in_charge'        => $ml ? ($ml->originator_name ?? null) : null,
                 'control_number'   => $controlNumber,
                 'subject_matter'   => $subjectMatter,
                 'effectivity_date' => $effectivityDate,
@@ -1180,7 +1251,7 @@ class ReportHelper
                 'days_spent'       => $daysSpent,
                 'remarks'          => $remarksByRequest[(int) $doc->id] ?? null,
                 'pdf_path'         => $ml && $ml->scanned_masterlist
-                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
+                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist, false) : null,
             ];
         })->values();
 
@@ -1276,7 +1347,7 @@ class ReportHelper
                     ? $this->formatTime($drf->drf_receipt_time) : null,
                 'doc_type'         => $drf->doc_type_name ?: 'N/A',
                 'pdf_path'         => $drf->scanned_drf
-                    ? RegisterQueryHelper::scanUrl($drf->scanned_drf) : null,
+                    ? RegisterQueryHelper::scanUrl($drf->scanned_drf, false) : null,
             ];
         })->values();
 
@@ -1343,7 +1414,7 @@ class ReportHelper
                 'doc_type'         => $dcn->doc_type_name ?: 'N/A',
                 'revision_count'   => $revisions->count(),
                 'pdf_path'         => $dcn->scanned_dcn
-                    ? RegisterQueryHelper::scanUrl($dcn->scanned_dcn) : null,
+                    ? RegisterQueryHelper::scanUrl($dcn->scanned_dcn, false) : null,
             ];
         })->values();
 
@@ -1508,7 +1579,7 @@ class ReportHelper
                 'remarks'        => $remarksOverride,
                 'remarks_override' => $remarksOverride,
                 'pdf_path'       => $ml && $ml->scanned_masterlist
-                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist) : null,
+                    ? RegisterQueryHelper::scanUrl($ml->scanned_masterlist, false) : null,
             ];
 
             if ($layout === 'masterlist') {
@@ -1653,7 +1724,9 @@ class ReportHelper
         $query = $this->applyCommonFilters($query, $filters);
         $query = $this->applySubTypeFilter($query, $filters);
 
-        return RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
+        return RegisterQueryHelper::hydrateRequests($this->reportRequestRows($query), [
+            'types', 'masterlist', 'drf', 'distribution',
+        ]);
     }
 
     private function ensureMonitoringRemarksTable(): void
@@ -1878,7 +1951,9 @@ class ReportHelper
         $query = $this->applyCommonFilters($query, $filters);
         $query = $this->applySubTypeFilter($query, $filters);
 
-        $docs = RegisterQueryHelper::hydrateRequests($query->orderByDesc('dr.id')->get());
+        $docs = RegisterQueryHelper::hydrateRequests($this->reportRequestRows($query), [
+            'types', 'masterlist', 'drf', 'dcn',
+        ]);
         $docs = $this->filterRequestsByRevisionStatus($docs, $filters);
         $docs = $this->sortMonitoringDocs($docs, $filters);
 
@@ -1888,7 +1963,7 @@ class ReportHelper
             $drf = $doc->documentRequestForm;
             $dcn = $doc->documentChangeNotice;
 
-            $originator = $ml ? ($ml->originator_name ?: null) : null;
+            $originator = $ml ? ($ml->originator_name ?? null) : null;
 
             $checklists = collect();
             if ($drf) $checklists->push('DRF');
@@ -1981,6 +2056,19 @@ class ReportHelper
         $rows = $allRows;
         $isFiltered = false;
 
+        $selectedMlIds = collect(explode(',', (string) $request->get('ml_ids', '')))
+            ->map(fn ($v) => (int) trim($v))
+            ->filter(fn ($v) => $v > 0)
+            ->values();
+        if ($selectedMlIds->isNotEmpty()) {
+            $rows = $allRows->filter(function ($row) use ($selectedMlIds) {
+                $id = (int) (is_array($row) ? ($row['ml_id'] ?? 0) : ($row->ml_id ?? 0));
+
+                return $selectedMlIds->contains($id);
+            })->values();
+            $isFiltered = true;
+        }
+
         if ($request->has('rows') && $request->get('rows') !== 'none' && $request->get('rows') !== '') {
             $selectedIndices = collect(explode(',', $request->get('rows')))
                 ->map(fn($v) => trim($v))
@@ -2030,9 +2118,6 @@ class ReportHelper
             'plainTable'         => $isPlainTable,
             'isMlInternal'       => $isMlPrint,
             'checkedType'        => $checkedType,
-            'letterheadUrl'      => ($isPlainTable || $isMlPrint)
-                ? null
-                : ReportTemplateHelper::letterheadDataUrl((int) $request->get('template_id', 0)),
             'republic'           => 'Republic of the Philippines',
             'institutionName'    => 'Camarines Sur Polytechnic Colleges',
             'institutionAddress' => 'Nabua, Camarines Sur',
@@ -2072,8 +2157,19 @@ class ReportHelper
         }
 
  
-        // ── PDF via Dompdf ──
+        // ── PDF ──
         if ($format === 'pdf') {
+            $output = null;
+            if ($isMlPrint) {
+                $previewData = $viewData;
+                $previewData['isPdf'] = false;
+                $previewData['embed'] = true;
+                $output = $this->renderPreviewPdf(
+                    view('pages.dcs.reports.export-masterlist-internal', $previewData)->render()
+                );
+            }
+
+            if ($output === null) {
             $viewData['isPdf'] = true;
 
             $html = view($isMlPrint ? 'pages.dcs.reports.export-masterlist-internal' : 'pages.dcs.reports.export', $viewData)->render();
@@ -2109,6 +2205,7 @@ class ReportHelper
                 $canvas->page_text($w - 130, $footerY, 'Page {PAGE_NUM} of {PAGE_COUNT}', $font, 9, [0, 0, 0], 0, 1, '');
             }
             $output = $dompdf->output();
+            }
             $this->archiveGeneratedReport(
                 $output,
                 'pdf',
@@ -2235,7 +2332,7 @@ HTML;
     }
 
     /**
-     * Include selection + template in the fingerprint so partial/row-filtered exports stay distinct.
+     * Include the row and column selection in the fingerprint so partial exports stay distinct.
      *
      * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
@@ -2245,11 +2342,6 @@ HTML;
         $rowsParam = trim((string) $request->get('rows', ''));
         if ($rowsParam !== '') {
             $filters['_export_rows'] = $rowsParam;
-        }
-
-        $templateId = (int) $request->get('template_id', 0);
-        if ($templateId > 0) {
-            $filters['_template_id'] = $templateId;
         }
 
         $columnsParam = trim((string) $request->get('columns', ''));
@@ -2347,6 +2439,7 @@ HTML;
 
     private function buildCsvContent(array $columns, $rows, array $groupHeaders = []): string
     {
+        unset($columns['pdf_path']);
         $colKeys = array_keys($columns);
 
         if ($rows instanceof \Illuminate\Support\Collection) {
@@ -2397,9 +2490,6 @@ HTML;
             $line = [];
             foreach ($colKeys as $key) {
                 $val = is_array($row) ? ($row[$key] ?? '') : ($row->$key ?? '');
-                if ($key === 'pdf_path' && $val) {
-                    $val = 'View File';
-                }
                 if ($key === 'forwarded_drr') {
                     $val = !empty($val) ? 'Yes' : 'No';
                 }
@@ -2420,6 +2510,7 @@ HTML;
 
     private function generateCsv(array $columns, $rows, string $filename, array $groupHeaders = []): \Symfony\Component\HttpFoundation\StreamedResponse
     {
+        unset($columns['pdf_path']);
         $colKeys = array_keys($columns);
 
         if ($rows instanceof \Illuminate\Support\Collection) {
@@ -2473,9 +2564,6 @@ HTML;
                 $line = [];
                 foreach ($colKeys as $key) {
                     $val = is_array($row) ? ($row[$key] ?? '') : ($row->$key ?? '');
-                    if ($key === 'pdf_path' && $val) {
-                        $val = 'View File';
-                    }
                     if ($key === 'forwarded_drr') {
                         $val = !empty($val) ? 'Yes' : 'No';
                     }

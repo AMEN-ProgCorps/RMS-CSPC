@@ -1901,7 +1901,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     <!-- Filters & Table Card -->
     <div class="nap-card" x-data="{
         collapsedSubjects: {},
-        allSubjectsCollapsed: true,
+        allSubjectsCollapsed: false,
         collapsedRoots: {},
         allRootsCollapsed: false,
         
@@ -1909,6 +1909,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             this.collapsedSubjects[key] = !this.isSubjectsCollapsed(key);
         },
         isSubjectsCollapsed(key) {
+            if ($wire.search && $wire.search.trim().length > 0) {
+                return false;
+            }
             if (this.collapsedSubjects[key] !== undefined) {
                 return this.collapsedSubjects[key];
             }

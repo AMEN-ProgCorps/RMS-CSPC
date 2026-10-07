@@ -2084,8 +2084,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         if ($hasVolCol && !empty($sub['volume'])) {
                             $pRow['volume'] = trim($sub['volume']);
                         }
-                        if ($hasDescCol && !empty($sub['description'])) {
-                            $pRow['description'] = trim($sub['description']);
+                        if ($hasDescCol) {
+                            $subDesc = !empty(trim((string)($sub['description'] ?? '')))
+                                ? trim($sub['description'])
+                                : $this->formatSubPeriodDefaultDescription($sub['start_date'] ?? '', $sub['end_date'] ?? '', $rData['description']);
+                            if (!empty($subDesc)) {
+                                $pRow['description'] = $subDesc;
+                            }
                         }
                         DB::table('rdp_period_covered')->insert($pRow);
                     }
@@ -2368,8 +2373,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         if ($hasVolCol && !empty($sub['volume'])) {
                             $pRow['volume'] = trim($sub['volume']);
                         }
-                        if ($hasDescCol && !empty($sub['description'])) {
-                            $pRow['description'] = trim($sub['description']);
+                        if ($hasDescCol) {
+                            $subDesc = !empty(trim((string)($sub['description'] ?? '')))
+                                ? trim($sub['description'])
+                                : $this->formatSubPeriodDefaultDescription($sub['start_date'] ?? '', $sub['end_date'] ?? '', $rData['description']);
+                            if (!empty($subDesc)) {
+                                $pRow['description'] = $subDesc;
+                            }
                         }
                         DB::table('rdp_period_covered')->insert($pRow);
                     }
@@ -3862,11 +3872,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     </div>
                 </div>
 
-                <div class="ia-modal-footer">
-                    <button type="button" wire:click="closeBatchModal" class="ia-btn ia-btn-secondary">Close</button>
-                    <button type="button" wire:click="applyBatchModal" class="ia-btn ia-btn-primary">
-                        Apply & Save Breakdown
-                    </button>
+                <div class="ia-modal-footer" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <span style="font-size: 12px; color: #64748b; font-weight: 500;">
+                        💡 Applies period breakdown to form. Remember to click <strong>Create Record</strong> below to save.
+                    </span>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" wire:click="closeBatchModal" class="ia-btn ia-btn-secondary">Close</button>
+                        <button type="button" wire:click="applyBatchModal" class="ia-btn ia-btn-primary" style="background: #059669; border-color: #059669;">
+                            ✓ Apply Breakdown to Form
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

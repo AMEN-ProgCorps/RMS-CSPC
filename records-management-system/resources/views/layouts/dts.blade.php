@@ -70,7 +70,7 @@
     <!-- Dynamic QR Code Print Modal Script -->
     <script src="{{ asset('js/qr-print-modal.js') }}?v={{ file_exists(public_path('js/qr-print-modal.js')) ? filemtime(public_path('js/qr-print-modal.js')) : time() }}"></script>
 </head>
-<body>
+<body data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
     <header>
         <div class="cspc-logo">
             <img class="ico" src="{{ asset('images/cspc.png') }}" alt="CSPC">

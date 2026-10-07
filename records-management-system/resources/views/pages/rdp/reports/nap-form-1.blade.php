@@ -838,6 +838,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         return $year ?: ('Item ' . $fallbackIndex);
     }
 
+    private function formatDuplication(array $offices): string
+    {
+        $valid = [];
+        foreach ($offices as $o) {
+            $parts = preg_split('/\s*,\s*/', trim((string)$o));
+            foreach ($parts as $p) {
+                $p = trim($p);
+                if (!empty($p) && $p !== '—') {
+                    $valid[] = $p;
+                }
+            }
+        }
+        $unique = array_values(array_unique($valid));
+        if (empty($unique)) {
+            return '—';
+        }
+        if (count($unique) > 5) {
+            return 'Office Concern';
+        }
+        return implode(', ', $unique);
+    }
+
     private function processSeriesRecords(
         $records,
         $seriesId,
@@ -928,7 +950,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
                 if (!empty($r->duplication_id) && isset($duplications[$r->duplication_id])) {
                     $dupCodes = $duplications[$r->duplication_id]->pluck('office_code')->unique()->values()->all();
-                    $recDup = !empty($dupCodes) ? implode(', ', $dupCodes) : '—';
+                    $recDup = $this->formatDuplication($dupCodes);
                 } else {
                     $recDup = '—';
                 }
@@ -983,7 +1005,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
                     if (!empty($r->duplication_id) && isset($duplications[$r->duplication_id])) {
                         $dupCodes = $duplications[$r->duplication_id]->pluck('office_code')->unique()->values()->all();
-                        $rDup = !empty($dupCodes) ? implode(', ', $dupCodes) : '—';
+                        $rDup = $this->formatDuplication($dupCodes);
                     } else {
                         $rDup = '—';
                     }
@@ -1068,8 +1090,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 $parentFreq = !empty($allFreqs) ? implode(', ', $allFreqs) : '—';
                 $compiledFreqs[] = $parentFreq;
 
-                $allDups = array_unique(array_filter(array_map(fn($s) => ($s->duplication !== '—' ? $s->duplication : null), $subPeriodItems)));
-                $parentDup = !empty($allDups) ? implode(', ', $allDups) : '—';
+                $allDups = array_filter(array_map(fn($s) => ($s->duplication !== '—' ? $s->duplication : null), $subPeriodItems));
+                $parentDup = $this->formatDuplication($allDups);
                 $compiledDups[] = $parentDup;
 
                 $compiledTimes[] = $firstRec->time_value ?: 'T';
@@ -1291,15 +1313,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
     private function compileDuplication(array $dups): string
     {
-        $valid = [];
-        foreach ($dups as $d) {
-            $d = trim((string)$d);
-            if (!empty($d) && $d !== '—') {
-                $valid[] = $d;
-            }
-        }
-        $unique = array_values(array_unique($valid));
-        return !empty($unique) ? implode(', ', $unique) : '—';
+        return $this->formatDuplication($dups);
     }
 
     private function formatItemDate(string $rawDate): string

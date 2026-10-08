@@ -125,6 +125,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
             $effectiveOffice = ($isSadm && !empty($this->officeFilter)) ? $this->officeFilter : $userOffice;
 
+            // Ensure expired records are synced so they are excluded from selection
+            \App\Services\RdpRetentionService::syncTransferredRecords();
+
             $query = DB::table('rdp_record')
                 ->where('rdp_record.is_draft', false)
                 ->where('rdp_record.is_active', true)
@@ -159,7 +162,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
     public function toggleSeriesSelection(int $seriesId, array $childRecordIds): void
     {
-        $stringIds = array_map('strval', $childRecordIds);
+        $stringIds = array_values(array_filter(array_map('strval', $childRecordIds)));
+        if (empty($stringIds)) return;
+
         $allSelected = count(array_intersect($stringIds, $this->selectedIds)) === count($stringIds);
 
         if ($allSelected) {
@@ -1105,8 +1110,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
                 $rawDate = $p->date_covered ?? '';
                 $rawDateEnd = $p->date_covered_end ?? null;
-                if (!empty($rawDate)) $compiledDates[] = $rawDate;
-                if (!empty($rawDateEnd)) $compiledDates[] = $rawDateEnd;
                 $formattedDate = !empty($rawDateEnd) ? $this->formatDateRange($rawDate, $rawDateEnd) : $this->formatItemDate($rawDate);
                 $recVolume = $r->volume ?: '—';
 
@@ -1122,15 +1125,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 }
 
                 $uRows = ($utilities[$r->id] ?? collect())->pluck('utility_name')->all();
-
-                $compiledVols[] = $recVolume;
-                $compiledMediums[] = $recMedium;
-                $compiledRestrictions[] = $recRestriction;
-                $compiledLocs[] = $r->records_location;
-                $compiledFreqs[] = $recFreq;
-                $compiledDups[] = $recDup;
-                $compiledTimes[] = $r->time_value;
-                foreach ($uRows as $un) $compiledUtils[] = $un;
 
                 // Determine single record footprint status
                 $isRecRevised = isset($revisedRecordIds[$r->id]);
@@ -1168,6 +1162,21 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     $singleStatus = 'active';
                 }
 
+                // Disposed records must not contribute to the series compilation/total details
+                if ($singleStatus !== 'disposed') {
+                    if (!empty($rawDate)) $compiledDates[] = $rawDate;
+                    if (!empty($rawDateEnd)) $compiledDates[] = $rawDateEnd;
+                    if (!empty($recVolume) && $recVolume !== '—') $compiledVols[] = $recVolume;
+                    if (!empty($recMedium) && $recMedium !== '—') $compiledMediums[] = $recMedium;
+                    if (!empty($recRestriction) && $recRestriction !== '—') $compiledRestrictions[] = $recRestriction;
+                    if (!empty($r->records_location) && $r->records_location !== '—') $compiledLocs[] = $r->records_location;
+                    if (!empty($recFreq) && $recFreq !== '—') $compiledFreqs[] = $recFreq;
+                    if (!empty($recDup) && $recDup !== '—') $compiledDups[] = $recDup;
+                    if (!empty($r->time_value) && $r->time_value !== '—') $compiledTimes[] = $r->time_value;
+                    foreach ($uRows as $un) $compiledUtils[] = $un;
+                    $totalItemsCount++;
+                }
+
                 $childItems[] = (object)[
                     'id'            => $r->id,
                     'series_id'     => $seriesId,
@@ -1187,7 +1196,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     'is_disposed'   => ($singleStatus === 'disposed'),
                     'is_revised'    => ($singleStatus === 'revised'),
                 ];
-                $totalItemsCount++;
             } else {
                 // Batch Record (Single Batch or Merged Batch from same subject & office)
                 $subPeriodItems = [];
@@ -1294,62 +1302,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     $sItem->sub_index = $sIdx + 1;
                 }
 
-                $batchStart = !empty($allStartDates) ? min($allStartDates) : null;
-                $batchEnd = !empty($allEndDates) ? max($allEndDates) : (!empty($allStartDates) ? max($allStartDates) : null);
-                $formattedDate = $this->formatBatchDateRange($batchStart, $batchEnd, true);
-
-                if (!empty($batchStart) && !empty($batchEnd)) {
-                    $compiledDates[] = $batchStart . ' - ' . $batchEnd;
-                }
-                foreach ($groupPeriods as $gp) {
-                    $p = $gp['period'];
-                    if (!empty($p->date_covered) && !empty($p->date_covered_end)) {
-                        $compiledDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
-                    } elseif (!empty($p->date_covered)) {
-                        $compiledDates[] = $p->date_covered;
-                    } elseif (!empty($p->date_covered_end)) {
-                        $compiledDates[] = $p->date_covered_end;
-                    }
-                }
-
-                $subVols = array_filter(array_map(fn($s) => ($s->volume !== '—' ? $s->volume : null), $subPeriodItems));
-                $batchActiveVol = $this->compileVolume($subVols);
-                $recVolume = $batchActiveVol ?: '—';
-
-                $compiledVols[] = $recVolume;
-
-                $allMediums = array_unique(array_filter(array_map(fn($s) => ($s->medium !== '—' ? $s->medium : null), $subPeriodItems)));
-                $parentMedium = !empty($allMediums) ? implode(', ', $allMediums) : '—';
-                $compiledMediums[] = $parentMedium;
-
-                $allRestrictions = array_unique(array_filter(array_map(fn($s) => ($s->restriction !== '—' ? $s->restriction : null), $subPeriodItems)));
-                $parentRestriction = !empty($allRestrictions) ? implode(', ', $allRestrictions) : '—';
-                $compiledRestrictions[] = $parentRestriction;
-
-                $allLocs = array_unique(array_filter(array_map(fn($s) => ($s->location !== '—' ? $s->location : null), $subPeriodItems)));
-                $parentLocation = !empty($allLocs) ? implode(', ', $allLocs) : '—';
-                $compiledLocs[] = $parentLocation;
-
-                $allFreqs = array_unique(array_filter(array_map(fn($s) => ($s->frequence_use !== '—' ? $s->frequence_use : null), $subPeriodItems)));
-                $parentFreq = !empty($allFreqs) ? implode(', ', $allFreqs) : '—';
-                $compiledFreqs[] = $parentFreq;
-
-                $allDups = array_filter(array_map(fn($s) => ($s->duplication !== '—' ? $s->duplication : null), $subPeriodItems));
-                $parentDup = $this->formatDuplication($allDups);
-                $compiledDups[] = $parentDup;
-
-                $compiledTimes[] = $firstRec->time_value ?: 'T';
-
-                $allUtils = [];
-                foreach ($group as $r) {
-                    $uRows = ($utilities[$r->id] ?? collect())->pluck('utility_name')->all();
-                    foreach ($uRows as $un) {
-                        $compiledUtils[] = $un;
-                        $allUtils[] = $un;
-                    }
-                }
-                $parentUtils = array_values(array_unique($allUtils));
-
                 // Determine parent batch footprint status
                 $allDisposed = !empty($subPeriodItems) && count(array_filter($subPeriodItems, fn($s) => $s->status === 'disposed')) === count($subPeriodItems);
                 $anyRevised = !empty($subPeriodItems) && count(array_filter($subPeriodItems, fn($s) => $s->status === 'revised')) > 0;
@@ -1360,6 +1312,65 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     $batchStatus = 'disposed';
                 } else {
                     $batchStatus = 'active';
+                }
+
+                $batchStart = !empty($allStartDates) ? min($allStartDates) : null;
+                $batchEnd = !empty($allEndDates) ? max($allEndDates) : (!empty($allStartDates) ? max($allStartDates) : null);
+                $formattedDate = $this->formatBatchDateRange($batchStart, $batchEnd, true);
+
+                $subVols = array_filter(array_map(fn($s) => ($s->volume !== '—' ? $s->volume : null), $subPeriodItems));
+                $batchActiveVol = $this->compileVolume($subVols);
+                $recVolume = $batchActiveVol ?: '—';
+
+                $allMediums = array_unique(array_filter(array_map(fn($s) => ($s->medium !== '—' ? $s->medium : null), $subPeriodItems)));
+                $parentMedium = !empty($allMediums) ? implode(', ', $allMediums) : '—';
+
+                $allRestrictions = array_unique(array_filter(array_map(fn($s) => ($s->restriction !== '—' ? $s->restriction : null), $subPeriodItems)));
+                $parentRestriction = !empty($allRestrictions) ? implode(', ', $allRestrictions) : '—';
+
+                $allLocs = array_unique(array_filter(array_map(fn($s) => ($s->location !== '—' ? $s->location : null), $subPeriodItems)));
+                $parentLocation = !empty($allLocs) ? implode(', ', $allLocs) : '—';
+
+                $allFreqs = array_unique(array_filter(array_map(fn($s) => ($s->frequence_use !== '—' ? $s->frequence_use : null), $subPeriodItems)));
+                $parentFreq = !empty($allFreqs) ? implode(', ', $allFreqs) : '—';
+
+                $allDups = array_filter(array_map(fn($s) => ($s->duplication !== '—' ? $s->duplication : null), $subPeriodItems));
+                $parentDup = $this->formatDuplication($allDups);
+
+                $allUtils = [];
+                foreach ($group as $r) {
+                    $uRows = ($utilities[$r->id] ?? collect())->pluck('utility_name')->all();
+                    foreach ($uRows as $un) {
+                        $allUtils[] = $un;
+                    }
+                }
+                $parentUtils = array_values(array_unique($allUtils));
+
+                // Disposed batch records must not contribute to the series compilation/total details
+                if ($batchStatus !== 'disposed') {
+                    if (!empty($batchStart) && !empty($batchEnd)) {
+                        $compiledDates[] = $batchStart . ' - ' . $batchEnd;
+                    }
+                    foreach ($groupPeriods as $gp) {
+                        $p = $gp['period'];
+                        if (!empty($p->date_covered) && !empty($p->date_covered_end)) {
+                            $compiledDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
+                        } elseif (!empty($p->date_covered)) {
+                            $compiledDates[] = $p->date_covered;
+                        } elseif (!empty($p->date_covered_end)) {
+                            $compiledDates[] = $p->date_covered_end;
+                        }
+                    }
+
+                    if (!empty($recVolume) && $recVolume !== '—') $compiledVols[] = $recVolume;
+                    if (!empty($parentMedium) && $parentMedium !== '—') $compiledMediums[] = $parentMedium;
+                    if (!empty($parentRestriction) && $parentRestriction !== '—') $compiledRestrictions[] = $parentRestriction;
+                    if (!empty($parentLocation) && $parentLocation !== '—') $compiledLocs[] = $parentLocation;
+                    if (!empty($parentFreq) && $parentFreq !== '—') $compiledFreqs[] = $parentFreq;
+                    if (!empty($parentDup) && $parentDup !== '—') $compiledDups[] = $parentDup;
+                    if (!empty($firstRec->time_value) && $firstRec->time_value !== '—') $compiledTimes[] = $firstRec->time_value;
+                    foreach ($allUtils as $un) $compiledUtils[] = $un;
+                    $totalItemsCount++;
                 }
 
                 $childItems[] = (object)[
@@ -1382,7 +1393,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     'is_disposed'   => ($batchStatus === 'disposed'),
                     'is_revised'    => ($batchStatus === 'revised'),
                 ];
-                $totalItemsCount++;
             }
         }
 
@@ -1496,7 +1506,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             }
         }
         $unique = array_values(array_unique($valid));
-        return !empty($unique) ? implode(', ', $unique) : 'T';
+        return !empty($unique) ? implode(', ', $unique) : '—';
     }
 
     private function compileUtility(array $utilityNames): string
@@ -1512,7 +1522,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $abbrs[] = $map[$n] ?? strtoupper(substr($n, 0, 3));
         }
         $unique = array_values(array_unique($abbrs));
-        return !empty($unique) ? implode(', ', $unique) : 'A';
+        return !empty($unique) ? implode(', ', $unique) : '—';
     }
 
     private function formatItemUtility(array $utilityNames): string
@@ -1862,30 +1872,53 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
                     if (empty($childItems)) continue;
 
-                    if ($isPerm) $permanentCount++; else $temporaryCount++;
+                    $activeChildItems = array_values(array_filter($childItems, fn($c) => ($c->status ?? 'active') !== 'disposed'));
+                    $hasOnlyDisposed = !empty($childItems) && empty($activeChildItems);
+                    $selectableChildIds = array_values(array_filter(array_column($activeChildItems, 'id')));
+
+                    if (!$hasOnlyDisposed) {
+                        if ($isPerm) $permanentCount++; else $temporaryCount++;
+                    }
 
                     $rootNode->sub_series[] = (object)[
                         'id'                   => $sub->id,
                         'series_title'         => $sub->series_title,
                         'shorted_type'         => $sub->shorted_type ?: $root->shorted_type,
-                        'compiled_period'      => $this->compilePeriodCovered($compiledDates),
-                        'compiled_volume'      => $this->compileVolume($compiledVols),
-                        'compiled_medium'      => $this->compileMedium($compiledMediums),
-                        'compiled_restriction' => $this->compileRestriction($compiledRestrictions),
-                        'compiled_location'    => $this->compileLocation($compiledLocs),
-                        'compiled_freq'        => $this->compileFrequency($compiledFreqs),
-                        'compiled_duplication' => $this->compileDuplication($compiledDups),
-                        'compiled_time'        => $this->compileTimeValue($compiledTimes),
-                        'compiled_util'        => $this->compileUtility($compiledUtils),
-                        'active_period'        => $isPerm ? 'PERMANENT' : $effActive,
-                        'storage_period'       => $isPerm ? '' : $effStorage,
-                        'total_period'         => $isPerm ? 'PERMANENT' : $effTotal,
+                        'compiled_period'      => $hasOnlyDisposed ? '—' : $this->compilePeriodCovered($compiledDates),
+                        'compiled_volume'      => $hasOnlyDisposed ? '—' : $this->compileVolume($compiledVols),
+                        'compiled_medium'      => $hasOnlyDisposed ? '—' : $this->compileMedium($compiledMediums),
+                        'compiled_restriction' => $hasOnlyDisposed ? '—' : $this->compileRestriction($compiledRestrictions),
+                        'compiled_location'    => $hasOnlyDisposed ? '—' : $this->compileLocation($compiledLocs),
+                        'compiled_freq'        => $hasOnlyDisposed ? '—' : $this->compileFrequency($compiledFreqs),
+                        'compiled_duplication' => $hasOnlyDisposed ? '—' : $this->compileDuplication($compiledDups),
+                        'compiled_time'        => $hasOnlyDisposed ? '—' : $this->compileTimeValue($compiledTimes),
+                        'compiled_util'        => $hasOnlyDisposed ? '—' : $this->compileUtility($compiledUtils),
+                        'active_period'        => $hasOnlyDisposed ? '—' : ($isPerm ? 'PERMANENT' : $effActive),
+                        'storage_period'       => $hasOnlyDisposed ? '—' : ($isPerm ? '' : $effStorage),
+                        'total_period'         => $hasOnlyDisposed ? '—' : ($isPerm ? 'PERMANENT' : $effTotal),
                         'is_permanent'         => $isPerm,
-                        'remarks'              => $sub->remarks ?: ($root->remarks ?: ''),
+                        'remarks'              => $hasOnlyDisposed ? '—' : ($sub->remarks ?: ($root->remarks ?: '')),
                         'records'              => $childItems,
                         'record_ids'           => array_column($childItems, 'id'),
+                        'selectable_record_ids'=> $selectableChildIds,
+                        'active_records_count' => count($activeChildItems),
+                        'has_only_disposed'    => $hasOnlyDisposed,
                     ];
                 }
+
+                $allSelectableInSubs = [];
+                $allSubRecordsCount = 0;
+                $activeSubRecordsCount = 0;
+                foreach ($rootNode->sub_series as $s) {
+                    foreach ($s->selectable_record_ids as $sId) {
+                        $allSelectableInSubs[] = $sId;
+                    }
+                    $allSubRecordsCount += count($s->records);
+                    $activeSubRecordsCount += ($s->active_records_count ?? 0);
+                }
+                $rootNode->selectable_record_ids = array_values(array_unique($allSelectableInSubs));
+                $rootNode->active_records_count  = $activeSubRecordsCount;
+                $rootNode->has_only_disposed     = ($allSubRecordsCount > 0 && $activeSubRecordsCount === 0);
             } else {
                 // Direct records under root
                 $directRecs = $recordsBySeries[$root->id] ?? collect();
@@ -1932,22 +1965,32 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
                 if (empty($childItems)) continue;
 
-                if ($isPerm) $permanentCount++; else $temporaryCount++;
+                $activeChildItems = array_values(array_filter($childItems, fn($c) => ($c->status ?? 'active') !== 'disposed'));
+                $hasOnlyDisposed = !empty($childItems) && empty($activeChildItems);
+                $selectableChildIds = array_values(array_filter(array_column($activeChildItems, 'id')));
 
-                $rootNode->compiled_period      = $this->compilePeriodCovered($compiledDates);
-                $rootNode->compiled_volume      = $this->compileVolume($compiledVols);
-                $rootNode->compiled_medium      = $this->compileMedium($compiledMediums);
-                $rootNode->compiled_restriction = $this->compileRestriction($compiledRestrictions);
-                $rootNode->compiled_location    = $this->compileLocation($compiledLocs);
-                $rootNode->compiled_freq        = $this->compileFrequency($compiledFreqs);
-                $rootNode->compiled_duplication = $this->compileDuplication($compiledDups);
-                $rootNode->compiled_time        = $this->compileTimeValue($compiledTimes);
-                $rootNode->compiled_util        = $this->compileUtility($compiledUtils);
-                $rootNode->active_period        = $isPerm ? 'PERMANENT' : ($root->active_period ?: '—');
-                $rootNode->storage_period       = $isPerm ? '' : ($root->storage_period ?: '');
-                $rootNode->total_period         = $isPerm ? 'PERMANENT' : ($root->total_period ?: '—');
+                if (!$hasOnlyDisposed) {
+                    if ($isPerm) $permanentCount++; else $temporaryCount++;
+                }
+
+                $rootNode->has_only_disposed     = $hasOnlyDisposed;
+                $rootNode->active_records_count  = count($activeChildItems);
+                $rootNode->selectable_record_ids = $selectableChildIds;
+
+                $rootNode->compiled_period      = $hasOnlyDisposed ? '—' : $this->compilePeriodCovered($compiledDates);
+                $rootNode->compiled_volume      = $hasOnlyDisposed ? '—' : $this->compileVolume($compiledVols);
+                $rootNode->compiled_medium      = $hasOnlyDisposed ? '—' : $this->compileMedium($compiledMediums);
+                $rootNode->compiled_restriction = $hasOnlyDisposed ? '—' : $this->compileRestriction($compiledRestrictions);
+                $rootNode->compiled_location    = $hasOnlyDisposed ? '—' : $this->compileLocation($compiledLocs);
+                $rootNode->compiled_freq        = $hasOnlyDisposed ? '—' : $this->compileFrequency($compiledFreqs);
+                $rootNode->compiled_duplication = $hasOnlyDisposed ? '—' : $this->compileDuplication($compiledDups);
+                $rootNode->compiled_time        = $hasOnlyDisposed ? '—' : $this->compileTimeValue($compiledTimes);
+                $rootNode->compiled_util        = $hasOnlyDisposed ? '—' : $this->compileUtility($compiledUtils);
+                $rootNode->active_period        = $hasOnlyDisposed ? '—' : ($isPerm ? 'PERMANENT' : ($root->active_period ?: '—'));
+                $rootNode->storage_period       = $hasOnlyDisposed ? '—' : ($isPerm ? '' : ($root->storage_period ?: ''));
+                $rootNode->total_period         = $hasOnlyDisposed ? '—' : ($isPerm ? 'PERMANENT' : ($root->total_period ?: '—'));
                 $rootNode->is_permanent         = $isPerm;
-                $rootNode->remarks              = $root->remarks ?? '';
+                $rootNode->remarks              = $hasOnlyDisposed ? '—' : ($root->remarks ?? '');
                 $rootNode->direct_records       = $childItems;
                 $rootNode->record_ids           = array_column($childItems, 'id');
             }
@@ -2398,30 +2441,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         <tr class="root-series-row">
                             <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                 <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                    @if(!$root->has_children && !empty($root->record_ids))
-                                        @php
-                                            $strIds = array_map('strval', $root->record_ids);
-                                            $isAllSelected = !empty($strIds) && count(array_intersect($strIds, $selectedIds)) === count($strIds);
-                                        @endphp
-                                        <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($root->record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select record series">
-                                    @elseif($root->has_children)
-                                        @php
-                                            $allRootChildIds = [];
-                                            foreach ($root->sub_series as $s) {
-                                                foreach ($s->record_ids as $rid) {
-                                                    $allRootChildIds[] = $rid;
-                                                }
-                                            }
-                                            $strRootIds = array_map('strval', $allRootChildIds);
-                                            $isRootChecked = !empty($strRootIds) && count(array_intersect($strRootIds, $selectedIds)) === count($strRootIds);
-                                        @endphp
-                                        @if(!empty($allRootChildIds))
-                                            <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($allRootChildIds) }})" {{ $isRootChecked ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select record series group">
+                                    @if(!$root->has_children)
+                                        @if(!empty($root->selectable_record_ids))
+                                            @php
+                                                $strIds = array_map('strval', $root->selectable_record_ids);
+                                                $isAllSelected = !empty($strIds) && count(array_intersect($strIds, $selectedIds)) === count($strIds);
+                                            @endphp
+                                            <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($root->selectable_record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select record series">
                                         @else
-                                            <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
+                                            <span style="width: 15px; display: inline-block;"></span>
+                                        @endif
+                                    @elseif($root->has_children)
+                                        @if(!empty($root->selectable_record_ids))
+                                            @php
+                                                $strRootIds = array_map('strval', $root->selectable_record_ids);
+                                                $isRootChecked = !empty($strRootIds) && count(array_intersect($strRootIds, $selectedIds)) === count($strRootIds);
+                                            @endphp
+                                            <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($root->selectable_record_ids) }})" {{ $isRootChecked ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select record series group">
+                                        @else
+                                            <span style="width: 15px; display: inline-block;"></span>
                                         @endif
                                     @else
-                                        <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
+                                        <span style="width: 15px; display: inline-block;"></span>
                                     @endif
 
                                     @if(!$root->has_children)
@@ -2455,12 +2496,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     @if(!$root->has_children)
                                         <span @click="toggleSubjects('root-{{ $root->id }}')" style="cursor: pointer;" title="Click to hide/unhide subjects">{{ $root->series_title }}</span>
-                                        @if(count($root->direct_records) > 0)
-                                            <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($root->direct_records) }})</span>
+                                        @if(($root->active_records_count ?? 0) > 0)
+                                            <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ $root->active_records_count }})</span>
                                         @endif
                                     @else
                                         <span @click="toggleRoot('root-{{ $root->id }}')" style="cursor: pointer;" title="Click to hide/unhide group">{{ $root->series_title }}</span>
-                                        <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($root->sub_series) }} sub)</span>
+                                        @php
+                                            $activeSubsCount = count(array_filter($root->sub_series, fn($s) => !($s->has_only_disposed ?? false)));
+                                        @endphp
+                                        @if($activeSubsCount > 0)
+                                            <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ $activeSubsCount }} sub)</span>
+                                        @endif
                                     @endif
                                     @if($root->shorted_type)
                                         <span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; font-weight: 700;">
@@ -2480,7 +2526,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                 <td style="text-align: center; font-size: 12px; color: #334155;">{{ $root->compiled_duplication }}</td>
                                 <td style="text-align: center; font-weight: 800; color: #1e40af;">{{ $root->compiled_time }}</td>
                                 <td style="text-align: center; font-weight: 700; color: #334155; font-size: 11.5px;">{{ $root->compiled_util }}</td>
-                                @if($root->is_permanent)
+                                @if($root->has_only_disposed ?? false)
+                                    <td style="text-align: center; font-size: 12px; font-weight: 600; color: #94a3b8;">—</td>
+                                    <td style="text-align: center; font-size: 12px; font-weight: 600; color: #94a3b8;">—</td>
+                                    <td style="text-align: center; font-size: 12px; font-weight: 800; color: #94a3b8;">—</td>
+                                @elseif($root->is_permanent)
                                     <td colspan="3" style="text-align: center; font-weight: 800; color: #dc2626; background: #fef2f2;">PERMANENT</td>
                                 @else
                                     <td style="text-align: center; font-size: 12px; font-weight: 600;">{{ $root->active_period }}</td>
@@ -2503,14 +2553,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                 <tr class="sub-series-row" x-show="!isRootCollapsed('root-{{ $root->id }}')">
                                     <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                         <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                            @if(!empty($sub->record_ids))
+                                            @if(!empty($sub->selectable_record_ids))
                                                 @php
-                                                    $strIds = array_map('strval', $sub->record_ids);
+                                                    $strIds = array_map('strval', $sub->selectable_record_ids);
                                                     $isAllSelected = !empty($strIds) && count(array_intersect($strIds, $selectedIds)) === count($strIds);
                                                 @endphp
-                                                <input type="checkbox" wire:click="toggleSeriesSelection({{ $sub->id }}, {{ json_encode($sub->record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select sub-series">
+                                                <input type="checkbox" wire:click="toggleSeriesSelection({{ $sub->id }}, {{ json_encode($sub->selectable_record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select sub-series">
                                             @else
-                                                <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
+                                                <span style="width: 15px; display: inline-block;"></span>
                                             @endif
 
                                             @if(count($sub->records) > 0)
@@ -2532,8 +2582,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         <div style="display: flex; align-items: center; gap: 6px;">
                                             <span class="corner-symbol">└</span>
                                             <span @click="toggleSubjects('sub-{{ $sub->id }}')" style="cursor: pointer;" title="Click to hide/unhide subjects">{{ $sub->series_title }}</span>
-                                            @if(count($sub->records) > 0)
-                                                <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($sub->records) }})</span>
+                                            @if(($sub->active_records_count ?? 0) > 0)
+                                                <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ $sub->active_records_count }})</span>
                                             @endif
                                         </div>
                                     </td>
@@ -2546,7 +2596,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     <td style="text-align: center; font-size: 12px; color: #1e293b;">{{ $sub->compiled_duplication }}</td>
                                     <td style="text-align: center; font-weight: 800; color: #1e40af;">{{ $sub->compiled_time }}</td>
                                     <td style="text-align: center; font-weight: 700; color: #334155; font-size: 11.5px;">{{ $sub->compiled_util }}</td>
-                                    @if($sub->is_permanent)
+                                    @if($sub->has_only_disposed ?? false)
+                                        <td style="text-align: center; font-size: 12px; font-weight: 600; color: #94a3b8;">—</td>
+                                        <td style="text-align: center; font-size: 12px; font-weight: 600; color: #94a3b8;">—</td>
+                                        <td style="text-align: center; font-size: 12px; font-weight: 800; color: #94a3b8;">—</td>
+                                    @elseif($sub->is_permanent)
                                         <td colspan="3" style="text-align: center; font-weight: 800; color: #dc2626; background: #fef2f2;">PERMANENT</td>
                                     @else
                                         <td style="text-align: center; font-size: 12px; font-weight: 600;">{{ $sub->active_period }}</td>

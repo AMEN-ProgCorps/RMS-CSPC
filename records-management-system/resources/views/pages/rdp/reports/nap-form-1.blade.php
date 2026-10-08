@@ -2096,6 +2096,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         .record-sub-period-row.is-disposed td {
             color: #0f172a !important;
             font-weight: 500;
+            border-color: #e2e8f0 !important;
+        }
+
+        /* Selection column always retains clean white background & uniform border */
+        .record-item-row.is-disposed td:first-child,
+        .record-sub-period-row.is-disposed td:first-child,
+        .record-item-row.is-revised td:first-child,
+        .record-sub-period-row.is-revised td:first-child {
+            background: #ffffff !important;
+            border-color: #e2e8f0 !important;
         }
 
         .nap-badge-disposed {
@@ -2119,6 +2129,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         .record-item-row.is-revised td,
         .record-sub-period-row.is-revised td {
             color: #9a3412 !important;
+            border-color: #e2e8f0 !important;
         }
         .record-item-row.is-revised:hover,
         .record-sub-period-row.is-revised:hover {

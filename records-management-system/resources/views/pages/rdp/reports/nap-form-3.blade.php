@@ -111,6 +111,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
         // Synchronize retention expiration ONCE on page load (not on every Livewire render)
         RdpRetentionService::syncTransferredRecords();
+
+        if (request()->has('search')) {
+            $this->search = trim((string)request()->query('search'));
+        }
     }
 
     // Cached table name lookups (resolved once, reused on every render)
@@ -2217,7 +2221,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     </select>
                 @else
                     <div style="display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 700; color: #1e293b;">
-                        <span style="color: #dc2626;">🏢</span>
+                        <span style="color: #dc2626; display: inline-flex; align-items: center;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><path d="M9 22v-4h6v4"></path><path d="M8 6h.01"></path><path d="M16 6h.01"></path><path d="M8 10h.01"></path><path d="M16 10h.01"></path><path d="M8 14h.01"></path><path d="M16 14h.01"></path></svg>
+                        </span>
                         <span>Office: {{ $userOfficeCode ?? 'N/A' }}</span>
                     </div>
                 @endif
@@ -2714,8 +2720,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <button type="button" wire:click="closePrintModal" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700;">
-                            ✕ Close Preview
+                        <button type="button" wire:click="closePrintModal" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            <span>Close Preview</span>
                         </button>
                     </div>
                 </div>
@@ -2890,16 +2897,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     <div>
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">
-                                {{ $isEditingSubject ? ($editingIsBatchSubPeriod ? 'Edit Batch Item Record' : 'Edit Record Subject') : ($editingIsBatchSubPeriod ? 'View Batch Item Record' : 'View Record Details') }}
+                                {{ $isEditingSubject ? ($editingIsBatchSubPeriod ? 'Edit Batch Item Record' : 'Edit Record Subject') : ($editingIsBatchSubPeriod ? 'View Batch Item Record' : 'View Record Subject') }}
                             </h3>
                             @if($isEditingSubject)
-                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 2px 7px; border-radius: 9999px;">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                                <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 9999px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                                     EDITING
                                 </span>
                             @else
-                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 7px; border-radius: 9999px;">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 9999px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                     VIEW ONLY
                                 </span>
                             @endif
@@ -2908,7 +2915,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             {{ $isEditingSubject ? ($editingIsBatchSubPeriod ? 'Update volume, dates, or classifications for this batch item.' : 'Update and fix details, typos, or classifications for this record.') : 'Inspect record details, classifications, and storage parameters.' }}
                         </p>
                     </div>
-                    <button type="button" wire:click="closeEditSubjectModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
+                    <button type="button" wire:click="closeEditSubjectModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px;" title="Close Modal">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
                 </div>
 
                 <form wire:submit.prevent="saveEditSubject" style="display: flex; flex-direction: column; gap: 14px;">
@@ -3113,7 +3122,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                 </div>
                             </div>
                             <a href="{{ $attachedFileUrl }}" target="_blank" rel="noopener noreferrer" class="nap-btn nap-btn-primary" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 6px 14px; text-decoration: none; flex-shrink: 0; white-space: nowrap;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                 View File
                             </a>
                         </div>
@@ -3154,12 +3163,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             <div class="modal-dialog">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
                     <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">Create Request for Disposal Authority Form</h3>
-                    <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
+                    <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px;" title="Close Modal">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 14px;">
-                    <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #991b1b; font-weight: 600;">
-                        🗑️ Packaging selected expired records into a Request for Disposal Authority submission form.
+                    <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #991b1b; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                        <span>Packaging selected expired records into a Request for Disposal Authority submission form.</span>
                     </div>
 
                     <div>

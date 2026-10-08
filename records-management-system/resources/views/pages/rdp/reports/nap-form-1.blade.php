@@ -781,6 +781,30 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         $this->selectAll = false;
     }
 
+    public function redirectToNap3(int $recordId): void
+    {
+        $rec = DB::table('rdp_record')->where('id', $recordId)->first();
+        $search = $rec?->description ? trim($rec->description) : '';
+        $this->redirectRoute('rdp.reports.nap-form-3', ['search' => $search]);
+    }
+
+    public function redirectToDcs(int $recordId): void
+    {
+        $docCode = null;
+        if (\Illuminate\Support\Facades\Schema::hasTable('rdp_received_documents')) {
+            $docCode = DB::table('rdp_received_documents')
+                ->where('source_subsystem', 'DCS')
+                ->where('appraised_record_id', $recordId)
+                ->value('document_code');
+        }
+
+        if ($docCode) {
+            $this->redirectRoute('dcs.database.index', ['search' => $docCode]);
+        } else {
+            $this->redirectRoute('dcs.database.index');
+        }
+    }
+
     // Helper compilers for series summary rows
     private function compilePeriodCovered(array $dates): string
     {
@@ -1024,7 +1048,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         &$compiledDups,
         &$compiledTimes,
         &$compiledUtils,
-        &$totalItemsCount
+        &$totalItemsCount,
+        array $revisedRecordIds = [],
+        array $dcsObsoleteDocs = []
     ): array {
         $childItems = [];
 
@@ -1039,32 +1065,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $firstRec = $group->first();
             $primarySubject = $firstRec->description;
 
-            // Collect active periods for all records in this group
+            // Collect all periods for all records in this group
             $groupPeriods = [];
             foreach ($group as $r) {
                 $rPeriods = $periods[$r->id] ?? collect();
-                $isRecordBatch = (bool)($r->ispartof_batch ?? false) || $rPeriods->count() > 1;
-
-                if ($isRecordBatch) {
-                    $activeP = $rPeriods->filter(function($p) use ($effTotal, $effActive, $effStorage, $isPerm) {
-                        return !\App\Services\RdpRetentionService::isPeriodExpired(
-                            $p->date_covered,
-                            $p->date_covered_end ?? null,
-                            $effTotal,
-                            $effActive,
-                            $effStorage,
-                            $isPerm
-                        );
-                    });
-                } else {
-                    $activeP = $rPeriods;
-                }
-
-                foreach ($activeP as $p) {
+                if ($rPeriods->isEmpty()) {
                     $groupPeriods[] = [
                         'rec'    => $r,
-                        'period' => $p,
+                        'period' => (object)[
+                            'id'               => null,
+                            'date_covered'     => '—',
+                            'date_covered_end' => null,
+                            'volume'           => $r->volume,
+                            'description'      => null,
+                        ],
                     ];
+                } else {
+                    foreach ($rPeriods as $p) {
+                        $groupPeriods[] = [
+                            'rec'    => $r,
+                            'period' => $p,
+                        ];
+                    }
                 }
             }
 
@@ -1110,6 +1132,42 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 $compiledTimes[] = $r->time_value;
                 foreach ($uRows as $un) $compiledUtils[] = $un;
 
+                // Determine single record footprint status
+                $isRecRevised = isset($revisedRecordIds[$r->id]);
+                if (!$isRecRevised && !empty($dcsObsoleteDocs)) {
+                    $dLow = mb_strtolower((string)$r->description);
+                    foreach ($dcsObsoleteDocs as $obs) {
+                        if (!empty($obs) && str_contains($dLow, $obs)) {
+                            $isRecRevised = true;
+                            break;
+                        }
+                    }
+                }
+                if (!$isRecRevised) {
+                    $dLow = mb_strtolower((string)$r->description);
+                    if (str_contains($dLow, '[revised]') || str_contains($dLow, '(revised)') || preg_match('/\b(revised|superseded)\b/i', $dLow)) {
+                        $isRecRevised = true;
+                    }
+                }
+
+                $isPExpired = \App\Services\RdpRetentionService::isPeriodExpired(
+                    $p->date_covered ?? null,
+                    $p->date_covered_end ?? null,
+                    $effTotal,
+                    $effActive,
+                    $effStorage,
+                    $isPerm
+                );
+                $isRecordTransferred = (bool)($r->transferred_to_nap3 ?? false);
+
+                if ($isRecRevised) {
+                    $singleStatus = 'revised';
+                } elseif ($isRecordTransferred || $isPExpired) {
+                    $singleStatus = 'disposed';
+                } else {
+                    $singleStatus = 'active';
+                }
+
                 $childItems[] = (object)[
                     'id'            => $r->id,
                     'series_id'     => $seriesId,
@@ -1125,6 +1183,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     'utility'       => $this->formatItemUtility($uRows),
                     'is_batch'      => false,
                     'sub_periods'   => [],
+                    'status'        => $singleStatus,
+                    'is_disposed'   => ($singleStatus === 'disposed'),
+                    'is_revised'    => ($singleStatus === 'revised'),
                 ];
                 $totalItemsCount++;
             } else {
@@ -1165,10 +1226,46 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
                     $subVol = !empty($p->volume) ? $p->volume : (!empty($r->volume) ? $r->volume : '—');
 
+                    // Determine sub-period footprint status
+                    $isGpRecRevised = isset($revisedRecordIds[$r->id]);
+                    if (!$isGpRecRevised && !empty($dcsObsoleteDocs)) {
+                        $dLow = mb_strtolower((string)$r->description);
+                        foreach ($dcsObsoleteDocs as $obs) {
+                            if (!empty($obs) && str_contains($dLow, $obs)) {
+                                $isGpRecRevised = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!$isGpRecRevised) {
+                        $dLow = mb_strtolower((string)($p->description ?: $r->description));
+                        if (str_contains($dLow, '[revised]') || str_contains($dLow, '(revised)') || preg_match('/\b(revised|superseded)\b/i', $dLow)) {
+                            $isGpRecRevised = true;
+                        }
+                    }
+
+                    $isPExpired = \App\Services\RdpRetentionService::isPeriodExpired(
+                        $p->date_covered ?? null,
+                        $p->date_covered_end ?? null,
+                        $effTotal,
+                        $effActive,
+                        $effStorage,
+                        $isPerm
+                    );
+                    $isPTransferred = (bool)($r->transferred_to_nap3 ?? false);
+
+                    if ($isGpRecRevised) {
+                        $pStatus = 'revised';
+                    } elseif ($isPTransferred || $isPExpired) {
+                        $pStatus = 'disposed';
+                    } else {
+                        $pStatus = 'active';
+                    }
+
                     $subPeriodItems[] = (object)[
-                        'id'            => $r->id . '-sub-' . $p->id,
+                        'id'            => $r->id . '-sub-' . ($p->id ?? rand(1000, 9999)),
                         'parent_rec_id' => $r->id,
-                        'period_id'     => $p->id,
+                        'period_id'     => $p->id ?? null,
                         'description'   => $subTitle,
                         'date_covered'  => $this->formatBatchDateRange($pStart, $pEnd, false),
                         'volume'        => $subVol,
@@ -1182,6 +1279,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         'is_sub_period' => true,
                         'sub_index'     => 1,
                         'raw_sort_date' => $pEnd ?: ($pStart ?: '0000-00-00'),
+                        'status'        => $pStatus,
+                        'is_disposed'   => ($pStatus === 'disposed'),
+                        'is_revised'    => ($pStatus === 'revised'),
                     ];
                 }
 
@@ -1250,6 +1350,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 }
                 $parentUtils = array_values(array_unique($allUtils));
 
+                // Determine parent batch footprint status
+                $allDisposed = !empty($subPeriodItems) && count(array_filter($subPeriodItems, fn($s) => $s->status === 'disposed')) === count($subPeriodItems);
+                $anyRevised = !empty($subPeriodItems) && count(array_filter($subPeriodItems, fn($s) => $s->status === 'revised')) > 0;
+
+                if ($anyRevised) {
+                    $batchStatus = 'revised';
+                } elseif ($allDisposed) {
+                    $batchStatus = 'disposed';
+                } else {
+                    $batchStatus = 'active';
+                }
+
                 $childItems[] = (object)[
                     'id'            => $firstRec->id,
                     'group_rec_ids' => $group->pluck('id')->all(),
@@ -1266,6 +1378,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     'utility'       => $this->formatItemUtility($parentUtils),
                     'is_batch'      => true,
                     'sub_periods'   => $subPeriodItems,
+                    'status'        => $batchStatus,
+                    'is_disposed'   => ($batchStatus === 'disposed'),
+                    'is_revised'    => ($batchStatus === 'revised'),
                 ];
                 $totalItemsCount++;
             }
@@ -1498,14 +1613,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         // Synchronize retention expiration so expired records are automatically transferred to NAP Form 3
         \App\Services\RdpRetentionService::syncTransferredRecords();
 
-        // 1. Fetch Records added or registered on the user's office (excluding records transferred to NAP Form 3)
+        // 1. Fetch Records added or registered on the user's office (including records whose life cycle ended to leave footprint)
         $recordsQuery = DB::table('rdp_record')
             ->where('is_draft', false)
-            ->where('is_active', true)
-            ->where(function($q) {
-                $q->where('rdp_record.transferred_to_nap3', false)
-                  ->orWhere('rdp_record.ispartof_batch', true);
-            });
+            ->where('is_active', true);
 
         if ($effectiveOffice) {
             $recordsQuery->where(function($q) use ($effectiveOffice) {
@@ -1531,21 +1642,62 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         $allRecords = $recordsQuery->orderBy('id', 'asc')->get();
         $recordIds = $allRecords->pluck('id')->all();
 
+        // Pre-load DCS revision / obsolete records to detect "Revised" footprint
+        $dcsObsoleteDocs = [];
+        if (\Illuminate\Support\Facades\Schema::hasTable('dcs_masterlist_registration')) {
+            $dcsObsoleteDocs = DB::table('dcs_masterlist_registration')
+                ->where('revision_status', 'obsolete')
+                ->pluck('doc_no')
+                ->map(fn($v) => mb_strtolower(trim((string)$v)))
+                ->filter()
+                ->unique()
+                ->all();
+        }
+
+        $revisedRecordIds = [];
+        if (!empty($dcsObsoleteDocs) && \Illuminate\Support\Facades\Schema::hasTable('rdp_received_documents')) {
+            $receivedDcs = DB::table('rdp_received_documents')
+                ->where('source_subsystem', 'DCS')
+                ->whereNotNull('appraised_record_id')
+                ->get(['appraised_record_id', 'document_code']);
+            foreach ($receivedDcs as $rd) {
+                $code = mb_strtolower(trim((string)$rd->document_code));
+                if (in_array($code, $dcsObsoleteDocs, true)) {
+                    $revisedRecordIds[$rd->appraised_record_id] = true;
+                }
+            }
+        }
+
+        $hasRecordClearance = function($recOffice = null) use ($isSadm, $perms, $userOfficeCode) {
+            if ($isSadm || (bool)($perms->can_access_rdp_admin ?? false)) {
+                return true;
+            }
+            $canModify = (bool)($perms->can_rdp_modify_form_1 ?? false);
+            if (!$canModify) {
+                return false;
+            }
+            if (empty($recOffice) || empty($userOfficeCode) || $recOffice === $userOfficeCode) {
+                return true;
+            }
+            return (bool)($perms->can_rdp_edit_others_form_1 ?? false);
+        };
+
         if ($allRecords->isEmpty()) {
             return [
-                'hierarchyTree'    => [],
-                'officesList'      => $officesList,
-                'totalItemsCount'  => 0,
-                'permanentCount'   => 0,
-                'temporaryCount'   => 0,
-                'userOfficeCode'   => $userOfficeCode,
-                'userOfficeName'   => $userOfficeName,
-                'isSadm'           => $isSadm,
-                'mediaList'        => DB::table('rdp_recorded_value')->orderBy('medium_name', 'asc')->get(),
-                'restrictionsList' => DB::table('rdp_restriction_type')->orderBy('restriction_value', 'asc')->get(),
-                'frequenciesList'  => DB::table('rdp_frequence_use')->orderBy('freq_type', 'asc')->get(),
-                'timeValuesList'   => DB::table('rdp_time_value')->orderBy('char_value', 'asc')->get(),
-                'utilityValuesList'=> DB::table('rdp_utility_medium')->orderBy('utility_name', 'asc')->get(),
+                'hierarchyTree'      => [],
+                'officesList'        => $officesList,
+                'totalItemsCount'    => 0,
+                'permanentCount'     => 0,
+                'temporaryCount'     => 0,
+                'userOfficeCode'     => $userOfficeCode,
+                'userOfficeName'     => $userOfficeName,
+                'isSadm'             => $isSadm,
+                'hasRecordClearance' => $hasRecordClearance,
+                'mediaList'          => DB::table('rdp_recorded_value')->orderBy('medium_name', 'asc')->get(),
+                'restrictionsList'   => DB::table('rdp_restriction_type')->orderBy('restriction_value', 'asc')->get(),
+                'frequenciesList'    => DB::table('rdp_frequence_use')->orderBy('freq_type', 'asc')->get(),
+                'timeValuesList'     => DB::table('rdp_time_value')->orderBy('char_value', 'asc')->get(),
+                'utilityValuesList'  => DB::table('rdp_utility_medium')->orderBy('utility_name', 'asc')->get(),
             ];
         }
 
@@ -1703,7 +1855,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         $compiledDups,
                         $compiledTimes,
                         $compiledUtils,
-                        $totalItemsCount
+                        $totalItemsCount,
+                        $revisedRecordIds,
+                        $dcsObsoleteDocs
                     );
 
                     if (empty($childItems)) continue;
@@ -1771,7 +1925,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     $compiledDups,
                     $compiledTimes,
                     $compiledUtils,
-                    $totalItemsCount
+                    $totalItemsCount,
+                    $revisedRecordIds,
+                    $dcsObsoleteDocs
                 );
 
                 if (empty($childItems)) continue;
@@ -1833,6 +1989,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             'userOfficeCode'   => $userOfficeCode,
             'userOfficeName'   => $userOfficeName,
             'isSadm'           => $isSadm,
+            'hasRecordClearance' => $hasRecordClearance,
             'mediaList'        => DB::table('rdp_recorded_value')->orderBy('medium_name', 'asc')->get(),
             'restrictionsList' => DB::table('rdp_restriction_type')->orderBy('restriction_value', 'asc')->get(),
             'frequenciesList'  => DB::table('rdp_frequence_use')->orderBy('freq_type', 'asc')->get(),
@@ -1930,8 +2087,63 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         .record-item-row:hover { background: #f1f5f9; }
         .record-item-row.is-selected { background: #eff6ff !important; }
 
+        /* Darkened Footprint for Disposed & Revised Records */
+        .record-item-row.is-disposed,
+        .record-sub-period-row.is-disposed {
+            background: #94a3b8 !important;
+        }
+        .record-item-row.is-disposed td,
+        .record-sub-period-row.is-disposed td {
+            color: #0f172a !important;
+            font-weight: 500;
+        }
+
+        .nap-badge-disposed {
+            display: inline-flex;
+            align-items: center;
+            font-size: 10px;
+            font-weight: 700;
+            background: rgba(15, 23, 42, 0.14);
+            color: #0f172a;
+            padding: 1px 7px;
+            border-radius: 4px;
+            border: 1px solid rgba(15, 23, 42, 0.25);
+            margin-left: 6px;
+            letter-spacing: 0.02em;
+        }
+
+        .record-item-row.is-revised,
+        .record-sub-period-row.is-revised {
+            background: #ffedd5 !important;
+        }
+        .record-item-row.is-revised td,
+        .record-sub-period-row.is-revised td {
+            color: #9a3412 !important;
+        }
+        .record-item-row.is-revised:hover,
+        .record-sub-period-row.is-revised:hover {
+            background: #fed7aa !important;
+        }
+
+        .nap-btn-disposed {
+            background: #334155 !important;
+            color: #ffffff !important;
+            border: 1px solid #1e293b !important;
+        }
+        .nap-btn-disposed:hover {
+            background: #1e293b !important;
+        }
+
+        .nap-btn-revised {
+            background: #c2410c !important;
+            color: #ffffff !important;
+            border: 1px solid #9a3412 !important;
+        }
+        .nap-btn-revised:hover {
+            background: #9a3412 !important;
+        }
+
         .corner-symbol { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 14px; color: #2563eb; font-weight: 900; margin-right: 6px; }
-        .sub-branch-line { font-family: ui-monospace, SFMono-Regular, monospace; color: #94a3b8; margin-right: 8px; font-weight: 700; }
         .nap-chevron-btn {
             background: transparent;
             border: none;
@@ -2102,7 +2314,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     </select>
                 @else
                     <div style="display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 700; color: #1e293b;">
-                        <span style="color: #2563eb;">🏢</span>
+                        <span style="color: #2563eb; display: inline-flex; align-items: center;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><path d="M9 22v-4h6v4"></path><path d="M8 6h.01"></path><path d="M16 6h.01"></path><path d="M8 10h.01"></path><path d="M16 10h.01"></path><path d="M8 14h.01"></path><path d="M16 14h.01"></path></svg>
+                        </span>
                         <span>Office: {{ $userOfficeCode ?? 'N/A' }}</span>
                     </div>
                 @endif
@@ -2339,8 +2553,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     @php
                                         $recIdStr = (string)$rec->id;
                                         $isSelected = in_array($recIdStr, $selectedIds);
+                                        $recStatus = $rec->status ?? 'active';
                                     @endphp
-                                    <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
+                                    <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }} {{ $recStatus === 'disposed' ? 'is-disposed' : '' }} {{ $recStatus === 'revised' ? 'is-revised' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
                                         <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                             <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
                                                 <span style="width: 15px; display: inline-block;"></span>
@@ -2348,8 +2563,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                             </div>
                                         </td>
                                         <td style="padding-left: 42px;">
-                                            <span class="sub-branch-line">│</span>
                                             <span style="font-weight: 600; color: #1e293b;">{{ $rec->description }}</span>
+                                            @if($recStatus === 'disposed')
+                                                <span class="nap-badge-disposed" title="Disposed / Lifecycle ended">Disposed</span>
+                                            @elseif($recStatus === 'revised')
+                                                <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; background: #ffedd5; color: #9a3412; padding: 1px 6px; border-radius: 4px; border: 1px solid #fdba74; margin-left: 6px;" title="Revised on Document Control">
+                                                    Revised
+                                                </span>
+                                            @endif
                                         </td>
                                         <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->date_covered }}</td>
                                         <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->volume }}</td>
@@ -2363,20 +2584,47 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
                                         <td style="text-align: center; color: #cbd5e1;">—</td>
                                         <td style="text-align: right; white-space: nowrap;">
-                                            <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                                View
-                                            </button>
+                                            @if($recStatus === 'disposed')
+                                                @if($hasRecordClearance($rec->office_code ?? null))
+                                                    <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                        View
+                                                    </button>
+                                                @endif
+                                            @elseif($recStatus === 'revised')
+                                                <button type="button" wire:click="redirectToDcs({{ $rec->id }})" class="nap-btn nap-btn-revised" title="Document revised on Document Control" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; font-weight: 700; cursor: pointer;">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                                        <polyline points="1 4 1 10 7 10"></polyline>
+                                                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                                                    </svg>
+                                                    Revised
+                                                </button>
+                                            @else
+                                                <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                    View
+                                                </button>
+                                            @endif
                                         </td>
                                     </tr>
 
                                     @if(!empty($rec->is_batch) && !empty($rec->sub_periods))
                                         @foreach($rec->sub_periods as $subP)
-                                            <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
+                                            @php
+                                                $subPStatus = $subP->status ?? 'active';
+                                            @endphp
+                                            <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }} {{ $subPStatus === 'disposed' ? 'is-disposed' : '' }} {{ $subPStatus === 'revised' ? 'is-revised' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
                                                 <td style="text-align: center; padding: 6px 4px; white-space: nowrap;"></td>
                                                 <td style="padding-left: 64px;">
                                                     <span style="color: #94a3b8; margin-right: 4px;">└</span>
                                                     <span style="font-weight: 500; color: #334155; font-size: 12px;">{{ $subP->description }}</span>
+                                                    @if($subPStatus === 'disposed')
+                                                        <span class="nap-badge-disposed" title="Disposed / Lifecycle ended">Disposed</span>
+                                                    @elseif($subPStatus === 'revised')
+                                                        <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; background: #ffedd5; color: #9a3412; padding: 1px 6px; border-radius: 4px; border: 1px solid #fdba74; margin-left: 6px;" title="Revised on Document Control">
+                                                            Revised
+                                                        </span>
+                                                    @endif
                                                 </td>
                                                 <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->date_covered }}</td>
                                                 <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->volume }}</td>
@@ -2390,10 +2638,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                                 <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
                                                 <td style="text-align: center; color: #cbd5e1;">—</td>
                                                 <td style="text-align: right; white-space: nowrap;">
-                                                    <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                                        View
-                                                    </button>
+                                                    @if($subPStatus === 'disposed')
+                                                        @if($hasRecordClearance($rec->office_code ?? null))
+                                                            <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                                View
+                                                            </button>
+                                                        @endif
+                                                    @elseif($subPStatus === 'revised')
+                                                        <button type="button" wire:click="redirectToDcs({{ $subP->parent_rec_id ?? $rec->id }})" class="nap-btn nap-btn-revised" title="Document revised on Document Control" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; font-weight: 700; cursor: pointer;">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                                                <polyline points="1 4 1 10 7 10"></polyline>
+                                                                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                                                            </svg>
+                                                            Revised
+                                                        </button>
+                                                    @else
+                                                        <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                            View
+                                                        </button>
+                                                    @endif
                                                 </td>
                                             </tr>
                                         @endforeach
@@ -2406,8 +2671,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                 @php
                                     $recIdStr = (string)$rec->id;
                                     $isSelected = in_array($recIdStr, $selectedIds);
+                                    $recStatus = $rec->status ?? 'active';
                                 @endphp
-                                <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
+                                <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }} {{ $recStatus === 'disposed' ? 'is-disposed' : '' }} {{ $recStatus === 'revised' ? 'is-revised' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
                                     <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                         <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
                                             <span style="width: 15px; display: inline-block;"></span>
@@ -2415,8 +2681,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         </div>
                                     </td>
                                     <td style="padding-left: 28px;">
-                                        <span class="sub-branch-line">│</span>
                                         <span style="font-weight: 600; color: #1e293b;">{{ $rec->description }}</span>
+                                        @if($recStatus === 'disposed')
+                                            <span class="nap-badge-disposed" title="Disposed / Lifecycle ended">Disposed</span>
+                                        @elseif($recStatus === 'revised')
+                                            <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; background: #ffedd5; color: #9a3412; padding: 1px 6px; border-radius: 4px; border: 1px solid #fdba74; margin-left: 6px;" title="Revised on Document Control">
+                                                Revised
+                                            </span>
+                                        @endif
                                     </td>
                                     <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->date_covered }}</td>
                                     <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->volume }}</td>
@@ -2430,20 +2702,47 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
                                     <td style="text-align: center; color: #cbd5e1;">—</td>
                                     <td style="text-align: right; white-space: nowrap;">
-                                        <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                            View
-                                        </button>
+                                        @if($recStatus === 'disposed')
+                                            @if($hasRecordClearance($rec->office_code ?? null))
+                                                <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                    View
+                                                </button>
+                                            @endif
+                                        @elseif($recStatus === 'revised')
+                                            <button type="button" wire:click="redirectToDcs({{ $rec->id }})" class="nap-btn nap-btn-revised" title="Document revised on Document Control" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; font-weight: 700; cursor: pointer;">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polyline points="1 4 1 10 7 10"></polyline>
+                                                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                                                </svg>
+                                                Revised
+                                            </button>
+                                        @else
+                                            <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                View
+                                            </button>
+                                        @endif
                                     </td>
                                 </tr>
 
                                 @if(!empty($rec->is_batch) && !empty($rec->sub_periods))
                                     @foreach($rec->sub_periods as $subP)
-                                        <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
+                                        @php
+                                            $subPStatus = $subP->status ?? 'active';
+                                        @endphp
+                                        <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }} {{ $subPStatus === 'disposed' ? 'is-disposed' : '' }} {{ $subPStatus === 'revised' ? 'is-revised' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
                                             <td style="text-align: center; padding: 6px 4px; white-space: nowrap;"></td>
                                             <td style="padding-left: 50px;">
                                                 <span style="color: #94a3b8; margin-right: 4px;">└</span>
                                                 <span style="font-weight: 500; color: #334155; font-size: 12px;">{{ $subP->description }}</span>
+                                                @if($subPStatus === 'disposed')
+                                                    <span class="nap-badge-disposed" title="Disposed / Lifecycle ended">Disposed</span>
+                                                @elseif($subPStatus === 'revised')
+                                                    <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; background: #ffedd5; color: #9a3412; padding: 1px 6px; border-radius: 4px; border: 1px solid #fdba74; margin-left: 6px;" title="Revised on Document Control">
+                                                        Revised
+                                                    </span>
+                                                @endif
                                             </td>
                                             <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->date_covered }}</td>
                                             <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->volume }}</td>
@@ -2457,10 +2756,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                             <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
                                             <td style="text-align: center; color: #cbd5e1;">—</td>
                                             <td style="text-align: right; white-space: nowrap;">
-                                                <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                                    View
-                                                </button>
+                                                @if($subPStatus === 'disposed')
+                                                    @if($hasRecordClearance($rec->office_code ?? null))
+                                                        <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                            View
+                                                        </button>
+                                                    @endif
+                                                @elseif($subPStatus === 'revised')
+                                                    <button type="button" wire:click="redirectToDcs({{ $subP->parent_rec_id ?? $rec->id }})" class="nap-btn nap-btn-revised" title="Document revised on Document Control" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; font-weight: 700; cursor: pointer;">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <polyline points="1 4 1 10 7 10"></polyline>
+                                                            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                                                        </svg>
+                                                        Revised
+                                                    </button>
+                                                @else
+                                                    <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                        View
+                                                    </button>
+                                                @endif
                                             </td>
                                         </tr>
                                     @endforeach
@@ -2615,8 +2931,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <button type="button" wire:click="closePrintModal" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700;">
-                            ✕ Close Preview
+                        <button type="button" wire:click="closePrintModal" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            <span>Close Preview</span>
                         </button>
                     </div>
                 </div>
@@ -2910,16 +3227,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     <div>
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">
-                                {{ $isEditingSubject ? ($editingIsBatchSubPeriod ? 'Edit Batch Item Record' : 'Edit Record Subject') : ($editingIsBatchSubPeriod ? 'View Batch Item Record' : 'View Record Details') }}
+                                {{ $isEditingSubject ? ($editingIsBatchSubPeriod ? 'Edit Batch Item Record' : 'Edit Record Subject') : ($editingIsBatchSubPeriod ? 'View Batch Item Record' : 'View Record Subject') }}
                             </h3>
                             @if($isEditingSubject)
-                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 2px 7px; border-radius: 9999px;">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                                <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 9999px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                                     EDITING
                                 </span>
                             @else
-                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 7px; border-radius: 9999px;">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 9999px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                     VIEW ONLY
                                 </span>
                             @endif
@@ -2928,7 +3245,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                             {{ $isEditingSubject ? ($editingIsBatchSubPeriod ? 'Update volume, dates, or classifications for this batch item.' : 'Update and fix details, typos, or classifications for this record.') : 'Inspect record details, classifications, and storage parameters.' }}
                         </p>
                     </div>
-                    <button type="button" wire:click="closeEditSubjectModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
+                    <button type="button" wire:click="closeEditSubjectModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px;" title="Close Modal">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
                 </div>
 
                 <form wire:submit.prevent="saveEditSubject" style="display: flex; flex-direction: column; gap: 14px;">
@@ -3133,7 +3452,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                 </div>
                             </div>
                             <a href="{{ $attachedFileUrl }}" target="_blank" rel="noopener noreferrer" class="nap-btn nap-btn-primary" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 6px 14px; text-decoration: none; flex-shrink: 0; white-space: nowrap;">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                 View File
                             </a>
                         </div>
@@ -3174,12 +3493,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             <div class="modal-dialog">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
                     <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">Create Inventory Submission Form</h3>
-                    <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
+                    <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px;" title="Close Modal">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 14px;">
-                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #1e40af; font-weight: 600;">
-                        📦 Packaging <strong>{{ count($selectedIds) }}</strong> selected inventory records into a submission form.
+                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #1e40af; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"></path><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path><path d="m3.3 7 8.7 5 8.7-5"></path><path d="M12 22V12"></path></svg>
+                        <span>Packaging <strong>{{ count($selectedIds) }}</strong> selected inventory records into a submission form.</span>
                     </div>
 
                     <div>

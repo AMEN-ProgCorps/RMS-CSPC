@@ -2015,9 +2015,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 <div class="nap-page-container" style="padding: 24px; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
     <style>
         .nap-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 24px; }
-        .nap-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
-        .nap-table th { background: #f8fafc; padding: 10px 12px; font-weight: 700; color: #475569; border: 1px solid #cbd5e1; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .nap-table td { padding: 9px 12px; border: 1px solid #e2e8f0; vertical-align: middle; color: #0f172a; }
+        .nap-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; border: 1px solid #000; }
+        .nap-table th { background: #f8fafc; padding: 10px 12px; font-weight: 700; color: #475569; border: 1px solid #000; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .nap-table td { padding: 9px 12px; border: 1px solid #000; vertical-align: middle; color: #0f172a; }
         .nap-btn { padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; border: none; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
         .nap-btn-primary { background: #2563eb; color: #ffffff; }
         .nap-btn-primary:hover { background: #1d4ed8; }
@@ -2081,8 +2081,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         }
 
         /* Row styles */
-        .root-series-row { background: #f8fafc; font-weight: 800; border-top: 2px solid #cbd5e1 !important; border-bottom: 2px solid #cbd5e1 !important; }
-        .sub-series-row { background: #ffffff; font-weight: 700; border-bottom: 1px solid #cbd5e1; }
+        .root-series-row { background: #f8fafc; font-weight: 800; border-top: 2px solid #000 !important; border-bottom: 2px solid #000 !important; }
+        .sub-series-row { background: #ffffff; font-weight: 700; border-bottom: 1px solid #000; }
         .record-item-row { background: #fafafa; font-size: 12.5px; transition: background 0.15s; }
         .record-item-row:hover { background: #f1f5f9; }
         .record-item-row.is-selected { background: #eff6ff !important; }
@@ -2096,7 +2096,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         .record-sub-period-row.is-disposed td {
             color: #0f172a !important;
             font-weight: 500;
-            border-color: #e2e8f0 !important;
+            border-color: #000 !important;
         }
 
         /* Selection column always retains clean white background & uniform border */
@@ -2105,7 +2105,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         .record-item-row.is-revised td:first-child,
         .record-sub-period-row.is-revised td:first-child {
             background: #ffffff !important;
-            border-color: #e2e8f0 !important;
+            border-color: #000 !important;
         }
 
         .nap-badge-disposed {
@@ -2129,7 +2129,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         .record-item-row.is-revised td,
         .record-sub-period-row.is-revised td {
             color: #9a3412 !important;
-            border-color: #e2e8f0 !important;
+            border-color: #000 !important;
         }
         .record-item-row.is-revised:hover,
         .record-sub-period-row.is-revised:hover {
@@ -2382,7 +2382,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         <th rowspan="2" style="width: 90px; text-align: center;">DUPLICATION</th>
                         <th rowspan="2" style="width: 50px; text-align: center;">TIME</th>
                         <th rowspan="2" style="width: 65px; text-align: center;">UTIL</th>
-                        <th colspan="3" style="text-align: center; border-bottom: 1px solid #cbd5e1;">RETENTION PERIOD</th>
+                        <th colspan="3" style="text-align: center; border-bottom: 1px solid #000;">RETENTION PERIOD</th>
                         <th rowspan="2" style="width: 130px; text-align: left;">DISPOSITION PROVISION</th>
                         <th rowspan="2" style="width: 80px; text-align: right;">ACTION</th>
                     </tr>

@@ -472,6 +472,58 @@ Route::middleware(['auth'])
 
         Volt::route('/rdp/references/{type}', 'pages.rdp.references.show')->name('rdp.references.show');
 
+        Route::get('/rdp/view-document', function (\Illuminate\Http\Request $request) {
+            $path = $request->query('path');
+            $docId = $request->query('id');
+
+            if (!$path && $docId) {
+                $docTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data';
+                $path = \Illuminate\Support\Facades\DB::table($docTbl)->where('document_id', $docId)->value('document_path');
+            }
+
+            if (!$path) {
+                abort(404, 'File path not specified.');
+            }
+
+            abort_if(
+                \App\Services\DocumentStorageService::isDcsStoragePath($path),
+                403,
+                'Document Control System files can only be opened in DCS.'
+            );
+
+            $content = \App\Services\DocumentStorageService::getFileContent($path);
+
+            if (!$content) {
+                $cleanPath = ltrim(str_replace(['\\'], '/', $path), '/');
+                if (\Illuminate\Support\Facades\Storage::disk('local')->exists($cleanPath)) {
+                    $content = \Illuminate\Support\Facades\Storage::disk('local')->get($cleanPath);
+                } elseif (\Illuminate\Support\Facades\Storage::disk('public')->exists($cleanPath)) {
+                    $content = \Illuminate\Support\Facades\Storage::disk('public')->get($cleanPath);
+                }
+            }
+
+            if (!$content) {
+                abort(404, 'Document file not found.');
+            }
+
+            $filename = basename($path);
+            $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+            $mimeType = match ($ext) {
+                'pdf' => 'application/pdf',
+                'png' => 'image/png',
+                'jpg', 'jpeg' => 'image/jpeg',
+                'gif' => 'image/gif',
+                'webp' => 'image/webp',
+                'svg' => 'image/svg+xml',
+                'txt' => 'text/plain',
+                default => 'application/octet-stream',
+            };
+
+            return response($content, 200)
+                ->header('Content-Type', $mimeType)
+                ->header('Content-Disposition', 'inline; filename="' . $filename . '"');
+        })->name('rdp.view-document');
+
         // Pending Subsystem
         Volt::route('/rdp/pending/list', 'pages.rdp.pending.list')->name('rdp.pending.list');
         Volt::route('/rdp/pending/for-approval', 'pages.rdp.pending.for-approval')->name('rdp.pending.for-approval');

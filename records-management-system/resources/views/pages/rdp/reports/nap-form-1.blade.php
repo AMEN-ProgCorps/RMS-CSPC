@@ -46,6 +46,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     public ?string $editSubjectFrequency = null;
     public string $editSubjectTimeValue = 'T';
     public array $editSubjectUtilities = [];
+    public array $editSubjectDuplicates = [];
+    public bool $hasAttachedFile = false;
+    public ?string $attachedFileName = null;
+    public ?string $attachedFilePath = null;
+    public ?string $attachedFileId = null;
+    public ?string $attachedFileSize = null;
+    public ?string $attachedFileType = null;
+    public ?string $attachedFileUrl = null;
     public bool $canEditDescription = true;
     public bool $canCancelRecord = true;
 
@@ -117,6 +125,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
             $effectiveOffice = ($isSadm && !empty($this->officeFilter)) ? $this->officeFilter : $userOffice;
 
+            // Ensure expired records are synced so they are excluded from selection
+            \App\Services\RdpRetentionService::syncTransferredRecords();
+
             $query = DB::table('rdp_record')
                 ->where('rdp_record.is_draft', false)
                 ->where('rdp_record.is_active', true)
@@ -151,7 +162,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
     public function toggleSeriesSelection(int $seriesId, array $childRecordIds): void
     {
-        $stringIds = array_map('strval', $childRecordIds);
+        $stringIds = array_values(array_filter(array_map('strval', $childRecordIds)));
+        if (empty($stringIds)) return;
+
         $allSelected = count(array_intersect($stringIds, $this->selectedIds)) === count($stringIds);
 
         if ($allSelected) {
@@ -418,8 +431,101 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 ->map(fn($v) => (int)$v)
                 ->all();
 
+            // Duplication
+            $dupId = $rec->duplication_id ?: $rec->id;
+            $this->editSubjectDuplicates = DB::table('rdp_duplication_section')
+                ->where('dup_id_manager', $dupId)
+                ->pluck('office_code')
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            // Attached File
+            $this->hasAttachedFile = false;
+            $this->attachedFileName = null;
+            $this->attachedFilePath = null;
+            $this->attachedFileId = null;
+            $this->attachedFileSize = null;
+            $this->attachedFileType = null;
+            $this->attachedFileUrl = null;
+
+            $docTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data';
+            $doc = null;
+
+            if (!empty($rec->upload_doc_id_handler)) {
+                $doc = DB::table($docTbl)->where('document_id', $rec->upload_doc_id_handler)->first();
+            }
+
+            if (!$doc && !empty($rec->upload_doc_id_handler) && \Illuminate\Support\Facades\Schema::hasTable('rdp_document_record')) {
+                $rdpDoc = DB::table('rdp_document_record')->where('parent_id', $rec->upload_doc_id_handler)->first();
+                if ($rdpDoc) {
+                    $doc = (object)[
+                        'document_id'   => $rec->upload_doc_id_handler,
+                        'document_name' => $rdpDoc->doc_name ?: 'Attached Document',
+                        'document_path' => $rdpDoc->doc_path,
+                        'file_size'     => null,
+                        'file_type'     => null,
+                    ];
+                }
+            }
+
+            if (!$doc && \Illuminate\Support\Facades\Schema::hasTable('rdp_received_documents')) {
+                $rcv = DB::table('rdp_received_documents')
+                    ->where('appraised_record_id', $rec->id)
+                    ->where(function($q) {
+                        $q->whereNotNull('file_path')->orWhereNotNull('document_id_handler');
+                    })
+                    ->first();
+                if ($rcv) {
+                    if (!empty($rcv->document_id_handler)) {
+                        $doc = DB::table($docTbl)->where('document_id', $rcv->document_id_handler)->first();
+                    }
+                    if (!$doc) {
+                        $doc = (object)[
+                            'document_id'   => $rcv->document_id_handler ?: ('RCV-' . $rcv->id),
+                            'document_name' => $rcv->file_name ?: $rcv->document_title ?: 'Attached Document',
+                            'document_path' => $rcv->file_path,
+                            'file_size'     => null,
+                            'file_type'     => null,
+                        ];
+                    }
+                }
+            }
+
+            if ($doc) {
+                $this->hasAttachedFile = true;
+                $this->attachedFileName = $doc->document_name ?? 'Attached Document';
+                $this->attachedFilePath = $doc->document_path ?? null;
+                $this->attachedFileId = $doc->document_id ?? null;
+                $this->attachedFileSize = !empty($doc->file_size) && is_numeric($doc->file_size)
+                    ? round((int)$doc->file_size / 1024, 1) . ' KB'
+                    : null;
+                $this->attachedFileType = $doc->file_type ?? null;
+                $this->attachedFileUrl = route('rdp.view-document', [
+                    'path' => $this->attachedFilePath,
+                    'id'   => $this->attachedFileId,
+                ]);
+            }
+
             $this->isEditingSubject = false;
             $this->showEditSubjectModal = true;
+        }
+    }
+
+    public function addEditDuplicateOffice(string $code): void
+    {
+        $code = trim($code);
+        if (!empty($code) && !in_array($code, $this->editSubjectDuplicates, true)) {
+            $this->editSubjectDuplicates[] = $code;
+        }
+    }
+
+    public function removeEditDuplicateOffice(int $index): void
+    {
+        if (isset($this->editSubjectDuplicates[$index])) {
+            unset($this->editSubjectDuplicates[$index]);
+            $this->editSubjectDuplicates = array_values($this->editSubjectDuplicates);
         }
     }
 
@@ -445,6 +551,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         $this->editingSubjectId = null;
         $this->editingPeriodId = null;
         $this->editingIsBatchSubPeriod = false;
+        $this->editSubjectDuplicates = [];
+        $this->hasAttachedFile = false;
+        $this->attachedFileName = null;
+        $this->attachedFilePath = null;
+        $this->attachedFileId = null;
+        $this->attachedFileSize = null;
+        $this->attachedFileType = null;
+        $this->attachedFileUrl = null;
     }
 
     public function saveEditSubject(): void
@@ -555,6 +669,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 ]);
             }
 
+            // Update duplication section
+            $curRec = DB::table('rdp_record')->where('id', $this->editingSubjectId)->first();
+            $dupId = $curRec?->duplication_id ?: $this->editingSubjectId;
+            if (empty($curRec?->duplication_id)) {
+                DB::table('rdp_record')->where('id', $this->editingSubjectId)->update(['duplication_id' => $dupId]);
+            }
+            DB::table('rdp_duplication_section')->where('dup_id_manager', $dupId)->delete();
+            foreach ($this->editSubjectDuplicates as $dOff) {
+                if (empty($dOff)) continue;
+                DB::table('rdp_duplication_section')->insert([
+                    'dup_id_manager' => $dupId,
+                    'office_code'    => $dOff,
+                    'created_at'     => Carbon::now(),
+                    'updated_at'     => Carbon::now(),
+                ]);
+            }
+
             DB::commit();
 
             $this->successMessage = $this->editingPeriodId ? "Batch item record updated successfully." : "Record subject updated successfully.";
@@ -653,6 +784,30 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         $this->officeFilter = $userOffice ?? '';
         $this->selectedIds = [];
         $this->selectAll = false;
+    }
+
+    public function redirectToNap3(int $recordId): void
+    {
+        $rec = DB::table('rdp_record')->where('id', $recordId)->first();
+        $search = $rec?->description ? trim($rec->description) : '';
+        $this->redirectRoute('rdp.reports.nap-form-3', ['search' => $search]);
+    }
+
+    public function redirectToDcs(int $recordId): void
+    {
+        $docCode = null;
+        if (\Illuminate\Support\Facades\Schema::hasTable('rdp_received_documents')) {
+            $docCode = DB::table('rdp_received_documents')
+                ->where('source_subsystem', 'DCS')
+                ->where('appraised_record_id', $recordId)
+                ->value('document_code');
+        }
+
+        if ($docCode) {
+            $this->redirectRoute('dcs.database.index', ['search' => $docCode]);
+        } else {
+            $this->redirectRoute('dcs.database.index');
+        }
     }
 
     // Helper compilers for series summary rows
@@ -898,7 +1053,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         &$compiledDups,
         &$compiledTimes,
         &$compiledUtils,
-        &$totalItemsCount
+        &$totalItemsCount,
+        array $revisedRecordIds = [],
+        array $dcsObsoleteDocs = []
     ): array {
         $childItems = [];
 
@@ -913,32 +1070,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $firstRec = $group->first();
             $primarySubject = $firstRec->description;
 
-            // Collect active periods for all records in this group
+            // Collect all periods for all records in this group
             $groupPeriods = [];
             foreach ($group as $r) {
                 $rPeriods = $periods[$r->id] ?? collect();
-                $isRecordBatch = (bool)($r->ispartof_batch ?? false) || $rPeriods->count() > 1;
-
-                if ($isRecordBatch) {
-                    $activeP = $rPeriods->filter(function($p) use ($effTotal, $effActive, $effStorage, $isPerm) {
-                        return !\App\Services\RdpRetentionService::isPeriodExpired(
-                            $p->date_covered,
-                            $p->date_covered_end ?? null,
-                            $effTotal,
-                            $effActive,
-                            $effStorage,
-                            $isPerm
-                        );
-                    });
-                } else {
-                    $activeP = $rPeriods;
-                }
-
-                foreach ($activeP as $p) {
+                if ($rPeriods->isEmpty()) {
                     $groupPeriods[] = [
                         'rec'    => $r,
-                        'period' => $p,
+                        'period' => (object)[
+                            'id'               => null,
+                            'date_covered'     => '—',
+                            'date_covered_end' => null,
+                            'volume'           => $r->volume,
+                            'description'      => null,
+                        ],
                     ];
+                } else {
+                    foreach ($rPeriods as $p) {
+                        $groupPeriods[] = [
+                            'rec'    => $r,
+                            'period' => $p,
+                        ];
+                    }
                 }
             }
 
@@ -957,8 +1110,6 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
                 $rawDate = $p->date_covered ?? '';
                 $rawDateEnd = $p->date_covered_end ?? null;
-                if (!empty($rawDate)) $compiledDates[] = $rawDate;
-                if (!empty($rawDateEnd)) $compiledDates[] = $rawDateEnd;
                 $formattedDate = !empty($rawDateEnd) ? $this->formatDateRange($rawDate, $rawDateEnd) : $this->formatItemDate($rawDate);
                 $recVolume = $r->volume ?: '—';
 
@@ -975,14 +1126,56 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
                 $uRows = ($utilities[$r->id] ?? collect())->pluck('utility_name')->all();
 
-                $compiledVols[] = $recVolume;
-                $compiledMediums[] = $recMedium;
-                $compiledRestrictions[] = $recRestriction;
-                $compiledLocs[] = $r->records_location;
-                $compiledFreqs[] = $recFreq;
-                $compiledDups[] = $recDup;
-                $compiledTimes[] = $r->time_value;
-                foreach ($uRows as $un) $compiledUtils[] = $un;
+                // Determine single record footprint status
+                $isRecRevised = isset($revisedRecordIds[$r->id]);
+                if (!$isRecRevised && !empty($dcsObsoleteDocs)) {
+                    $dLow = mb_strtolower((string)$r->description);
+                    foreach ($dcsObsoleteDocs as $obs) {
+                        if (!empty($obs) && str_contains($dLow, $obs)) {
+                            $isRecRevised = true;
+                            break;
+                        }
+                    }
+                }
+                if (!$isRecRevised) {
+                    $dLow = mb_strtolower((string)$r->description);
+                    if (str_contains($dLow, '[revised]') || str_contains($dLow, '(revised)') || preg_match('/\b(revised|superseded)\b/i', $dLow)) {
+                        $isRecRevised = true;
+                    }
+                }
+
+                $isPExpired = \App\Services\RdpRetentionService::isPeriodExpired(
+                    $p->date_covered ?? null,
+                    $p->date_covered_end ?? null,
+                    $effTotal,
+                    $effActive,
+                    $effStorage,
+                    $isPerm
+                );
+                $isRecordTransferred = (bool)($r->transferred_to_nap3 ?? false);
+
+                if ($isRecRevised) {
+                    $singleStatus = 'revised';
+                } elseif ($isRecordTransferred || $isPExpired) {
+                    $singleStatus = 'disposed';
+                } else {
+                    $singleStatus = 'active';
+                }
+
+                // Disposed records must not contribute to the series compilation/total details
+                if ($singleStatus !== 'disposed') {
+                    if (!empty($rawDate)) $compiledDates[] = $rawDate;
+                    if (!empty($rawDateEnd)) $compiledDates[] = $rawDateEnd;
+                    if (!empty($recVolume) && $recVolume !== '—') $compiledVols[] = $recVolume;
+                    if (!empty($recMedium) && $recMedium !== '—') $compiledMediums[] = $recMedium;
+                    if (!empty($recRestriction) && $recRestriction !== '—') $compiledRestrictions[] = $recRestriction;
+                    if (!empty($r->records_location) && $r->records_location !== '—') $compiledLocs[] = $r->records_location;
+                    if (!empty($recFreq) && $recFreq !== '—') $compiledFreqs[] = $recFreq;
+                    if (!empty($recDup) && $recDup !== '—') $compiledDups[] = $recDup;
+                    if (!empty($r->time_value) && $r->time_value !== '—') $compiledTimes[] = $r->time_value;
+                    foreach ($uRows as $un) $compiledUtils[] = $un;
+                    $totalItemsCount++;
+                }
 
                 $childItems[] = (object)[
                     'id'            => $r->id,
@@ -999,8 +1192,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     'utility'       => $this->formatItemUtility($uRows),
                     'is_batch'      => false,
                     'sub_periods'   => [],
+                    'status'        => $singleStatus,
+                    'is_disposed'   => ($singleStatus === 'disposed'),
+                    'is_revised'    => ($singleStatus === 'revised'),
                 ];
-                $totalItemsCount++;
             } else {
                 // Batch Record (Single Batch or Merged Batch from same subject & office)
                 $subPeriodItems = [];
@@ -1039,10 +1234,46 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
                     $subVol = !empty($p->volume) ? $p->volume : (!empty($r->volume) ? $r->volume : '—');
 
+                    // Determine sub-period footprint status
+                    $isGpRecRevised = isset($revisedRecordIds[$r->id]);
+                    if (!$isGpRecRevised && !empty($dcsObsoleteDocs)) {
+                        $dLow = mb_strtolower((string)$r->description);
+                        foreach ($dcsObsoleteDocs as $obs) {
+                            if (!empty($obs) && str_contains($dLow, $obs)) {
+                                $isGpRecRevised = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!$isGpRecRevised) {
+                        $dLow = mb_strtolower((string)($p->description ?: $r->description));
+                        if (str_contains($dLow, '[revised]') || str_contains($dLow, '(revised)') || preg_match('/\b(revised|superseded)\b/i', $dLow)) {
+                            $isGpRecRevised = true;
+                        }
+                    }
+
+                    $isPExpired = \App\Services\RdpRetentionService::isPeriodExpired(
+                        $p->date_covered ?? null,
+                        $p->date_covered_end ?? null,
+                        $effTotal,
+                        $effActive,
+                        $effStorage,
+                        $isPerm
+                    );
+                    $isPTransferred = (bool)($r->transferred_to_nap3 ?? false);
+
+                    if ($isGpRecRevised) {
+                        $pStatus = 'revised';
+                    } elseif ($isPTransferred || $isPExpired) {
+                        $pStatus = 'disposed';
+                    } else {
+                        $pStatus = 'active';
+                    }
+
                     $subPeriodItems[] = (object)[
-                        'id'            => $r->id . '-sub-' . $p->id,
+                        'id'            => $r->id . '-sub-' . ($p->id ?? rand(1000, 9999)),
                         'parent_rec_id' => $r->id,
-                        'period_id'     => $p->id,
+                        'period_id'     => $p->id ?? null,
                         'description'   => $subTitle,
                         'date_covered'  => $this->formatBatchDateRange($pStart, $pEnd, false),
                         'volume'        => $subVol,
@@ -1056,6 +1287,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         'is_sub_period' => true,
                         'sub_index'     => 1,
                         'raw_sort_date' => $pEnd ?: ($pStart ?: '0000-00-00'),
+                        'status'        => $pStatus,
+                        'is_disposed'   => ($pStatus === 'disposed'),
+                        'is_revised'    => ($pStatus === 'revised'),
                     ];
                 }
 
@@ -1068,61 +1302,76 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     $sItem->sub_index = $sIdx + 1;
                 }
 
+                // Determine parent batch footprint status
+                $allDisposed = !empty($subPeriodItems) && count(array_filter($subPeriodItems, fn($s) => $s->status === 'disposed')) === count($subPeriodItems);
+                $anyRevised = !empty($subPeriodItems) && count(array_filter($subPeriodItems, fn($s) => $s->status === 'revised')) > 0;
+
+                if ($anyRevised) {
+                    $batchStatus = 'revised';
+                } elseif ($allDisposed) {
+                    $batchStatus = 'disposed';
+                } else {
+                    $batchStatus = 'active';
+                }
+
                 $batchStart = !empty($allStartDates) ? min($allStartDates) : null;
                 $batchEnd = !empty($allEndDates) ? max($allEndDates) : (!empty($allStartDates) ? max($allStartDates) : null);
                 $formattedDate = $this->formatBatchDateRange($batchStart, $batchEnd, true);
-
-                if (!empty($batchStart) && !empty($batchEnd)) {
-                    $compiledDates[] = $batchStart . ' - ' . $batchEnd;
-                }
-                foreach ($groupPeriods as $gp) {
-                    $p = $gp['period'];
-                    if (!empty($p->date_covered) && !empty($p->date_covered_end)) {
-                        $compiledDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
-                    } elseif (!empty($p->date_covered)) {
-                        $compiledDates[] = $p->date_covered;
-                    } elseif (!empty($p->date_covered_end)) {
-                        $compiledDates[] = $p->date_covered_end;
-                    }
-                }
 
                 $subVols = array_filter(array_map(fn($s) => ($s->volume !== '—' ? $s->volume : null), $subPeriodItems));
                 $batchActiveVol = $this->compileVolume($subVols);
                 $recVolume = $batchActiveVol ?: '—';
 
-                $compiledVols[] = $recVolume;
-
                 $allMediums = array_unique(array_filter(array_map(fn($s) => ($s->medium !== '—' ? $s->medium : null), $subPeriodItems)));
                 $parentMedium = !empty($allMediums) ? implode(', ', $allMediums) : '—';
-                $compiledMediums[] = $parentMedium;
 
                 $allRestrictions = array_unique(array_filter(array_map(fn($s) => ($s->restriction !== '—' ? $s->restriction : null), $subPeriodItems)));
                 $parentRestriction = !empty($allRestrictions) ? implode(', ', $allRestrictions) : '—';
-                $compiledRestrictions[] = $parentRestriction;
 
                 $allLocs = array_unique(array_filter(array_map(fn($s) => ($s->location !== '—' ? $s->location : null), $subPeriodItems)));
                 $parentLocation = !empty($allLocs) ? implode(', ', $allLocs) : '—';
-                $compiledLocs[] = $parentLocation;
 
                 $allFreqs = array_unique(array_filter(array_map(fn($s) => ($s->frequence_use !== '—' ? $s->frequence_use : null), $subPeriodItems)));
                 $parentFreq = !empty($allFreqs) ? implode(', ', $allFreqs) : '—';
-                $compiledFreqs[] = $parentFreq;
 
                 $allDups = array_filter(array_map(fn($s) => ($s->duplication !== '—' ? $s->duplication : null), $subPeriodItems));
                 $parentDup = $this->formatDuplication($allDups);
-                $compiledDups[] = $parentDup;
-
-                $compiledTimes[] = $firstRec->time_value ?: 'T';
 
                 $allUtils = [];
                 foreach ($group as $r) {
                     $uRows = ($utilities[$r->id] ?? collect())->pluck('utility_name')->all();
                     foreach ($uRows as $un) {
-                        $compiledUtils[] = $un;
                         $allUtils[] = $un;
                     }
                 }
                 $parentUtils = array_values(array_unique($allUtils));
+
+                // Disposed batch records must not contribute to the series compilation/total details
+                if ($batchStatus !== 'disposed') {
+                    if (!empty($batchStart) && !empty($batchEnd)) {
+                        $compiledDates[] = $batchStart . ' - ' . $batchEnd;
+                    }
+                    foreach ($groupPeriods as $gp) {
+                        $p = $gp['period'];
+                        if (!empty($p->date_covered) && !empty($p->date_covered_end)) {
+                            $compiledDates[] = $p->date_covered . ' - ' . $p->date_covered_end;
+                        } elseif (!empty($p->date_covered)) {
+                            $compiledDates[] = $p->date_covered;
+                        } elseif (!empty($p->date_covered_end)) {
+                            $compiledDates[] = $p->date_covered_end;
+                        }
+                    }
+
+                    if (!empty($recVolume) && $recVolume !== '—') $compiledVols[] = $recVolume;
+                    if (!empty($parentMedium) && $parentMedium !== '—') $compiledMediums[] = $parentMedium;
+                    if (!empty($parentRestriction) && $parentRestriction !== '—') $compiledRestrictions[] = $parentRestriction;
+                    if (!empty($parentLocation) && $parentLocation !== '—') $compiledLocs[] = $parentLocation;
+                    if (!empty($parentFreq) && $parentFreq !== '—') $compiledFreqs[] = $parentFreq;
+                    if (!empty($parentDup) && $parentDup !== '—') $compiledDups[] = $parentDup;
+                    if (!empty($firstRec->time_value) && $firstRec->time_value !== '—') $compiledTimes[] = $firstRec->time_value;
+                    foreach ($allUtils as $un) $compiledUtils[] = $un;
+                    $totalItemsCount++;
+                }
 
                 $childItems[] = (object)[
                     'id'            => $firstRec->id,
@@ -1140,8 +1389,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     'utility'       => $this->formatItemUtility($parentUtils),
                     'is_batch'      => true,
                     'sub_periods'   => $subPeriodItems,
+                    'status'        => $batchStatus,
+                    'is_disposed'   => ($batchStatus === 'disposed'),
+                    'is_revised'    => ($batchStatus === 'revised'),
                 ];
-                $totalItemsCount++;
             }
         }
 
@@ -1255,7 +1506,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             }
         }
         $unique = array_values(array_unique($valid));
-        return !empty($unique) ? implode(', ', $unique) : 'T';
+        return !empty($unique) ? implode(', ', $unique) : '—';
     }
 
     private function compileUtility(array $utilityNames): string
@@ -1271,7 +1522,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $abbrs[] = $map[$n] ?? strtoupper(substr($n, 0, 3));
         }
         $unique = array_values(array_unique($abbrs));
-        return !empty($unique) ? implode(', ', $unique) : 'A';
+        return !empty($unique) ? implode(', ', $unique) : '—';
     }
 
     private function formatItemUtility(array $utilityNames): string
@@ -1372,14 +1623,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         // Synchronize retention expiration so expired records are automatically transferred to NAP Form 3
         \App\Services\RdpRetentionService::syncTransferredRecords();
 
-        // 1. Fetch Records added or registered on the user's office (excluding records transferred to NAP Form 3)
+        // 1. Fetch Records added or registered on the user's office (including records whose life cycle ended to leave footprint)
         $recordsQuery = DB::table('rdp_record')
             ->where('is_draft', false)
-            ->where('is_active', true)
-            ->where(function($q) {
-                $q->where('rdp_record.transferred_to_nap3', false)
-                  ->orWhere('rdp_record.ispartof_batch', true);
-            });
+            ->where('is_active', true);
 
         if ($effectiveOffice) {
             $recordsQuery->where(function($q) use ($effectiveOffice) {
@@ -1405,21 +1652,62 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         $allRecords = $recordsQuery->orderBy('id', 'asc')->get();
         $recordIds = $allRecords->pluck('id')->all();
 
+        // Pre-load DCS revision / obsolete records to detect "Revised" footprint
+        $dcsObsoleteDocs = [];
+        if (\Illuminate\Support\Facades\Schema::hasTable('dcs_masterlist_registration')) {
+            $dcsObsoleteDocs = DB::table('dcs_masterlist_registration')
+                ->where('revision_status', 'obsolete')
+                ->pluck('doc_no')
+                ->map(fn($v) => mb_strtolower(trim((string)$v)))
+                ->filter()
+                ->unique()
+                ->all();
+        }
+
+        $revisedRecordIds = [];
+        if (!empty($dcsObsoleteDocs) && \Illuminate\Support\Facades\Schema::hasTable('rdp_received_documents')) {
+            $receivedDcs = DB::table('rdp_received_documents')
+                ->where('source_subsystem', 'DCS')
+                ->whereNotNull('appraised_record_id')
+                ->get(['appraised_record_id', 'document_code']);
+            foreach ($receivedDcs as $rd) {
+                $code = mb_strtolower(trim((string)$rd->document_code));
+                if (in_array($code, $dcsObsoleteDocs, true)) {
+                    $revisedRecordIds[$rd->appraised_record_id] = true;
+                }
+            }
+        }
+
+        $hasRecordClearance = function($recOffice = null) use ($isSadm, $perms, $userOfficeCode) {
+            if ($isSadm || (bool)($perms->can_access_rdp_admin ?? false)) {
+                return true;
+            }
+            $canModify = (bool)($perms->can_rdp_modify_form_1 ?? false);
+            if (!$canModify) {
+                return false;
+            }
+            if (empty($recOffice) || empty($userOfficeCode) || $recOffice === $userOfficeCode) {
+                return true;
+            }
+            return (bool)($perms->can_rdp_edit_others_form_1 ?? false);
+        };
+
         if ($allRecords->isEmpty()) {
             return [
-                'hierarchyTree'    => [],
-                'officesList'      => $officesList,
-                'totalItemsCount'  => 0,
-                'permanentCount'   => 0,
-                'temporaryCount'   => 0,
-                'userOfficeCode'   => $userOfficeCode,
-                'userOfficeName'   => $userOfficeName,
-                'isSadm'           => $isSadm,
-                'mediaList'        => DB::table('rdp_recorded_value')->orderBy('medium_name', 'asc')->get(),
-                'restrictionsList' => DB::table('rdp_restriction_type')->orderBy('restriction_value', 'asc')->get(),
-                'frequenciesList'  => DB::table('rdp_frequence_use')->orderBy('freq_type', 'asc')->get(),
-                'timeValuesList'   => DB::table('rdp_time_value')->orderBy('char_value', 'asc')->get(),
-                'utilityValuesList'=> DB::table('rdp_utility_medium')->orderBy('utility_name', 'asc')->get(),
+                'hierarchyTree'      => [],
+                'officesList'        => $officesList,
+                'totalItemsCount'    => 0,
+                'permanentCount'     => 0,
+                'temporaryCount'     => 0,
+                'userOfficeCode'     => $userOfficeCode,
+                'userOfficeName'     => $userOfficeName,
+                'isSadm'             => $isSadm,
+                'hasRecordClearance' => $hasRecordClearance,
+                'mediaList'          => DB::table('rdp_recorded_value')->orderBy('medium_name', 'asc')->get(),
+                'restrictionsList'   => DB::table('rdp_restriction_type')->orderBy('restriction_value', 'asc')->get(),
+                'frequenciesList'    => DB::table('rdp_frequence_use')->orderBy('freq_type', 'asc')->get(),
+                'timeValuesList'     => DB::table('rdp_time_value')->orderBy('char_value', 'asc')->get(),
+                'utilityValuesList'  => DB::table('rdp_utility_medium')->orderBy('utility_name', 'asc')->get(),
             ];
         }
 
@@ -1577,35 +1865,60 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         $compiledDups,
                         $compiledTimes,
                         $compiledUtils,
-                        $totalItemsCount
+                        $totalItemsCount,
+                        $revisedRecordIds,
+                        $dcsObsoleteDocs
                     );
 
                     if (empty($childItems)) continue;
 
-                    if ($isPerm) $permanentCount++; else $temporaryCount++;
+                    $activeChildItems = array_values(array_filter($childItems, fn($c) => ($c->status ?? 'active') !== 'disposed'));
+                    $hasOnlyDisposed = !empty($childItems) && empty($activeChildItems);
+                    $selectableChildIds = array_values(array_filter(array_column($activeChildItems, 'id')));
+
+                    if (!$hasOnlyDisposed) {
+                        if ($isPerm) $permanentCount++; else $temporaryCount++;
+                    }
 
                     $rootNode->sub_series[] = (object)[
                         'id'                   => $sub->id,
                         'series_title'         => $sub->series_title,
                         'shorted_type'         => $sub->shorted_type ?: $root->shorted_type,
-                        'compiled_period'      => $this->compilePeriodCovered($compiledDates),
-                        'compiled_volume'      => $this->compileVolume($compiledVols),
-                        'compiled_medium'      => $this->compileMedium($compiledMediums),
-                        'compiled_restriction' => $this->compileRestriction($compiledRestrictions),
-                        'compiled_location'    => $this->compileLocation($compiledLocs),
-                        'compiled_freq'        => $this->compileFrequency($compiledFreqs),
-                        'compiled_duplication' => $this->compileDuplication($compiledDups),
-                        'compiled_time'        => $this->compileTimeValue($compiledTimes),
-                        'compiled_util'        => $this->compileUtility($compiledUtils),
-                        'active_period'        => $isPerm ? 'PERMANENT' : $effActive,
-                        'storage_period'       => $isPerm ? '' : $effStorage,
-                        'total_period'         => $isPerm ? 'PERMANENT' : $effTotal,
+                        'compiled_period'      => $hasOnlyDisposed ? '—' : $this->compilePeriodCovered($compiledDates),
+                        'compiled_volume'      => $hasOnlyDisposed ? '—' : $this->compileVolume($compiledVols),
+                        'compiled_medium'      => $hasOnlyDisposed ? '—' : $this->compileMedium($compiledMediums),
+                        'compiled_restriction' => $hasOnlyDisposed ? '—' : $this->compileRestriction($compiledRestrictions),
+                        'compiled_location'    => $hasOnlyDisposed ? '—' : $this->compileLocation($compiledLocs),
+                        'compiled_freq'        => $hasOnlyDisposed ? '—' : $this->compileFrequency($compiledFreqs),
+                        'compiled_duplication' => $hasOnlyDisposed ? '—' : $this->compileDuplication($compiledDups),
+                        'compiled_time'        => $hasOnlyDisposed ? '—' : $this->compileTimeValue($compiledTimes),
+                        'compiled_util'        => $hasOnlyDisposed ? '—' : $this->compileUtility($compiledUtils),
+                        'active_period'        => $hasOnlyDisposed ? '—' : ($isPerm ? 'PERMANENT' : $effActive),
+                        'storage_period'       => $hasOnlyDisposed ? '—' : ($isPerm ? '' : $effStorage),
+                        'total_period'         => $hasOnlyDisposed ? '—' : ($isPerm ? 'PERMANENT' : $effTotal),
                         'is_permanent'         => $isPerm,
-                        'remarks'              => $sub->remarks ?: ($root->remarks ?: ''),
+                        'remarks'              => $hasOnlyDisposed ? '—' : ($sub->remarks ?: ($root->remarks ?: '')),
                         'records'              => $childItems,
                         'record_ids'           => array_column($childItems, 'id'),
+                        'selectable_record_ids'=> $selectableChildIds,
+                        'active_records_count' => count($activeChildItems),
+                        'has_only_disposed'    => $hasOnlyDisposed,
                     ];
                 }
+
+                $allSelectableInSubs = [];
+                $allSubRecordsCount = 0;
+                $activeSubRecordsCount = 0;
+                foreach ($rootNode->sub_series as $s) {
+                    foreach ($s->selectable_record_ids as $sId) {
+                        $allSelectableInSubs[] = $sId;
+                    }
+                    $allSubRecordsCount += count($s->records);
+                    $activeSubRecordsCount += ($s->active_records_count ?? 0);
+                }
+                $rootNode->selectable_record_ids = array_values(array_unique($allSelectableInSubs));
+                $rootNode->active_records_count  = $activeSubRecordsCount;
+                $rootNode->has_only_disposed     = ($allSubRecordsCount > 0 && $activeSubRecordsCount === 0);
             } else {
                 // Direct records under root
                 $directRecs = $recordsBySeries[$root->id] ?? collect();
@@ -1645,27 +1958,39 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     $compiledDups,
                     $compiledTimes,
                     $compiledUtils,
-                    $totalItemsCount
+                    $totalItemsCount,
+                    $revisedRecordIds,
+                    $dcsObsoleteDocs
                 );
 
                 if (empty($childItems)) continue;
 
-                if ($isPerm) $permanentCount++; else $temporaryCount++;
+                $activeChildItems = array_values(array_filter($childItems, fn($c) => ($c->status ?? 'active') !== 'disposed'));
+                $hasOnlyDisposed = !empty($childItems) && empty($activeChildItems);
+                $selectableChildIds = array_values(array_filter(array_column($activeChildItems, 'id')));
 
-                $rootNode->compiled_period      = $this->compilePeriodCovered($compiledDates);
-                $rootNode->compiled_volume      = $this->compileVolume($compiledVols);
-                $rootNode->compiled_medium      = $this->compileMedium($compiledMediums);
-                $rootNode->compiled_restriction = $this->compileRestriction($compiledRestrictions);
-                $rootNode->compiled_location    = $this->compileLocation($compiledLocs);
-                $rootNode->compiled_freq        = $this->compileFrequency($compiledFreqs);
-                $rootNode->compiled_duplication = $this->compileDuplication($compiledDups);
-                $rootNode->compiled_time        = $this->compileTimeValue($compiledTimes);
-                $rootNode->compiled_util        = $this->compileUtility($compiledUtils);
-                $rootNode->active_period        = $isPerm ? 'PERMANENT' : ($root->active_period ?: '—');
-                $rootNode->storage_period       = $isPerm ? '' : ($root->storage_period ?: '');
-                $rootNode->total_period         = $isPerm ? 'PERMANENT' : ($root->total_period ?: '—');
+                if (!$hasOnlyDisposed) {
+                    if ($isPerm) $permanentCount++; else $temporaryCount++;
+                }
+
+                $rootNode->has_only_disposed     = $hasOnlyDisposed;
+                $rootNode->active_records_count  = count($activeChildItems);
+                $rootNode->selectable_record_ids = $selectableChildIds;
+
+                $rootNode->compiled_period      = $hasOnlyDisposed ? '—' : $this->compilePeriodCovered($compiledDates);
+                $rootNode->compiled_volume      = $hasOnlyDisposed ? '—' : $this->compileVolume($compiledVols);
+                $rootNode->compiled_medium      = $hasOnlyDisposed ? '—' : $this->compileMedium($compiledMediums);
+                $rootNode->compiled_restriction = $hasOnlyDisposed ? '—' : $this->compileRestriction($compiledRestrictions);
+                $rootNode->compiled_location    = $hasOnlyDisposed ? '—' : $this->compileLocation($compiledLocs);
+                $rootNode->compiled_freq        = $hasOnlyDisposed ? '—' : $this->compileFrequency($compiledFreqs);
+                $rootNode->compiled_duplication = $hasOnlyDisposed ? '—' : $this->compileDuplication($compiledDups);
+                $rootNode->compiled_time        = $hasOnlyDisposed ? '—' : $this->compileTimeValue($compiledTimes);
+                $rootNode->compiled_util        = $hasOnlyDisposed ? '—' : $this->compileUtility($compiledUtils);
+                $rootNode->active_period        = $hasOnlyDisposed ? '—' : ($isPerm ? 'PERMANENT' : ($root->active_period ?: '—'));
+                $rootNode->storage_period       = $hasOnlyDisposed ? '—' : ($isPerm ? '' : ($root->storage_period ?: ''));
+                $rootNode->total_period         = $hasOnlyDisposed ? '—' : ($isPerm ? 'PERMANENT' : ($root->total_period ?: '—'));
                 $rootNode->is_permanent         = $isPerm;
-                $rootNode->remarks              = $root->remarks ?? '';
+                $rootNode->remarks              = $hasOnlyDisposed ? '—' : ($root->remarks ?? '');
                 $rootNode->direct_records       = $childItems;
                 $rootNode->record_ids           = array_column($childItems, 'id');
             }
@@ -1707,6 +2032,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             'userOfficeCode'   => $userOfficeCode,
             'userOfficeName'   => $userOfficeName,
             'isSadm'           => $isSadm,
+            'hasRecordClearance' => $hasRecordClearance,
             'mediaList'        => DB::table('rdp_recorded_value')->orderBy('medium_name', 'asc')->get(),
             'restrictionsList' => DB::table('rdp_restriction_type')->orderBy('restriction_value', 'asc')->get(),
             'frequenciesList'  => DB::table('rdp_frequence_use')->orderBy('freq_type', 'asc')->get(),
@@ -1732,9 +2058,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 <div class="nap-page-container" style="padding: 24px; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
     <style>
         .nap-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 24px; }
-        .nap-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
-        .nap-table th { background: #f8fafc; padding: 10px 12px; font-weight: 700; color: #475569; border: 1px solid #cbd5e1; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .nap-table td { padding: 9px 12px; border: 1px solid #e2e8f0; vertical-align: middle; color: #0f172a; }
+        .nap-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; border: 1px solid #000; }
+        .nap-table th { background: #f8fafc; padding: 10px 12px; font-weight: 700; color: #475569; border: 1px solid #000; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .nap-table td { padding: 9px 12px; border: 1px solid #000; vertical-align: middle; color: #0f172a; }
         .nap-btn { padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; border: none; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
         .nap-btn-primary { background: #2563eb; color: #ffffff; }
         .nap-btn-primary:hover { background: #1d4ed8; }
@@ -1798,14 +2124,80 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         }
 
         /* Row styles */
-        .root-series-row { background: #f8fafc; font-weight: 800; border-top: 2px solid #cbd5e1 !important; border-bottom: 2px solid #cbd5e1 !important; }
-        .sub-series-row { background: #ffffff; font-weight: 700; border-bottom: 1px solid #cbd5e1; }
+        .root-series-row { background: #f8fafc; font-weight: 800; border-top: 2px solid #000 !important; border-bottom: 2px solid #000 !important; }
+        .sub-series-row { background: #ffffff; font-weight: 700; border-bottom: 1px solid #000; }
         .record-item-row { background: #fafafa; font-size: 12.5px; transition: background 0.15s; }
         .record-item-row:hover { background: #f1f5f9; }
         .record-item-row.is-selected { background: #eff6ff !important; }
 
+        /* Darkened Footprint for Disposed & Revised Records */
+        .record-item-row.is-disposed,
+        .record-sub-period-row.is-disposed {
+            background: #94a3b8 !important;
+        }
+        .record-item-row.is-disposed td,
+        .record-sub-period-row.is-disposed td {
+            color: #0f172a !important;
+            font-weight: 500;
+            border-color: #000 !important;
+        }
+
+        /* Selection column always retains clean white background & uniform border */
+        .record-item-row.is-disposed td:first-child,
+        .record-sub-period-row.is-disposed td:first-child,
+        .record-item-row.is-revised td:first-child,
+        .record-sub-period-row.is-revised td:first-child {
+            background: #ffffff !important;
+            border-color: #000 !important;
+        }
+
+        .nap-badge-disposed {
+            display: inline-flex;
+            align-items: center;
+            font-size: 10px;
+            font-weight: 700;
+            background: rgba(15, 23, 42, 0.14);
+            color: #0f172a;
+            padding: 1px 7px;
+            border-radius: 4px;
+            border: 1px solid rgba(15, 23, 42, 0.25);
+            margin-left: 6px;
+            letter-spacing: 0.02em;
+        }
+
+        .record-item-row.is-revised,
+        .record-sub-period-row.is-revised {
+            background: #ffedd5 !important;
+        }
+        .record-item-row.is-revised td,
+        .record-sub-period-row.is-revised td {
+            color: #9a3412 !important;
+            border-color: #000 !important;
+        }
+        .record-item-row.is-revised:hover,
+        .record-sub-period-row.is-revised:hover {
+            background: #fed7aa !important;
+        }
+
+        .nap-btn-disposed {
+            background: #334155 !important;
+            color: #ffffff !important;
+            border: 1px solid #1e293b !important;
+        }
+        .nap-btn-disposed:hover {
+            background: #1e293b !important;
+        }
+
+        .nap-btn-revised {
+            background: #c2410c !important;
+            color: #ffffff !important;
+            border: 1px solid #9a3412 !important;
+        }
+        .nap-btn-revised:hover {
+            background: #9a3412 !important;
+        }
+
         .corner-symbol { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 14px; color: #2563eb; font-weight: 900; margin-right: 6px; }
-        .sub-branch-line { font-family: ui-monospace, SFMono-Regular, monospace; color: #94a3b8; margin-right: 8px; font-weight: 700; }
         .nap-chevron-btn {
             background: transparent;
             border: none;
@@ -1976,7 +2368,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     </select>
                 @else
                     <div style="display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 700; color: #1e293b;">
-                        <span style="color: #2563eb;">🏢</span>
+                        <span style="color: #2563eb; display: inline-flex; align-items: center;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><path d="M9 22v-4h6v4"></path><path d="M8 6h.01"></path><path d="M16 6h.01"></path><path d="M8 10h.01"></path><path d="M16 10h.01"></path><path d="M8 14h.01"></path><path d="M16 14h.01"></path></svg>
+                        </span>
                         <span>Office: {{ $userOfficeCode ?? 'N/A' }}</span>
                     </div>
                 @endif
@@ -2031,7 +2425,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         <th rowspan="2" style="width: 90px; text-align: center;">DUPLICATION</th>
                         <th rowspan="2" style="width: 50px; text-align: center;">TIME</th>
                         <th rowspan="2" style="width: 65px; text-align: center;">UTIL</th>
-                        <th colspan="3" style="text-align: center; border-bottom: 1px solid #cbd5e1;">RETENTION PERIOD</th>
+                        <th colspan="3" style="text-align: center; border-bottom: 1px solid #000;">RETENTION PERIOD</th>
                         <th rowspan="2" style="width: 130px; text-align: left;">DISPOSITION PROVISION</th>
                         <th rowspan="2" style="width: 80px; text-align: right;">ACTION</th>
                     </tr>
@@ -2047,30 +2441,28 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         <tr class="root-series-row">
                             <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                 <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                    @if(!$root->has_children && !empty($root->record_ids))
-                                        @php
-                                            $strIds = array_map('strval', $root->record_ids);
-                                            $isAllSelected = !empty($strIds) && count(array_intersect($strIds, $selectedIds)) === count($strIds);
-                                        @endphp
-                                        <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($root->record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select record series">
-                                    @elseif($root->has_children)
-                                        @php
-                                            $allRootChildIds = [];
-                                            foreach ($root->sub_series as $s) {
-                                                foreach ($s->record_ids as $rid) {
-                                                    $allRootChildIds[] = $rid;
-                                                }
-                                            }
-                                            $strRootIds = array_map('strval', $allRootChildIds);
-                                            $isRootChecked = !empty($strRootIds) && count(array_intersect($strRootIds, $selectedIds)) === count($strRootIds);
-                                        @endphp
-                                        @if(!empty($allRootChildIds))
-                                            <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($allRootChildIds) }})" {{ $isRootChecked ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select record series group">
+                                    @if(!$root->has_children)
+                                        @if(!empty($root->selectable_record_ids))
+                                            @php
+                                                $strIds = array_map('strval', $root->selectable_record_ids);
+                                                $isAllSelected = !empty($strIds) && count(array_intersect($strIds, $selectedIds)) === count($strIds);
+                                            @endphp
+                                            <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($root->selectable_record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select record series">
                                         @else
-                                            <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
+                                            <span style="width: 15px; display: inline-block;"></span>
+                                        @endif
+                                    @elseif($root->has_children)
+                                        @if(!empty($root->selectable_record_ids))
+                                            @php
+                                                $strRootIds = array_map('strval', $root->selectable_record_ids);
+                                                $isRootChecked = !empty($strRootIds) && count(array_intersect($strRootIds, $selectedIds)) === count($strRootIds);
+                                            @endphp
+                                            <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($root->selectable_record_ids) }})" {{ $isRootChecked ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select record series group">
+                                        @else
+                                            <span style="width: 15px; display: inline-block;"></span>
                                         @endif
                                     @else
-                                        <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
+                                        <span style="width: 15px; display: inline-block;"></span>
                                     @endif
 
                                     @if(!$root->has_children)
@@ -2104,12 +2496,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     @if(!$root->has_children)
                                         <span @click="toggleSubjects('root-{{ $root->id }}')" style="cursor: pointer;" title="Click to hide/unhide subjects">{{ $root->series_title }}</span>
-                                        @if(count($root->direct_records) > 0)
-                                            <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($root->direct_records) }})</span>
+                                        @if(($root->active_records_count ?? 0) > 0)
+                                            <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ $root->active_records_count }})</span>
                                         @endif
                                     @else
                                         <span @click="toggleRoot('root-{{ $root->id }}')" style="cursor: pointer;" title="Click to hide/unhide group">{{ $root->series_title }}</span>
-                                        <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($root->sub_series) }} sub)</span>
+                                        @php
+                                            $activeSubsCount = count(array_filter($root->sub_series, fn($s) => !($s->has_only_disposed ?? false)));
+                                        @endphp
+                                        @if($activeSubsCount > 0)
+                                            <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ $activeSubsCount }} sub)</span>
+                                        @endif
                                     @endif
                                     @if($root->shorted_type)
                                         <span style="font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; font-weight: 700;">
@@ -2129,7 +2526,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                 <td style="text-align: center; font-size: 12px; color: #334155;">{{ $root->compiled_duplication }}</td>
                                 <td style="text-align: center; font-weight: 800; color: #1e40af;">{{ $root->compiled_time }}</td>
                                 <td style="text-align: center; font-weight: 700; color: #334155; font-size: 11.5px;">{{ $root->compiled_util }}</td>
-                                @if($root->is_permanent)
+                                @if($root->has_only_disposed ?? false)
+                                    <td style="text-align: center; font-size: 12px; font-weight: 600; color: #94a3b8;">—</td>
+                                    <td style="text-align: center; font-size: 12px; font-weight: 600; color: #94a3b8;">—</td>
+                                    <td style="text-align: center; font-size: 12px; font-weight: 800; color: #94a3b8;">—</td>
+                                @elseif($root->is_permanent)
                                     <td colspan="3" style="text-align: center; font-weight: 800; color: #dc2626; background: #fef2f2;">PERMANENT</td>
                                 @else
                                     <td style="text-align: center; font-size: 12px; font-weight: 600;">{{ $root->active_period }}</td>
@@ -2152,14 +2553,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                 <tr class="sub-series-row" x-show="!isRootCollapsed('root-{{ $root->id }}')">
                                     <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                         <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                            @if(!empty($sub->record_ids))
+                                            @if(!empty($sub->selectable_record_ids))
                                                 @php
-                                                    $strIds = array_map('strval', $sub->record_ids);
+                                                    $strIds = array_map('strval', $sub->selectable_record_ids);
                                                     $isAllSelected = !empty($strIds) && count(array_intersect($strIds, $selectedIds)) === count($strIds);
                                                 @endphp
-                                                <input type="checkbox" wire:click="toggleSeriesSelection({{ $sub->id }}, {{ json_encode($sub->record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select sub-series">
+                                                <input type="checkbox" wire:click="toggleSeriesSelection({{ $sub->id }}, {{ json_encode($sub->selectable_record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select sub-series">
                                             @else
-                                                <span style="color: #94a3b8; font-size: 11px; width: 15px; display: inline-block; text-align: center;">—</span>
+                                                <span style="width: 15px; display: inline-block;"></span>
                                             @endif
 
                                             @if(count($sub->records) > 0)
@@ -2181,8 +2582,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         <div style="display: flex; align-items: center; gap: 6px;">
                                             <span class="corner-symbol">└</span>
                                             <span @click="toggleSubjects('sub-{{ $sub->id }}')" style="cursor: pointer;" title="Click to hide/unhide subjects">{{ $sub->series_title }}</span>
-                                            @if(count($sub->records) > 0)
-                                                <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ count($sub->records) }})</span>
+                                            @if(($sub->active_records_count ?? 0) > 0)
+                                                <span style="font-size: 11px; font-weight: 600; color: #64748b;">({{ $sub->active_records_count }})</span>
                                             @endif
                                         </div>
                                     </td>
@@ -2195,7 +2596,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     <td style="text-align: center; font-size: 12px; color: #1e293b;">{{ $sub->compiled_duplication }}</td>
                                     <td style="text-align: center; font-weight: 800; color: #1e40af;">{{ $sub->compiled_time }}</td>
                                     <td style="text-align: center; font-weight: 700; color: #334155; font-size: 11.5px;">{{ $sub->compiled_util }}</td>
-                                    @if($sub->is_permanent)
+                                    @if($sub->has_only_disposed ?? false)
+                                        <td style="text-align: center; font-size: 12px; font-weight: 600; color: #94a3b8;">—</td>
+                                        <td style="text-align: center; font-size: 12px; font-weight: 600; color: #94a3b8;">—</td>
+                                        <td style="text-align: center; font-size: 12px; font-weight: 800; color: #94a3b8;">—</td>
+                                    @elseif($sub->is_permanent)
                                         <td colspan="3" style="text-align: center; font-weight: 800; color: #dc2626; background: #fef2f2;">PERMANENT</td>
                                     @else
                                         <td style="text-align: center; font-size: 12px; font-weight: 600;">{{ $sub->active_period }}</td>
@@ -2213,8 +2618,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     @php
                                         $recIdStr = (string)$rec->id;
                                         $isSelected = in_array($recIdStr, $selectedIds);
+                                        $recStatus = $rec->status ?? 'active';
                                     @endphp
-                                    <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
+                                    <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }} {{ $recStatus === 'disposed' ? 'is-disposed' : '' }} {{ $recStatus === 'revised' ? 'is-revised' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
                                         <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                             <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
                                                 <span style="width: 15px; display: inline-block;"></span>
@@ -2222,8 +2628,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                             </div>
                                         </td>
                                         <td style="padding-left: 42px;">
-                                            <span class="sub-branch-line">│</span>
                                             <span style="font-weight: 600; color: #1e293b;">{{ $rec->description }}</span>
+                                            @if($recStatus === 'disposed')
+                                                <span class="nap-badge-disposed" title="Disposed / Lifecycle ended">Disposed</span>
+                                            @elseif($recStatus === 'revised')
+                                                <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; background: #ffedd5; color: #9a3412; padding: 1px 6px; border-radius: 4px; border: 1px solid #fdba74; margin-left: 6px;" title="Revised on Document Control">
+                                                    Revised
+                                                </span>
+                                            @endif
                                         </td>
                                         <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->date_covered }}</td>
                                         <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->volume }}</td>
@@ -2237,20 +2649,47 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
                                         <td style="text-align: center; color: #cbd5e1;">—</td>
                                         <td style="text-align: right; white-space: nowrap;">
-                                            <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                                View
-                                            </button>
+                                            @if($recStatus === 'disposed')
+                                                @if($hasRecordClearance($rec->office_code ?? null))
+                                                    <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                        View
+                                                    </button>
+                                                @endif
+                                            @elseif($recStatus === 'revised')
+                                                <button type="button" wire:click="redirectToDcs({{ $rec->id }})" class="nap-btn nap-btn-revised" title="Document revised on Document Control" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; font-weight: 700; cursor: pointer;">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                                        <polyline points="1 4 1 10 7 10"></polyline>
+                                                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                                                    </svg>
+                                                    Revised
+                                                </button>
+                                            @else
+                                                <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                    View
+                                                </button>
+                                            @endif
                                         </td>
                                     </tr>
 
                                     @if(!empty($rec->is_batch) && !empty($rec->sub_periods))
                                         @foreach($rec->sub_periods as $subP)
-                                            <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
+                                            @php
+                                                $subPStatus = $subP->status ?? 'active';
+                                            @endphp
+                                            <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }} {{ $subPStatus === 'disposed' ? 'is-disposed' : '' }} {{ $subPStatus === 'revised' ? 'is-revised' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
                                                 <td style="text-align: center; padding: 6px 4px; white-space: nowrap;"></td>
                                                 <td style="padding-left: 64px;">
                                                     <span style="color: #94a3b8; margin-right: 4px;">└</span>
                                                     <span style="font-weight: 500; color: #334155; font-size: 12px;">{{ $subP->description }}</span>
+                                                    @if($subPStatus === 'disposed')
+                                                        <span class="nap-badge-disposed" title="Disposed / Lifecycle ended">Disposed</span>
+                                                    @elseif($subPStatus === 'revised')
+                                                        <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; background: #ffedd5; color: #9a3412; padding: 1px 6px; border-radius: 4px; border: 1px solid #fdba74; margin-left: 6px;" title="Revised on Document Control">
+                                                            Revised
+                                                        </span>
+                                                    @endif
                                                 </td>
                                                 <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->date_covered }}</td>
                                                 <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->volume }}</td>
@@ -2264,10 +2703,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                                 <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
                                                 <td style="text-align: center; color: #cbd5e1;">—</td>
                                                 <td style="text-align: right; white-space: nowrap;">
-                                                    <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
-                                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                                        View
-                                                    </button>
+                                                    @if($subPStatus === 'disposed')
+                                                        @if($hasRecordClearance($rec->office_code ?? null))
+                                                            <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                                View
+                                                            </button>
+                                                        @endif
+                                                    @elseif($subPStatus === 'revised')
+                                                        <button type="button" wire:click="redirectToDcs({{ $subP->parent_rec_id ?? $rec->id }})" class="nap-btn nap-btn-revised" title="Document revised on Document Control" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; font-weight: 700; cursor: pointer;">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                                                <polyline points="1 4 1 10 7 10"></polyline>
+                                                                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                                                            </svg>
+                                                            Revised
+                                                        </button>
+                                                    @else
+                                                        <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                            View
+                                                        </button>
+                                                    @endif
                                                 </td>
                                             </tr>
                                         @endforeach
@@ -2280,8 +2736,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                 @php
                                     $recIdStr = (string)$rec->id;
                                     $isSelected = in_array($recIdStr, $selectedIds);
+                                    $recStatus = $rec->status ?? 'active';
                                 @endphp
-                                <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
+                                <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }} {{ $recStatus === 'disposed' ? 'is-disposed' : '' }} {{ $recStatus === 'revised' ? 'is-revised' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
                                     <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                         <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
                                             <span style="width: 15px; display: inline-block;"></span>
@@ -2289,8 +2746,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         </div>
                                     </td>
                                     <td style="padding-left: 28px;">
-                                        <span class="sub-branch-line">│</span>
                                         <span style="font-weight: 600; color: #1e293b;">{{ $rec->description }}</span>
+                                        @if($recStatus === 'disposed')
+                                            <span class="nap-badge-disposed" title="Disposed / Lifecycle ended">Disposed</span>
+                                        @elseif($recStatus === 'revised')
+                                            <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; background: #ffedd5; color: #9a3412; padding: 1px 6px; border-radius: 4px; border: 1px solid #fdba74; margin-left: 6px;" title="Revised on Document Control">
+                                                Revised
+                                            </span>
+                                        @endif
                                     </td>
                                     <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->date_covered }}</td>
                                     <td style="text-align: center; color: #475569; font-size: 12px;">{{ $rec->volume }}</td>
@@ -2304,20 +2767,47 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
                                     <td style="text-align: center; color: #cbd5e1;">—</td>
                                     <td style="text-align: right; white-space: nowrap;">
-                                        <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                            View
-                                        </button>
+                                        @if($recStatus === 'disposed')
+                                            @if($hasRecordClearance($rec->office_code ?? null))
+                                                <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                    View
+                                                </button>
+                                            @endif
+                                        @elseif($recStatus === 'revised')
+                                            <button type="button" wire:click="redirectToDcs({{ $rec->id }})" class="nap-btn nap-btn-revised" title="Document revised on Document Control" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; font-weight: 700; cursor: pointer;">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polyline points="1 4 1 10 7 10"></polyline>
+                                                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                                                </svg>
+                                                Revised
+                                            </button>
+                                        @else
+                                            <button type="button" wire:click="openEditSubjectModal({{ $rec->id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                View
+                                            </button>
+                                        @endif
                                     </td>
                                 </tr>
 
                                 @if(!empty($rec->is_batch) && !empty($rec->sub_periods))
                                     @foreach($rec->sub_periods as $subP)
-                                        <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
+                                        @php
+                                            $subPStatus = $subP->status ?? 'active';
+                                        @endphp
+                                        <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }} {{ $subPStatus === 'disposed' ? 'is-disposed' : '' }} {{ $subPStatus === 'revised' ? 'is-revised' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
                                             <td style="text-align: center; padding: 6px 4px; white-space: nowrap;"></td>
                                             <td style="padding-left: 50px;">
                                                 <span style="color: #94a3b8; margin-right: 4px;">└</span>
                                                 <span style="font-weight: 500; color: #334155; font-size: 12px;">{{ $subP->description }}</span>
+                                                @if($subPStatus === 'disposed')
+                                                    <span class="nap-badge-disposed" title="Disposed / Lifecycle ended">Disposed</span>
+                                                @elseif($subPStatus === 'revised')
+                                                    <span style="display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 700; background: #ffedd5; color: #9a3412; padding: 1px 6px; border-radius: 4px; border: 1px solid #fdba74; margin-left: 6px;" title="Revised on Document Control">
+                                                        Revised
+                                                    </span>
+                                                @endif
                                             </td>
                                             <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->date_covered }}</td>
                                             <td style="text-align: center; color: #64748b; font-size: 11.5px;">{{ $subP->volume }}</td>
@@ -2331,10 +2821,27 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                             <td colspan="3" style="text-align: center; color: #cbd5e1;">—</td>
                                             <td style="text-align: center; color: #cbd5e1;">—</td>
                                             <td style="text-align: right; white-space: nowrap;">
-                                                <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                                    View
-                                                </button>
+                                                @if($subPStatus === 'disposed')
+                                                    @if($hasRecordClearance($rec->office_code ?? null))
+                                                        <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                            View
+                                                        </button>
+                                                    @endif
+                                                @elseif($subPStatus === 'revised')
+                                                    <button type="button" wire:click="redirectToDcs({{ $subP->parent_rec_id ?? $rec->id }})" class="nap-btn nap-btn-revised" title="Document revised on Document Control" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; font-weight: 700; cursor: pointer;">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <polyline points="1 4 1 10 7 10"></polyline>
+                                                            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                                                        </svg>
+                                                        Revised
+                                                    </button>
+                                                @else
+                                                    <button type="button" wire:click="openEditSubjectModal({{ $subP->parent_rec_id ?? $rec->id }}, {{ $subP->period_id }})" class="nap-btn nap-btn-secondary" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                        View
+                                                    </button>
+                                                @endif
                                             </td>
                                         </tr>
                                     @endforeach
@@ -2489,8 +2996,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <button type="button" wire:click="closePrintModal" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700;">
-                            ✕ Close Preview
+                        <button type="button" wire:click="closePrintModal" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            <span>Close Preview</span>
                         </button>
                     </div>
                 </div>
@@ -2779,20 +3287,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     <!-- VIEW / EDIT SUBJECT MODAL -->
     @if($showEditSubjectModal)
         <div class="modal-overlay" wire:click.self="closeEditSubjectModal">
-            <div class="modal-dialog" style="max-width: 680px; width: 100%;">
+            <div class="modal-dialog" style="max-width: 900px; width: 100%;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
                     <div>
                         <div style="display: flex; align-items: center; gap: 8px;">
                             <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">
-                                {{ $isEditingSubject ? ($editingIsBatchSubPeriod ? 'Edit Batch Item Record' : 'Edit Record Subject') : ($editingIsBatchSubPeriod ? 'View Batch Item Record' : 'View Record Details') }}
+                                {{ $isEditingSubject ? ($editingIsBatchSubPeriod ? 'Edit Batch Item Record' : 'Edit Record Subject') : ($editingIsBatchSubPeriod ? 'View Batch Item Record' : 'View Record Subject') }}
                             </h3>
                             @if($isEditingSubject)
-                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 2px 7px; border-radius: 9999px;">
-                                    ✏️ EDITING
+                                <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 9999px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                                    EDITING
                                 </span>
                             @else
-                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 7px; border-radius: 9999px;">
-                                    👁️ VIEW ONLY
+                                <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 9999px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                    VIEW ONLY
                                 </span>
                             @endif
                         </div>
@@ -2800,7 +3310,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                             {{ $isEditingSubject ? ($editingIsBatchSubPeriod ? 'Update volume, dates, or classifications for this batch item.' : 'Update and fix details, typos, or classifications for this record.') : 'Inspect record details, classifications, and storage parameters.' }}
                         </p>
                     </div>
-                    <button type="button" wire:click="closeEditSubjectModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
+                    <button type="button" wire:click="closeEditSubjectModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px;" title="Close Modal">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
                 </div>
 
                 <form wire:submit.prevent="saveEditSubject" style="display: flex; flex-direction: column; gap: 14px;">
@@ -2826,79 +3338,190 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         @endif
                     </div>
 
-                    <!-- Row 1: Period Covered & Volume -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Period Covered / Inclusive Dates</label>
-                            <input type="text" wire:model="editSubjectDateCovered" class="nap-form-control" placeholder="e.g. 2020-2024 or 2023" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
-                        </div>
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Volume Amount & Unit</label>
-                            <input type="text" wire:model="editSubjectVolume" class="nap-form-control" placeholder="e.g. 2 papers, 1 box, 2 bundles" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
-                        </div>
-                    </div>
+                    <!-- 2-COLUMN MAIN CONTENT (Left: Storage & Classification | Right: Duplication List) -->
+                    <div style="display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.95fr); gap: 14px; align-items: stretch;">
+                        <!-- Left Column: Storage & Classification -->
+                        <div style="display: flex; flex-direction: column; gap: 14px;">
+                            <!-- ── SECTION: Storage & Coverage ── -->
+                            <div style="border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #ffffff;">
+                                <div style="display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                                    <span style="font-size: 10.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Storage &amp; Coverage</span>
+                                </div>
+                                <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Period Covered / Inclusive Dates</label>
+                                            <input type="text" wire:model="editSubjectDateCovered" class="nap-form-control" placeholder="e.g. 2020-2024 or 2023" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
+                                        </div>
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Volume Amount &amp; Unit</label>
+                                            <input type="text" wire:model="editSubjectVolume" class="nap-form-control" placeholder="e.g. 2 papers, 1 box, 2 bundles" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
+                                        </div>
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Location of Records</label>
+                                            <input type="text" wire:model="editSubjectLocation" class="nap-form-control" placeholder="e.g. Cabinet 2L, Shelf 3" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
+                                        </div>
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Medium</label>
+                                            <select wire:model="editSubjectMedium" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
+                                                <option value="" {{ empty($editSubjectMedium) ? 'selected' : '' }}>Select Medium...</option>
+                                                @foreach($mediaList as $med)
+                                                    <option value="{{ $med->id }}" {{ (string)$editSubjectMedium === (string)$med->id ? 'selected' : '' }}>{{ $med->medium_name }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
 
-                    <!-- Row 2: Location & Medium -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Location of Records</label>
-                            <input type="text" wire:model="editSubjectLocation" class="nap-form-control" placeholder="e.g. Cabinet 2L, Shelf 3" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
+                            <!-- ── SECTION: Classification ── -->
+                            <div style="border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #ffffff;">
+                                <div style="display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                                    <span style="font-size: 10.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Classification</span>
+                                </div>
+                                <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Restriction / Access</label>
+                                            <select wire:model="editSubjectRestriction" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
+                                                <option value="" {{ empty($editSubjectRestriction) ? 'selected' : '' }}>Select Restriction...</option>
+                                                @foreach($restrictionsList as $rest)
+                                                    <option value="{{ $rest->restriction_value }}" {{ $editSubjectRestriction === $rest->restriction_value ? 'selected' : '' }}>{{ $rest->restriction_value }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Frequency of Use</label>
+                                            <select wire:model="editSubjectFrequency" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
+                                                <option value="" {{ empty($editSubjectFrequency) ? 'selected' : '' }}>Select Frequency...</option>
+                                                @foreach($frequenciesList as $freq)
+                                                    <option value="{{ $freq->freq_type }}" {{ $editSubjectFrequency === $freq->freq_type ? 'selected' : '' }}>{{ $freq->freq_type }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start;">
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Time Value (T/P)</label>
+                                            <select wire:model="editSubjectTimeValue" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
+                                                @foreach($timeValuesList as $tv)
+                                                    <option value="{{ $tv->char_value }}" {{ $editSubjectTimeValue === $tv->char_value ? 'selected' : '' }}>{{ $tv->char_value }} — {{ $tv->description }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Utility Value</label>
+                                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                                                @foreach($utilityValuesList as $uv)
+                                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 7px 10px; border-radius: 8px; border: 1px solid {{ !$canEditFields ? '#e2e8f0' : '#cbd5e1' }}; background: {{ !$canEditFields ? '#f8fafc' : '#ffffff' }}; color: {{ !$canEditFields ? '#64748b' : '#334155' }}; cursor: {{ !$canEditFields ? 'default' : 'pointer' }}; box-sizing: border-box;">
+                                                        <input type="checkbox" wire:model="editSubjectUtilities" value="{{ $uv->id }}" {{ !$canEditFields ? 'disabled' : '' }} style="accent-color: #2563eb; width: 14px; height: 14px; cursor: {{ !$canEditFields ? 'default' : 'pointer' }}; margin: 0;">
+                                                        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $uv->utility_name }}</span>
+                                                    </label>
+                                                @endforeach
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Medium</label>
-                            <select wire:model="editSubjectMedium" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
-                                <option value="" {{ empty($editSubjectMedium) ? 'selected' : '' }}>Select Medium...</option>
-                                @foreach($mediaList as $med)
-                                    <option value="{{ $med->id }}" {{ (string)$editSubjectMedium === (string)$med->id ? 'selected' : '' }}>{{ $med->medium_name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                    </div>
 
-                    <!-- Row 3: Restriction & Frequency of Use -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Restriction / Access</label>
-                            <select wire:model="editSubjectRestriction" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
-                                <option value="" {{ empty($editSubjectRestriction) ? 'selected' : '' }}>Select Restriction...</option>
-                                @foreach($restrictionsList as $rest)
-                                    <option value="{{ $rest->restriction_value }}" {{ $editSubjectRestriction === $rest->restriction_value ? 'selected' : '' }}>{{ $rest->restriction_value }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Frequency of Use</label>
-                            <select wire:model="editSubjectFrequency" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
-                                <option value="" {{ empty($editSubjectFrequency) ? 'selected' : '' }}>Select Frequency...</option>
-                                @foreach($frequenciesList as $freq)
-                                    <option value="{{ $freq->freq_type }}" {{ $editSubjectFrequency === $freq->freq_type ? 'selected' : '' }}>{{ $freq->freq_type }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                    </div>
+                        <!-- Right Column: Duplication List Layout -->
+                        <div style="display: flex; flex-direction: column;">
+                            <div style="border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #ffffff; display: flex; flex-direction: column; height: 100%;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                        <span style="font-size: 10.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Duplication</span>
+                                    </div>
+                                    <span style="font-size: 11px; font-weight: 700; color: #1e40af; background: #eff6ff; padding: 1px 7px; border-radius: 9999px; border: 1px solid #bfdbfe;">
+                                        {{ count($editSubjectDuplicates) }} {{ count($editSubjectDuplicates) === 1 ? 'Office' : 'Offices' }}
+                                    </span>
+                                </div>
 
-                    <!-- Row 4: Time Value & Utility Value -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start;">
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Time Value (T/P)</label>
-                            <select wire:model="editSubjectTimeValue" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
-                                @foreach($timeValuesList as $tv)
-                                    <option value="{{ $tv->char_value }}" {{ $editSubjectTimeValue === $tv->char_value ? 'selected' : '' }}>{{ $tv->char_value }} — {{ $tv->description }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Utility Value</label>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-                                @foreach($utilityValuesList as $uv)
-                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 7px 10px; border-radius: 8px; border: 1px solid {{ !$canEditFields ? '#e2e8f0' : '#cbd5e1' }}; background: {{ !$canEditFields ? '#f8fafc' : '#ffffff' }}; color: {{ !$canEditFields ? '#64748b' : '#334155' }}; cursor: {{ !$canEditFields ? 'default' : 'pointer' }}; box-sizing: border-box;">
-                                        <input type="checkbox" wire:model="editSubjectUtilities" value="{{ $uv->id }}" {{ !$canEditFields ? 'disabled' : '' }} style="accent-color: #2563eb; width: 14px; height: 14px; cursor: {{ !$canEditFields ? 'default' : 'pointer' }}; margin: 0;">
-                                        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $uv->utility_name }}</span>
-                                    </label>
-                                @endforeach
+                                <div style="padding: 12px 14px; flex: 1; display: flex; flex-direction: column; gap: 10px;">
+                                    <p style="margin: 0; font-size: 11px; color: #64748b;">
+                                        Offices holding duplicate copies:
+                                    </p>
+
+                                    <!-- Duplication Vertical List -->
+                                    <div style="flex: 1; max-height: 290px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px;">
+                                        @forelse($editSubjectDuplicates as $dIdx => $dOff)
+                                            @php
+                                                $offObj = collect($officesList)->firstWhere('office_code', $dOff);
+                                                $offName = $offObj->office_name ?? $dOff;
+                                            @endphp
+                                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 10px;">
+                                                <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                                                    <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #3b82f6; flex-shrink: 0;"></span>
+                                                    <div style="min-width: 0;">
+                                                        <div style="font-size: 12px; font-weight: 700; color: #1e293b;">
+                                                            {{ $dOff }}
+                                                        </div>
+                                                        @if($offName !== $dOff)
+                                                            <div style="font-size: 11px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ $offName }}">
+                                                                {{ $offName }}
+                                                            </div>
+                                                        @endif
+                                                    </div>
+                                                </div>
+                                                @if($canEditFields)
+                                                    <button type="button" wire:click="removeEditDuplicateOffice({{ $dIdx }})" title="Remove office" style="border: none; background: #fee2e2; color: #dc2626; border-radius: 4px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 12px; flex-shrink: 0; font-weight: bold;">&times;</button>
+                                                @endif
+                                            </div>
+                                        @empty
+                                            <div style="padding: 24px 12px; text-align: center; color: #94a3b8; font-size: 12px; font-style: italic; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px;">
+                                                No duplicate offices recorded
+                                            </div>
+                                        @endforelse
+                                    </div>
+
+                                    @if($canEditFields)
+                                        <div style="border-top: 1px solid #f1f5f9; padding-top: 8px; margin-top: auto;">
+                                            <label style="font-size: 11px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">+ Add Duplicate Office</label>
+                                            <select wire:change="addEditDuplicateOffice($event.target.value); $event.target.value = '';" class="nap-form-control" style="font-size: 11.5px; padding: 4px 8px; cursor: pointer; width: 100%;">
+                                                <option value="">Select office...</option>
+                                                @foreach($officesList as $off)
+                                                    @if(!in_array($off->office_code, $editSubjectDuplicates))
+                                                        <option value="{{ $off->office_code }}">{{ $off->office_code }} — {{ $off->office_name }}</option>
+                                                    @endif
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                    @endif
+                                </div>
                             </div>
                         </div>
                     </div>
+
+                    <!-- Attached File / View File -->
+                    @if($hasAttachedFile)
+                        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                            <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                                <div style="width: 36px; height: 36px; border-radius: 8px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 1px solid #dbeafe;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                </div>
+                                <div style="min-width: 0;">
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em;">Attached Record File</span>
+                                        @if($attachedFileSize)
+                                            <span style="font-size: 10px; font-weight: 600; color: #94a3b8; background: #e2e8f0; padding: 1px 5px; border-radius: 4px;">{{ $attachedFileSize }}</span>
+                                        @endif
+                                    </div>
+                                    <div style="font-size: 13px; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ $attachedFileName }}">
+                                        {{ $attachedFileName }}
+                                    </div>
+                                </div>
+                            </div>
+                            <a href="{{ $attachedFileUrl }}" target="_blank" rel="noopener noreferrer" class="nap-btn nap-btn-primary" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 6px 14px; text-decoration: none; flex-shrink: 0; white-space: nowrap;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                View File
+                            </a>
+                        </div>
+                    @endif
 
                     <!-- Footer Action Bar -->
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
@@ -2935,12 +3558,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             <div class="modal-dialog">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
                     <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">Create Inventory Submission Form</h3>
-                    <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
+                    <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px;" title="Close Modal">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 14px;">
-                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #1e40af; font-weight: 600;">
-                        📦 Packaging <strong>{{ count($selectedIds) }}</strong> selected inventory records into a submission form.
+                    <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #1e40af; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"></path><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path><path d="m3.3 7 8.7 5 8.7-5"></path><path d="M12 22V12"></path></svg>
+                        <span>Packaging <strong>{{ count($selectedIds) }}</strong> selected inventory records into a submission form.</span>
                     </div>
 
                     <div>

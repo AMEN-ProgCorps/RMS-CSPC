@@ -48,6 +48,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     public ?string $editSubjectFrequency = null;
     public string $editSubjectTimeValue = 'T';
     public array $editSubjectUtilities = [];
+    public array $editSubjectDuplicates = [];
+    public bool $hasAttachedFile = false;
+    public ?string $attachedFileName = null;
+    public ?string $attachedFilePath = null;
+    public ?string $attachedFileId = null;
+    public ?string $attachedFileSize = null;
+    public ?string $attachedFileType = null;
+    public ?string $attachedFileUrl = null;
     public bool $canEditDescription = true;
     public bool $canCancelRecord = true;
 
@@ -103,6 +111,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
         // Synchronize retention expiration ONCE on page load (not on every Livewire render)
         RdpRetentionService::syncTransferredRecords();
+
+        if (request()->has('search')) {
+            $this->search = trim((string)request()->query('search'));
+        }
     }
 
     // Cached table name lookups (resolved once, reused on every render)
@@ -457,8 +469,101 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 ->map(fn($v) => (int)$v)
                 ->all();
 
+            // Duplication
+            $dupId = $rec->duplication_id ?: $rec->id;
+            $this->editSubjectDuplicates = DB::table('rdp_duplication_section')
+                ->where('dup_id_manager', $dupId)
+                ->pluck('office_code')
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            // Attached File
+            $this->hasAttachedFile = false;
+            $this->attachedFileName = null;
+            $this->attachedFilePath = null;
+            $this->attachedFileId = null;
+            $this->attachedFileSize = null;
+            $this->attachedFileType = null;
+            $this->attachedFileUrl = null;
+
+            $docTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data';
+            $doc = null;
+
+            if (!empty($rec->upload_doc_id_handler)) {
+                $doc = DB::table($docTbl)->where('document_id', $rec->upload_doc_id_handler)->first();
+            }
+
+            if (!$doc && !empty($rec->upload_doc_id_handler) && \Illuminate\Support\Facades\Schema::hasTable('rdp_document_record')) {
+                $rdpDoc = DB::table('rdp_document_record')->where('parent_id', $rec->upload_doc_id_handler)->first();
+                if ($rdpDoc) {
+                    $doc = (object)[
+                        'document_id'   => $rec->upload_doc_id_handler,
+                        'document_name' => $rdpDoc->doc_name ?: 'Attached Document',
+                        'document_path' => $rdpDoc->doc_path,
+                        'file_size'     => null,
+                        'file_type'     => null,
+                    ];
+                }
+            }
+
+            if (!$doc && \Illuminate\Support\Facades\Schema::hasTable('rdp_received_documents')) {
+                $rcv = DB::table('rdp_received_documents')
+                    ->where('appraised_record_id', $rec->id)
+                    ->where(function($q) {
+                        $q->whereNotNull('file_path')->orWhereNotNull('document_id_handler');
+                    })
+                    ->first();
+                if ($rcv) {
+                    if (!empty($rcv->document_id_handler)) {
+                        $doc = DB::table($docTbl)->where('document_id', $rcv->document_id_handler)->first();
+                    }
+                    if (!$doc) {
+                        $doc = (object)[
+                            'document_id'   => $rcv->document_id_handler ?: ('RCV-' . $rcv->id),
+                            'document_name' => $rcv->file_name ?: $rcv->document_title ?: 'Attached Document',
+                            'document_path' => $rcv->file_path,
+                            'file_size'     => null,
+                            'file_type'     => null,
+                        ];
+                    }
+                }
+            }
+
+            if ($doc) {
+                $this->hasAttachedFile = true;
+                $this->attachedFileName = $doc->document_name ?? 'Attached Document';
+                $this->attachedFilePath = $doc->document_path ?? null;
+                $this->attachedFileId = $doc->document_id ?? null;
+                $this->attachedFileSize = !empty($doc->file_size) && is_numeric($doc->file_size)
+                    ? round((int)$doc->file_size / 1024, 1) . ' KB'
+                    : null;
+                $this->attachedFileType = $doc->file_type ?? null;
+                $this->attachedFileUrl = route('rdp.view-document', [
+                    'path' => $this->attachedFilePath,
+                    'id'   => $this->attachedFileId,
+                ]);
+            }
+
             $this->isEditingSubject = false;
             $this->showEditSubjectModal = true;
+        }
+    }
+
+    public function addEditDuplicateOffice(string $code): void
+    {
+        $code = trim($code);
+        if (!empty($code) && !in_array($code, $this->editSubjectDuplicates, true)) {
+            $this->editSubjectDuplicates[] = $code;
+        }
+    }
+
+    public function removeEditDuplicateOffice(int $index): void
+    {
+        if (isset($this->editSubjectDuplicates[$index])) {
+            unset($this->editSubjectDuplicates[$index]);
+            $this->editSubjectDuplicates = array_values($this->editSubjectDuplicates);
         }
     }
 
@@ -484,6 +589,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $this->editingSubjectId = null;
         $this->editingPeriodId = null;
         $this->editingIsBatchSubPeriod = false;
+        $this->editSubjectDuplicates = [];
+        $this->hasAttachedFile = false;
+        $this->attachedFileName = null;
+        $this->attachedFilePath = null;
+        $this->attachedFileId = null;
+        $this->attachedFileSize = null;
+        $this->attachedFileType = null;
+        $this->attachedFileUrl = null;
     }
 
     public function cancelRecord(): void
@@ -668,6 +781,23 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     'record_holder'  => $this->editingSubjectId,
                     'utility_medium' => (int)$uId,
                     'is_active'      => true,
+                    'created_at'     => Carbon::now(),
+                    'updated_at'     => Carbon::now(),
+                ]);
+            }
+
+            // Update duplication section
+            $curRec = DB::table('rdp_record')->where('id', $this->editingSubjectId)->first();
+            $dupId = $curRec?->duplication_id ?: $this->editingSubjectId;
+            if (empty($curRec?->duplication_id)) {
+                DB::table('rdp_record')->where('id', $this->editingSubjectId)->update(['duplication_id' => $dupId]);
+            }
+            DB::table('rdp_duplication_section')->where('dup_id_manager', $dupId)->delete();
+            foreach ($this->editSubjectDuplicates as $dOff) {
+                if (empty($dOff)) continue;
+                DB::table('rdp_duplication_section')->insert([
+                    'dup_id_manager' => $dupId,
+                    'office_code'    => $dOff,
                     'created_at'     => Carbon::now(),
                     'updated_at'     => Carbon::now(),
                 ]);
@@ -2091,7 +2221,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                     </select>
                 @else
                     <div style="display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 700; color: #1e293b;">
-                        <span style="color: #dc2626;">🏢</span>
+                        <span style="color: #dc2626; display: inline-flex; align-items: center;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect><path d="M9 22v-4h6v4"></path><path d="M8 6h.01"></path><path d="M16 6h.01"></path><path d="M8 10h.01"></path><path d="M16 10h.01"></path><path d="M8 14h.01"></path><path d="M16 14h.01"></path></svg>
+                        </span>
                         <span>Office: {{ $userOfficeCode ?? 'N/A' }}</span>
                     </div>
                 @endif
@@ -2588,8 +2720,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <button type="button" wire:click="closePrintModal" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700;">
-                            ✕ Close Preview
+                        <button type="button" wire:click="closePrintModal" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            <span>Close Preview</span>
                         </button>
                     </div>
                 </div>
@@ -2759,7 +2892,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     <!-- EDIT SUBJECT MODAL -->
     @if($showEditSubjectModal)
         <div class="modal-overlay" wire:click.self="closeEditSubjectModal">
-            <div class="modal-dialog" style="max-width: 680px; width: 100%;">
+            <div class="modal-dialog" style="max-width: 900px; width: 100%;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
                     <div>
                         <div style="display: flex; align-items: center; gap: 8px;">
@@ -2767,12 +2900,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                                 {{ $isEditingSubject ? ($editingIsBatchSubPeriod ? 'Edit Batch Item Record' : 'Edit Record Subject') : ($editingIsBatchSubPeriod ? 'View Batch Item Record' : 'View Record Subject') }}
                             </h3>
                             @if($isEditingSubject)
-                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 2px 7px; border-radius: 9999px;">
-                                    ✏️ EDITING
+                                <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; color: #b45309; background: #fef3c7; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 9999px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                                    EDITING
                                 </span>
                             @else
-                                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 800; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 7px; border-radius: 9999px;">
-                                    👁️ VIEW ONLY
+                                <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 800; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 9999px;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                    VIEW ONLY
                                 </span>
                             @endif
                         </div>
@@ -2780,7 +2915,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                             {{ $isEditingSubject ? ($editingIsBatchSubPeriod ? 'Update volume, dates, or classifications for this batch item.' : 'Update and fix details, typos, or classifications for this record.') : 'Inspect record details, classifications, and storage parameters.' }}
                         </p>
                     </div>
-                    <button type="button" wire:click="closeEditSubjectModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
+                    <button type="button" wire:click="closeEditSubjectModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px;" title="Close Modal">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
                 </div>
 
                 <form wire:submit.prevent="saveEditSubject" style="display: flex; flex-direction: column; gap: 14px;">
@@ -2806,79 +2943,190 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                         @endif
                     </div>
 
-                    <!-- Row 1: Period Covered & Volume -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Period Covered / Inclusive Dates</label>
-                            <input type="text" wire:model="editSubjectDateCovered" class="nap-form-control" placeholder="e.g. 2020-2024 or 2023" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
-                        </div>
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Volume Amount & Unit</label>
-                            <input type="text" wire:model="editSubjectVolume" class="nap-form-control" placeholder="e.g. 2 papers, 1 box, 2 bundles" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
-                        </div>
-                    </div>
+                    <!-- 2-COLUMN MAIN CONTENT (Left: Storage & Classification | Right: Duplication List) -->
+                    <div style="display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.95fr); gap: 14px; align-items: stretch;">
+                        <!-- Left Column: Storage & Classification -->
+                        <div style="display: flex; flex-direction: column; gap: 14px;">
+                            <!-- ── SECTION: Storage & Coverage ── -->
+                            <div style="border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #ffffff;">
+                                <div style="display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                                    <span style="font-size: 10.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Storage &amp; Coverage</span>
+                                </div>
+                                <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Period Covered / Inclusive Dates</label>
+                                            <input type="text" wire:model="editSubjectDateCovered" class="nap-form-control" placeholder="e.g. 2020-2024 or 2023" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
+                                        </div>
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Volume Amount &amp; Unit</label>
+                                            <input type="text" wire:model="editSubjectVolume" class="nap-form-control" placeholder="e.g. 2 papers, 1 box, 2 bundles" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
+                                        </div>
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Location of Records</label>
+                                            <input type="text" wire:model="editSubjectLocation" class="nap-form-control" placeholder="e.g. Cabinet 2L, Shelf 3" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
+                                        </div>
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Medium</label>
+                                            <select wire:model="editSubjectMedium" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
+                                                <option value="" {{ empty($editSubjectMedium) ? 'selected' : '' }}>Select Medium...</option>
+                                                @foreach($mediaList as $med)
+                                                    <option value="{{ $med->id }}" {{ (string)$editSubjectMedium === (string)$med->id ? 'selected' : '' }}>{{ $med->medium_name }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
 
-                    <!-- Row 2: Location & Medium -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Location of Records</label>
-                            <input type="text" wire:model="editSubjectLocation" class="nap-form-control" placeholder="e.g. Cabinet 2L, Shelf 3" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'readonly disabled' : '' }}>
+                            <!-- ── SECTION: Classification ── -->
+                            <div style="border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #ffffff;">
+                                <div style="display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                                    <span style="font-size: 10.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Classification</span>
+                                </div>
+                                <div style="padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;">
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Restriction / Access</label>
+                                            <select wire:model="editSubjectRestriction" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
+                                                <option value="" {{ empty($editSubjectRestriction) ? 'selected' : '' }}>Select Restriction...</option>
+                                                @foreach($restrictionsList as $rest)
+                                                    <option value="{{ $rest->restriction_value }}" {{ $editSubjectRestriction === $rest->restriction_value ? 'selected' : '' }}>{{ $rest->restriction_value }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Frequency of Use</label>
+                                            <select wire:model="editSubjectFrequency" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
+                                                <option value="" {{ empty($editSubjectFrequency) ? 'selected' : '' }}>Select Frequency...</option>
+                                                @foreach($frequenciesList as $freq)
+                                                    <option value="{{ $freq->freq_type }}" {{ $editSubjectFrequency === $freq->freq_type ? 'selected' : '' }}>{{ $freq->freq_type }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start;">
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Time Value (T/P)</label>
+                                            <select wire:model="editSubjectTimeValue" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
+                                                @foreach($timeValuesList as $tv)
+                                                    <option value="{{ $tv->char_value }}" {{ $editSubjectTimeValue === $tv->char_value ? 'selected' : '' }}>{{ $tv->char_value }} — {{ $tv->description }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Utility Value</label>
+                                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                                                @foreach($utilityValuesList as $uv)
+                                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 7px 10px; border-radius: 8px; border: 1px solid {{ !$canEditFields ? '#e2e8f0' : '#cbd5e1' }}; background: {{ !$canEditFields ? '#f8fafc' : '#ffffff' }}; color: {{ !$canEditFields ? '#64748b' : '#334155' }}; cursor: {{ !$canEditFields ? 'default' : 'pointer' }}; box-sizing: border-box;">
+                                                        <input type="checkbox" wire:model="editSubjectUtilities" value="{{ $uv->id }}" {{ !$canEditFields ? 'disabled' : '' }} style="accent-color: #dc2626; width: 14px; height: 14px; cursor: {{ !$canEditFields ? 'default' : 'pointer' }}; margin: 0;">
+                                                        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $uv->utility_name }}</span>
+                                                    </label>
+                                                @endforeach
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Records Medium</label>
-                            <select wire:model="editSubjectMedium" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
-                                <option value="" {{ empty($editSubjectMedium) ? 'selected' : '' }}>Select Medium...</option>
-                                @foreach($mediaList as $med)
-                                    <option value="{{ $med->id }}" {{ (string)$editSubjectMedium === (string)$med->id ? 'selected' : '' }}>{{ $med->medium_name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                    </div>
 
-                    <!-- Row 3: Restriction & Frequency of Use -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Restriction / Access</label>
-                            <select wire:model="editSubjectRestriction" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
-                                <option value="" {{ empty($editSubjectRestriction) ? 'selected' : '' }}>Select Restriction...</option>
-                                @foreach($restrictionsList as $rest)
-                                    <option value="{{ $rest->restriction_value }}" {{ $editSubjectRestriction === $rest->restriction_value ? 'selected' : '' }}>{{ $rest->restriction_value }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Frequency of Use</label>
-                            <select wire:model="editSubjectFrequency" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
-                                <option value="" {{ empty($editSubjectFrequency) ? 'selected' : '' }}>Select Frequency...</option>
-                                @foreach($frequenciesList as $freq)
-                                    <option value="{{ $freq->freq_type }}" {{ $editSubjectFrequency === $freq->freq_type ? 'selected' : '' }}>{{ $freq->freq_type }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                    </div>
+                        <!-- Right Column: Duplication List Layout -->
+                        <div style="display: flex; flex-direction: column;">
+                            <div style="border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #ffffff; display: flex; flex-direction: column; height: 100%;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                        <span style="font-size: 10.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Duplication</span>
+                                    </div>
+                                    <span style="font-size: 11px; font-weight: 700; color: #1e40af; background: #eff6ff; padding: 1px 7px; border-radius: 9999px; border: 1px solid #bfdbfe;">
+                                        {{ count($editSubjectDuplicates) }} {{ count($editSubjectDuplicates) === 1 ? 'Office' : 'Offices' }}
+                                    </span>
+                                </div>
 
-                    <!-- Row 4: Time Value & Utility Value -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start;">
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Time Value (T/P)</label>
-                            <select wire:model="editSubjectTimeValue" class="nap-form-control" style="{{ $fieldStyle }}" {{ !$canEditFields ? 'disabled' : '' }}>
-                                @foreach($timeValuesList as $tv)
-                                    <option value="{{ $tv->char_value }}" {{ $editSubjectTimeValue === $tv->char_value ? 'selected' : '' }}>{{ $tv->char_value }} — {{ $tv->description }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div>
-                            <label style="font-size: 12px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Utility Value</label>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-                                @foreach($utilityValuesList as $uv)
-                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 7px 10px; border-radius: 8px; border: 1px solid {{ !$canEditFields ? '#e2e8f0' : '#cbd5e1' }}; background: {{ !$canEditFields ? '#f8fafc' : '#ffffff' }}; color: {{ !$canEditFields ? '#64748b' : '#334155' }}; cursor: {{ !$canEditFields ? 'default' : 'pointer' }}; box-sizing: border-box;">
-                                        <input type="checkbox" wire:model="editSubjectUtilities" value="{{ $uv->id }}" {{ !$canEditFields ? 'disabled' : '' }} style="accent-color: #dc2626; width: 14px; height: 14px; cursor: {{ !$canEditFields ? 'default' : 'pointer' }}; margin: 0;">
-                                        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $uv->utility_name }}</span>
-                                    </label>
-                                @endforeach
+                                <div style="padding: 12px 14px; flex: 1; display: flex; flex-direction: column; gap: 10px;">
+                                    <p style="margin: 0; font-size: 11px; color: #64748b;">
+                                        Offices holding duplicate copies:
+                                    </p>
+
+                                    <!-- Duplication Vertical List -->
+                                    <div style="flex: 1; max-height: 290px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px;">
+                                        @forelse($editSubjectDuplicates as $dIdx => $dOff)
+                                            @php
+                                                $offObj = collect($officesList)->firstWhere('office_code', $dOff);
+                                                $offName = $offObj->office_name ?? $dOff;
+                                            @endphp
+                                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 10px;">
+                                                <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                                                    <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #3b82f6; flex-shrink: 0;"></span>
+                                                    <div style="min-width: 0;">
+                                                        <div style="font-size: 12px; font-weight: 700; color: #1e293b;">
+                                                            {{ $dOff }}
+                                                        </div>
+                                                        @if($offName !== $dOff)
+                                                            <div style="font-size: 11px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ $offName }}">
+                                                                {{ $offName }}
+                                                            </div>
+                                                        @endif
+                                                    </div>
+                                                </div>
+                                                @if($canEditFields)
+                                                    <button type="button" wire:click="removeEditDuplicateOffice({{ $dIdx }})" title="Remove office" style="border: none; background: #fee2e2; color: #dc2626; border-radius: 4px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 12px; flex-shrink: 0; font-weight: bold;">&times;</button>
+                                                @endif
+                                            </div>
+                                        @empty
+                                            <div style="padding: 24px 12px; text-align: center; color: #94a3b8; font-size: 12px; font-style: italic; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px;">
+                                                No duplicate offices recorded
+                                            </div>
+                                        @endforelse
+                                    </div>
+
+                                    @if($canEditFields)
+                                        <div style="border-top: 1px solid #f1f5f9; padding-top: 8px; margin-top: auto;">
+                                            <label style="font-size: 11px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px;">+ Add Duplicate Office</label>
+                                            <select wire:change="addEditDuplicateOffice($event.target.value); $event.target.value = '';" class="nap-form-control" style="font-size: 11.5px; padding: 4px 8px; cursor: pointer; width: 100%;">
+                                                <option value="">Select office...</option>
+                                                @foreach($officesList as $off)
+                                                    @if(!in_array($off->office_code, $editSubjectDuplicates))
+                                                        <option value="{{ $off->office_code }}">{{ $off->office_code }} — {{ $off->office_name }}</option>
+                                                    @endif
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                    @endif
+                                </div>
                             </div>
                         </div>
                     </div>
+
+                    <!-- Attached File / View File -->
+                    @if($hasAttachedFile)
+                        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                            <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                                <div style="width: 36px; height: 36px; border-radius: 8px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 1px solid #dbeafe;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                                </div>
+                                <div style="min-width: 0;">
+                                    <div style="display: flex; align-items: center; gap: 6px;">
+                                        <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.06em;">Attached Record File</span>
+                                        @if($attachedFileSize)
+                                            <span style="font-size: 10px; font-weight: 600; color: #94a3b8; background: #e2e8f0; padding: 1px 5px; border-radius: 4px;">{{ $attachedFileSize }}</span>
+                                        @endif
+                                    </div>
+                                    <div style="font-size: 13px; font-weight: 600; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ $attachedFileName }}">
+                                        {{ $attachedFileName }}
+                                    </div>
+                                </div>
+                            </div>
+                            <a href="{{ $attachedFileUrl }}" target="_blank" rel="noopener noreferrer" class="nap-btn nap-btn-primary" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 6px 14px; text-decoration: none; flex-shrink: 0; white-space: nowrap;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                View File
+                            </a>
+                        </div>
+                    @endif
 
                     <!-- Footer Action Bar -->
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px;">
@@ -2915,12 +3163,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             <div class="modal-dialog">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
                     <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;">Create Request for Disposal Authority Form</h3>
-                    <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b;">✕</button>
+                    <button type="button" wire:click="closeClusterModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px;" title="Close Modal">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 14px;">
-                    <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #991b1b; font-weight: 600;">
-                        🗑️ Packaging selected expired records into a Request for Disposal Authority submission form.
+                    <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #991b1b; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                        <span>Packaging selected expired records into a Request for Disposal Authority submission form.</span>
                     </div>
 
                     <div>

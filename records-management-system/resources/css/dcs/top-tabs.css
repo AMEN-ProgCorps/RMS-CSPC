@@ -1,5 +1,12 @@
 /* Top Navigation Tabs host for DCS (mirrors DTS/RDP enable_top_tabs preference). */
 
+@media print {
+    .dcs-top-tabs-host,
+    .top-nav-tabs-wrapper {
+        display: none !important;
+    }
+}
+
 .dcs-top-tabs-host {
     position: fixed;
     top: var(--dcs-header-height);

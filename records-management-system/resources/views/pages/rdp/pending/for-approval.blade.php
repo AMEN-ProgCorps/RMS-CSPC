@@ -792,6 +792,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
             nav,
             .navigation,
             #navigation,
+            .top-nav-tabs-wrapper,
+            .dcs-top-tabs-host,
             .chatify-floating-widget,
             .header-card,
             .controls-group,

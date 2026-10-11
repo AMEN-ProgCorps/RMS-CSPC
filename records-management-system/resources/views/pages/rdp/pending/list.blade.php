@@ -2054,6 +2054,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             nav,
             .navigation,
             #navigation,
+            .top-nav-tabs-wrapper,
+            .dcs-top-tabs-host,
             .chatify-floating-widget,
             .header-card,
             .controls-group,
@@ -2590,7 +2592,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     font-family: Arial, sans-serif !important;
                     font-size: 12px !important;
                 }
-                header, #navigation, .no-print, .modal-overlay.no-print, .modal-overlay > :not(.modal-card), footer {
+                header, #navigation, .navigation, nav, .top-nav-tabs-wrapper, .dcs-top-tabs-host, .chatify-floating-widget, .no-print, .modal-overlay.no-print, .modal-overlay > :not(.modal-card), footer {
                     display: none !important;
                 }
                 .modal-overlay {

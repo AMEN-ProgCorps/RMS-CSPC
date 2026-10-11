@@ -821,6 +821,14 @@ section{
 /* ==========================================================================
    Top Navigation Tabs (DTS, RDP & Admin Dual-Navigation)
    ========================================================================== */
+@media print {
+    .top-nav-tabs-wrapper,
+    .dcs-top-tabs-host,
+    .no-print {
+        display: none !important;
+    }
+}
+
 .top-nav-tabs-wrapper {
     position: relative;
     width: 100%;

@@ -877,6 +877,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             display: flex;
             flex-direction: column;
         }
+
+        @media print {
+            body { background: #ffffff !important; margin: 0 !important; padding: 0 !important; }
+            header, #navigation, .navigation, nav, .top-nav-tabs-wrapper, .dcs-top-tabs-host, .chatify-floating-widget, .no-print, .nap-page-header, footer { display: none !important; }
+            .modal-overlay { position: static !important; background: none !important; padding: 0 !important; display: block !important; }
+            .modal-content { background: none !important; max-width: 100% !important; max-height: none !important; padding: 0 !important; box-shadow: none !important; overflow: visible !important; }
+            .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; margin-bottom: 0 !important; page-break-after: always; break-after: page; }
+            .print-sheet:last-child { page-break-after: auto; break-after: auto; }
+            @page { size: portrait; margin: 0.4in; }
+        }
     </style>
 
     <!-- Header Section -->

@@ -61,6 +61,18 @@
                 zoom: clamp(0.72, calc(100vw / 1920), 1);
             }
         }
+        @media print {
+            header,
+            nav,
+            .navigation,
+            #navigation,
+            .top-nav-tabs-wrapper,
+            .dcs-top-tabs-host,
+            .no-print,
+            .chatify-floating-widget {
+                display: none !important;
+            }
+        }
     </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     @vite(['resources/css/dashboard.css', 'resources/css/notifications.css', 'resources/js/dashboard.js'])

@@ -748,7 +748,15 @@
 @endphp
 
 @if((auth()->user()?->enableTopTabs() ?? true) && (!empty($tabs) || !empty($categoryTabs)))
-<div class="top-nav-tabs-wrapper" data-system="{{ $system }}">
+<style>
+    @media print {
+        .top-nav-tabs-wrapper,
+        .dcs-top-tabs-host {
+            display: none !important;
+        }
+    }
+</style>
+<div class="top-nav-tabs-wrapper no-print" data-system="{{ $system }}">
     <div class="top-nav-tabs-container">
         @if(!empty($categoryTabs))
             <div class="top-nav-category-group">

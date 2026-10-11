@@ -2123,7 +2123,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
         @media print {
             body { background: #ffffff !important; margin: 0 !important; padding: 0 !important; }
-            header, #navigation, .no-print, .nap-page-header, .nap-stat-grid, .nap-card, footer { display: none !important; }
+            header, #navigation, .navigation, nav, .top-nav-tabs-wrapper, .dcs-top-tabs-host, .chatify-floating-widget, .no-print, .nap-page-header, .nap-stat-grid, .nap-card, footer { display: none !important; }
             .modal-overlay { position: static !important; background: none !important; padding: 0 !important; display: block !important; }
             .modal-content { background: none !important; max-width: 100% !important; max-height: none !important; padding: 0 !important; box-shadow: none !important; overflow: visible !important; }
             .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; }

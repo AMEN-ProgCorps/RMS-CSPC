@@ -7,52 +7,50 @@
 <div class="ofi-approvals" id="ofiApprovals" data-max="9">
     <div class="ofi-approvals-head">
         <label class="ofi-dcn-section-label">Approvals</label>
-        <p class="ofi-approvals-hint">Add approving positions and names. Signature and date are left blank for wet-ink on the printed form.</p>
+        <p class="ofi-approvals-hint">Position and name only. Signature and date stay blank for wet-ink on the printed form.</p>
+        <div id="dcnSuggestApprovals" class="ofi-suggest" hidden></div>
     </div>
-    <div class="ofi-approvals-list" id="ofiApprovalsList">
-        @foreach($approvalRows as $i => $appr)
-            <div class="ofi-approval-card" data-approval-row>
-                <div class="ofi-approval-card-head">
-                    <span class="ofi-reviewer-badge">Approval <span data-approval-index>{{ $i + 1 }}</span></span>
-                    <button type="button" class="ofi-btn-sm ofi-btn-ghost" data-approval-remove title="Remove approval" @if(count($approvalRows) < 2) hidden @endif>
-                        <i class="fa-solid fa-xmark"></i> Remove
-                    </button>
-                </div>
-                <div class="reg-grid-2">
-                    <div class="reg-field">
-                        <label>Position</label>
-                        <input type="text" name="approvalPosition[]" value="{{ $appr['position'] ?? '' }}" maxlength="255" placeholder="e.g. College Dean" autocomplete="organization-title">
-                    </div>
-                    <div class="reg-field">
-                        <label>Name</label>
-                        <input type="text" name="approvalName[]" value="{{ $appr['name'] ?? '' }}" maxlength="255" placeholder="Approver name" autocomplete="name">
-                    </div>
-                </div>
-            </div>
-        @endforeach
+    <div class="ofi-approvals-table-wrap">
+        <table class="ofi-approvals-table">
+            <thead>
+                <tr>
+                    <th>Position</th>
+                    <th>Name</th>
+                    <th class="ofi-approval-action-col"></th>
+                </tr>
+            </thead>
+            <tbody id="ofiApprovalsList">
+                @foreach($approvalRows as $appr)
+                    <tr data-approval-row>
+                        <td>
+                            <input type="text" name="approvalPosition[]" value="{{ $appr['position'] ?? '' }}" maxlength="255" placeholder="e.g. College Dean" autocomplete="organization-title">
+                        </td>
+                        <td>
+                            <input type="text" name="approvalName[]" value="{{ $appr['name'] ?? '' }}" maxlength="255" placeholder="Approver name" autocomplete="name">
+                        </td>
+                        <td>
+                            <button type="button" class="ofi-approval-remove" data-approval-remove title="Remove" @if(count($approvalRows) < 2) hidden @endif>Remove</button>
+                        </td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
     </div>
     <button type="button" class="ofi-add-reviewer" id="ofiAddApproval">
-        <i class="fa-solid fa-plus"></i> Add approval position
+        <i class="fa-solid fa-plus"></i> Add approval
     </button>
 </div>
 
 <template id="ofiApprovalRowTpl">
-    <div class="ofi-approval-card" data-approval-row>
-        <div class="ofi-approval-card-head">
-            <span class="ofi-reviewer-badge">Approval <span data-approval-index>1</span></span>
-            <button type="button" class="ofi-btn-sm ofi-btn-ghost" data-approval-remove title="Remove approval">
-                <i class="fa-solid fa-xmark"></i> Remove
-            </button>
-        </div>
-        <div class="reg-grid-2">
-            <div class="reg-field">
-                <label>Position</label>
-                <input type="text" name="approvalPosition[]" value="" maxlength="255" placeholder="e.g. College Dean" autocomplete="organization-title">
-            </div>
-            <div class="reg-field">
-                <label>Name</label>
-                <input type="text" name="approvalName[]" value="" maxlength="255" placeholder="Approver name" autocomplete="name">
-            </div>
-        </div>
-    </div>
+    <tr data-approval-row>
+        <td>
+            <input type="text" name="approvalPosition[]" value="" maxlength="255" placeholder="e.g. College Dean" autocomplete="organization-title">
+        </td>
+        <td>
+            <input type="text" name="approvalName[]" value="" maxlength="255" placeholder="Approver name" autocomplete="name">
+        </td>
+        <td>
+            <button type="button" class="ofi-approval-remove" data-approval-remove title="Remove">Remove</button>
+        </td>
+    </tr>
 </template>

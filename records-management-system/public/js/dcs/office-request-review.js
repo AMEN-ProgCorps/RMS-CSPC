@@ -278,6 +278,53 @@
         if (this.checked) markReceived();
         else clearReceived();
     });
+
+    const pairCheck = document.getElementById('ofiRequestReceivedPair');
+    const pairMeta = document.getElementById('ofiRequestReceivePairMeta');
+    async function markPair(received) {
+        if (!pairCheck || busy) return;
+        const pairType = pairCheck.getAttribute('data-receive-type');
+        const pairId = pairCheck.getAttribute('data-receive-id');
+        if (!pairType || !pairId) return;
+        busy = true;
+        try {
+            const response = await fetch(
+                '/dcs/api/office-intake/' + encodeURIComponent(pairType) + '/' + encodeURIComponent(pairId) + '/received',
+                {
+                    method: received ? 'POST' : 'DELETE',
+                    headers: {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': csrfToken(),
+                    },
+                    credentials: 'same-origin',
+                    body: received ? JSON.stringify({}) : undefined,
+                }
+            );
+            if (!response.ok) throw new Error(received ? 'Could not mark as received.' : 'Could not clear received status.');
+            const data = received ? await response.json() : null;
+            if (pairMeta) {
+                if (received && data) {
+                    let text = String(pairType).toUpperCase() + ' received';
+                    if (data.receivedAt) text += ' on ' + data.receivedAt;
+                    if (data.receivedBy) text += ' by ' + data.receivedBy;
+                    pairMeta.textContent = text;
+                    pairMeta.hidden = false;
+                } else {
+                    pairMeta.hidden = true;
+                }
+            }
+        } catch (err) {
+            pairCheck.checked = !received;
+            alert(err.message || 'Could not update received status.');
+        } finally {
+            busy = false;
+        }
+    }
+    pairCheck?.addEventListener('change', function () {
+        markPair(this.checked);
+    });
     unlockBtn?.addEventListener('click', unlockEdit);
     notifyBtn?.addEventListener('click', notifyPrintReady);
     proceed?.addEventListener('click', proceedToRegistration);

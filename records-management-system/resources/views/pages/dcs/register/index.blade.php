@@ -1842,10 +1842,21 @@ async function applyOfficeIntakePrefill(prefill) {
             if (typeof handleDocTypeChange === 'function') {
                 handleDocTypeChange();
             }
-            // Intake may land on a parent with subtypes — still unlock sections for autofill.
             const subTypeEl = document.getElementById('subType');
-            const needsSub = subTypeEl && !subTypeEl.disabled && [...subTypeEl.options].length > 1;
-            if (needsSub && typeof unlockChecklist === 'function') {
+            if (subTypeEl && prefill.subTypeId) {
+                const subOpt = [...subTypeEl.options].find(
+                    (o) => String(o.value) === String(prefill.subTypeId)
+                );
+                if (subOpt) {
+                    subTypeEl.disabled = false;
+                    subTypeEl.removeAttribute('disabled');
+                    subTypeEl.value = String(prefill.subTypeId);
+                    subTypeEl.dataset.lastValid = String(prefill.subTypeId);
+                    if (typeof validateChecklistState === 'function') {
+                        validateChecklistState();
+                    }
+                }
+            } else if (subTypeEl && !subTypeEl.disabled && [...subTypeEl.options].length > 1 && typeof unlockChecklist === 'function') {
                 unlockChecklist();
             }
         }
@@ -1860,6 +1871,36 @@ async function applyOfficeIntakePrefill(prefill) {
     await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 40)));
 
     applyOfficeIntakeChecklistAndFields(prefill);
+
+    if (prefill.revisionRequestId && prefill.revisionDocNo && typeof applyRevisionDocumentPick === 'function') {
+        const revRow = document.querySelector('#revisionTableBody tr');
+        if (revRow) {
+            await applyRevisionDocumentPick(revRow, {
+                request_id: prefill.revisionRequestId,
+                doc_no: prefill.revisionDocNo,
+                doc_title: prefill.revisionDocTitle || '',
+                revise_no: prefill.revisionReviseNo || 0,
+            });
+            const setAfter = (id, value) => {
+                if (value === null || value === undefined || value === '') return;
+                const el = document.getElementById(id);
+                if (el) el.value = value;
+            };
+            setAfter('masterlistDocTitle', prefill.masterlistDocTitle || prefill.documentTitle);
+            setAfter('dcnJustification', prefill.dcnJustification);
+            if (prefill.originatorName && window.__sourceWidgets?.masterlistOriginator) {
+                if (typeof window.__sourceWidgets.masterlistOriginator.reset === 'function') {
+                    window.__sourceWidgets.masterlistOriginator.reset();
+                }
+                window.__sourceWidgets.masterlistOriginator.seedFromString(prefill.originatorName, true);
+            }
+            const sources = Array.isArray(prefill.sourceOffices) ? prefill.sourceOffices : [];
+            if (sources.length && typeof officeIntakeSeedSource === 'function') {
+                officeIntakeSeedSource(prefill.intake === 'dcn' ? 'dcn' : 'drf', sources);
+                officeIntakeSeedSource('masterlist', sources);
+            }
+        }
+    }
 
     if (typeof showFormActions === 'function') {
         showFormActions();
@@ -1929,6 +1970,11 @@ function applyOfficeIntakeChecklistAndFields(prefill) {
     document.getElementById('drfDate')?.dispatchEvent(new Event('change', { bubbles: true }));
     setVal('masterlistDocTitle', prefill.masterlistDocTitle || prefill.drfTitle || prefill.documentTitle);
     setVal('masterlistDocNo', prefill.masterlistDocNo || prefill.documentNo);
+    if (prefill.reviseFromDocNo) {
+        const fromInput = document.getElementById('revisedFromDocNo');
+        if (fromInput) fromInput.value = prefill.reviseFromDocNo;
+        window.__revisedFromDocNo = prefill.reviseFromDocNo;
+    }
     setVal('dcnJustification', prefill.dcnJustification);
     setVal('noticeDate', prefill.noticeDate);
     document.getElementById('noticeDate')?.dispatchEvent(new Event('change', { bubbles: true }));
@@ -1938,7 +1984,7 @@ function applyOfficeIntakeChecklistAndFields(prefill) {
     }
 
     const revRow = document.querySelector('#revisionTableBody tr');
-    if (revRow) {
+    if (revRow && !prefill.revisionRequestId) {
         const noInput = revRow.querySelector('input[name="documentNo[]"]');
         const titleInput = revRow.querySelector('input[name="documentTitle[]"]');
         if (noInput && prefill.documentNo) {

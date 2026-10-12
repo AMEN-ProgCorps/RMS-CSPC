@@ -1,277 +1,239 @@
 <script>
 (function () {
     const form = document.getElementById('ofiDcnForm');
-    const input = document.getElementById('dcnDocumentNo');
-    const titleInput = document.getElementById('dcnDocumentTitle');
-    const results = document.getElementById('dcnDocNoResults');
+    const finderNo = document.getElementById('dcnFinderDocumentNo');
+    const finderTitle = document.getElementById('dcnFinderCurrentTitle');
+    const finderOriginator = document.getElementById('dcnFinderOriginator');
+    const findBtn = document.getElementById('dcnDocNoFind');
+    const statusEl = document.getElementById('dcnDocNoFindStatus');
+    const suggestEl = document.getElementById('dcnDocNoSuggestions');
+    const storedNo = document.getElementById('dcnDocumentNo');
     const confirmed = document.getElementById('dcnDocNoConfirmed');
-    const chipRow = document.getElementById('dcnDocNoChip');
-    const chipNo = document.getElementById('dcnDocNoChipNo');
-    const chipTitle = document.getElementById('dcnDocNoChipTitle');
-    const chipRev = document.getElementById('dcnDocNoChipRev');
-    const clearBtn = document.getElementById('dcnDocNoClear');
-    const useModal = document.getElementById('dcnDocNoUseModal');
-    const useNo = document.getElementById('dcnDocNoUseNo');
-    const useTitleText = document.getElementById('dcnDocNoUseTitleText');
-    const useRev = document.getElementById('dcnDocNoUseRev');
-    const useType = document.getElementById('dcnDocNoUseType');
-    const useConfirmBtn = document.getElementById('dcnDocNoUseConfirm');
-    const useCancelBtn = document.getElementById('dcnDocNoUseCancel');
-    const useCloseBtn = document.getElementById('dcnDocNoUseClose');
-    if (!form || !input || !results || !confirmed) return;
+    const reviseInput = document.getElementById('dcnFinderReviseNo');
+    const typeInput = document.getElementById('dcnFinderDocType');
+    if (!form || !finderNo || !finderTitle || !finderOriginator || !storedNo || !confirmed) return;
 
     const searchUrl = @json(url('/dcs/api/office/revisable-documents'));
-    let debounceTimer = null;
-    let lastQuery = '';
-    let activeItems = [];
-    let pendingItem = null;
-    let previousFocus = null;
 
-    function setConfirmed(on, meta) {
-        confirmed.value = on ? '1' : '';
-        if (!chipRow) return;
-        if (!on) {
-            chipRow.hidden = true;
-            return;
-        }
-        chipRow.hidden = false;
-        if (!meta) return;
-        if (chipNo) chipNo.textContent = meta.doc_no || '';
-        if (chipTitle) chipTitle.textContent = meta.doc_title || '';
-        if (chipRev) {
-            const hasRev = meta.revise_no != null && meta.revise_no !== '';
-            chipRev.hidden = !hasRev;
-            chipRev.textContent = hasRev ? ('Rev ' + meta.revise_no) : '';
-        }
-        if (meta.revise_no != null && meta.revise_no !== '') {
-            chipRow.dataset.revise = String(meta.revise_no);
-        }
+    function setStatus(message, ok) {
+        if (!statusEl) return;
+        statusEl.hidden = false;
+        statusEl.textContent = message;
+        statusEl.dataset.state = ok ? 'ok' : 'bad';
     }
 
-    function hideResults() {
-        results.style.display = 'none';
-        results.innerHTML = '';
-        input.setAttribute('aria-expanded', 'false');
-        activeItems = [];
+    function clearSuggestions() {
+        if (!suggestEl) return;
+        suggestEl.hidden = true;
+        suggestEl.innerHTML = '';
     }
 
-    function clearSelection() {
-        setConfirmed(false);
-        input.value = '';
-        if (titleInput) titleInput.value = '';
-        input.readOnly = false;
-        input.focus();
-        hideResults();
-    }
-
-    function commitSelection(item) {
-        const docNo = String(item.doc_no || '').trim();
-        const title = String(item.doc_title || '').trim();
-        const rev = item.revise_no != null ? item.revise_no : 0;
-        input.value = docNo;
-        if (titleInput) {
-            titleInput.value = title;
-            titleInput.dataset.autofilled = '1';
-        }
-        setConfirmed(true, { doc_no: docNo, doc_title: title, revise_no: rev });
-        hideResults();
-    }
-
-    function openUseModal(item) {
-        pendingItem = item;
-        if (!useModal) {
-            // Fallback if modal markup is missing
-            if (window.confirm(
-                'Use ' + String(item.doc_no || '').trim() +
-                ' — ' + (String(item.doc_title || '').trim() || '(no title)') +
-                ' (Rev ' + (item.revise_no != null ? item.revise_no : 0) + ')?'
-            )) {
-                commitSelection(item);
-            } else {
-                clearSelection();
-            }
-            return;
-        }
-        previousFocus = document.activeElement;
-        if (useNo) useNo.textContent = String(item.doc_no || '').trim() || '—';
-        if (useTitleText) useTitleText.textContent = String(item.doc_title || '').trim() || '(no title)';
-        if (useRev) useRev.textContent = 'Rev ' + (item.revise_no != null ? item.revise_no : 0);
-        if (useType) useType.textContent = String(item.doc_type || 'Document').trim() || 'Document';
-        // Escape .ofi-page stacking context so overlay covers header + sidebar
-        if (useModal.parentElement !== document.body) {
-            document.body.appendChild(useModal);
-        }
-        useModal.hidden = false;
-        useModal.setAttribute('aria-hidden', 'false');
-        document.body.classList.add('ofi-docno-use-open');
-        hideResults();
-        if (useConfirmBtn) useConfirmBtn.focus();
-    }
-
-    function closeUseModal(accepted) {
-        const item = pendingItem;
-        pendingItem = null;
-        if (useModal) {
-            useModal.hidden = true;
-            useModal.setAttribute('aria-hidden', 'true');
-        }
-        document.body.classList.remove('ofi-docno-use-open');
-        if (accepted && item) {
-            commitSelection(item);
-        } else if (!accepted) {
-            clearSelection();
-        }
-        if (previousFocus && typeof previousFocus.focus === 'function') {
-            previousFocus.focus();
-        }
-        previousFocus = null;
-    }
-
-    function applySelection(item) {
-        openUseModal(item);
-    }
-
-    function renderResults(items) {
-        activeItems = items || [];
-        results.innerHTML = '';
-        if (!activeItems.length) {
-            const empty = document.createElement('div');
-            empty.className = 'ofi-docno-empty';
-            empty.textContent = 'No revisable Internal or External documents found.';
-            results.appendChild(empty);
-            results.style.display = 'block';
-            input.setAttribute('aria-expanded', 'true');
-            return;
-        }
-        activeItems.forEach(function (item, idx) {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'ofi-docno-option';
-            btn.setAttribute('role', 'option');
-            btn.dataset.index = String(idx);
-            const rev = item.revise_no != null ? item.revise_no : 0;
-            btn.innerHTML =
-                '<span class="ofi-docno-opt-no">' + escapeHtml(item.doc_no || '') + '</span>' +
-                '<span class="ofi-docno-opt-title">' + escapeHtml(item.doc_title || '') + '</span>' +
-                '<span class="ofi-docno-opt-meta">Latest · Rev ' + escapeHtml(String(rev)) +
-                ' · ' + escapeHtml(item.doc_type || 'Document') + '</span>';
-            btn.addEventListener('mousedown', function (e) {
-                e.preventDefault();
-                applySelection(item);
-            });
-            results.appendChild(btn);
+    function clearFieldSuggestions() {
+        ['dcnSuggestTitle', 'dcnSuggestOriginator', 'dcnSuggestApprovals'].forEach(function (id) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.hidden = true;
+            el.innerHTML = '';
         });
-        results.style.display = 'block';
-        input.setAttribute('aria-expanded', 'true');
     }
 
-    function escapeHtml(s) {
-        return String(s)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
+    function clearMatch() {
+        confirmed.value = '';
+        storedNo.value = '';
+        suggestTitle = '';
+        suggestOriginator = '';
+        suggestApprovals = [];
+        if (reviseInput) reviseInput.value = '';
+        if (typeInput) typeInput.value = '';
+        clearSuggestions();
+        clearFieldSuggestions();
+        if (statusEl && statusEl.dataset.state === 'ok') {
+            statusEl.hidden = true;
+            statusEl.textContent = '';
+        }
     }
 
-    async function fetchSuggestions(q) {
-        lastQuery = q;
+    function suggestionButton(label, onClick) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'ofi-suggest-btn';
+        btn.textContent = label;
+        btn.addEventListener('click', onClick);
+        return btn;
+    }
+
+    function fillApprovals(approvals) {
+        const list = document.getElementById('ofiApprovalsList');
+        const addBtn = document.getElementById('ofiAddApproval');
+        if (!list || !Array.isArray(approvals) || !approvals.length) return;
+        let rows = Array.from(list.querySelectorAll('[data-approval-row]'));
+        approvals.forEach(function (appr, index) {
+            if (!rows[index] && addBtn) {
+                addBtn.click();
+                rows = Array.from(list.querySelectorAll('[data-approval-row]'));
+            }
+            const row = rows[index];
+            if (!row) return;
+            const position = row.querySelector('input[name="approvalPosition[]"]');
+            const name = row.querySelector('input[name="approvalName[]"]');
+            if (position && position.value.trim() === '') position.value = appr.position || '';
+            if (name && name.value.trim() === '') name.value = appr.name || '';
+            if (position) position.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    }
+
+    let suggestTitle = '';
+    let suggestOriginator = '';
+    let suggestApprovals = [];
+
+    function hint(box, text) {
+        if (!box) return;
+        box.hidden = false;
+        box.innerHTML = '';
+        const label = document.createElement('p');
+        label.className = 'ofi-suggest-label';
+        label.textContent = text;
+        box.appendChild(label);
+    }
+
+    function bindTabFill(input, read) {
+        if (!input || input.dataset.tabFillBound === '1') return;
+        input.dataset.tabFillBound = '1';
+        input.addEventListener('keydown', function (e) {
+            if (e.key !== 'Tab' || e.shiftKey || input.value.trim() !== '') return;
+            const value = read();
+            if (!value) return;
+            e.preventDefault();
+            input.value = value;
+            const end = input.value.length;
+            try { input.setSelectionRange(end, end); } catch (_) { /* date inputs */ }
+        });
+    }
+
+    function showFieldSuggestions(data) {
+        const titleBox = document.getElementById('dcnSuggestTitle');
+        const titleInput = document.getElementById('dcnDocumentTitle');
+        const originBox = document.getElementById('dcnSuggestOriginator');
+        const originInput = document.getElementById('originatorName');
+        const approvalBox = document.getElementById('dcnSuggestApprovals');
+        clearFieldSuggestions();
+        suggestTitle = (data.current_title || '').trim();
+        suggestOriginator = (data.originator || '').trim();
+        suggestApprovals = Array.isArray(data.approvals) ? data.approvals.filter(function (row) {
+            return row && ((row.position || '').trim() !== '' || (row.name || '').trim() !== '');
+        }) : [];
+
+        if (titleInput) titleInput.placeholder = suggestTitle || 'New document title';
+        if (originInput) originInput.placeholder = suggestOriginator || 'Enter originator name';
+        if (titleBox && suggestTitle) hint(titleBox, 'Press Tab in the empty title to use the previous title.');
+        if (originBox && suggestOriginator) hint(originBox, 'Press Tab in the empty originator to use the registered originator.');
+        if (approvalBox && suggestApprovals.length) hint(approvalBox, 'Press Tab in an empty Position to use the previous approvals.');
+
+        bindTabFill(titleInput, function () { return suggestTitle; });
+        bindTabFill(originInput, function () { return suggestOriginator; });
+    }
+
+    function applyMatch(data) {
+        const canonicalNo = (data.document_no || finderNo.value || '').trim();
+        confirmed.value = '1';
+        storedNo.value = canonicalNo;
+        if (reviseInput) reviseInput.value = data.revise_no != null ? String(data.revise_no) : '';
+        if (typeInput) typeInput.value = data.doc_type || '';
+        clearSuggestions();
+        const rev = data.revise_no != null && data.revise_no !== '' ? (' · Rev ' + data.revise_no) : '';
+        const type = data.doc_type ? (' · ' + data.doc_type) : '';
+        setStatus('Document found' + type + rev + '.', true);
+        showFieldSuggestions(data);
+    }
+
+    function showDoYouMean(suggestions) {
+        if (!suggestEl) return;
+        suggestEl.hidden = false;
+        suggestEl.innerHTML = '';
+        const label = document.createElement('p');
+        label.className = 'ofi-suggest-label';
+        label.textContent = 'Do you mean…';
+        suggestEl.appendChild(label);
+        suggestions.forEach(function (item) {
+            const bits = [item.document_no, item.current_title, item.originator].filter(Boolean);
+            suggestEl.appendChild(suggestionButton(bits.join(' · '), function () {
+                if (item.document_no) finderNo.value = item.document_no;
+                if (item.current_title) finderTitle.value = item.current_title;
+                if (item.originator) finderOriginator.value = item.originator;
+                applyMatch(item);
+            }));
+        });
+    }
+
+    async function findDocument() {
+        const docNo = finderNo.value.trim();
+        const title = finderTitle.value.trim();
+        const originator = finderOriginator.value.trim();
+        if (!docNo || !title || !originator) {
+            clearMatch();
+            setStatus('Enter the document number, current title, and originator from your copy.', false);
+            return;
+        }
+        if (findBtn) findBtn.disabled = true;
         try {
-            const res = await fetch(searchUrl + '?q=' + encodeURIComponent(q), {
+            const params = new URLSearchParams({
+                documentNo: docNo,
+                currentTitle: title,
+                originator: originator,
+            });
+            const res = await fetch(searchUrl + '?' + params.toString(), {
                 headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 credentials: 'same-origin',
             });
-            if (!res.ok) {
-                hideResults();
+            const data = res.ok ? await res.json() : { found: false };
+            if (data && data.found === true) {
+                applyMatch(data);
                 return;
             }
-            const data = await res.json();
-            if (q !== lastQuery) return;
-            renderResults(Array.isArray(data) ? data : []);
+            clearMatch();
+            const suggestions = Array.isArray(data && data.suggestions) ? data.suggestions : [];
+            if (suggestions.length) {
+                setStatus('No exact match. Select the document below if it is the one on your copy.', false);
+                showDoYouMean(suggestions);
+                return;
+            }
+            setStatus('No document matched those details.', false);
         } catch (err) {
-            hideResults();
+            clearMatch();
+            setStatus('Could not check the document. Try again.', false);
+        } finally {
+            if (findBtn) findBtn.disabled = false;
         }
     }
 
-    input.addEventListener('input', function () {
-        setConfirmed(false);
-        const q = input.value.trim();
-        if (debounceTimer) clearTimeout(debounceTimer);
-        if (q.length < 1) {
-            hideResults();
-            return;
-        }
-        debounceTimer = setTimeout(function () {
-            fetchSuggestions(q);
-        }, 280);
+    document.getElementById('ofiApprovalsList')?.addEventListener('keydown', function (e) {
+        if (e.key !== 'Tab' || e.shiftKey) return;
+        const input = e.target;
+        if (!input || !input.matches || !input.matches('input[name="approvalPosition[]"]')) return;
+        if (input.value.trim() !== '' || !suggestApprovals.length) return;
+        e.preventDefault();
+        fillApprovals(suggestApprovals);
     });
 
-    input.addEventListener('blur', function () {
-        setTimeout(function () {
-            if (useModal && !useModal.hidden) return;
-            hideResults();
-        }, 180);
+    if (findBtn) findBtn.addEventListener('click', findDocument);
+    [finderNo, finderTitle, finderOriginator].forEach(function (el) {
+        el.addEventListener('input', clearMatch);
+        el.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                findDocument();
+            }
+        });
     });
-
-    if (clearBtn) {
-        clearBtn.addEventListener('click', function (e) {
-            e.preventDefault();
-            clearSelection();
-        });
-    }
-
-    if (useConfirmBtn) {
-        useConfirmBtn.addEventListener('click', function () {
-            closeUseModal(true);
-        });
-    }
-    if (useCancelBtn) {
-        useCancelBtn.addEventListener('click', function () {
-            closeUseModal(false);
-        });
-    }
-    if (useCloseBtn) {
-        useCloseBtn.addEventListener('click', function () {
-            closeUseModal(false);
-        });
-    }
-    if (useModal) {
-        useModal.addEventListener('click', function (e) {
-            if (e.target === useModal) closeUseModal(false);
-        });
-    }
-    document.addEventListener('keydown', function (e) {
-        if (!useModal || useModal.hidden) return;
-        if (e.key === 'Escape') {
-            e.preventDefault();
-            closeUseModal(false);
-        }
-    });
-
-    if (titleInput) {
-        titleInput.addEventListener('input', function () {
-            titleInput.dataset.autofilled = '0';
-        });
-        if (titleInput.value) {
-            titleInput.dataset.autofilled = confirmed.value === '1' ? '1' : '0';
-        }
-    }
-
-    // Restore confirmed state when old input / edit has a doc no.
-    if (confirmed.value === '1' && input.value.trim() !== '') {
-        const storedRev = chipRow && chipRow.dataset.revise !== '' ? chipRow.dataset.revise : null;
-        setConfirmed(true, {
-            doc_no: input.value.trim(),
-            doc_title: titleInput ? titleInput.value.trim() : '',
-            revise_no: storedRev,
-        });
-    }
-
     form.addEventListener('submit', function (e) {
-        if (confirmed.value !== '1' || !input.value.trim()) {
-            e.preventDefault();
-            alert('Select and confirm an existing registered Document No. before saving.');
-            input.focus();
+        const submitter = e.submitter;
+        if (submitter && submitter.hasAttribute('formnovalidate')) {
             return;
+        }
+        if (confirmed.value !== '1' || storedNo.value.trim() === '') {
+            e.preventDefault();
+            setStatus('Find the registered document before saving.', false);
+            finderNo.focus();
         }
     });
 })();

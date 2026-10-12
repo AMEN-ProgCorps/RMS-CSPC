@@ -873,6 +873,8 @@ Route::middleware(['auth'])
             Volt::route('/office/drf', 'pages.dcs.office.drf-index')->name('office.drf.index');
             Volt::route('/office/drf/create', 'pages.dcs.office.drf-create')->name('office.drf.create');
             Route::post('/office/drf', fn (Request $request) => OfficeIntakeHelper::storeDrf($request))->name('office.drf.store');
+            Route::post('/office/drf/preview', fn (Request $request) => OfficeIntakeHelper::previewDrf($request))
+                ->name('office.drf.preview');
             Volt::route('/office/drf/{id}/edit', 'pages.dcs.office.drf-edit')->name('office.drf.edit');
             Volt::route('/office/drf/{id}', 'pages.dcs.office.drf-show')->name('office.drf.show');
             Route::get('/office/drf/{id}/print', function (int $id) {
@@ -895,6 +897,8 @@ Route::middleware(['auth'])
             Volt::route('/office/dcn', 'pages.dcs.office.dcn-index')->name('office.dcn.index');
             Volt::route('/office/dcn/create', 'pages.dcs.office.dcn-create')->name('office.dcn.create');
             Route::post('/office/dcn', fn (Request $request) => OfficeIntakeHelper::storeDcn($request))->name('office.dcn.store');
+            Route::post('/office/dcn/preview', fn (Request $request) => OfficeIntakeHelper::previewDcn($request))
+                ->name('office.dcn.preview');
             Volt::route('/office/dcn/{id}/edit', 'pages.dcs.office.dcn-edit')->name('office.dcn.edit');
             Volt::route('/office/dcn/{id}', 'pages.dcs.office.dcn-show')->name('office.dcn.show');
             Route::get('/office/dcn/{id}/print', function (int $id) {
@@ -1034,11 +1038,15 @@ Route::middleware(['auth'])
 
                 Route::middleware(['dcs.module:reports'])->group(function () {
                     Volt::route('/reports/masterlist', 'pages.dcs.reports.show')->name('reports.masterlist');
-                    Volt::route('/reports/monitoring', 'pages.dcs.reports.show')->name('reports.monitoring');
-                    Volt::route('/reports/distribution-retrieval', 'pages.dcs.reports.distribution-retrieval')->name('reports.distributionRetrieval');
                     Volt::route('/reports/opcr', 'pages.dcs.reports.show')->name('reports.opcr');
                     Volt::route('/reports/others', 'pages.dcs.reports.show')->name('reports.others');
-                    Volt::route('/reports/syllabi-tos', 'pages.dcs.reports.syllabi-tos')->name('reports.syllabiTos');
+                    // Monitoring is its own section, not a Generate Report page.
+                    Route::redirect('/reports/monitoring', '/dcs/monitoring', 301);
+                    Route::redirect('/reports/distribution-retrieval', '/dcs/monitoring/distribution-retrieval', 301);
+                    Route::redirect('/reports/syllabi-tos', '/dcs/monitoring/syllabi-tos', 301);
+                    Volt::route('/monitoring', 'pages.dcs.monitoring.index')->name('reports.monitoring');
+                    Volt::route('/monitoring/distribution-retrieval', 'pages.dcs.monitoring.distribution-retrieval')->name('reports.distributionRetrieval');
+                    Volt::route('/monitoring/syllabi-tos', 'pages.dcs.monitoring.syllabi-tos')->name('reports.syllabiTos');
                     Route::get('/reports/export', fn (Request $request) => app(ReportHelper::class)->export($request))->name('reports.export');
                     Route::match(['get', 'post'], '/reports/distribution-template', fn (Request $request) => ReportTemplateHelper::render($request))
                         ->name('reports.distributionTemplate');

@@ -280,18 +280,20 @@ class RegisterUpdateHelper
                     ]));
                 }
                 DB::table('dcs_drf_offices')->where('document_request_form_id', $drfId)->delete();
+                $drfOfficeRows = [];
                 foreach ($drfOfficeIds as $officeId) {
                     $oid = (int) $officeId;
                     if ($oid <= 0) {
                         continue;
                     }
-                    DB::table('dcs_drf_offices')->insert([
+                    $drfOfficeRows[] = [
                         'document_request_form_id' => $drfId,
                         'office_id' => $oid,
                         'created_at' => $now,
                         'updated_at' => $now,
-                    ]);
+                    ];
                 }
+                RegisterPersistHelper::insertRows('dcs_drf_offices', $drfOfficeRows);
             }
 
             if (in_array(2, $checkedChecklists, true)) {
@@ -345,6 +347,8 @@ class RegisterUpdateHelper
                     $titles = $request->documentTitle ?? [];
                     $numbers = $request->documentNo ?? [];
                     $totalRows = max(count($titles), count($numbers));
+                    $revisionHasPurpose = Schema::hasColumn('dcs_doc_revision', 'brief_purpose');
+                    $revRows = [];
                     for ($i = 0; $i < $totalRows; $i++) {
                         $title = $titles[$i] ?? null;
                         $docNo = $numbers[$i] ?? null;
@@ -360,11 +364,12 @@ class RegisterUpdateHelper
                             'revision_no' => $request->revisionNo[$i] ?? null,
                             'created_at' => $now,
                         ], RegisterPersistHelper::dcsScanFields('dcs_doc_revision', 'scanned_copy', $revPath));
-                        if (Schema::hasColumn('dcs_doc_revision', 'brief_purpose')) {
+                        if ($revisionHasPurpose) {
                             $revRow['brief_purpose'] = $request->revisionPurpose[$i] ?? null;
                         }
-                        DB::table('dcs_doc_revision')->insert($revRow);
+                        $revRows[] = $revRow;
                     }
+                    RegisterPersistHelper::insertRows('dcs_doc_revision', $revRows);
                 }
             }
 
@@ -619,6 +624,10 @@ class RegisterUpdateHelper
                 DB::table('dcs_retrieval_offices')->where('retrieval_id', $retrievalId)->delete();
                 if ($request->has('retrievalOffice')) {
                     $validRetrievalOffices = RegisterPersistHelper::existingOfficeIdSet((array) $request->retrievalOffice);
+                    $retrievalHasStatus = Schema::hasColumn('dcs_retrieval_offices', 'retrieval_status');
+                    $retrievalHasDate = Schema::hasColumn('dcs_retrieval_offices', 'retrieval_date');
+                    $retrievalHasTime = Schema::hasColumn('dcs_retrieval_offices', 'retrieval_time');
+                    $retrievalRows = [];
                     foreach ($request->retrievalOffice as $i => $officeId) {
                         $oid = (int) $officeId;
                         if ($oid <= 0 || ! isset($validRetrievalOffices[$oid])) {
@@ -628,18 +637,19 @@ class RegisterUpdateHelper
                             'retrieval_id' => $retrievalId,
                             'office_id' => $oid,
                             'copies' => $request->retrievalCopies[$i] ?? 1,
-                            'retrieval_status' => Schema::hasColumn('dcs_retrieval_offices', 'retrieval_status')
+                            'retrieval_status' => $retrievalHasStatus
                                 ? ($request->input('retrievalStatus')[$i] ?? 'pending')
                                 : null,
                         ];
-                        if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_date')) {
+                        if ($retrievalHasDate) {
                             $retrievalOfficeRow['retrieval_date'] = $request->input('retrievalOfficeDate')[$i] ?? null;
                         }
-                        if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_time')) {
+                        if ($retrievalHasTime) {
                             $retrievalOfficeRow['retrieval_time'] = $request->input('retrievalOfficeTime')[$i] ?? null;
                         }
-                        DB::table('dcs_retrieval_offices')->insert($retrievalOfficeRow);
+                        $retrievalRows[] = $retrievalOfficeRow;
                     }
+                    RegisterPersistHelper::insertRows('dcs_retrieval_offices', $retrievalRows);
                 }
             }
 
@@ -730,6 +740,7 @@ class RegisterUpdateHelper
             }
 
             DB::commit();
+            RegisterQueryHelper::bumpDocumentListCache();
 
             foreach ($filesToDelete as $file) {
                 DocumentStorageService::deleteDcsScan($file);
@@ -927,6 +938,7 @@ class RegisterUpdateHelper
             }
 
             DB::commit();
+            RegisterQueryHelper::bumpDocumentListCache();
 
             RegisterPersistHelper::logAdminChange(
                 ($isDraft ? 'Deleted draft #' : 'Deleted document #') . $id
@@ -1006,6 +1018,7 @@ class RegisterUpdateHelper
             RegisterPersistHelper::syncRevisionStatusForMasterlist((int) $ml->id);
         }
 
+        RegisterQueryHelper::bumpDocumentListCache();
         RegisterPersistHelper::logAdminChange(
             'Restored document #' . $id
             . (!empty($ml->doc_no) ? ' — ' . $ml->doc_no : '')
@@ -1054,6 +1067,7 @@ class RegisterUpdateHelper
         try {
             $filesToDelete = self::purgeRequestRecords($id);
             DB::commit();
+            RegisterQueryHelper::bumpDocumentListCache();
             StampBackupService::pruneOrphans();
             foreach ($filesToDelete as $file) {
                 DocumentStorageService::deleteDcsScan($file);
@@ -1205,6 +1219,7 @@ class RegisterUpdateHelper
         try {
             $filesToDelete = self::purgeRequestRecords($id);
             DB::commit();
+            RegisterQueryHelper::bumpDocumentListCache();
             StampBackupService::pruneOrphans();
 
             foreach ($filesToDelete as $file) {

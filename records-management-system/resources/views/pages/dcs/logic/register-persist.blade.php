@@ -975,6 +975,9 @@ class RegisterPersistHelper
 
         DB::table('dcs_distribution_offices')->where('distribution_id', $distributionId)->delete();
 
+        $hasDistributionDate = Schema::hasColumn('dcs_distribution_offices', 'distribution_date');
+        $hasReceivedAt = Schema::hasColumn('dcs_distribution_offices', 'office_received_at');
+        $rows = [];
         foreach ($officeIds as $i => $id) {
             if ($id <= 0 || ! isset($validOffices[$id])) {
                 continue;
@@ -985,16 +988,17 @@ class RegisterPersistHelper
                 'copies' => $copies[$i] ?? 1,
                 'sort_order' => $i,
             ];
-            if (Schema::hasColumn('dcs_distribution_offices', 'distribution_date')) {
+            if ($hasDistributionDate) {
                 $row['distribution_date'] = $request->input('distOfficeDate')[$i] ?? null;
             }
             $prior = $keptReceipts[$id] ?? null;
-            if ($prior && Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
-                $row['office_received_at'] = $prior->office_received_at;
+            if ($hasReceivedAt) {
+                $row['office_received_at'] = $prior->office_received_at ?? null;
                 $row['office_received_by'] = $prior->office_received_by ?? null;
             }
-            DB::table('dcs_distribution_offices')->insert($row);
+            $rows[] = $row;
         }
+        self::insertRows('dcs_distribution_offices', $rows);
     }
 
     /**
@@ -1421,18 +1425,20 @@ class RegisterPersistHelper
                     'updated_at' => $now,
                 ], self::dcsScanFields('dcs_document_request_form', 'scanned_drf', $drfFile)));
 
+                $drfOfficeRows = [];
                 foreach ($drfOfficeIds as $officeId) {
                     $id = (int) $officeId;
                     if ($id <= 0) {
                         continue;
                     }
-                    DB::table('dcs_drf_offices')->insert([
+                    $drfOfficeRows[] = [
                         'document_request_form_id' => $drfId,
                         'office_id' => $id,
                         'created_at' => $now,
                         'updated_at' => $now,
-                    ]);
+                    ];
                 }
+                self::insertRows('dcs_drf_offices', $drfOfficeRows);
             }
 
             if (in_array(2, $checkedChecklists, true) && $allowsRevision) {
@@ -1468,6 +1474,8 @@ class RegisterPersistHelper
                     $titles = $request->documentTitle ?? [];
                     $numbers = $request->documentNo ?? [];
                     $totalRows = max(count($titles), count($numbers));
+                    $revisionHasPurpose = Schema::hasColumn('dcs_doc_revision', 'brief_purpose');
+                    $revRows = [];
 
                     for ($i = 0; $i < $totalRows; $i++) {
                         $title = $titles[$i] ?? null;
@@ -1485,11 +1493,12 @@ class RegisterPersistHelper
                             'revision_no' => $request->revisionNo[$i] ?? null,
                             'created_at' => $now,
                         ], self::dcsScanFields('dcs_doc_revision', 'scanned_copy', $revPath));
-                        if (Schema::hasColumn('dcs_doc_revision', 'brief_purpose')) {
+                        if ($revisionHasPurpose) {
                             $revRow['brief_purpose'] = $request->revisionPurpose[$i] ?? null;
                         }
-                        DB::table('dcs_doc_revision')->insert($revRow);
+                        $revRows[] = $revRow;
                     }
+                    self::insertRows('dcs_doc_revision', $revRows);
                 }
             }
 
@@ -1692,6 +1701,10 @@ class RegisterPersistHelper
 
                 if ($request->has('retrievalOffice')) {
                     $validRetrievalOffices = self::existingOfficeIdSet((array) $request->retrievalOffice);
+                    $retrievalHasStatus = Schema::hasColumn('dcs_retrieval_offices', 'retrieval_status');
+                    $retrievalHasDate = Schema::hasColumn('dcs_retrieval_offices', 'retrieval_date');
+                    $retrievalHasTime = Schema::hasColumn('dcs_retrieval_offices', 'retrieval_time');
+                    $retrievalRows = [];
                     foreach ($request->retrievalOffice as $i => $officeId) {
                         $id = (int) $officeId;
                         if ($id <= 0 || ! isset($validRetrievalOffices[$id])) {
@@ -1701,18 +1714,19 @@ class RegisterPersistHelper
                             'retrieval_id' => $retrievalId,
                             'office_id' => $id,
                             'copies' => $request->retrievalCopies[$i] ?? 1,
-                            'retrieval_status' => Schema::hasColumn('dcs_retrieval_offices', 'retrieval_status')
+                            'retrieval_status' => $retrievalHasStatus
                                 ? ($request->input('retrievalStatus')[$i] ?? 'pending')
                                 : null,
                         ];
-                        if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_date')) {
+                        if ($retrievalHasDate) {
                             $retrievalOfficeRow['retrieval_date'] = $request->input('retrievalOfficeDate')[$i] ?? null;
                         }
-                        if (Schema::hasColumn('dcs_retrieval_offices', 'retrieval_time')) {
+                        if ($retrievalHasTime) {
                             $retrievalOfficeRow['retrieval_time'] = $request->input('retrievalOfficeTime')[$i] ?? null;
                         }
-                        DB::table('dcs_retrieval_offices')->insert($retrievalOfficeRow);
+                        $retrievalRows[] = $retrievalOfficeRow;
                     }
+                    self::insertRows('dcs_retrieval_offices', $retrievalRows);
                 }
             }
 
@@ -1792,6 +1806,7 @@ class RegisterPersistHelper
             }
 
             DB::commit();
+            RegisterQueryHelper::bumpDocumentListCache();
 
             foreach ($filesToDelete as $file) {
                 if ($file) {
@@ -1822,10 +1837,10 @@ class RegisterPersistHelper
             $docTitle = trim((string) ($savedMl->doc_title ?? ''));
             $pending = OfficeIntakeHelper::pendingRegisterIntake($request);
 
-            // Close office-intake handoff on draft or final save so Request queue stays clear.
-            // Submitter gets "Your DCN/DRF registered" — distribution offices are notified separately.
+            // The office request stays open until this registration is saved.
+            // A draft does not mark the DRF or DCN as registered.
             $submitterOfficeCodes = [];
-            if ($pending && in_array($pending['type'], ['drf', 'dcn'], true) && $pending['id'] > 0) {
+            if (! $saveAsDraft && $pending && in_array($pending['type'], ['drf', 'dcn'], true) && $pending['id'] > 0) {
                 $intakeRecord = $pending['type'] === 'dcn'
                     ? OfficeIntakeHelper::findOfficeDcn($pending['id'])
                     : OfficeIntakeHelper::findOfficeDrf($pending['id']);
@@ -1841,6 +1856,25 @@ class RegisterPersistHelper
                     $docTitle !== '' ? $docTitle : null,
                     ! $saveAsDraft
                 );
+                $pairType = null;
+                $pairId = null;
+                if ($pending['type'] === 'dcn') {
+                    $pairType = 'drf';
+                    $pairId = OfficeIntakeHelper::findLinkedDrfIdForOfficeDcn((int) $pending['id']);
+                } elseif ($pending['type'] === 'drf') {
+                    $pairType = 'dcn';
+                    $pairId = OfficeIntakeHelper::findSourceDcnIdForOfficeDrf((int) $pending['id']);
+                }
+                if ($pairType && $pairId) {
+                    OfficeIntakeHelper::markIntakeRegistered(
+                        $pairType,
+                        (int) $pairId,
+                        (int) $requestId,
+                        $docNo,
+                        $docTitle !== '' ? $docTitle : null,
+                        ! $saveAsDraft
+                    );
+                }
             }
 
             if (! $saveAsDraft && $docNo !== '') {
@@ -2484,6 +2518,7 @@ class RegisterPersistHelper
         DB::table('dcs_dcn_offices')->where('dcn_id', $dcnId)->delete();
         $now = now();
         $seen = [];
+        $rows = [];
         $validOffices = self::existingOfficeIdSet($officeIds);
         foreach ($officeIds as $officeId) {
             $id = (int) trim((string) $officeId);
@@ -2491,19 +2526,21 @@ class RegisterPersistHelper
                 continue;
             }
             $seen[$id] = true;
-            DB::table('dcs_dcn_offices')->insert([
+            $rows[] = [
                 'dcn_id' => $dcnId,
                 'office_id' => $id,
                 'created_at' => $now,
                 'updated_at' => $now,
-            ]);
+            ];
         }
+        self::insertRows('dcs_dcn_offices', $rows);
     }
 
     public static function saveOriginsFromOfficeIds(int $masterlistId, array $officeIds): void
     {
         $now = now();
         $seen = [];
+        $rows = [];
         $validOffices = self::existingOfficeIdSet($officeIds);
         foreach ($officeIds as $officeId) {
             $id = (int) trim((string) $officeId);
@@ -2511,13 +2548,14 @@ class RegisterPersistHelper
                 continue;
             }
             $seen[$id] = true;
-            DB::table('dcs_masterlist_source_offices')->insert([
+            $rows[] = [
                 'masterlist_id' => $masterlistId,
                 'office_id' => $id,
                 'created_at' => $now,
                 'updated_at' => $now,
-            ]);
+            ];
         }
+        self::insertRows('dcs_masterlist_source_offices', $rows);
     }
 
     public static function saveRelatedDocumentIds(int $masterlistId, array $relatedIds): void
@@ -2530,16 +2568,46 @@ class RegisterPersistHelper
             })
             ->delete();
 
+        $rows = [];
         foreach ($relatedIds as $id) {
             if ((int) $id === (int) $masterlistId) {
                 continue;
             }
-            DB::table('dcs_masterlist_related_docs')->insert([
+            $rows[] = [
                 'masterlist_id' => $masterlistId,
                 'related_doc_id' => (int) $id,
                 'created_at' => $now,
                 'updated_at' => $now,
-            ]);
+            ];
+        }
+        self::insertRows('dcs_masterlist_related_docs', $rows);
+    }
+
+    /** @param  list<array<string, mixed>>  $rows */
+    public static function insertRows(string $table, array $rows): void
+    {
+        if ($rows === []) {
+            return;
+        }
+
+        $keys = [];
+        foreach ($rows as $row) {
+            foreach (array_keys($row) as $key) {
+                $keys[$key] = true;
+            }
+        }
+
+        $normalized = [];
+        foreach ($rows as $row) {
+            $filled = [];
+            foreach ($keys as $key => $unused) {
+                $filled[$key] = $row[$key] ?? null;
+            }
+            $normalized[] = $filled;
+        }
+
+        foreach (array_chunk($normalized, 200) as $chunk) {
+            DB::table($table)->insert($chunk);
         }
     }
 

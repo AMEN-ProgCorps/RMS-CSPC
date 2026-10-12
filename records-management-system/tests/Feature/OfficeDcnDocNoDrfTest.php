@@ -235,11 +235,25 @@ class OfficeDcnDocNoDrfTest extends TestCase
         if (Schema::hasColumn('dcs_masterlist_registration', 'allows_revision')) {
             $ml['allows_revision'] = true;
         }
+        $originatorName = 'Registered Originator';
+        if (Schema::hasTable('dcs_originators') && Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
+            $originRow = ['originator_name' => $originatorName];
+            if (Schema::hasColumn('dcs_originators', 'created_at')) {
+                $originRow['created_at'] = $now;
+                $originRow['updated_at'] = $now;
+            }
+            $originatorId = (int) DB::table('dcs_originators')->insertGetId($originRow);
+            $ml['originator_id'] = $originatorId;
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+            $ml['originator_name'] = $originatorName;
+        }
         DB::table('dcs_masterlist_registration')->insert($ml);
 
         return [
             'doc_no' => $docNo,
             'doc_title' => $docTitle,
+            'originator' => $originatorName,
             'request_id' => $requestId,
         ];
     }
@@ -248,6 +262,10 @@ class OfficeDcnDocNoDrfTest extends TestCase
     private function validDcnPayload(string $docNo, string $docTitle, bool $alsoCreateDrf = false): array
     {
         $payload = [
+            'finderDocumentNo' => $docNo,
+            'finderCurrentTitle' => $docTitle,
+            'finderOriginator' => 'Registered Originator',
+            'documentNoMode' => 'keep',
             'documentNo' => $docNo,
             'documentTitle' => $docTitle,
             'changeFrom' => 'Old wording',
@@ -277,10 +295,10 @@ class OfficeDcnDocNoDrfTest extends TestCase
             ));
 
         $response->assertRedirect(route('dcs.office.dcn.create'));
-        $response->assertSessionHasErrors('documentNo');
+        $response->assertSessionHasErrors('finderDocumentNo');
         $this->assertStringContainsString(
-            'is not a registered',
-            strtolower((string) session('errors')->first('documentNo'))
+            'no registered revisable',
+            strtolower((string) session('errors')->first('finderDocumentNo'))
         );
     }
 
@@ -317,16 +335,26 @@ class OfficeDcnDocNoDrfTest extends TestCase
     {
         $doc = $this->insertRevisableRegistration(uniqid());
 
+        $partial = $this->actingAs(User::find($this->limitedUserId))
+            ->getJson('/dcs/api/office/revisable-documents?documentNo=' . urlencode(substr($doc['doc_no'], 0, 8))
+                . '&currentTitle=' . urlencode($doc['doc_title'])
+                . '&originator=' . urlencode($doc['originator']));
+
+        $partial->assertOk();
+        $partial->assertJson(['found' => false]);
+
         $response = $this->actingAs(User::find($this->limitedUserId))
-            ->getJson('/dcs/api/office/revisable-documents?q=' . urlencode(substr($doc['doc_no'], 0, 8)));
+            ->getJson('/dcs/api/office/revisable-documents?documentNo=' . urlencode($doc['doc_no'])
+                . '&currentTitle=' . urlencode($doc['doc_title'])
+                . '&originator=' . urlencode($doc['originator']));
 
         $response->assertOk();
-        $rows = $response->json();
-        $this->assertIsArray($rows);
-        $this->assertTrue(
-            collect($rows)->contains(fn ($row) => ($row['doc_no'] ?? '') === $doc['doc_no']),
-            'Expected campus-wide revisable document in search results'
-        );
+        $response->assertJson([
+            'found' => true,
+            'revise_no' => 0,
+        ]);
+        $this->assertArrayNotHasKey('doc_title', $response->json());
+        $this->assertArrayNotHasKey('doc_no', $response->json());
     }
 
     public function test_also_create_drf_redirects_to_prefilled_drf_create(): void

@@ -255,22 +255,26 @@
             line-height: 1.0;
         }
         .r1-title-hang {
+            display: flex;
+            align-items: flex-start;
             width: 100%;
-            padding-left: 0.48in;
-            text-indent: -0.48in;
+            gap: 4px;
             word-break: normal;
             overflow-wrap: break-word;
             white-space: normal;
         }
         .r1-title-hang .lbl-10 {
             display: inline;
+            flex: 0 0 auto;
             margin-right: 0;
             text-decoration: none;
         }
         .r1-title-hang .r1-title-val {
+            flex: 1 1 auto;
+            min-width: 0;
             font-weight: 400;
             font-size: 10pt;
-            line-height: 1.0;
+            line-height: 1.15;
             text-decoration: underline;
             text-underline-offset: 2px;
             text-decoration-thickness: 1px;
@@ -505,7 +509,11 @@
             align-items: center;
             justify-content: center;
             width: 100%;
-            min-height: 0.18in;
+            height: 1.44in;
+            min-height: 1.44in;
+        }
+        .appr-col-stack.is-multi {
+            justify-content: space-evenly;
         }
         .appr-col-stack .appr-cell {
             display: block;
@@ -816,7 +824,7 @@
                     </colgroup>
                     <tr>
                         <td>
-                            <div class="appr-col-stack">
+                            <div class="appr-col-stack {{ count($filledApprovals) > 1 ? 'is-multi' : '' }}">
                                 @forelse($filledApprovals as $appr)
                                     <span class="appr-cell">{{ $appr['position'] }}</span>
                                 @empty
@@ -825,7 +833,7 @@
                             </div>
                         </td>
                         <td>
-                            <div class="appr-col-stack">
+                            <div class="appr-col-stack {{ count($filledApprovals) > 1 ? 'is-multi' : '' }}">
                                 @forelse($filledApprovals as $appr)
                                     <span class="appr-cell">{{ $appr['name'] }}</span>
                                 @empty
@@ -834,7 +842,7 @@
                             </div>
                         </td>
                         <td>
-                            <div class="appr-col-stack">
+                            <div class="appr-col-stack {{ count($filledApprovals) > 1 ? 'is-multi' : '' }}">
                                 @forelse($filledApprovals as $appr)
                                     <span class="appr-cell">&nbsp;</span>
                                 @empty
@@ -843,7 +851,7 @@
                             </div>
                         </td>
                         <td>
-                            <div class="appr-col-stack">
+                            <div class="appr-col-stack {{ count($filledApprovals) > 1 ? 'is-multi' : '' }}">
                                 @forelse($filledApprovals as $appr)
                                     <span class="appr-cell">{{ $appr['date'] }}</span>
                                 @empty

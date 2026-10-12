@@ -41,6 +41,11 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
 
         <form method="POST" action="{{ route('dcs.office.dcn.store', absolute: false) }}" id="ofiDcnForm">
             @csrf
+            @include('pages.dcs.office.partials.dcn-docno-fields', [
+                'initialDocNo' => old('documentNo', ''),
+                'initialDocTitle' => old('documentTitle', ''),
+                'initialReviseNo' => null,
+            ])
             <section class="reg-card ofi-dcn-card">
                 <div class="reg-card-header">
                     <span>Document Change Notice</span>
@@ -49,11 +54,15 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                 <div class="reg-card-body ofi-dcn-form">
                     <div class="ofi-dcn-box">
                         <div class="ofi-dcn-box-section">
-                            @include('pages.dcs.office.partials.dcn-docno-fields', [
-                                'initialDocNo' => old('documentNo', ''),
-                                'initialDocTitle' => old('documentTitle', ''),
-                                'initialReviseNo' => null,
-                            ])
+                            <div class="reg-field">
+                                <label for="dcnDocumentTitle">New document title <span class="ofi-req">*</span></label>
+                                <input type="text" id="dcnDocumentTitle" name="documentTitle"
+                                    value="{{ old('documentTitle') }}"
+                                    required maxlength="255"
+                                    placeholder="New document title"
+                                    autocomplete="off">
+                                <div id="dcnSuggestTitle" class="ofi-suggest" hidden></div>
+                            </div>
                         </div>
 
                         <div class="ofi-dcn-box-section">
@@ -79,6 +88,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                             <div class="reg-field">
                                 <label for="originatorName">Originator <span class="ofi-req">*</span></label>
                                 <input type="text" id="originatorName" name="originatorName" value="{{ old('originatorName') }}" required maxlength="255" placeholder="Enter originator name">
+                                <div id="dcnSuggestOriginator" class="ofi-suggest" hidden></div>
                             </div>
                             <div class="reg-grid-2-1">
                                 @include('pages.dcs.office.partials.dcn-department-field', [
@@ -155,6 +165,9 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
             </div>
 
             <div class="reg-form-actions ofi-reg-actions">
+                <button type="submit" id="ofiDcnPreviewBtn" class="reg-btn reg-btn-cancel" formnovalidate formtarget="_blank" formaction="{{ route('dcs.office.dcn.preview', absolute: false) }}">
+                    Preview form
+                </button>
                 <button type="submit" id="ofiDcnSaveBtn" class="reg-btn reg-btn-save" disabled>
                     <i class="fa-solid fa-lock"></i> Save (cannot edit later)
                 </button>
@@ -180,6 +193,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
     syncConfirm();
 
     form.addEventListener('submit', function (e) {
+        if (e.submitter && e.submitter.id === 'ofiDcnPreviewBtn') return;
         if (!confirmBox.checked) {
             e.preventDefault();
             alert('Please confirm that all the inputted data are correct before saving.');
@@ -187,8 +201,8 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
         }
         if (confirmed && confirmed.value !== '1') {
             e.preventDefault();
-            alert('Select and confirm an existing registered Document No. before saving.');
-            const docNo = document.getElementById('dcnDocumentNo');
+            alert('Find the registered document before saving.');
+            const docNo = document.getElementById('finderDocumentNo');
             if (docNo) docNo.focus();
             return;
         }

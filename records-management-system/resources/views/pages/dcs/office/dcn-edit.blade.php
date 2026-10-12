@@ -59,6 +59,11 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
         <form method="POST" action="{{ route('dcs.office.dcn.update', $dcn->id, absolute: false) }}" id="ofiDcnForm">
             @csrf
             @method('PUT')
+            @include('pages.dcs.office.partials.dcn-docno-fields', [
+                'initialDocNo' => $dcn->document_no,
+                'initialFinderNo' => $dcn->previous_document_no ?: $dcn->document_no,
+                'initialDocTitle' => $dcn->document_title,
+            ])
             <section class="reg-card ofi-dcn-card">
                 <div class="reg-card-header">
                     <span>Document Change Notice</span>
@@ -67,12 +72,15 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
                 <div class="reg-card-body ofi-dcn-form">
                     <div class="ofi-dcn-box">
                         <div class="ofi-dcn-box-section">
-                            @include('pages.dcs.office.partials.dcn-docno-fields', [
-                                'initialDocNo' => old('documentNo', $dcn->document_no),
-                                'initialDocTitle' => old('documentTitle', $dcn->document_title),
-                                'initialReviseNo' => null,
-                                'forceConfirmed' => trim((string) old('documentNo', $dcn->document_no)) !== '',
-                            ])
+                            <div class="reg-field">
+                                <label for="dcnDocumentTitle">New document title <span class="ofi-req">*</span></label>
+                                <input type="text" id="dcnDocumentTitle" name="documentTitle"
+                                    value="{{ old('documentTitle', $dcn->document_title) }}"
+                                    required maxlength="255"
+                                    placeholder="New document title"
+                                    autocomplete="off">
+                                <div id="dcnSuggestTitle" class="ofi-suggest" hidden></div>
+                            </div>
                         </div>
 
                         <div class="ofi-dcn-box-section">
@@ -98,6 +106,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
                             <div class="reg-field">
                                 <label for="originatorName">Originator <span class="ofi-req">*</span></label>
                                 <input type="text" id="originatorName" name="originatorName" value="{{ old('originatorName', $dcn->originator_name) }}" required maxlength="255" placeholder="Enter originator name">
+                                <div id="dcnSuggestOriginator" class="ofi-suggest" hidden></div>
                             </div>
                             <div class="reg-grid-2-1">
                                 @include('pages.dcs.office.partials.dcn-department-field', [
@@ -186,6 +195,9 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
             </div>
 
             <div class="reg-form-actions ofi-reg-actions">
+                <button type="submit" id="ofiDcnPreviewBtn" class="reg-btn reg-btn-cancel" formnovalidate formtarget="_blank" formaction="{{ route('dcs.office.dcn.preview', absolute: false) }}">
+                    Preview form
+                </button>
                 <button type="submit" id="ofiDcnSaveBtn" class="reg-btn reg-btn-save" disabled>
                     <i class="fa-solid fa-paper-plane"></i> Save &amp; resubmit to RFIO
                 </button>
@@ -210,6 +222,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
     syncConfirm();
 
     form.addEventListener('submit', function (e) {
+        if (e.submitter && e.submitter.id === 'ofiDcnPreviewBtn') return;
         if (!confirmBox.checked) {
             e.preventDefault();
             alert('Please confirm that all the inputted data are correct before saving.');

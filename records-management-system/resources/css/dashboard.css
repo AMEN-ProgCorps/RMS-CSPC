@@ -185,7 +185,9 @@ header{
         letter-spacing: 0%;
         color: #FFB200;
 }
-section{
+/* Layout shell only. A bare `section` selector leaks through wire:navigate
+   and turns DCS sections (search, quick actions) into a horizontal flex row. */
+body > section{
     display: flex;
     height: calc(100% - 70px);
     width: 100%;

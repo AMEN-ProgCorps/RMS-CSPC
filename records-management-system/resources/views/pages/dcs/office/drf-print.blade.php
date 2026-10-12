@@ -7,7 +7,7 @@
     <style>
         /*
          * CSPC-F-DCC-06 Document Request Form — forced print geometry
-         * Long bond / Mexico Legal ~8.5 × 13.39in | header top margin fixed at 0.23in
+         * Philippine long bond 8.5 × 13in. The form itself uses the top half (6.5in).
          * Logo: left 0.46in, top 0.23in, size 0.57×0.59, gap to line 0.03in
          * Header/footer rules: 3px
          *
@@ -15,8 +15,8 @@
          * that CSS cannot remove and makes the header look shifted down.
          */
         @page {
-            /* Prefer Mexico Legal (Brother / PH long bond) so the sheet fills the page */
-            size: 8.5in 13.39in;
+            /* Philippine long bond. The form occupies the top half of this sheet. */
+            size: 8.5in 13in;
             margin: 0 !important;
         }
 
@@ -71,12 +71,12 @@
         .print-toolbar .btn-print { background: #0d2a7a; color: #fff; border-color: #0d2a7a; }
         .print-toolbar .btn-close { background: #fff; color: #64748b; }
 
-        /* Full long-bond sheet (Mexico Legal 8.5 × 13.39); form uses upper area */
+        /* Long bond is 13in tall. The DRF form is the top half; the lower half stays blank. */
         .sheet {
             width: 8.5in !important;
-            height: 13.39in !important;
-            min-height: 13.39in !important;
-            max-height: 13.39in !important;
+            height: 13in !important;
+            min-height: 13in !important;
+            max-height: 13in !important;
             margin: 16px auto;
             padding: 0 !important;
             background: #fff !important;
@@ -87,6 +87,12 @@
             line-height: 1 !important;
             color: #000 !important;
             overflow: hidden !important;
+        }
+        /* The DRF form is only the top half of the long bond sheet. */
+        .sheet-main {
+            height: 6.5in !important;
+            min-height: 6.5in !important;
+            max-height: 6.5in !important;
         }
 
         /* ═══════════ HEADER ═══════════
@@ -570,14 +576,19 @@
          * Attach pages: pack office rows until long-bond body is full,
          * then spill to the next page (footer stays pinned to bottom).
          */
+        /*
+         * Distribution continuation page (page 2 and after).
+         * Edit the FIRST number in padding below to change the top margin.
+         * It is 0.75in right now. Example: padding: 1.10in 0.5in 0.12in !important;
+         */
         .sheet-attach .body {
             display: flex !important;
             flex-direction: column !important;
             box-sizing: border-box !important;
-            height: calc(13.39in - 0.85in) !important;
-            min-height: calc(13.39in - 0.85in) !important;
-            max-height: calc(13.39in - 0.85in) !important;
-            padding: 0.08in 0.5in 0.12in !important;
+            height: calc(13in - 0.85in) !important;
+            min-height: calc(13in - 0.85in) !important;
+            max-height: calc(13in - 0.85in) !important;
+            padding: 0.75in 0.5in 0.12in !important;
         }
         .sheet-attach .attach-doc-title {
             margin: 0 0 4pt !important;
@@ -591,6 +602,12 @@
             font-size: 11pt !important;
             font-weight: 700 !important;
             line-height: 1.15 !important;
+            color: #000 !important;
+        }
+        .sheet-attach .attach-office-name {
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 11pt !important;
+            line-height: 1.35 !important;
             color: #000 !important;
         }
         .sheet-attach .attach-dist-note {
@@ -636,9 +653,9 @@
                 margin: 0 !important;
                 padding: 0 !important;
                 width: 8.5in !important;
-                height: 13.39in !important;
-                min-height: 13.39in !important;
-                max-height: 13.39in !important;
+                height: 13in !important;
+                min-height: 13in !important;
+                max-height: 13in !important;
                 overflow: hidden !important;
                 position: relative !important;
                 top: 0 !important;
@@ -647,6 +664,9 @@
                 break-inside: avoid !important;
             }
             .sheet-main {
+                height: 6.5in !important;
+                min-height: 6.5in !important;
+                max-height: 6.5in !important;
                 page-break-after: auto !important;
                 break-after: auto !important;
                 page-break-inside: avoid !important;
@@ -744,7 +764,6 @@
     $attachPages = $distributeOverflow
         ? array_chunk($attachOfficeRows, $attachPerPage)
         : [];
-    $printPageTotal = $distributeOverflow ? (1 + max(1, count($attachPages))) : 1;
 
     if ($distributeOverflow) {
         $distribute = array_fill(0, 24, '');
@@ -797,7 +816,7 @@
     @else
         <p class="print-toolbar-tip">
             Important: in the print dialog set <strong>Margins → None.</strong>
-            Keep paper <strong>Mexico Legal</strong>, and leave Headers and footers off.
+            Keep paper <strong>Long bond (8.5 × 13 in)</strong>, and leave Headers and footers off.
         </p>
         @if($isReviewer)
             <a href="{{ route('dcs.requests.index', absolute: false) }}" class="btn-close" style="text-decoration:none;display:inline-flex;align-items:center;">Back to Request</a>
@@ -927,45 +946,21 @@
         <div class="footer">
             <span>Effectivity Date: January 2018</span>
             <span>Rev. 0</span>
-            <span>Page: 1 of {{ $printPageTotal }}</span>
+            <span>Page: 1 of 1</span>
         </div>
     </div>
 </div>
 
 @if($distributeOverflow)
 @foreach($attachPages as $pageIndex => $pageOffices)
-@php
-    $attachPageNo = $pageIndex + 2;
-    $rowOffset = $pageIndex * $attachPerPage;
-@endphp
+@php $rowOffset = $pageIndex * $attachPerPage; @endphp
 <div class="sheet sheet-attach">
-    <header class="hdr-band">
-        <div class="hdr-logo-cell">
-            @if(!empty($logoSrc))
-                <img src="{{ $logoSrc }}" alt="" class="hdr-logo">
-            @endif
-        </div>
-        <div class="hdr-text-cell">
-            <div class="hdr-republic">Republic of the Philippines</div>
-            <div class="hdr-name">Camarines Sur Polytechnic Colleges</div>
-            <div class="hdr-location">Nabua, Camarines Sur</div>
-        </div>
-        <div class="hdr-rule">
-            <div class="hdr-rule-line"></div>
-            <span class="hdr-rule-code">CSPC-F-DCC-06</span>
-        </div>
-    </header>
-
     <div class="body">
         <div class="row attach-doc-title">
             <span class="lbl">Document Title :</span>
             <div class="fline w-fill"><div class="fline-val">{{ $docTitle }}</div><div class="fline-rule"></div></div>
         </div>
         <div class="attach-dist-label">Distribute document to (department/position):</div>
-        <p class="attach-dist-note">
-            Continuation list — all offices below are for <strong>distribution</strong> of this document
-            ({{ count($attachOfficeRows) }} office{{ count($attachOfficeRows) === 1 ? '' : 's' }} total).
-        </p>
         <table class="attach-table">
             <colgroup>
                 <col class="c-no">
@@ -974,7 +969,7 @@
             <thead>
                 <tr>
                     <th>No.</th>
-                    <th>Name of Offices (Distribution)</th>
+                    <th>Name of Offices</th>
                 </tr>
             </thead>
             <tbody>
@@ -986,13 +981,6 @@
                 @endforeach
             </tbody>
         </table>
-
-        <div class="footer-rule"></div>
-        <div class="footer">
-            <span>Effectivity Date: January 2018</span>
-            <span>Rev. 0</span>
-            <span>Page: {{ $attachPageNo }} of {{ $printPageTotal }}</span>
-        </div>
     </div>
 </div>
 @endforeach

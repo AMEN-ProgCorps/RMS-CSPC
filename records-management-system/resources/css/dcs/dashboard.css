@@ -216,6 +216,7 @@ body {
 .dash-search-card {
     position: relative;
     z-index: 40;
+    width: 100%;
     background: var(--dash-surface);
     border: 1px solid var(--dash-border);
     border-radius: var(--dash-radius);
@@ -1494,10 +1495,16 @@ body.dash-cl-open {
 
 /* ─── Quick Actions ─── */
 .actions-section {
+    display: block;
+    width: 100%;
+    height: auto;
     margin-bottom: 0;
 }
 
 .dash-search-section {
+    display: block;
+    width: 100%;
+    height: auto;
     position: relative;
     z-index: 30;
     margin-top: 0;

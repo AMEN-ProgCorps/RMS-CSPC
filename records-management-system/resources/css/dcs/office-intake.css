@@ -8,7 +8,7 @@
     right: 0;
     bottom: 0;
     padding: var(--dcs-page-pad, 24px 28px 40px);
-    background: #f1f5f9;
+    background: var(--dash-bg);
     overflow-y: auto;
     overflow-x: hidden;
     box-sizing: border-box;
@@ -400,6 +400,38 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
 }
 .ofi-approvals-table tbody tr:last-child td {
     border-bottom: none;
+}
+.ofi-approvals-table input {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font: inherit;
+    color: #0f172a;
+    background: #fff;
+}
+.ofi-approval-action-col {
+    width: 88px;
+}
+.ofi-approval-remove {
+    border: 0;
+    background: transparent;
+    color: #64748b;
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: 4px 0;
+}
+.ofi-approval-remove:hover {
+    color: #b91c1c;
+}
+.ofi-locked-type {
+    margin: 0;
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: #0f172a;
+    font-weight: 600;
 }
 .ofi-show-reviewed {
     font-family: Arial, Helvetica, sans-serif;
@@ -1491,6 +1523,56 @@ body.ofi-docno-use-open {
     outline: none;
     border-color: #0d2a7a;
     box-shadow: 0 0 0 3px rgba(13, 42, 122, 0.08);
+}
+.ofi-dcn-finder-card {
+    margin-bottom: 16px;
+}
+.ofi-dcn-finder-lead {
+    margin: 0 0 14px;
+}
+.ofi-dcn-finder-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+}
+.ofi-dcn-finder-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+}
+.ofi-dcn-finder-actions .ofi-hint {
+    margin: 0;
+}
+.ofi-suggest {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 8px;
+}
+.ofi-suggest[hidden] {
+    display: none;
+}
+.ofi-suggest-label {
+    margin: 0;
+    font-size: 12px;
+    color: #475569;
+}
+.ofi-suggest-btn {
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #0f172a;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+.ofi-suggest-btn:hover {
+    border-color: #0d2a7a;
+    background: #eef2ff;
 }
 .ofi-dcn-box {
     border: 1.5px solid #cbd5e1;

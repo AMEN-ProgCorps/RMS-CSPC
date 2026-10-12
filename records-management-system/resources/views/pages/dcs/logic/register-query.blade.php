@@ -532,14 +532,27 @@ class RegisterQueryHelper
      *
      * @param  \Illuminate\Database\Query\Builder  $query
      */
-    public static function joinLatestByRequest($query, string $table, string $alias, string $parentAlias = 'dr', string $parentKey = 'id')
+    public static function joinLatestByRequest($query, string $table, string $alias, string $parentAlias = 'dr', string $parentKey = 'id', ?array $columns = null)
     {
         $table = preg_replace('/[^a-z0-9_]/', '', $table) ?: $table;
         $alias = preg_replace('/[^a-z0-9_]/', '', $alias) ?: $alias;
         $parentAlias = preg_replace('/[^a-z0-9_]/', '', $parentAlias) ?: $parentAlias;
         $parentKey = preg_replace('/[^a-z0-9_]/', '', $parentKey) ?: $parentKey;
 
-        $derived = "(SELECT DISTINCT ON (request_id) * FROM {$table} ORDER BY request_id, id DESC) as {$alias}";
+        if ($columns === null) {
+            $selectList = '*';
+        } else {
+            $selectList = 'request_id';
+            foreach ($columns as $column) {
+                $column = preg_replace('/[^a-z0-9_]/', '', (string) $column);
+                if ($column === '' || $column === 'request_id') {
+                    continue;
+                }
+                $selectList .= ', '.$column;
+            }
+        }
+
+        $derived = "(SELECT DISTINCT ON (request_id) {$selectList} FROM {$table} ORDER BY request_id, id DESC) as {$alias}";
 
         return $query->leftJoin(DB::raw($derived), "{$alias}.request_id", '=', "{$parentAlias}.{$parentKey}");
     }
@@ -1746,6 +1759,26 @@ class RegisterQueryHelper
         abort_unless(self::userCanAccessRequest($requestId), 403, 'You do not have access to this document.');
     }
 
+    /** Drop cached Update/Draft groupings after a registration is saved, edited, or removed. */
+    public static function bumpDocumentListCache(): void
+    {
+        try {
+            $version = (int) \Illuminate\Support\Facades\Cache::get('dcs.document-lists.version', 1);
+            \Illuminate\Support\Facades\Cache::forever('dcs.document-lists.version', $version + 1);
+        } catch (\Throwable) {
+            // A missed bump only keeps the previous list until its short TTL ends.
+        }
+    }
+
+    public static function documentListCacheVersion(): int
+    {
+        try {
+            return (int) \Illuminate\Support\Facades\Cache::get('dcs.document-lists.version', 1);
+        } catch (\Throwable) {
+            return 1;
+        }
+    }
+
     /** Search/stamp/preview: latest (including null/empty status), numbered obsolete, and empty-doc-no rows. */
     public static function visibleRequestIds(): array
     {
@@ -2179,6 +2212,17 @@ class RegisterQueryHelper
             return [];
         }
 
+        $sample = count($requestIds);
+        $step = max(1, intdiv(max(count($requestIds), 1), 24));
+        for ($i = 0, $n = count($requestIds); $i < $n; $i += $step) {
+            $sample = ($sample * 131 + (int) $requestIds[$i]) & 0x7fffffff;
+        }
+        $memoKey = strtolower($docNo).'|'.$docTypeId.'|'.(int) ($subTypeId ?? 0).'|'.(int) $includeTrashed.'|'.$sample;
+        static $memo = [];
+        if (isset($memo[$memoKey])) {
+            return $memo[$memoKey];
+        }
+
         $seen = [];
         foreach (self::docNosForRevisionLookup($docNo, $docTypeId, $subTypeId, $requestIds, $includeTrashed) as $no) {
             $seen[strtolower($no)] = $no;
@@ -2206,7 +2250,7 @@ class RegisterQueryHelper
         }
 
         if ($maxRev < 1) {
-            return array_values($seen);
+            return $memo[$memoKey] = array_values($seen);
         }
 
         $presentRevs = self::reviseNosPresentForDocNos(array_values($seen), $docTypeId, $subTypeId, $requestIds);
@@ -2269,7 +2313,7 @@ class RegisterQueryHelper
             }
         }
 
-        return array_values($seen);
+        return $memo[$memoKey] = array_values($seen);
     }
 
     /** @param list<string> $candidates @param list<string> $familyNos @param list<int> $requestIds */
@@ -2639,11 +2683,135 @@ class RegisterQueryHelper
             'per_page' => $perPage,
         ];
 
+        $groups = self::rememberUpdateListGroups($docTypeId);
+        $search = trim($search);
+        if ($search !== '') {
+            $matchedIds = self::updateListSearchIds($search, $docTypeId);
+            if ($matchedIds === []) {
+                return $empty;
+            }
+            $matchSet = array_flip($matchedIds);
+            $groups = $groups->filter(function ($g) use ($matchSet) {
+                foreach ($g['member_ids'] as $id) {
+                    if (isset($matchSet[(int) $id])) {
+                        return true;
+                    }
+                }
+
+                return false;
+            })->values();
+            $groups = $groups->sortByDesc(function ($g) use ($search) {
+                $bits = [
+                    $g['parent']['doc_no'] ?? '',
+                    $g['parent']['title'] ?? '',
+                    $g['parent']['doc_type'] ?? '',
+                ];
+                foreach ($g['children'] ?? [] as $child) {
+                    $bits[] = ($child['doc_no'] ?? '') . ' ' . ($child['title'] ?? '');
+                }
+
+                return self::looseSearchScore($search, implode(' ', $bits));
+            })->values();
+        }
+
+        $total = $groups->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min(max(1, $page), $lastPage);
+        $pageGroups = $groups->slice(($page - 1) * $perPage, $perPage)->values()->all();
+
+        return [
+            'rows' => $pageGroups,
+            'total' => $total,
+            'current_page' => $page,
+            'last_page' => $lastPage,
+            'per_page' => $perPage,
+        ];
+    }
+
+    /**
+     * Grouped Update inventory. Cached per user so paging and repeat visits
+     * do not rebuild every revision family.
+     */
+    private static function rememberUpdateListGroups(string $docTypeId): \Illuminate\Support\Collection
+    {
+        $key = 'dcs.update-groups.'
+            . self::documentListCacheVersion()
+            . '.' . (int) auth()->id()
+            . '.' . ($docTypeId === '' ? 'all' : $docTypeId);
+        try {
+            $cached = \Illuminate\Support\Facades\Cache::get($key);
+            if (is_array($cached)) {
+                return collect($cached);
+            }
+        } catch (\Throwable) {
+            $cached = null;
+        }
+
+        $groups = self::buildUpdateListGroups($docTypeId)->values();
+        try {
+            \Illuminate\Support\Facades\Cache::put($key, $groups->all(), 90);
+        } catch (\Throwable) {
+            // The list still returns; the next request rebuilds it.
+        }
+
+        return $groups;
+    }
+
+    /** @return list<int> */
+    private static function updateListSearchIds(string $search, string $docTypeId): array
+    {
+        $query = self::updateListBaseQuery($docTypeId);
+        $like = '%' . $search . '%';
+        $tokens = self::searchTokens($search);
+        $query->where(function ($q) use ($like, $tokens) {
+            $q->where(function ($phrase) use ($like) {
+                $phrase->whereRaw('dr.id::text ilike ?', [$like])
+                    ->orWhere('ml.doc_no', 'ilike', $like)
+                    ->orWhere('ml.doc_title', 'ilike', $like)
+                    ->orWhere('drf.drf_no', 'ilike', $like)
+                    ->orWhere('drf.doc_title', 'ilike', $like)
+                    ->orWhere('dcn.dcn_no', 'ilike', $like);
+            });
+            if (count($tokens) > 1) {
+                $q->orWhere(function ($all) use ($tokens) {
+                    foreach ($tokens as $token) {
+                        $tokenLike = '%' . $token . '%';
+                        $all->where(function ($one) use ($tokenLike) {
+                            $one->where('ml.doc_no', 'ilike', $tokenLike)
+                                ->orWhere('ml.doc_title', 'ilike', $tokenLike)
+                                ->orWhere('drf.drf_no', 'ilike', $tokenLike)
+                                ->orWhere('drf.doc_title', 'ilike', $tokenLike)
+                                ->orWhere('dcn.dcn_no', 'ilike', $tokenLike)
+                                ->orWhereRaw('dr.id::text ilike ?', [$tokenLike]);
+                        });
+                    }
+                });
+            }
+        });
+
+        return $query->pluck('dr.id')->map(fn ($id) => (int) $id)->all();
+    }
+
+    private static function updateListBaseQuery(string $docTypeId)
+    {
         $query = DB::table('dcs_document_requests as dr')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id');
-        self::joinLatestByRequest($query, 'dcs_masterlist_registration', 'ml');
-        self::joinLatestByRequest($query, 'dcs_document_request_form', 'drf');
-        self::joinLatestByRequest($query, 'dcs_document_change_notice', 'dcn');
+        $mlColumns = ['id', 'doc_no', 'doc_title', 'revise_no'];
+        if (self::supportsRevisionStatus()) {
+            $mlColumns[] = 'revision_status';
+        }
+        if (self::supportsAllowsRevisionColumn()) {
+            $mlColumns[] = 'allows_revision';
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            $mlColumns[] = 'stack_group';
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'effectivity_date')) {
+            $mlColumns[] = 'effectivity_date';
+        }
+        self::joinLatestByRequest($query, 'dcs_masterlist_registration', 'ml', 'dr', 'id', $mlColumns);
+        self::joinLatestByRequest($query, 'dcs_document_request_form', 'drf', 'dr', 'id', ['id', 'doc_title', 'drf_no']);
+        self::joinLatestByRequest($query, 'dcs_document_change_notice', 'dcn', 'dr', 'id', ['id', 'dcn_no']);
         self::applyNotDeleted($query, 'dr');
         self::applyRegisteredDocumentScope($query, 'dr');
         $select = [
@@ -2675,46 +2843,17 @@ class RegisterQueryHelper
             $select[] = 'dr.is_draft';
         }
         $query->select($select);
-
         if ($docTypeId !== '' && $docTypeId !== 'all') {
             $query->where('dr.doc_type_id', (int) $docTypeId);
         }
 
-        $search = trim($search);
-        $matchedIds = null;
-        if ($search !== '') {
-            $like = '%' . $search . '%';
-            $tokens = self::searchTokens($search);
-            $matchQuery = (clone $query)->where(function ($q) use ($like, $tokens) {
-                $q->where(function ($phrase) use ($like) {
-                    $phrase->whereRaw('dr.id::text ilike ?', [$like])
-                        ->orWhere('ml.doc_no', 'ilike', $like)
-                        ->orWhere('ml.doc_title', 'ilike', $like)
-                        ->orWhere('drf.drf_no', 'ilike', $like)
-                        ->orWhere('drf.doc_title', 'ilike', $like)
-                        ->orWhere('dcn.dcn_no', 'ilike', $like);
-                });
-                if (count($tokens) > 1) {
-                    $q->orWhere(function ($all) use ($tokens) {
-                        foreach ($tokens as $token) {
-                            $tokenLike = '%' . $token . '%';
-                            $all->where(function ($one) use ($tokenLike) {
-                                $one->where('ml.doc_no', 'ilike', $tokenLike)
-                                    ->orWhere('ml.doc_title', 'ilike', $tokenLike)
-                                    ->orWhere('drf.drf_no', 'ilike', $tokenLike)
-                                    ->orWhere('drf.doc_title', 'ilike', $tokenLike)
-                                    ->orWhere('dcn.dcn_no', 'ilike', $tokenLike)
-                                    ->orWhereRaw('dr.id::text ilike ?', [$tokenLike]);
-                            });
-                        }
-                    });
-                }
-            });
-            $matchedIds = $matchQuery->pluck('dr.id')->map(fn ($id) => (int) $id)->all();
-            if ($matchedIds === []) {
-                return $empty;
-            }
-        }
+        return $query;
+    }
+
+    /** @return \Illuminate\Support\Collection<int, array<string, mixed>> */
+    private static function buildUpdateListGroups(string $docTypeId): \Illuminate\Support\Collection
+    {
+        $query = self::updateListBaseQuery($docTypeId);
 
         $documents = $query->orderByDesc('dr.id')->get();
         $viewerCanEdit = self::isFullDcsUser();
@@ -2826,51 +2965,12 @@ class RegisterQueryHelper
             ]);
         }
 
-        // Stack renumbered prior doc numbers under the tip (same as Database).
-        $visibleIds = $groups->isEmpty() ? [] : self::visibleRequestIds();
+
+        // Ids already loaded for this list. Avoid a second full-table scan.
+        $visibleIds = $documents->pluck('id')->map(fn ($id) => (int) $id)->unique()->values()->all();
         $groups = self::mergeUpdateListLineageGroups($groups, $visibleIds);
 
-        if ($matchedIds !== null) {
-            $matchSet = array_flip($matchedIds);
-            $groups = $groups->filter(function ($g) use ($matchSet) {
-                foreach ($g['member_ids'] as $id) {
-                    if (isset($matchSet[$id])) {
-                        return true;
-                    }
-                }
-
-                return false;
-            })->values();
-        }
-
-        $groups = $groups->sortByDesc('sort_id')->values();
-        if ($search !== '') {
-            $groups = $groups->sortByDesc(function ($g) use ($search) {
-                $bits = [
-                    $g['parent']['doc_no'] ?? '',
-                    $g['parent']['title'] ?? '',
-                    $g['parent']['doc_type'] ?? '',
-                ];
-                foreach ($g['children'] ?? [] as $child) {
-                    $bits[] = ($child['doc_no'] ?? '') . ' ' . ($child['title'] ?? '');
-                }
-
-                return self::looseSearchScore($search, implode(' ', $bits));
-            })->values();
-        }
-
-        $total = $groups->count();
-        $lastPage = max(1, (int) ceil($total / $perPage));
-        $page = min(max(1, $page), $lastPage);
-        $pageGroups = $groups->slice(($page - 1) * $perPage, $perPage)->values()->all();
-
-        return [
-            'rows' => $pageGroups,
-            'total' => $total,
-            'current_page' => $page,
-            'last_page' => $lastPage,
-            'per_page' => $perPage,
-        ];
+        return $groups->sortByDesc('sort_id')->values();
     }
 
     /** Draft registrations only — for Document Registration → Drafts. */
@@ -2884,20 +2984,28 @@ class RegisterQueryHelper
             'per_page' => $perPage,
         ];
 
-        RegisterUpdateHelper::collapseDuplicateDrafts();
-
-        $draftIds = self::draftRequestIds();
-        if ($draftIds === []) {
+        if (! self::supportsDrafts()) {
             return $empty;
+        }
+
+        // Collapse runs on save. A page view only sweeps leftovers occasionally,
+        // so opening Drafts does not scan and delete on every request.
+        try {
+            if (\Illuminate\Support\Facades\Cache::add('dcs.collapse-duplicate-drafts', 1, now()->addMinutes(10))) {
+                RegisterUpdateHelper::collapseDuplicateDrafts();
+            }
+        } catch (\Throwable) {
         }
 
         $query = DB::table('dcs_document_requests as dr')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
-            ->leftJoin('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_request_form as drf', 'drf.request_id', '=', 'dr.id')
-            ->leftJoin('dcs_document_change_notice as dcn', 'dcn.request_id', '=', 'dr.id')
-            ->whereIn('dr.id', $draftIds);
+            ->where('dr.is_draft', true);
+        self::joinLatestByRequest($query, 'dcs_masterlist_registration', 'ml', 'dr', 'id', ['doc_no', 'doc_title', 'revise_no']);
+        self::joinLatestByRequest($query, 'dcs_document_request_form', 'drf', 'dr', 'id', ['doc_title', 'drf_no']);
+        self::joinLatestByRequest($query, 'dcs_document_change_notice', 'dcn', 'dr', 'id', ['dcn_no']);
         self::applyNotDeleted($query, 'dr');
+        self::applyOfficeScope($query, 'dr');
+        self::applyExcludeOfficeIntakeRequests($query, 'dr');
         $select = [
             'dr.id',
             'dr.doc_type_id',
@@ -2941,16 +3049,16 @@ class RegisterQueryHelper
             });
         }
 
-        $searchActive = $search !== '';
-        $total = (int) (clone $query)->distinct()->count('dr.id');
+        $total = (int) (clone $query)->count('dr.id');
         $lastPage = max(1, (int) ceil($total / $perPage));
         $page = min(max(1, $page), $lastPage);
 
-        $pageQuery = $query->orderByDesc('dr.updated_at')->orderByDesc('dr.id');
-        if (! $searchActive) {
-            $pageQuery->offset(($page - 1) * $perPage)->limit($perPage);
-        }
-        $documents = $pageQuery->get();
+        $documents = $query
+            ->orderByDesc('dr.updated_at')
+            ->orderByDesc('dr.id')
+            ->offset(($page - 1) * $perPage)
+            ->limit($perPage)
+            ->get();
         $rows = $documents->map(function ($doc) {
             $docNo = trim((string) ($doc->doc_no ?? ''));
             $title = $doc->ml_title ?: ($doc->drf_title ?: 'Untitled draft');
@@ -2970,21 +3078,8 @@ class RegisterQueryHelper
             ];
         })->values();
 
-        if ($searchActive) {
-            $rows = $rows->sortByDesc(fn ($row) => self::looseSearchScore(
-                $search,
-                trim(($row['doc_no'] ?? '') . ' ' . ($row['title'] ?? '') . ' ' . ($row['doc_type'] ?? ''))
-            ))->values();
-            $total = $rows->count();
-            $lastPage = max(1, (int) ceil($total / $perPage));
-            $page = min(max(1, $page), $lastPage);
-            $pageRows = $rows->slice(($page - 1) * $perPage, $perPage)->values()->all();
-        } else {
-            $pageRows = $rows->values()->all();
-        }
-
         return [
-            'rows' => $pageRows,
+            'rows' => $rows->all(),
             'total' => $total,
             'current_page' => $page,
             'last_page' => $lastPage,
@@ -5200,15 +5295,19 @@ class RegisterQueryHelper
      */
     public static function dcnReferencedDocNosForRequest(int $requestId): array
     {
+        static $memo = [];
+        if (array_key_exists($requestId, $memo)) {
+            return $memo[$requestId];
+        }
         if ($requestId < 1 || !Schema::hasTable('dcs_doc_revision')) {
-            return [];
+            return $memo[$requestId] = [];
         }
 
         $dcnId = DB::table('dcs_document_change_notice')
             ->where('request_id', $requestId)
             ->value('id');
         if (!$dcnId) {
-            return [];
+            return $memo[$requestId] = [];
         }
 
         $nos = [];
@@ -5225,7 +5324,7 @@ class RegisterQueryHelper
             }
         }
 
-        return array_values($nos);
+        return $memo[$requestId] = array_values($nos);
     }
 
     /**
@@ -5312,61 +5411,33 @@ class RegisterQueryHelper
             }
         }
 
+        $links = self::dcnRevisionLinkMap($requestIds, $docTypeId, $subTypeId);
         $queue = array_values($seen);
         while ($queue !== []) {
             $no = array_shift($queue);
+            $noKey = strtolower($no);
 
-            $holderQuery = DB::table('dcs_masterlist_registration as ml')
-                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-                ->where('ml.doc_no', $no)
-                ->whereIn('ml.request_id', $requestIds)
-                ->where('dr.doc_type_id', $docTypeId);
-            if ($subTypeId) {
-                $holderQuery->where('dr.sub_type_id', $subTypeId);
-            } else {
-                $holderQuery->whereNull('dr.sub_type_id');
-            }
-
-            foreach ($holderQuery->pluck('ml.request_id') as $requestId) {
-                foreach (self::dcnReferencedDocNosForRequest((int) $requestId) as $refNo) {
+            foreach ($links['refs'] as $requestId => $refs) {
+                $holderNos = $links['doc_nos'][$requestId] ?? [];
+                if (! isset($holderNos[$noKey])) {
+                    continue;
+                }
+                foreach ($refs as $refNo) {
                     $refKey = strtolower($refNo);
-                    if (!isset($seen[$refKey])) {
+                    if (! isset($seen[$refKey])) {
                         $seen[$refKey] = $refNo;
                         $queue[] = $refNo;
                     }
                 }
             }
 
-            foreach ($requestIds as $requestId) {
-                $refs = self::dcnReferencedDocNosForRequest((int) $requestId);
-                $linked = false;
-                foreach ($refs as $refNo) {
-                    if (strcasecmp($refNo, $no) === 0) {
-                        $linked = true;
-                        break;
-                    }
-                }
-                if (!$linked) {
-                    continue;
-                }
-
-                $holderQuery = DB::table('dcs_masterlist_registration as ml')
-                    ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-                    ->where('ml.request_id', (int) $requestId)
-                    ->where('dr.doc_type_id', $docTypeId);
-                if ($subTypeId) {
-                    $holderQuery->where('dr.sub_type_id', $subTypeId);
-                } else {
-                    $holderQuery->whereNull('dr.sub_type_id');
-                }
-
-                $holderNo = trim((string) ($holderQuery->value('ml.doc_no') ?? ''));
+            foreach ($links['by_ref'][$noKey] ?? [] as $requestId) {
+                $holderNo = $links['latest_doc_no'][$requestId] ?? '';
                 if ($holderNo === '') {
                     continue;
                 }
-
                 $holderKey = strtolower($holderNo);
-                if (!isset($seen[$holderKey])) {
+                if (! isset($seen[$holderKey])) {
                     $seen[$holderKey] = $holderNo;
                     $queue[] = $holderNo;
                 }
@@ -5374,6 +5445,87 @@ class RegisterQueryHelper
         }
 
         return array_values($seen);
+    }
+
+    /**
+     * DCN revision links for a document type, loaded once instead of once per request.
+     *
+     * @param  list<int>  $requestIds
+     * @return array{refs: array<int, list<string>>, by_ref: array<string, list<int>>, doc_nos: array<int, array<string, string>>, latest_doc_no: array<int, string>}
+     */
+    private static function dcnRevisionLinkMap(array $requestIds, int $docTypeId, ?int $subTypeId): array
+    {
+        $empty = ['refs' => [], 'by_ref' => [], 'doc_nos' => [], 'latest_doc_no' => []];
+        if ($requestIds === [] || ! Schema::hasTable('dcs_doc_revision') || ! Schema::hasTable('dcs_document_change_notice')) {
+            return $empty;
+        }
+
+        $sample = count($requestIds);
+        $step = max(1, intdiv(max(count($requestIds), 1), 24));
+        for ($i = 0, $n = count($requestIds); $i < $n; $i += $step) {
+            $sample = ($sample * 131 + (int) $requestIds[$i]) & 0x7fffffff;
+        }
+        $memoKey = $docTypeId.'|'.(int) ($subTypeId ?? 0).'|'.$sample;
+        static $memo = [];
+        if (isset($memo[$memoKey])) {
+            return $memo[$memoKey];
+        }
+
+        $base = DB::table('dcs_doc_revision as rev')
+            ->join('dcs_document_change_notice as dcn', 'dcn.id', '=', 'rev.dcn_id')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'dcn.request_id')
+            ->join('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+            ->where('dr.doc_type_id', $docTypeId)
+            ->whereNotNull('rev.document_no')
+            ->where('rev.document_no', '!=', '');
+        if ($subTypeId) {
+            $base->where('dr.sub_type_id', $subTypeId);
+        } else {
+            $base->whereNull('dr.sub_type_id');
+        }
+
+        $rows = collect();
+        foreach (array_chunk($requestIds, 2000) as $chunk) {
+            $rows = $rows->concat(
+                (clone $base)->whereIn('dr.id', $chunk)->orderBy('ml.id')->get([
+                    'dr.id as request_id',
+                    'ml.doc_no',
+                    'rev.document_no',
+                ])
+            );
+        }
+
+        $refs = [];
+        $byRef = [];
+        $docNos = [];
+        $latest = [];
+        foreach ($rows as $row) {
+            $requestId = (int) $row->request_id;
+            $holder = trim((string) ($row->doc_no ?? ''));
+            $ref = trim((string) ($row->document_no ?? ''));
+            if ($holder !== '') {
+                $docNos[$requestId][strtolower($holder)] = $holder;
+                $latest[$requestId] = $holder;
+            }
+            if ($ref === '') {
+                continue;
+            }
+            $refs[$requestId][strtolower($ref)] = $ref;
+            $byRef[strtolower($ref)][$requestId] = $requestId;
+        }
+        foreach ($refs as $requestId => $set) {
+            $refs[$requestId] = array_values($set);
+        }
+        foreach ($byRef as $key => $set) {
+            $byRef[$key] = array_values($set);
+        }
+
+        return $memo[$memoKey] = [
+            'refs' => $refs,
+            'by_ref' => $byRef,
+            'doc_nos' => $docNos,
+            'latest_doc_no' => $latest,
+        ];
     }
 
     /**

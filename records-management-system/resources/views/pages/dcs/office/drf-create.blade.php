@@ -39,13 +39,18 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             $prefill = OfficeIntakeHelper::drfPrefillFromDcn($fromDcn);
         }
 
+        $postedOffices = array_values(array_filter(array_map(
+            'intval',
+            (array) old('distributeToOffice', [])
+        )));
+        $seedOffices = $postedOffices !== []
+            ? $postedOffices
+            : array_values(array_filter(array_map('intval', (array) ($prefill['distributeOfficeIds'] ?? []))));
+
         return [
             'offices' => RegisterQueryHelper::jsCatalog()['offices'] ?? [],
             'clusters' => RegisterQueryHelper::jsCatalog()['clusters'] ?? [],
-            'oldDistributeOfficeIds' => array_values(array_filter(array_map(
-                'intval',
-                (array) old('distributeToOffice', [])
-            ))),
+            'oldDistributeOfficeIds' => $seedOffices,
             'prefill' => $prefill,
             'fromDcnId' => (int) ($prefill['from_dcn'] ?? 0),
         ];
@@ -60,7 +65,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             </a>
             <p class="ofi-toolbar-hint">
                 @if(($fromDcnId ?? 0) > 0)
-                    Prefilled from Document Change Notice #{{ $fromDcnId }}. All fields remain editable — review before saving.
+                    Prefilled from Document Change Notice #{{ $fromDcnId }}. Document type follows the document being revised. Distribution starts with that document’s offices — add any extra offices before saving.
                 @else
                     Fill in the form, save, then print and submit the signed copy to RFIO. Scanned DRF uploads are handled by RFIO during document registration.
                 @endif
@@ -103,14 +108,25 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                     </div>
                     <div class="reg-field">
                         <label>Type of document <span class="ofi-req">*</span></label>
-                        <div class="ofi-radio-row">
-                            <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" required @checked(old('docTypeKind', 'internal') === 'internal')> Internal</label>
-                            <label class="ofi-radio"><input type="radio" name="docTypeKind" value="external" @checked(old('docTypeKind') === 'external')> External</label>
-                        </div>
+                        @php
+                            $lockDocType = (bool) ($prefill['lockDocType'] ?? false);
+                            $docTypeKind = old('docTypeKind', $prefill['docTypeKind'] ?? 'internal');
+                            $docTypeLabel = trim((string) ($prefill['docTypeLabel'] ?? ''));
+                        @endphp
+                        @if($lockDocType)
+                            <input type="hidden" name="docTypeKind" value="{{ $docTypeKind }}">
+                            <p class="ofi-locked-type">{{ $docTypeLabel !== '' ? $docTypeLabel : ($docTypeKind === 'external' ? 'External' : 'Internal') }}</p>
+                            <p class="ofi-hint">This is the type of the document being revised and cannot be changed.</p>
+                        @else
+                            <div class="ofi-radio-row">
+                                <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" required @checked($docTypeKind === 'internal')> Internal</label>
+                                <label class="ofi-radio"><input type="radio" name="docTypeKind" value="external" @checked($docTypeKind === 'external')> External</label>
+                            </div>
+                        @endif
                     </div>
                     <div class="reg-field">
                         <label>Description/reason for request (define in detail) <span class="ofi-req">*</span></label>
-                        <textarea name="descriptionReason" rows="4" required maxlength="5000" placeholder="Define in detail…">{{ old('descriptionReason') }}</textarea>
+                        <textarea id="descriptionReason" name="descriptionReason" rows="4" required maxlength="5000" placeholder="For document control and dissemination">{{ old('descriptionReason') }}</textarea>
                     </div>
                     <div class="reg-field ofi-distribute-field">
                         <label class="ofi-distribute-label">
@@ -204,6 +220,9 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
             </div>
 
             <div class="reg-form-actions ofi-reg-actions">
+                <button type="submit" id="ofiDrfPreviewBtn" class="reg-btn reg-btn-cancel" formnovalidate formtarget="_blank" formaction="{{ route('dcs.office.drf.preview', absolute: false) }}">
+                    Preview form
+                </button>
                 <button type="submit" id="ofiDrfSaveBtn" class="reg-btn reg-btn-save" disabled>
                     <i class="fa-solid fa-lock"></i> Save (cannot edit later)
                 </button>
@@ -247,7 +266,19 @@ window.__ofiSourceConfigs = [
     confirmBox.addEventListener('change', syncConfirm);
     syncConfirm();
 
+    const reason = document.getElementById('descriptionReason');
+    if (reason) {
+        reason.addEventListener('keydown', function (e) {
+            if (e.key !== 'Tab' || e.shiftKey || reason.value.trim() !== '') return;
+            e.preventDefault();
+            reason.value = 'For document control and dissemination';
+            const end = reason.value.length;
+            reason.setSelectionRange(end, end);
+            reason.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    }
     form.addEventListener('submit', function (e) {
+        if (e.submitter && e.submitter.id === 'ofiDrfPreviewBtn') return;
         if (!confirmBox.checked) {
             e.preventDefault();
             alert('Please confirm that all the inputted data are correct before saving.');

@@ -129,9 +129,9 @@
     background: #fbbf24 !important;
 }
 
-/* Top tabs */
+/* Top tabs: the band outside the tab card matches the page; the card keeps its own color. */
 [data-theme="dark"] .dcs-top-tabs-host {
-    background-color: #0b0f19 !important;
+    background-color: var(--dcs-bg) !important;
 }
 
 [data-theme="dark"] .dcs-top-tabs-host .top-nav-tabs-wrapper {

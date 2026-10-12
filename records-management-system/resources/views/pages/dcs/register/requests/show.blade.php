@@ -84,6 +84,22 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
         $activeKey = $this->type === 'dcn' ? 'dcn' : 'drf';
         $printUrl = $this->type === 'dcn' ? $dcnPrintUrl : $drfPrintUrl;
 
+        $linkedReceive = null;
+        $linkedType = $linkedDrfId ? 'drf' : ($linkedDcnId ? 'dcn' : null);
+        $linkedId = $linkedDrfId ?: $linkedDcnId;
+        if ($linkedType && $linkedId) {
+            $linkedRow = $linkedType === 'dcn'
+                ? OfficeIntakeHelper::findOfficeDcn((int) $linkedId)
+                : OfficeIntakeHelper::findOfficeDrf((int) $linkedId);
+            if ($linkedRow) {
+                $linkedReceive = array_merge(OfficeIntakeHelper::intakeReceivedState($linkedRow), [
+                    'type' => $linkedType,
+                    'id' => (int) $linkedId,
+                    'label' => strtoupper($linkedType),
+                ]);
+            }
+        }
+
         return [
             'payload' => $payload,
             'printUrl' => $printUrl,
@@ -91,6 +107,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
             'activePreviewKey' => $activeKey,
             'linkedDrfId' => $linkedDrfId,
             'linkedDcnId' => $linkedDcnId,
+            'linkedReceive' => $linkedReceive,
         ];
     }
 }; ?>
@@ -196,15 +213,34 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                     <div class="ofi-request-step-body">
                         <label class="ofi-receive-check">
                             <input type="checkbox" id="ofiRequestReceived" @checked($isReceived)>
-                            <span>I have received the signed printed form and verified that the data matches this submission.</span>
+                            <span>I have received the signed {{ strtoupper($type) }} and verified that the data matches this submission.</span>
                         </label>
                         <p class="ofi-receive-meta" id="ofiRequestReceiveMeta" @if(! $isReceived) hidden @endif>
                             @if($isReceived)
-                                Received
+                                {{ strtoupper($type) }} received
                                 @if(!empty($p['receivedAt'])) on {{ $p['receivedAt'] }} @endif
                                 @if(!empty($p['receivedBy'])) by {{ $p['receivedBy'] }} @endif
                             @endif
                         </p>
+                        @if(!empty($linkedReceive))
+                            <label class="ofi-receive-check ofi-receive-check-pair">
+                                <input
+                                    type="checkbox"
+                                    id="ofiRequestReceivedPair"
+                                    data-receive-type="{{ $linkedReceive['type'] }}"
+                                    data-receive-id="{{ $linkedReceive['id'] }}"
+                                    @checked(!empty($linkedReceive['received']))
+                                >
+                                <span>I have received the signed {{ $linkedReceive['label'] }}. This is separate from the {{ strtoupper($type) }}.</span>
+                            </label>
+                            <p class="ofi-receive-meta" id="ofiRequestReceivePairMeta" @if(empty($linkedReceive['received'])) hidden @endif>
+                                @if(!empty($linkedReceive['received']))
+                                    {{ $linkedReceive['label'] }} received
+                                    @if(!empty($linkedReceive['receivedAt'])) on {{ $linkedReceive['receivedAt'] }} @endif
+                                    @if(!empty($linkedReceive['receivedBy'])) by {{ $linkedReceive['receivedBy'] }} @endif
+                                @endif
+                            </p>
+                        @endif
                     </div>
                 </div>
 

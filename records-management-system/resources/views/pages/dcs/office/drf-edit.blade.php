@@ -22,6 +22,21 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
         abort_unless($drf, 404);
 
         $distributeIds = OfficeIntakeHelper::distributeOfficeIds((int) $drf->id);
+        $lockDocType = (int) ($drf->source_office_dcn_id ?? 0) > 0;
+        $lockedTypeLabel = '';
+        if ($lockDocType) {
+            $dcn = OfficeIntakeHelper::findOfficeDcn((int) $drf->source_office_dcn_id);
+            $docNo = trim((string) ($dcn?->previous_document_no ?? ''));
+            if ($docNo === '') {
+                $docNo = trim((string) ($dcn?->document_no ?? ''));
+            }
+            $registered = OfficeIntakeHelper::latestRegistrationForDocNo($docNo);
+            if ($registered) {
+                $subName = trim((string) ($registered->sub_type_name ?? ''));
+                $typeName = trim((string) ($registered->doc_type_name ?? ''));
+                $lockedTypeLabel = $subName !== '' ? $subName : $typeName;
+            }
+        }
 
         return [
             'drf' => $drf,
@@ -32,6 +47,8 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                 (array) old('distributeToOffice', $distributeIds)
             )))),
             'editReason' => trim((string) ($drf->edit_unlock_reason ?? '')),
+            'lockDocType' => $lockDocType,
+            'lockedTypeLabel' => $lockedTypeLabel,
         ];
     }
 }; ?>
@@ -81,14 +98,23 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                     </div>
                     <div class="reg-field">
                         <label>Type of document <span class="ofi-req">*</span></label>
-                        <div class="ofi-radio-row">
-                            <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" required @checked(old('docTypeKind', $drf->doc_type_kind ?: 'internal') === 'internal')> Internal</label>
-                            <label class="ofi-radio"><input type="radio" name="docTypeKind" value="external" @checked(old('docTypeKind', $drf->doc_type_kind) === 'external')> External</label>
-                        </div>
+                        @php
+                            $docTypeKind = old('docTypeKind', $drf->doc_type_kind ?: 'internal');
+                        @endphp
+                        @if($lockDocType ?? false)
+                            <input type="hidden" name="docTypeKind" value="{{ $docTypeKind }}">
+                            <p class="ofi-locked-type">{{ ($lockedTypeLabel ?? '') !== '' ? $lockedTypeLabel : ($docTypeKind === 'external' ? 'External' : 'Internal') }}</p>
+                            <p class="ofi-hint">This is the type of the document being revised and cannot be changed.</p>
+                        @else
+                            <div class="ofi-radio-row">
+                                <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" required @checked($docTypeKind === 'internal')> Internal</label>
+                                <label class="ofi-radio"><input type="radio" name="docTypeKind" value="external" @checked($docTypeKind === 'external')> External</label>
+                            </div>
+                        @endif
                     </div>
                     <div class="reg-field">
                         <label>Description/reason for request (define in detail) <span class="ofi-req">*</span></label>
-                        <textarea name="descriptionReason" rows="4" required maxlength="5000" placeholder="Define in detail…">{{ old('descriptionReason', $drf->description_reason) }}</textarea>
+                        <textarea id="descriptionReason" name="descriptionReason" rows="4" required maxlength="5000" placeholder="For document control and dissemination">{{ old('descriptionReason', $drf->description_reason) }}</textarea>
                     </div>
                     <div class="reg-field ofi-distribute-field">
                         <label class="ofi-distribute-label">
@@ -182,6 +208,9 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
             </div>
 
             <div class="reg-form-actions ofi-reg-actions">
+                <button type="submit" id="ofiDrfPreviewBtn" class="reg-btn reg-btn-cancel" formnovalidate formtarget="_blank" formaction="{{ route('dcs.office.drf.preview', absolute: false) }}">
+                    Preview form
+                </button>
                 <button type="submit" id="ofiDrfSaveBtn" class="reg-btn reg-btn-save" disabled>
                     <i class="fa-solid fa-paper-plane"></i> Save &amp; resubmit to RFIO
                 </button>
@@ -225,7 +254,19 @@ window.__ofiSourceConfigs = [
     confirmBox.addEventListener('change', syncConfirm);
     syncConfirm();
 
+    const reason = document.getElementById('descriptionReason');
+    if (reason) {
+        reason.addEventListener('keydown', function (e) {
+            if (e.key !== 'Tab' || e.shiftKey || reason.value.trim() !== '') return;
+            e.preventDefault();
+            reason.value = 'For document control and dissemination';
+            const end = reason.value.length;
+            reason.setSelectionRange(end, end);
+            reason.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    }
     form.addEventListener('submit', function (e) {
+        if (e.submitter && e.submitter.id === 'ofiDrfPreviewBtn') return;
         if (!confirmBox.checked) {
             e.preventDefault();
             alert('Please confirm that all the inputted data are correct before saving.');

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Livewire\Dcs;
+namespace App\View\Components\Dcs;
 
 use App\Helpers\RegisterQueryHelper;
 use App\Helpers\ReportHelper;
@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Shared report browser for Generate Report and Monitoring.
- * Page files stay in their own folders; this trait holds the screen logic.
+ * Loaded with the other DCS component files under resources/views/components/dcs.
  */
 trait InteractsWithDcsReport
 {

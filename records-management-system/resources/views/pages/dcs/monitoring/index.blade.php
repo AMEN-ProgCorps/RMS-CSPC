@@ -5,7 +5,7 @@ use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
-    use \App\Livewire\Dcs\InteractsWithDcsReport;
+    use \App\View\Components\Dcs\InteractsWithDcsReport;
 
     public function mount(): void
     {

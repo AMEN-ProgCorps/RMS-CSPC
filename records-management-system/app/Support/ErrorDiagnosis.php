@@ -32,6 +32,10 @@ class ErrorDiagnosis
             $status = 500;
         }
 
+        if (self::isSlowConnection($e)) {
+            return self::forStatus(408);
+        }
+
         $specific = self::specificMessage($e);
         $raw = trim($e->getMessage());
         $message = $specific ?? (self::isTechnical($raw) || $raw === '' ? null : $raw);
@@ -96,7 +100,7 @@ class ErrorDiagnosis
             403 => ['kind' => 'client', 'title' => 'Access denied', 'message' => 'You do not have access to do that.'],
             404 => ['kind' => 'client', 'title' => 'Not found', 'message' => 'That record could not be found.'],
             405 => ['kind' => 'client', 'title' => 'Not allowed', 'message' => 'That action is not available.'],
-            408 => ['kind' => 'client', 'title' => 'Timed out', 'message' => 'The connection timed out.'],
+            408 => ['kind' => 'client', 'title' => 'Slow internet', 'message' => 'Your internet connection is too slow. Check your connection and try again.'],
             413 => ['kind' => 'client', 'title' => 'File too large', 'message' => 'The uploaded file is too large.'],
             419 => ['kind' => 'client', 'title' => 'Session expired', 'message' => 'Your session expired. Refresh the page and try again.'],
             422 => ['kind' => 'client', 'title' => 'Check the form', 'message' => 'Some of the information needs to be corrected before this can continue.'],
@@ -104,7 +108,7 @@ class ErrorDiagnosis
             500 => ['kind' => 'server', 'title' => 'Server error', 'message' => 'The server could not finish this request.'],
             502 => ['kind' => 'server', 'title' => 'Server error', 'message' => 'The server could not finish this request.'],
             503 => ['kind' => 'server', 'title' => 'Unavailable', 'message' => 'Cannot connect to the server.'],
-            504 => ['kind' => 'server', 'title' => 'Timed out', 'message' => 'The connection timed out.'],
+            504 => ['kind' => 'server', 'title' => 'Slow internet', 'message' => 'Your internet connection is too slow. Check your connection and try again.'],
         ];
     }
 
@@ -173,13 +177,27 @@ class ErrorDiagnosis
             return 'Cannot send the email.';
         }
         if (str_contains($haystack, 'curl error 28') || str_contains($haystack, 'operation timed out')) {
-            return 'The connection timed out.';
+            return 'Your internet connection is too slow. Check your connection and try again.';
         }
         if (str_contains($haystack, 'posttoolarge') || str_contains($haystack, 'post too large')) {
             return 'The uploaded file is too large.';
         }
 
         return null;
+    }
+
+    private static function isSlowConnection(Throwable $e): bool
+    {
+        $haystack = '';
+        $current = $e;
+        while ($current instanceof Throwable) {
+            $haystack .= ' '.$current::class.' '.$current->getMessage();
+            $current = $current->getPrevious();
+        }
+        $haystack = strtolower($haystack);
+
+        return str_contains($haystack, 'curl error 28')
+            || str_contains($haystack, 'operation timed out');
     }
 
     private static function isTechnical(string $message): bool

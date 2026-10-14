@@ -498,7 +498,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                     </div>
                                 </td>
                                 <td style="padding: 14px 16px; color: #64748b; font-size: 0.8rem;">
-                                    {{ \Carbon\Carbon::parse($t->date_created)->format('M d, Y g:i A') }}
+                                    {{ \Carbon\Carbon::parse($t->date_created)->format('M d, Y h:i A') }}
                                 </td>
                             </tr>
 
@@ -559,7 +559,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                             </div>
                                         </td>
                                         <td style="padding: 10px 16px; color: #64748b; font-size: 0.75rem;">
-                                            {{ \Carbon\Carbon::parse($child->date_created)->format('M d, Y g:i A') }}
+                                            {{ \Carbon\Carbon::parse($child->date_created)->format('M d, Y h:i A') }}
                                         </td>
                                     </tr>
                                 @endforeach

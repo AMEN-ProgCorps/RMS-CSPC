@@ -404,7 +404,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 ->orderBy('id', 'asc')
                 ->first();
             $createdDateRaw = $firstLog?->date_in ?? $t->date_created;
-            $t->created_at_fmt = $createdDateRaw ? \Carbon\Carbon::parse($createdDateRaw)->format('Y-m-d H:i') : 'N/A';
+            $t->created_at_fmt = $createdDateRaw ? \Carbon\Carbon::parse($createdDateRaw)->format('M d, Y h:i A') : 'N/A';
             $t->total_elapsed_days = $createdDateRaw ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($createdDateRaw))) : 0;
 
             // 2. Incoming Elapsed Days (Duration of last office Forwarded to current office)
@@ -435,7 +435,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             $t->is_received = $isReceivedAtUserOffice;
 
             $receivedTimestamp = $userOfficeLog?->date_in;
-            $t->received_at_fmt = $receivedTimestamp ? \Carbon\Carbon::parse($receivedTimestamp)->format('Y-m-d H:i') : 'N/A';
+            $t->received_at_fmt = $receivedTimestamp ? \Carbon\Carbon::parse($receivedTimestamp)->format('M d, Y h:i A') : 'N/A';
             $t->received_elapsed_days = $receivedTimestamp ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($receivedTimestamp))) : 0;
             $t->date_received = $receivedTimestamp ?: $createdDateRaw;
 
@@ -448,7 +448,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 ->first();
 
             $releasedTimestamp = $releasedLog?->date_out;
-            $t->released_at_fmt = $releasedTimestamp ? \Carbon\Carbon::parse($releasedTimestamp)->format('Y-m-d H:i') : 'N/A';
+            $t->released_at_fmt = $releasedTimestamp ? \Carbon\Carbon::parse($releasedTimestamp)->format('M d, Y h:i A') : 'N/A';
             $t->released_elapsed_days = $releasedTimestamp ? (int) abs(now()->diffInDays(\Carbon\Carbon::parse($releasedTimestamp))) : 0;
 
             $t->elapsed_days = $t->total_elapsed_days;
@@ -665,7 +665,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 }
 
                 $child->timeline_path = $childSteps;
-                $child->created_at_fmt = \Carbon\Carbon::parse($child->date_created)->format('Y-m-d H:i');
+                $child->created_at_fmt = \Carbon\Carbon::parse($child->date_created)->format('M d, Y h:i A');
                 return $child;
             });
 
@@ -2047,6 +2047,89 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 @push('styles')
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     @vite(['resources/css/dts/internal.css', 'resources/css/dts/receive.css', 'resources/css/dts/list_transaction.css'])
+    <style>
+        .dts-topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            margin-bottom: 20px;
+            gap: 16px;
+            flex-wrap: nowrap;
+        }
+        .dts-nav-group {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .dts-topbar-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-shrink: 0;
+            margin-left: auto;
+        }
+        .dts-nav-btn--back {
+            margin-left: 0 !important;
+        }
+        .dts-responsive-icon-btn {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            flex-shrink: 0;
+        }
+        @media screen and (max-width: 1600px) {
+            .dts-responsive-icon-btn {
+                padding: 0 12px !important;
+                width: 42px !important;
+                min-width: 42px !important;
+                height: 42px !important;
+                justify-content: center !important;
+                border-radius: 8px !important;
+            }
+            .dts-responsive-icon-btn .dts-btn-label {
+                display: none !important;
+            }
+            .dts-responsive-icon-btn .dts-btn-icon,
+            .dts-responsive-icon-btn i,
+            .dts-responsive-icon-btn svg {
+                margin-right: 0 !important;
+                margin-left: 0 !important;
+            }
+            .dts-search-wrap {
+                width: 220px !important;
+                max-width: 260px !important;
+            }
+        }
+        @media screen and (max-width: 1200px) {
+            .dts-search-wrap {
+                width: 170px !important;
+                max-width: 200px !important;
+            }
+        }
+        @media screen and (max-width: 768px) {
+            .dts-topbar {
+                flex-wrap: wrap !important;
+                padding: 12px 14px;
+                gap: 10px;
+            }
+            .dts-nav-group {
+                overflow-x: auto;
+                max-width: 100%;
+                padding-bottom: 2px;
+            }
+            .dts-topbar-actions {
+                width: 100%;
+            }
+            .dts-topbar-actions .dts-search-wrap {
+                flex: 1;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 120px;
+            }
+        }
+    </style>
 @endpush
 
 <div class="dts-page min-h-screen" wire:poll.5s.keep-alive>
@@ -2121,19 +2204,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             @endif
         </div>
 
-        <div style="display: flex; gap: 12px; align-items: center;">
-            <button type="button" wire:click="toggleGroupByOffice" class="dts-nav-btn" style="border: 1.5px solid {{ $groupByOffice ? '#003699' : 'var(--border-gray)' }}; background: {{ $groupByOffice ? '#003699' : 'white' }}; color: {{ $groupByOffice ? '#ffffff' : 'inherit' }}; font-weight: 600; white-space: nowrap; height: 42px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 8px; font-size: 13px; cursor: pointer; outline: none; transition: all 0.2s ease; font-family: 'Inter', sans-serif;">
-                <i class="fa-solid fa-folder-tree" style="margin-right: 6px;"></i>
-                {{ $groupByOffice ? 'Grouped by Office' : 'Group by Office' }}
+        <div class="dts-topbar-actions" style="display: flex; gap: 12px; align-items: center;">
+            <button type="button" wire:click="toggleGroupByOffice" class="dts-nav-btn dts-responsive-icon-btn" style="border: 1.5px solid {{ $groupByOffice ? '#003699' : 'var(--border-gray)' }}; background: {{ $groupByOffice ? '#003699' : 'white' }}; color: {{ $groupByOffice ? '#ffffff' : 'inherit' }}; font-weight: 600; white-space: nowrap; height: 42px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 8px; font-size: 13px; cursor: pointer; outline: none; transition: all 0.2s ease; font-family: 'Inter', sans-serif;" title="{{ $groupByOffice ? 'Grouped by Office' : 'Group by Office' }}" aria-label="{{ $groupByOffice ? 'Grouped by Office' : 'Group by Office' }}">
+                <i class="fa-solid fa-folder-tree dts-btn-icon" style="margin-right: 6px;"></i>
+                <span class="dts-btn-label">{{ $groupByOffice ? 'Grouped by Office' : 'Group by Office' }}</span>
             </button>
 
-            <button type="button" wire:click="toggleLayout" class="dts-nav-btn" style="border: 1.5px solid var(--border-gray); background: white; white-space: nowrap; height: 42px; box-sizing: border-box;">
+            <button type="button" wire:click="toggleLayout" class="dts-nav-btn dts-responsive-icon-btn" style="border: 1.5px solid var(--border-gray); background: white; white-space: nowrap; height: 42px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 8px; font-size: 13px; cursor: pointer; outline: none; transition: all 0.2s ease; font-family: 'Inter', sans-serif;" title="{{ $layoutMode === 'table' ? 'Grid View' : 'Table View' }}" aria-label="{{ $layoutMode === 'table' ? 'Grid View' : 'Table View' }}">
                 @if ($layoutMode === 'table')
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-                    Grid View
+                    <svg class="dts-btn-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                    <span class="dts-btn-label">Grid View</span>
                 @else
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
-                    Table View
+                    <svg class="dts-btn-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                    <span class="dts-btn-label">Table View</span>
                 @endif
             </button>
 
@@ -3283,7 +3366,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     </div>
                                 @else
                                     <div style="margin-bottom: 6px;"><strong>Originator:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? 'N/A' }}</span></div>
-                                    <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
+                                    <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('M d, Y h:i A') : 'N/A' }}</div>
                                     <div style="margin-bottom: 14px;"><strong>Current Office:</strong> {{ $t->current_office_name }}</div>
                                     <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
                                 @endif
@@ -3426,7 +3509,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 </div>
                             @else
                                 <div style="margin-bottom: 6px;"><strong>Originator:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? 'N/A' }}</span></div>
-                                <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('Y-m-d H:i') : 'N/A' }}</div>
+                                <div style="margin-bottom: 14px;"><strong>Receive Date:</strong> {{ $t->date_received ? \Carbon\Carbon::parse($t->date_received)->format('M d, Y h:i A') : 'N/A' }}</div>
                                 <div style="margin-bottom: 14px;"><strong>Current Office:</strong> {{ $t->current_office_name }}</div>
                                 <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
                             @endif
@@ -4041,7 +4124,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                  </td>
                                                  <td style="white-space: nowrap;">
                                                      <div style="font-weight: 500; color: #1e293b;">
-                                                         {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d h:i A') : 'N/A' }}
+                                                         {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}
                                                      </div>
                                                      @if (!empty($step->receiver_name) && $step->receiver_name !== '—')
                                                          <div style="color: #475569; font-size: 11.5px; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;">
@@ -4052,7 +4135,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                  </td>
                                                  <td style="white-space: nowrap;">
                                                      <div style="font-weight: 500; color: #1e293b;">
-                                                         {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}
+                                                         {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}
                                                      </div>
                                                      @if (!empty($step->forwarder_name) && $step->forwarder_name !== '—')
                                                          <div style="color: #475569; font-size: 11.5px; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;">

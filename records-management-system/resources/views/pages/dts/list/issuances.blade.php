@@ -1698,7 +1698,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                 {{ $canSeeCtrlNo ? $t->control_number : '—' }}
                             </td>
                             <td>{{ $t->qr_code }}</td>
-                            <td>{{ \Carbon\Carbon::parse($t->date_created)->format('Y-m-d H:i') }}</td>
+                            <td>{{ \Carbon\Carbon::parse($t->date_created)->format('M d, Y h:i A') }}</td>
                             <td>{{ $t->classification ?? 'Numbered Memo' }}</td>
                             <td>{{ $t->originated_office_name ?: $t->originated_from }}</td>
                             <td style="max-width: 250px; word-break: break-word;">
@@ -2280,7 +2280,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                                 <td class="office-cell">{{ $step->office_name }}</td>
                                                 <td style="white-space: nowrap;">
                                                     <div style="font-weight: 500; color: #1e293b;">
-                                                        {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d h:i A') : 'N/A' }}
+                                                        {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}
                                                     </div>
                                                     @if (!empty($step->receiver_name) && $step->receiver_name !== '—')
                                                         <div style="color: #475569; font-size: 11.5px; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;">
@@ -2291,7 +2291,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                                 </td>
                                                 <td style="white-space: nowrap;">
                                                     <div style="font-weight: 500; color: #1e293b;">
-                                                        {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}
+                                                        {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}
                                                     </div>
                                                     @if (!empty($step->forwarder_name) && $step->forwarder_name !== '—')
                                                         <div style="color: #475569; font-size: 11.5px; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;">

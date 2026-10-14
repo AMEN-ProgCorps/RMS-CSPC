@@ -286,11 +286,11 @@ class DtsExportHelper
             $relLog = $logs->first(fn($l) => !is_null($l->date_out));
             $recLog = $logs->first(fn($l) => !is_null($l->date_in));
 
-            $releasedDate = $relLog && $relLog->date_out ? Carbon::parse($relLog->date_out)->format('Y-m-d') : ($firstLog && $firstLog->date_out ? Carbon::parse($firstLog->date_out)->format('Y-m-d') : '-');
+            $releasedDate = $relLog && $relLog->date_out ? Carbon::parse($relLog->date_out)->format('M d, Y') : ($firstLog && $firstLog->date_out ? Carbon::parse($firstLog->date_out)->format('M d, Y') : '-');
             $releasedTime = $relLog && $relLog->date_out ? Carbon::parse($relLog->date_out)->format('h:i A') : ($firstLog && $firstLog->date_out ? Carbon::parse($firstLog->date_out)->format('h:i A') : '-');
             $releasedBy = $relLog && $relLog->first_name ? ($relLog->first_name . ' ' . $relLog->last_name) : ($firstLog && $firstLog->first_name ? ($firstLog->first_name . ' ' . $firstLog->last_name) : '-');
 
-            $receivedDate = $recLog && $recLog->date_in ? Carbon::parse($recLog->date_in)->format('Y-m-d') : '-';
+            $receivedDate = $recLog && $recLog->date_in ? Carbon::parse($recLog->date_in)->format('M d, Y') : '-';
             $receivedTime = $recLog && $recLog->date_in ? Carbon::parse($recLog->date_in)->format('h:i A') : '-';
             $recBy = $recLog && $recLog->first_name ? ($recLog->first_name . ' ' . $recLog->last_name) : '-';
 
@@ -319,7 +319,7 @@ class DtsExportHelper
                 'transaction_id'     => $t->transaction_id,
                 'control_number'     => $t->control_number,
                 'qr_code'            => $t->qr_code,
-                'date_created'       => $t->date_created ? Carbon::parse($t->date_created)->format('Y-m-d h:i A') : '-',
+                'date_created'       => $t->date_created ? Carbon::parse($t->date_created)->format('M d, Y h:i A') : '-',
                 'originated_office'  => $t->originated_office_name ?: $t->originated_from,
                 'current_office'     => $t->current_office_name ?: ($t->current_office ?: '-'),
                 'subject'            => $t->subject ?: '-',
@@ -350,7 +350,7 @@ class DtsExportHelper
                 $fRecDate = '-';
                 $fRecBy = '-';
                 if ($fLog && $fLog->date_in) {
-                    $fRecDate = Carbon::parse($fLog->date_in)->format('Y-m-d h:i A');
+                    $fRecDate = Carbon::parse($fLog->date_in)->format('M d, Y h:i A');
                     $fRecBy = ($fLog->first_name || $fLog->last_name)
                         ? trim($fLog->first_name . ' ' . $fLog->last_name)
                         : 'Received';
@@ -361,7 +361,7 @@ class DtsExportHelper
                 $fRelDate = '-';
                 $fRelBy = '-';
                 if ($fLog && $fLog->date_out) {
-                    $fRelDate = Carbon::parse($fLog->date_out)->format('Y-m-d h:i A');
+                    $fRelDate = Carbon::parse($fLog->date_out)->format('M d, Y h:i A');
                     $fRelBy = ($fLog->first_name || $fLog->last_name)
                         ? trim($fLog->first_name . ' ' . $fLog->last_name)
                         : 'Released';

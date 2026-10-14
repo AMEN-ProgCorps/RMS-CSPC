@@ -415,12 +415,12 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
             $t->received_by = $latestLog && $latestLog->first_name ? ($latestLog->first_name . ' ' . $latestLog->last_name) : '-';
 
             // Step 1 Received & Released
-            $t->step1_received = $firstLog && $firstLog->date_in ? \Carbon\Carbon::parse($firstLog->date_in)->format('Y-m-d H:i') : ($t->date_created ? \Carbon\Carbon::parse($t->date_created)->format('Y-m-d H:i') : '-');
-            $t->step1_released = $firstLog && $firstLog->date_out ? \Carbon\Carbon::parse($firstLog->date_out)->format('Y-m-d H:i') : ($logs->count() > 1 ? \Carbon\Carbon::parse($firstLog?->date_in ?? $t->date_created)->format('Y-m-d H:i') : '-');
+            $t->step1_received = $firstLog && $firstLog->date_in ? \Carbon\Carbon::parse($firstLog->date_in)->format('M d, Y h:i A') : ($t->date_created ? \Carbon\Carbon::parse($t->date_created)->format('M d, Y h:i A') : '-');
+            $t->step1_released = $firstLog && $firstLog->date_out ? \Carbon\Carbon::parse($firstLog->date_out)->format('M d, Y h:i A') : ($logs->count() > 1 ? \Carbon\Carbon::parse($firstLog?->date_in ?? $t->date_created)->format('M d, Y h:i A') : '-');
 
             // Step 2 Received & Released
-            $t->step2_received = $secondLog && $secondLog->date_in ? \Carbon\Carbon::parse($secondLog->date_in)->format('Y-m-d H:i') : '-';
-            $t->step2_released = $secondLog && $secondLog->date_out ? \Carbon\Carbon::parse($secondLog->date_out)->format('Y-m-d H:i') : '-';
+            $t->step2_received = $secondLog && $secondLog->date_in ? \Carbon\Carbon::parse($secondLog->date_in)->format('M d, Y h:i A') : '-';
+            $t->step2_released = $secondLog && $secondLog->date_out ? \Carbon\Carbon::parse($secondLog->date_out)->format('M d, Y h:i A') : '-';
 
             // Elapsed Days
             $createdDateRaw = $firstLog?->date_in ?? $t->date_created;
@@ -1602,7 +1602,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                 {{ $canSeeCtrlNo ? $t->control_number : '—' }}
                             </td>
                             <td>{{ $t->qr_code }}</td>
-                            <td>{{ \Carbon\Carbon::parse($t->date_created)->format('Y-m-d H:i') }}</td>
+                            <td>{{ \Carbon\Carbon::parse($t->date_created)->format('M d, Y h:i A') }}</td>
                             <td>{{ $t->originated_office_name ?: $t->originated_from }}</td>
                             <td style="max-width: 250px; word-break: break-word;">
                                 @if(mb_strlen($t->subject ?? '') > 100)
@@ -2160,7 +2160,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                                 <td class="office-cell">{{ $step->office_name }}</td>
                                                 <td style="white-space: nowrap;">
                                                     <div style="font-weight: 500; color: #1e293b;">
-                                                        {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d h:i A') : 'N/A' }}
+                                                        {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}
                                                     </div>
                                                     @if (!empty($step->receiver_name) && $step->receiver_name !== '—')
                                                         <div style="color: #475569; font-size: 11.5px; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;">
@@ -2171,7 +2171,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                                 </td>
                                                 <td style="white-space: nowrap;">
                                                     <div style="font-weight: 500; color: #1e293b;">
-                                                        {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}
+                                                        {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}
                                                     </div>
                                                     @if (!empty($step->forwarder_name) && $step->forwarder_name !== '—')
                                                         <div style="color: #475569; font-size: 11.5px; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;">

@@ -640,7 +640,7 @@ document.addEventListener('alpine:init', () => {
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody>
-                                                                        <template x-for="(office, officeIdx) in section.offices" :key="officeIdx">
+                                                                        <template x-for="(office, officeIdx) in visibleSectionOffices(section)" :key="officeIdx">
                                                                             <tr>
                                                                                 <td class="dash-cl-office-col-name" x-text="office.office"></td>
                                                                                 <td class="dash-cl-office-col-copies" x-show="section.with_copies" x-text="office.copies"></td>
@@ -648,6 +648,13 @@ document.addEventListener('alpine:init', () => {
                                                                         </template>
                                                                     </tbody>
                                                                 </table>
+                                                                <button
+                                                                    type="button"
+                                                                    class="dash-cl-office-more"
+                                                                    x-show="sectionOfficesNeedMore(section)"
+                                                                    @click="toggleSectionOffices(section)"
+                                                                    x-text="officeListExpanded[section.heading] ? 'See less' : ('See more (' + (section.offices.length - 4) + ' more)')"
+                                                                ></button>
                                                             </div>
                                                         </template>
                                                         <template x-if="section.items">
@@ -1020,6 +1027,7 @@ document.addEventListener('alpine:init', () => {
         revisionsLoading: false,
         checklistLoading: false,
         checklistPreview: null,
+        officeListExpanded: {},
         checklistEditUrl: '',
         checklistStampUrl: '',
         activeChecklistKey: '',
@@ -1164,10 +1172,28 @@ document.addEventListener('alpine:init', () => {
             const preferred = options.find((cl) => cl.key === current) || options[0];
             await this.loadChecklist(preferred.key);
         },
+        visibleSectionOffices(section) {
+            const list = Array.isArray(section?.offices) ? section.offices : [];
+            const heading = String(section?.heading || '');
+            if (!/retrieval/i.test(heading) || this.officeListExpanded[heading]) return list;
+            return list.slice(0, 4);
+        },
+        sectionOfficesNeedMore(section) {
+            const list = Array.isArray(section?.offices) ? section.offices : [];
+            return /retrieval/i.test(String(section?.heading || '')) && list.length > 4;
+        },
+        toggleSectionOffices(section) {
+            const heading = String(section?.heading || '');
+            this.officeListExpanded = {
+                ...this.officeListExpanded,
+                [heading]: !this.officeListExpanded[heading],
+            };
+        },
         async loadChecklist(type) {
             this.activeChecklistKey = type;
             this.checklistLoading = true;
             this.checklistPreview = null;
+            this.officeListExpanded = {};
             try {
                 const res = await fetch('/dcs/api/documents/' + this.activeRequestId + '/checklist/' + type);
                 if (!res.ok) throw new Error('not found');

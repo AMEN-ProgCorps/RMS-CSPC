@@ -160,6 +160,10 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .upd-container {
     background: #fef2f2;
     color: #b91c1c;
 }
+.upd-status-badge.is-superseded {
+    background: #eff6ff;
+    color: #1d4ed8;
+}
 .upd-status-badge.is-draft {
     background: #fffbeb;
     color: #d97706;

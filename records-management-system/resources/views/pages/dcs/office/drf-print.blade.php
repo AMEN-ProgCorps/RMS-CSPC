@@ -289,9 +289,9 @@
             align-items: flex-end !important;
             margin: 0 !important;
             padding: 0 !important;
-            height: 11pt !important;
-            min-height: 11pt !important;
-            max-height: 11pt !important;
+            height: 13pt !important;
+            min-height: 13pt !important;
+            max-height: 13pt !important;
             background: transparent !important;
             font-size: 11pt !important;
             line-height: 1 !important;
@@ -319,10 +319,10 @@
         .check-row {
             display: flex !important;
             align-items: center !important;
-            height: 11pt !important;
-            min-height: 11pt !important;
-            max-height: 11pt !important;
-            margin: 0 0 9pt !important; /* Arial 9 space before Description */
+            height: 10pt !important;
+            min-height: 10pt !important;
+            max-height: 10pt !important;
+            margin: 0 0 10.5pt !important; /* 11 */
             padding: 0 !important;
             font-size: 11pt !important;
             line-height: 1 !important;
@@ -343,7 +343,7 @@
             display: inline-block !important;
             width: 0.17in !important;
             height: 0.14in !important;
-            border: 1px solid #000 !important;
+            border: 0.5px solid #000 !important;
             text-align: center !important;
             line-height: 0.12in !important;
             font-size: 8pt !important;
@@ -354,7 +354,7 @@
         }
 
         .desc-block {
-            margin: 0 0 11pt !important; /* Arial 11 before Distribute */
+            margin: 0 0 13pt !important;
             padding: 0 !important;
             background: transparent !important;
         }
@@ -368,9 +368,9 @@
             display: flex !important;
             flex-direction: column !important;
             justify-content: flex-end !important;
-            height: 11pt !important;
-            min-height: 11pt !important;
-            max-height: 11pt !important;
+            height: 13pt !important;
+            min-height: 13pt !important;
+            max-height: 13pt !important;
             margin: 0 !important;
             padding: 0 !important;
             background: transparent !important;
@@ -395,7 +395,7 @@
             display: grid !important;
             grid-template-columns: repeat(4, 1fr) !important;
             column-gap: 0.33in !important;
-            margin: 0 0 27pt !important; /* Arial 8+8+11 before table */
+            margin: 0 0 27pt !important;
             padding: 0 !important;
             background: transparent !important;
         }
@@ -409,9 +409,9 @@
             display: flex !important;
             flex-direction: column !important;
             justify-content: flex-end !important;
-            height: 11pt !important;
-            min-height: 11pt !important;
-            max-height: 11pt !important;
+            height: 12.5pt !important;
+            min-height: 12.5pt !important;
+            max-height: 12.5pt !important;
             margin: 0 !important;
             padding: 0 !important;
             background: transparent !important;
@@ -442,9 +442,9 @@
         .sig-table th,
         .sig-table td {
             border: 0.5pt solid #000 !important;
-            height: 0.2in !important;
-            min-height: 0.2in !important;
-            max-height: 0.2in !important;
+            height: 0.21in !important;
+            min-height: 0.21in !important;
+            max-height: 0.21in !important;
             padding: 0 3px !important;
             vertical-align: middle !important;
             line-height: 1.0 !important;
@@ -501,7 +501,7 @@
 
         .footer-rule {
             border: none !important;
-            margin: 7px calc(-0.5in + 0.35in) 0 calc(-0.5in + 0.4in) !important;
+            margin: 10px calc(-0.5in + 0.35in) 0 calc(-0.5in + 0.4in) !important;
             padding: 0 !important;
             height: 2.5pt !important;
             min-height: 2.5pt !important;
@@ -767,8 +767,8 @@
 
     if ($distributeOverflow) {
         $distribute = array_fill(0, 24, '');
-        $distribute[0] = 'Please see attached';
-        $distribute[1] = 'distribution list';
+        $distribute[1] = 'Please see attached';
+        $distribute[2] = 'distribution list';
     } else {
         $distribute = array_pad(array_slice($allDistribute, 0, 24), 24, '');
     }
@@ -809,10 +809,46 @@
 @php
     $isReviewer = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake();
     $viewerMode = ! empty($viewerMode);
+    $allowPrint = $allowPrint ?? true;
 @endphp
+@if($viewerMode)
+<script>
+(function () {
+    var last = 0;
+    function ping() {
+        var now = Date.now();
+        if (now - last < 4000) return;
+        last = now;
+        try { parent.postMessage({ type: 'rms-user-activity' }, location.origin); } catch (e) {}
+    }
+    ['mousemove', 'mousedown', 'keydown', 'scroll', 'click', 'touchstart'].forEach(function (name) {
+        document.addEventListener(name, ping, { passive: true });
+    });
+    ping();
+})();
+</script>
+@endif
+@if(! $allowPrint)
+<style>
+    @media print {
+        body * { display: none !important; }
+        body::after {
+            display: block !important;
+            content: "Save the form before printing.";
+            font: 14pt Arial, sans-serif;
+            color: #000;
+            padding: 1in;
+        }
+    }
+</style>
+<script>window.print = function () {};</script>
+@endif
 <div class="print-toolbar">
     @if($viewerMode)
         <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIO review</span>
+    @elseif(! $allowPrint)
+        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">Preview only. Save the form before printing.</span>
+        <button type="button" class="btn-close" onclick="window.close()">Close</button>
     @else
         <p class="print-toolbar-tip">
             Important: in the print dialog set <strong>Margins → None.</strong>

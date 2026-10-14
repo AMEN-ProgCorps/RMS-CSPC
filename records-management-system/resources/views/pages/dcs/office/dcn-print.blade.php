@@ -401,10 +401,15 @@
 
         /* Row 4: 0.18 × 5 = 0.90in */
         .r4 { height: 0.90in; }
+        .r4.has-extra-reviewer { height: 1.08in; }
         .r4-inner {
             height: 0.90in;
             display: flex;
             flex-direction: column;
+        }
+        .r4.has-extra-reviewer .r4-inner {
+            height: 1.08in;
+            padding-bottom: 0.14in;
         }
         .r4-band {
             height: 0.18in;
@@ -623,10 +628,46 @@
 @php
     $isReviewer = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake();
     $viewerMode = ! empty($viewerMode);
+    $allowPrint = $allowPrint ?? true;
 @endphp
+@if($viewerMode)
+<script>
+(function () {
+    var last = 0;
+    function ping() {
+        var now = Date.now();
+        if (now - last < 4000) return;
+        last = now;
+        try { parent.postMessage({ type: 'rms-user-activity' }, location.origin); } catch (e) {}
+    }
+    ['mousemove', 'mousedown', 'keydown', 'scroll', 'click', 'touchstart'].forEach(function (name) {
+        document.addEventListener(name, ping, { passive: true });
+    });
+    ping();
+})();
+</script>
+@endif
+@if(! $allowPrint)
+<style>
+    @media print {
+        body * { display: none !important; }
+        body::after {
+            display: block !important;
+            content: "Save the form before printing.";
+            font: 14pt Arial, sans-serif;
+            color: #000;
+            padding: 1in;
+        }
+    }
+</style>
+<script>window.print = function () {};</script>
+@endif
 <div class="print-toolbar">
     @if($viewerMode)
         <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIO review</span>
+    @elseif(! $allowPrint)
+        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">Preview only. Save the form before printing.</span>
+        <button type="button" class="btn-close" onclick="window.close()">Close</button>
     @else
         @if($isReviewer)
             <a href="{{ route('dcs.requests.index', absolute: false) }}" class="btn-close" style="text-decoration:none;display:inline-flex;align-items:center;">Back to Request</a>
@@ -733,7 +774,7 @@
         </tr>
 
         {{-- Row 4: Originator / Department / Reviewed (5 × 0.18) --}}
-        <tr class="r4">
+        <tr class="r4{{ $reviewedByDate2 !== '' ? ' has-extra-reviewer' : '' }}">
             <td>
                 <div class="r4-inner">
                     <div class="r4-band"></div>

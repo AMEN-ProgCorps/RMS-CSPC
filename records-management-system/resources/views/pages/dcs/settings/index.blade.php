@@ -382,59 +382,9 @@ new #[Layout('layouts.dcs')] class extends Component {
         }
 
         $payload = ['doc_type_name' => $this->docTypeName];
-        $allowsRevision = null;
-        if (Schema::hasColumn('dcs_doc_types', 'allows_revision')) {
-            $allowsRevision = (bool) $this->docTypeAllowsRevision;
-            $payload['allows_revision'] = $allowsRevision;
-        }
 
         if ($this->editingId) {
-            try {
-                DB::transaction(function () use ($payload, $parentId, $allowsRevision) {
-                    DB::table('dcs_doc_types')->where('id', $this->editingId)->update($payload);
-
-                    // Keep denormalized masterlist flag in sync for this type/subtype.
-                    if ($allowsRevision === null
-                        || ! Schema::hasColumn('dcs_masterlist_registration', 'allows_revision')) {
-                        return;
-                    }
-
-                    $typeId = (int) $this->editingId;
-                    $requestIds = DB::table('dcs_document_requests')
-                        ->where(function ($q) use ($typeId, $parentId) {
-                            if ($parentId) {
-                                $q->where('sub_type_id', $typeId);
-                            } else {
-                                $q->where('doc_type_id', $typeId)->whereNull('sub_type_id');
-                            }
-                        })
-                        ->pluck('id');
-
-                    if ($requestIds->isEmpty()) {
-                        return;
-                    }
-
-                    // Non-revisable stacks may share (doc_no, revise_no, doc_type_id) as many
-                    // "latest" rows. Enabling revision requires one latest tip per key first.
-                    if ($allowsRevision
-                        && Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
-                        $this->collapseStackedLatestMasterlists($requestIds->all());
-                    }
-
-                    DB::table('dcs_masterlist_registration')
-                        ->whereIn('request_id', $requestIds)
-                        ->update(['allows_revision' => $allowsRevision]);
-                });
-            } catch (\Throwable $e) {
-                report($e);
-                $this->fail(
-                    'Could not update Allows revision / DCN. '
-                    . 'Existing stacked registrations for this type conflict with revision uniqueness. '
-                    . 'Details were logged.'
-                );
-
-                return;
-            }
+            DB::table('dcs_doc_types')->where('id', $this->editingId)->update($payload);
 
             $this->done('Updated successfully.');
             return;
@@ -2174,15 +2124,6 @@ new #[Layout('layouts.dcs')] class extends Component {
                         <input type="text" class="st-input @error('docTypeName') error @enderror" wire:model="docTypeName" placeholder="e.g. Internal, Syllabi">
                         @error('docTypeName') <div class="field-error">{{ $message }}</div> @enderror
                     </div>
-                    @if(\Illuminate\Support\Facades\Schema::hasColumn('dcs_doc_types', 'allows_revision'))
-                        <div class="st-field">
-                            <label class="st-check-label" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
-                                <input type="checkbox" wire:model="docTypeAllowsRevision" style="width:auto;">
-                                <span>Allows revision / DCN</span>
-                            </label>
-                            <div class="st-faculty-hint">When off, registrations stay Rev 0 and the same document number can be stacked without marking older copies Obsolete.</div>
-                        </div>
-                    @endif
                 @elseif($modalKind === 'originator')
                     <div class="st-field">
                         <label class="st-label">Originator Name</label>

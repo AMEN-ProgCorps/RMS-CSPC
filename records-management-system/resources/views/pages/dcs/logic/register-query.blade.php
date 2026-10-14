@@ -169,7 +169,7 @@ class RegisterQueryHelper
             return $query;
         }
 
-        return $query->whereIn("{$alias}.revision_status", ['latest', 'obsolete']);
+        return $query->whereIn("{$alias}.revision_status", ['latest', 'obsolete', 'superseded']);
     }
 
     public static function isSyllabiLikeName(?string $name): bool
@@ -2490,8 +2490,11 @@ class RegisterQueryHelper
 
                 $prior = $byKey[$fromKey];
                 $priorParent = $prior['parent'];
+                $priorStatus = strtolower(trim((string) ($priorParent['revision_status'] ?? 'latest')));
                 $priorParent['is_latest'] = false;
-                $priorParent['revision_status'] = 'obsolete';
+                if (! in_array($priorStatus, ['superseded', 'obsolete', 'draft'], true)) {
+                    $priorParent['revision_status'] = 'obsolete';
+                }
                 $priorParent['can_delete'] = false;
                 $children[] = $priorParent;
                 foreach ($prior['children'] as $c) {
@@ -2507,25 +2510,25 @@ class RegisterQueryHelper
             usort($children, fn ($a, $b) => ($b['rev_no'] <=> $a['rev_no']) ?: ($b['request_id'] <=> $a['request_id']));
 
             $stack = array_merge([$g['parent']], $children);
-            usort($stack, fn ($a, $b) => ($b['rev_no'] <=> $a['rev_no']) ?: ($b['request_id'] <=> $a['request_id']));
+            usort($stack, function ($a, $b) {
+                $aLatest = in_array(strtolower(trim((string) ($a['revision_status'] ?? 'latest'))), ['', 'latest'], true) ? 1 : 0;
+                $bLatest = in_array(strtolower(trim((string) ($b['revision_status'] ?? 'latest'))), ['', 'latest'], true) ? 1 : 0;
+                if ($aLatest !== $bLatest) {
+                    return $bLatest <=> $aLatest;
+                }
+
+                return ($b['rev_no'] <=> $a['rev_no']) ?: ($b['request_id'] <=> $a['request_id']);
+            });
             $tip = $stack[0];
             $stackAllowsRevision = (bool) ($tip['allows_revision'] ?? $g['allows_revision'] ?? true);
             foreach ($stack as &$member) {
-                $isTip = (int) $member['request_id'] === (int) $tip['request_id'];
-                if ($stackAllowsRevision) {
-                    $member['is_latest'] = $isTip;
-                    $member['revision_status'] = $isTip ? 'latest' : 'obsolete';
-                    $member['can_delete'] = $isTip;
-                } else {
-                    // Non-revisable: keep DB status (all latest siblings).
-                    $status = strtolower(trim((string) ($member['revision_status'] ?? 'latest')));
-                    if ($status === '' || $status === 'draft') {
-                        $status = $status === 'draft' ? 'draft' : 'latest';
-                    }
-                    $member['revision_status'] = $status;
-                    $member['is_latest'] = $status !== 'obsolete' && $status !== 'draft';
-                    $member['can_delete'] = $status !== 'obsolete';
+                $status = strtolower(trim((string) ($member['revision_status'] ?? 'latest')));
+                if ($status === '' || $status === 'draft') {
+                    $status = $status === 'draft' ? 'draft' : 'latest';
                 }
+                $member['revision_status'] = $status;
+                $member['is_latest'] = $status === 'latest';
+                $member['can_delete'] = $status === 'latest';
             }
             unset($member);
 
@@ -2887,10 +2890,10 @@ class RegisterQueryHelper
                     : '',
                 'allows_revision' => $allowsRevision,
                 'is_draft' => $isDraft,
-                'is_latest' => $status !== 'obsolete' && $status !== 'draft',
+                'is_latest' => $status === 'latest' || $status === '',
                 'edit_url' => route('dcs.register.edit', $doc->id),
                 'history_url' => (!$isDraft && $docNo !== '') ? route('dcs.register.history', $docNo) : null,
-                'can_delete' => $status !== 'obsolete',
+                'can_delete' => $status === 'latest' || $status === '',
                 'can_edit' => $viewerCanEdit || self::canEditDocument((int) $doc->id, $doc),
             ];
         };
@@ -2912,41 +2915,14 @@ class RegisterQueryHelper
         $groups = collect();
         foreach ($grouped as $family) {
             $allowsRevision = (bool) ($family->first()['allows_revision'] ?? true);
-            // Non-revisable stacks: tip = latest effectivity (a newer year stays above the earlier one).
-            $sorted = $allowsRevision
-                ? $family->sortByDesc('rev_no')->sortByDesc('request_id')->values()
-                : $family->sortByDesc(fn ($r) => sprintf('%s|%010d', (string) ($r['effectivity_sort'] ?? ''), (int) ($r['request_id'] ?? 0)))->values();
+            $sorted = $family->sortByDesc(function ($r) {
+                $status = strtolower(trim((string) ($r['revision_status'] ?? 'latest')));
+                $latestRank = ($status === 'latest' || $status === '') ? 1 : 0;
 
-            // Heal: tip must be the highest revise_no (e.g. Rev 10 beats Rev 7).
-            // Never rewrite draft rows into latest/obsolete.
-            // Skip heal for non-revisable stacks (equal Rev 0 siblings all stay latest).
-            $tipRow = $sorted->first();
-            if ($allowsRevision && $tipRow && empty($tipRow['is_draft']) && ($tipRow['doc_no'] ?? 'N/A') !== 'N/A') {
-                $latestRows = $family->filter(fn ($r) => !empty($r['is_latest']));
-                $tipIsLatest = !empty($tipRow['is_latest']);
-                $needsHeal = !$tipIsLatest
-                    || $latestRows->count() !== 1
-                    || (int) ($latestRows->first()['request_id'] ?? 0) !== (int) $tipRow['request_id'];
+                return sprintf('%d-%010d-%010d', $latestRank, (int) ($r['rev_no'] ?? 0), (int) ($r['request_id'] ?? 0));
+            })->values();
 
-                if ($needsHeal) {
-                    $family = $family->map(function ($r) use ($tipRow) {
-                        if (!empty($r['is_draft'])) {
-                            return $r;
-                        }
-                        $isTip = (int) $r['request_id'] === (int) $tipRow['request_id'];
-                        $r['revision_status'] = $isTip ? 'latest' : 'obsolete';
-                        $r['is_latest'] = $isTip;
-                        $r['can_delete'] = $isTip;
-
-                        return $r;
-                    });
-                    $sorted = $family->sortByDesc('rev_no')->sortByDesc('request_id')->values();
-                }
-            }
-
-            $parent = $allowsRevision
-                ? ($sorted->first(fn ($r) => !empty($r['is_draft']) || !empty($r['is_latest'])) ?? $sorted->first())
-                : ($sorted->first() ?? $family->first());
+            $parent = $sorted->first() ?? $family->first();
             $children = $family
                 ->filter(fn ($r) => $r['request_id'] !== $parent['request_id'])
                 ->sortByDesc($allowsRevision ? 'rev_no' : 'request_id')
@@ -4660,7 +4636,7 @@ class RegisterQueryHelper
             self::applyLatestRevisionStatus($query, 'ml');
         }
 
-        $revisionPick = $request->boolean('for_revision') || in_array($field, ['no', 'title'], true);
+        $revisionPick = $request->boolean('for_revision') || in_array($field, ['no', 'title', 'supersede'], true);
         if ($revisionPick && self::supportsDrafts()) {
             $query->where(function ($draft) {
                 $draft->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
@@ -4679,6 +4655,8 @@ class RegisterQueryHelper
                 self::applyLooseColumnSearch($qr, $q, ['ml.doc_no']);
             } elseif ($field === 'title') {
                 self::applyLooseColumnSearch($qr, $q, ['ml.doc_title']);
+            } elseif ($field === 'supersede') {
+                self::applyLooseColumnSearch($qr, $q, ['ml.doc_no', 'ml.doc_title', 'og.originator_name']);
             } else {
                 $columns = ['ml.doc_title', 'ml.doc_no'];
                 if ($hasKeywords) {
@@ -4722,7 +4700,7 @@ class RegisterQueryHelper
             ->limit(count(self::searchTokens($q)) > 1 ? 200 : ($allRevisions ? 50 : ($dashboardSearch ? 60 : 30)))
             ->get($select);
 
-        $forRevision = $request->boolean('for_revision') || in_array($field, ['no', 'title'], true);
+        $forRevision = $request->boolean('for_revision') || in_array($field, ['no', 'title', 'supersede'], true);
         if ($rows->isEmpty() && $forRevision && $docTypeId) {
             $rows = self::searchRevisionDocumentsFallback(
                 $q,
@@ -4781,6 +4759,7 @@ class RegisterQueryHelper
             $docNo = $m->doc_no ?: 'No number';
             $title = $m->doc_title ?: 'Untitled';
             $isObsolete = strtolower(trim((string) ($m->revision_status ?? ''))) === 'obsolete';
+            $isSuperseded = strtolower(trim((string) ($m->revision_status ?? ''))) === 'superseded';
 
             return self::mapSearchResultForAudience([
                 'masterlist_id' => $m->id,
@@ -4799,7 +4778,8 @@ class RegisterQueryHelper
                 'scanned_copy_url' => $m->scanned_masterlist ? self::scanUrl($m->scanned_masterlist) : null,
                 'scanned_copy_path' => $m->scanned_masterlist,
                 'label' => $docNo . ' — ' . $title . ' (Rev ' . (int) $m->revise_no . ')'
-                    . ($isObsolete ? ' (Obsolete)' : ''),
+                    . ($isObsolete ? ' (Obsolete)' : '')
+                    . ($isSuperseded ? ' (Superseded)' : ''),
                 'checklists' => [
                     'drf' => isset($drfIds[$m->request_id]),
                     'dcn' => isset($dcnIds[$m->request_id]),
@@ -5844,7 +5824,7 @@ class RegisterQueryHelper
         }
 
         if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
-            $query->whereIn('ml.revision_status', ['latest', 'obsolete']);
+            $query->whereIn('ml.revision_status', ['latest', 'obsolete', 'superseded']);
         }
         // Drafts use revision_status=obsolete — never treat them as occupying a Rev.
         if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
@@ -5895,7 +5875,7 @@ class RegisterQueryHelper
         }
 
         if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
-            $query->whereIn('ml.revision_status', ['latest', 'obsolete']);
+            $query->whereIn('ml.revision_status', ['latest', 'obsolete', 'superseded']);
         }
         if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
             $query->where(function ($q) {
@@ -6705,7 +6685,7 @@ class RegisterQueryHelper
                 ->where('ml.doc_no', $docNo);
 
             if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
-                $revQuery->whereIn('ml.revision_status', ['latest', 'obsolete']);
+                $revQuery->whereIn('ml.revision_status', ['latest', 'obsolete', 'superseded']);
             }
             if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
                 $revQuery->where(function ($q) {
@@ -7126,7 +7106,7 @@ class RegisterQueryHelper
             $mlQuery->whereNull('dr.deleted_at');
         }
         if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
-            $mlQuery->whereIn('ml.revision_status', ['latest', 'obsolete']);
+            $mlQuery->whereIn('ml.revision_status', ['latest', 'obsolete', 'superseded']);
         }
         if ($beforeReviseNo !== null) {
             $mlQuery->where('ml.revise_no', '<', $beforeReviseNo);

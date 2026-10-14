@@ -103,8 +103,11 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                         @endphp
                         @if($lockDocType ?? false)
                             <input type="hidden" name="docTypeKind" value="{{ $docTypeKind }}">
-                            <p class="ofi-locked-type">{{ ($lockedTypeLabel ?? '') !== '' ? $lockedTypeLabel : ($docTypeKind === 'external' ? 'External' : 'Internal') }}</p>
-                            <p class="ofi-hint">This is the type of the document being revised and cannot be changed.</p>
+                            <div class="ofi-radio-row">
+                                <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind !== 'external')> Internal</label>
+                                <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === 'external')> External</label>
+                            </div>
+                            <p class="ofi-hint">This follows the document being revised and cannot be changed.</p>
                         @else
                             <div class="ofi-radio-row">
                                 <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" required @checked($docTypeKind === 'internal')> Internal</label>
@@ -124,6 +127,9 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                             </span>
                         </label>
                         <div class="reg-cluster-chips" data-ofi-cluster-widget="distribute" aria-label="Select offices by cluster"></div>
+                        @if($lockDocType ?? false)
+                            <p class="ofi-hint">These offices are the same as the previous distribution of the document being revised. You can add more offices.</p>
+                        @endif
                         <p class="ofi-hint">
                             Search by office name or code — selected offices show their <strong>full name</strong> here.
                             If more than 24 offices are selected, the print form shows “Please see attached list of offices” and lists them on following pages.

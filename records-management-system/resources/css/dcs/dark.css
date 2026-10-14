@@ -2581,9 +2581,27 @@
 }
 
 [data-theme="dark"] .ofi-unlock-btn:disabled,
-[data-theme="dark"] .ofi-notify-print-btn:disabled,
-[data-theme="dark"] .ofi-receive-proceed:disabled {
+[data-theme="dark"] .ofi-notify-print-btn:disabled {
     opacity: 0.55 !important;
+}
+
+[data-theme="dark"] .ofi-receive-proceed:disabled {
+    opacity: 1 !important;
+    background: #1e293b !important;
+    color: #94a3b8 !important;
+    box-shadow: none !important;
+}
+
+[data-theme="dark"] .ofi-linked-receipt {
+    background: rgba(154, 52, 18, 0.18) !important;
+    border-color: #9a3412 !important;
+    color: #fdba74 !important;
+}
+
+[data-theme="dark"] .ofi-linked-receipt.is-done {
+    background: rgba(22, 101, 52, 0.2) !important;
+    border-color: #166534 !important;
+    color: #86efac !important;
 }
 
 [data-theme="dark"] .ofi-request-preview-bar {

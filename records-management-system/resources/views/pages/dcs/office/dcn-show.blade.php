@@ -46,7 +46,8 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
             'editReason' => trim((string) ($dcn->edit_unlock_reason ?? '')),
             'isRegistered' => OfficeIntakeHelper::isIntakeRegistered('dcn', $this->id),
             'linkedDrfId' => OfficeIntakeHelper::findLinkedDrfIdForOfficeDcn($this->id),
-            'canCreateDrf' => ! OfficeIntakeHelper::officeDcnHasLinkedDrf($this->id),
+            'canCreateDrf' => OfficeIntakeHelper::officeDcnAllowsLaterDrf($this->id)
+                && ! OfficeIntakeHelper::officeDcnHasLinkedDrf($this->id),
         ];
     }
 }; ?>

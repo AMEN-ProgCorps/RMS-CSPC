@@ -545,7 +545,7 @@ class ReportHelper
             }
 
             $stored = strtolower(trim((string) ($ml->revision_status ?? '')));
-            $isLatest = $stored !== 'obsolete';
+            $isLatest = $stored === 'latest' || $stored === '';
 
             return $status === 'latest' ? $isLatest : $stored === $status;
         })->values();

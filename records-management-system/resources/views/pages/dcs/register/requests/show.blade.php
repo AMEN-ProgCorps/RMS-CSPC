@@ -67,7 +67,6 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
             $linkedDcnId = OfficeIntakeHelper::findSourceDcnIdForOfficeDrf($this->id);
             if ($linkedDcnId) {
                 $dcnPrintUrl = route('dcs.office.dcn.print', ['id' => $linkedDcnId, 'view' => 1], absolute: false);
-                // Linked pair: DCN first, then DRF (default still this page's DRF via activeKey)
                 $previewDocs[] = [
                     'key' => 'dcn',
                     'label' => 'DCN',
@@ -84,19 +83,47 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
         $activeKey = $this->type === 'dcn' ? 'dcn' : 'drf';
         $printUrl = $this->type === 'dcn' ? $dcnPrintUrl : $drfPrintUrl;
 
-        $linkedReceive = null;
+        $linkedPayload = null;
         $linkedType = $linkedDrfId ? 'drf' : ($linkedDcnId ? 'dcn' : null);
         $linkedId = $linkedDrfId ?: $linkedDcnId;
         if ($linkedType && $linkedId) {
-            $linkedRow = $linkedType === 'dcn'
-                ? OfficeIntakeHelper::findOfficeDcn((int) $linkedId)
-                : OfficeIntakeHelper::findOfficeDrf((int) $linkedId);
-            if ($linkedRow) {
-                $linkedReceive = array_merge(OfficeIntakeHelper::intakeReceivedState($linkedRow), [
-                    'type' => $linkedType,
-                    'id' => (int) $linkedId,
-                    'label' => strtoupper($linkedType),
-                ]);
+            $linkedPayload = OfficeIntakeHelper::modalPayload($linkedType, (int) $linkedId);
+        }
+
+        $registerFromDcn = $this->type === 'dcn' || $linkedType === 'dcn';
+        $proceedType = $registerFromDcn ? 'dcn' : $this->type;
+        $proceedId = $this->type === 'dcn'
+            ? $this->id
+            : ($linkedType === 'dcn' ? (int) $linkedId : $this->id);
+        $proceedPayload = $payload;
+        if ($proceedType === 'dcn' && $this->type !== 'dcn' && $linkedPayload) {
+            $proceedPayload = $linkedPayload;
+        }
+        $proceedUrl = $proceedPayload['registerUrl'] ?? '';
+
+        $actionPanels = [[
+            'key' => $payload['type'] ?? $this->type,
+            'payload' => $payload,
+            'pairReceived' => empty($linkedPayload) || ! empty($linkedPayload['received']),
+            'pairLabel' => $linkedPayload ? strtoupper((string) ($linkedPayload['type'] ?? '')) : '',
+            'proceedType' => $proceedType,
+            'proceedId' => $proceedId,
+            'registerUrl' => $proceedUrl,
+        ]];
+        if ($linkedPayload) {
+            $linkedPanel = [
+                'key' => $linkedPayload['type'],
+                'payload' => $linkedPayload,
+                'pairReceived' => ! empty($payload['received']),
+                'pairLabel' => strtoupper($this->type),
+                'proceedType' => $proceedType,
+                'proceedId' => $proceedId,
+                'registerUrl' => $proceedUrl,
+            ];
+            if (($linkedPayload['type'] ?? '') === 'dcn') {
+                array_unshift($actionPanels, $linkedPanel);
+            } else {
+                $actionPanels[] = $linkedPanel;
             }
         }
 
@@ -107,7 +134,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
             'activePreviewKey' => $activeKey,
             'linkedDrfId' => $linkedDrfId,
             'linkedDcnId' => $linkedDcnId,
-            'linkedReceive' => $linkedReceive,
+            'actionPanels' => $actionPanels,
         ];
     }
 }; ?>
@@ -115,8 +142,6 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
 @php
     $p = $payload;
     $isReceived = ! empty($p['received']);
-    $canProceed = $isReceived && ! empty($p['canRegister']) && ! empty($p['registerUrl']);
-    $printNotified = ! empty($p['printNotified']);
 @endphp
 
 <div class="ofi-page ofi-request-review-page">
@@ -173,120 +198,121 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                 </div>
             </section>
 
-            <aside class="ofi-request-actions" id="ofiRequestActions"
-                data-type="{{ $type }}"
-                data-id="{{ $id }}"
-                data-register-url="{{ $p['registerUrl'] ?? '' }}"
-                data-can-register="{{ !empty($p['canRegister']) ? '1' : '0' }}"
-                data-received="{{ $isReceived ? '1' : '0' }}"
-                data-edit-unlocked="{{ !empty($p['editUnlocked']) ? '1' : '0' }}"
-                data-print-notified="{{ $printNotified ? '1' : '0' }}"
-            >
-                <div class="ofi-request-actions-head">
-                    <h2>RFIO actions</h2>
-                    <p>Notify the office when the form is correct, confirm you have the signed hard copy, then proceed to registration.</p>
-                </div>
-
-                <div class="ofi-request-step" id="ofiRequestNotifyBlock">
-                    <div class="ofi-request-step-num" aria-hidden="true">1</div>
-                    <div class="ofi-request-step-body">
-                        <p class="ofi-request-step-label">Notify office — ready to print &amp; sign</p>
-                        <p class="ofi-request-step-hint">
-                            Tell the submitting office the request looks correct so they can print, sign, and bring the hard copy to the Records Office.
-                        </p>
-                        <button type="button" class="ofi-notify-print-btn" id="ofiRequestNotifyPrintBtn">
-                            <i class="fa-regular fa-bell"></i>
-                            <span id="ofiRequestNotifyPrintLabel">{{ $printNotified ? 'Resend print & sign notice' : 'Notify client to print & sign' }}</span>
-                        </button>
-                        <p class="ofi-receive-meta" id="ofiRequestNotifyMeta" @if(! $printNotified) hidden @endif>
-                            @if($printNotified)
-                                Client notified
-                                @if(!empty($p['printNotifiedAt'])) on {{ $p['printNotifiedAt'] }} @endif
-                                @if(!empty($p['printNotifiedBy'])) by {{ $p['printNotifiedBy'] }} @endif
-                            @endif
-                        </p>
+            @foreach($actionPanels as $panel)
+                @php
+                    $ap = $panel['payload'];
+                    $panelType = (string) ($ap['type'] ?? $panel['key']);
+                    $panelReceived = ! empty($ap['received']);
+                    $panelNotified = ! empty($ap['printNotified']);
+                    $panelPairPending = empty($panel['pairReceived']) && ($panel['pairLabel'] ?? '') !== '';
+                    $panelCanProceed = $panelReceived && ! $panelPairPending && ! empty($ap['canRegister']) && ! empty($panel['registerUrl']);
+                @endphp
+                <aside class="ofi-request-actions" data-ofi-actions data-preview-key="{{ $panel['key'] }}"
+                    @if($panel['key'] !== $activePreviewKey) hidden @endif
+                    data-type="{{ $panelType }}"
+                    data-id="{{ (int) ($ap['id'] ?? 0) }}"
+                    data-proceed-type="{{ $panel['proceedType'] }}"
+                    data-proceed-id="{{ (int) $panel['proceedId'] }}"
+                    data-register-url="{{ $panel['registerUrl'] ?? '' }}"
+                    data-can-register="{{ !empty($ap['canRegister']) ? '1' : '0' }}"
+                    data-received="{{ $panelReceived ? '1' : '0' }}"
+                    data-pair-received="{{ $panelPairPending ? '0' : '1' }}"
+                    data-pair-label="{{ $panel['pairLabel'] ?? '' }}"
+                    data-print-notified="{{ $panelNotified ? '1' : '0' }}"
+                >
+                    <div class="ofi-request-actions-head">
+                        <h2>{{ strtoupper($panelType) }} actions</h2>
+                        <p>Notify the office when this {{ strtoupper($panelType) }} is correct, confirm you have the signed hard copy, then proceed to registration.</p>
                     </div>
-                </div>
 
-                <div class="ofi-request-step">
-                    <div class="ofi-request-step-num" aria-hidden="true">2</div>
-                    <div class="ofi-request-step-body">
-                        <label class="ofi-receive-check">
-                            <input type="checkbox" id="ofiRequestReceived" @checked($isReceived)>
-                            <span>I have received the signed {{ strtoupper($type) }} and verified that the data matches this submission.</span>
-                        </label>
-                        <p class="ofi-receive-meta" id="ofiRequestReceiveMeta" @if(! $isReceived) hidden @endif>
-                            @if($isReceived)
-                                {{ strtoupper($type) }} received
-                                @if(!empty($p['receivedAt'])) on {{ $p['receivedAt'] }} @endif
-                                @if(!empty($p['receivedBy'])) by {{ $p['receivedBy'] }} @endif
-                            @endif
-                        </p>
-                        @if(!empty($linkedReceive))
-                            <label class="ofi-receive-check ofi-receive-check-pair">
-                                <input
-                                    type="checkbox"
-                                    id="ofiRequestReceivedPair"
-                                    data-receive-type="{{ $linkedReceive['type'] }}"
-                                    data-receive-id="{{ $linkedReceive['id'] }}"
-                                    @checked(!empty($linkedReceive['received']))
-                                >
-                                <span>I have received the signed {{ $linkedReceive['label'] }}. This is separate from the {{ strtoupper($type) }}.</span>
-                            </label>
-                            <p class="ofi-receive-meta" id="ofiRequestReceivePairMeta" @if(empty($linkedReceive['received'])) hidden @endif>
-                                @if(!empty($linkedReceive['received']))
-                                    {{ $linkedReceive['label'] }} received
-                                    @if(!empty($linkedReceive['receivedAt'])) on {{ $linkedReceive['receivedAt'] }} @endif
-                                    @if(!empty($linkedReceive['receivedBy'])) by {{ $linkedReceive['receivedBy'] }} @endif
+                    <div class="ofi-request-step" data-ofi-notify-block>
+                        <div class="ofi-request-step-num" aria-hidden="true">1</div>
+                        <div class="ofi-request-step-body">
+                            <p class="ofi-request-step-label">Notify office — ready to print &amp; sign</p>
+                            <p class="ofi-request-step-hint">
+                                Tell the submitting office this {{ strtoupper($panelType) }} looks correct so they can print, sign, and bring the hard copy to the Records Office.
+                            </p>
+                            <button type="button" class="ofi-notify-print-btn" data-ofi-notify-btn>
+                                <i class="fa-regular fa-bell"></i>
+                                <span data-ofi-notify-label>{{ $panelNotified ? 'Resend print & sign notice' : 'Notify client to print & sign' }}</span>
+                            </button>
+                            <p class="ofi-receive-meta" data-ofi-notify-meta @if(! $panelNotified) hidden @endif>
+                                @if($panelNotified)
+                                    Client notified
+                                    @if(!empty($ap['printNotifiedAt'])) on {{ $ap['printNotifiedAt'] }} @endif
+                                    @if(!empty($ap['printNotifiedBy'])) by {{ $ap['printNotifiedBy'] }} @endif
                                 @endif
                             </p>
-                        @endif
+                        </div>
                     </div>
-                </div>
 
-                <div class="ofi-request-step ofi-unlock-block" id="ofiRequestUnlockBlock" @if($isReceived) hidden @endif>
-                    <div class="ofi-request-step-num" aria-hidden="true">3</div>
-                    <div class="ofi-request-step-body">
-                        <label class="ofi-unlock-label" for="ofiRequestUnlockReason">Return for correction</label>
-                        <textarea
-                            id="ofiRequestUnlockReason"
-                            class="ofi-unlock-reason"
-                            rows="3"
-                            maxlength="1000"
-                            placeholder="Describe what is wrong so the office can fix it…"
-                            @disabled($printNotified)
-                        >{{ $p['editUnlockReason'] ?? '' }}</textarea>
-                        <button type="button" class="ofi-unlock-btn" id="ofiRequestUnlockBtn"
-                            @disabled($printNotified)
-                            title="{{ $printNotified ? 'Not available after notifying the office that the form is correct.' : '' }}">
-                            <i class="fa-solid fa-{{ $printNotified ? 'lock' : 'unlock' }}"></i>
-                            Enable edit for office
-                        </button>
-                        <p class="ofi-receive-meta" id="ofiRequestUnlockMeta" @if(empty($p['editUnlocked']) && ! $printNotified) hidden @endif>
-                            @if($printNotified)
-                                Locked — office was already notified that this submission is correct.
-                            @elseif(!empty($p['editUnlocked']))
-                                Office can edit and resubmit this form.
-                            @endif
-                        </p>
+                    <div class="ofi-request-step">
+                        <div class="ofi-request-step-num" aria-hidden="true">2</div>
+                        <div class="ofi-request-step-body">
+                            <label class="ofi-receive-check">
+                                <input type="checkbox" data-ofi-received @checked($panelReceived)>
+                                <span>I have received the signed {{ strtoupper($panelType) }} and verified that the data matches this submission.</span>
+                            </label>
+                            <p class="ofi-receive-meta" data-ofi-receive-meta @if(! $panelReceived) hidden @endif>
+                                @if($panelReceived)
+                                    {{ strtoupper($panelType) }} received
+                                    @if(!empty($ap['receivedAt'])) on {{ $ap['receivedAt'] }} @endif
+                                    @if(!empty($ap['receivedBy'])) by {{ $ap['receivedBy'] }} @endif
+                                @endif
+                            </p>
+                        </div>
                     </div>
-                </div>
 
-                <div class="ofi-request-step is-final">
-                    <div class="ofi-request-step-num" aria-hidden="true">{{ $isReceived ? '3' : '4' }}</div>
-                    <div class="ofi-request-step-body">
-                        <p class="ofi-request-step-label">Proceed to registration</p>
-                        <button type="button" class="ofi-receive-proceed" id="ofiRequestProceed"
-                            @disabled(! $canProceed)>
-                            Proceed to Registration
-                            <i class="fa-solid fa-arrow-right"></i>
-                        </button>
-                        @unless($canProceed)
-                            <p class="ofi-request-step-hint">Confirm receipt of the signed form first to unlock registration.</p>
-                        @endunless
+                    <div class="ofi-request-step ofi-unlock-block" data-ofi-unlock-block @if($panelReceived) hidden @endif>
+                        <div class="ofi-request-step-num" aria-hidden="true">3</div>
+                        <div class="ofi-request-step-body">
+                            <label class="ofi-unlock-label">Return for correction</label>
+                            <textarea
+                                data-ofi-unlock-reason
+                                class="ofi-unlock-reason"
+                                rows="3"
+                                maxlength="1000"
+                                placeholder="Describe what is wrong so the office can fix it…"
+                                @disabled($panelNotified)
+                            >{{ $ap['editUnlockReason'] ?? '' }}</textarea>
+                            <button type="button" class="ofi-unlock-btn" data-ofi-unlock-btn
+                                @disabled($panelNotified)
+                                title="{{ $panelNotified ? 'Not available after notifying the office that the form is correct.' : '' }}">
+                                <i class="fa-solid fa-{{ $panelNotified ? 'lock' : 'unlock' }}"></i>
+                                Enable edit for office
+                            </button>
+                            <p class="ofi-receive-meta" data-ofi-unlock-meta @if(empty($ap['editUnlocked']) && ! $panelNotified) hidden @endif>
+                                @if($panelNotified)
+                                    Locked — office was already notified that this submission is correct.
+                                @elseif(!empty($ap['editUnlocked']))
+                                    Office can edit and resubmit this form.
+                                @endif
+                            </p>
+                        </div>
                     </div>
-                </div>
-            </aside>
+
+                    <div class="ofi-request-step is-final">
+                        <div class="ofi-request-step-num" aria-hidden="true">{{ $panelReceived ? '3' : '4' }}</div>
+                        <div class="ofi-request-step-body">
+                            <p class="ofi-request-step-label">Proceed to registration</p>
+                            <button type="button" class="ofi-receive-proceed" data-ofi-proceed
+                                @disabled(! $panelCanProceed)>
+                                Proceed to Registration
+                                <i class="fa-solid fa-arrow-right"></i>
+                            </button>
+                            <p class="ofi-request-step-hint" data-ofi-proceed-hint @if($panelCanProceed) hidden @endif>
+                                @if(! $panelReceived)
+                                    Confirm receipt of the signed {{ strtoupper($panelType) }} first to unlock registration.
+                                @elseif($panelPairPending)
+                                    Switch to the {{ $panel['pairLabel'] }} preview and confirm receipt of that signed form before registration.
+                                @else
+                                    Confirm receipt of the signed form first to unlock registration.
+                                @endif
+                            </p>
+                        </div>
+                    </div>
+                </aside>
+            @endforeach
         </div>
     </div>
 </div>
@@ -295,8 +321,24 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
 <script>
 (function () {
     const frame = document.getElementById('ofiRequestPreviewFrame');
+    if (!frame) return;
+
+    function fitPreview() {
+        let doc;
+        try { doc = frame.contentDocument; } catch (e) { return; }
+        if (!doc) return;
+        const sheet = doc.querySelector('.sheet');
+        const toolbar = doc.querySelector('.print-toolbar');
+        let height = 0;
+        if (toolbar) height += Math.ceil(toolbar.getBoundingClientRect().height);
+        if (sheet) height += Math.ceil(sheet.getBoundingClientRect().height);
+        if (height > 80) frame.style.height = (height + 8) + 'px';
+    }
+
+    frame.addEventListener('load', fitPreview);
+
     const switchRoot = document.querySelector('.ofi-preview-switch');
-    if (!frame || !switchRoot) return;
+    if (!switchRoot) return;
 
     switchRoot.addEventListener('click', function (e) {
         const btn = e.target.closest('[data-ofi-preview-url]');
@@ -305,10 +347,14 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
         if (!url) return;
 
         frame.src = url;
+        const key = btn.getAttribute('data-ofi-preview-key') || '';
         switchRoot.querySelectorAll('.ofi-preview-switch-btn').forEach(function (el) {
             const on = el === btn;
             el.classList.toggle('is-active', on);
             el.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        document.querySelectorAll('[data-ofi-actions]').forEach(function (panel) {
+            panel.hidden = panel.getAttribute('data-preview-key') !== key;
         });
     });
 })();

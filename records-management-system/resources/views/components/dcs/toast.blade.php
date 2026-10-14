@@ -144,6 +144,12 @@ document.addEventListener('livewire:init', () => {
     Livewire.hook('request', ({ fail }) => {
         fail(({ status, content, preventDefault }) => {
             const diagnosed = diagnosedRequestFailure(status, content);
+            const text = ((diagnosed.title || '') + ' ' + (diagnosed.message || '')).toLowerCase();
+            const authStatus = Number(status) === 401 || Number(status) === 419;
+            if (authStatus && !text.includes('administrator')) {
+                preventDefault();
+                return;
+            }
             window.dcsShowToast(diagnosed.message, 'error', diagnosed.title);
             if (diagnosed.skipDefault) {
                 preventDefault();

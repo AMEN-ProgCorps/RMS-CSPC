@@ -91,7 +91,7 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                                 @unless($isReviewer ?? false)
                                     @if(! empty($row->linked_drf_id))
                                         <a href="{{ route('dcs.office.drf.show', $row->linked_drf_id, absolute: false) }}" title="View linked DRF"><i class="fa-solid fa-file-lines"></i></a>
-                                    @else
+                                    @elseif(! empty($row->expects_drf))
                                         <a href="{{ route('dcs.office.drf.create', ['from_dcn' => $row->id], absolute: false) }}" title="Create DRF"><i class="fa-solid fa-file-circle-plus"></i></a>
                                     @endif
                                 @endunless

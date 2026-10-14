@@ -111,12 +111,14 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                         @php
                             $lockDocType = (bool) ($prefill['lockDocType'] ?? false);
                             $docTypeKind = old('docTypeKind', $prefill['docTypeKind'] ?? 'internal');
-                            $docTypeLabel = trim((string) ($prefill['docTypeLabel'] ?? ''));
                         @endphp
                         @if($lockDocType)
                             <input type="hidden" name="docTypeKind" value="{{ $docTypeKind }}">
-                            <p class="ofi-locked-type">{{ $docTypeLabel !== '' ? $docTypeLabel : ($docTypeKind === 'external' ? 'External' : 'Internal') }}</p>
-                            <p class="ofi-hint">This is the type of the document being revised and cannot be changed.</p>
+                            <div class="ofi-radio-row">
+                                <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind !== 'external')> Internal</label>
+                                <label class="ofi-radio"><input type="checkbox" disabled @checked($docTypeKind === 'external')> External</label>
+                            </div>
+                            <p class="ofi-hint">This follows the document being revised and cannot be changed.</p>
                         @else
                             <div class="ofi-radio-row">
                                 <label class="ofi-radio"><input type="radio" name="docTypeKind" value="internal" required @checked($docTypeKind === 'internal')> Internal</label>
@@ -136,6 +138,9 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                             </span>
                         </label>
                         <div class="reg-cluster-chips" data-ofi-cluster-widget="distribute" aria-label="Select offices by cluster"></div>
+                        @if(($fromDcnId ?? 0) > 0)
+                            <p class="ofi-hint">These offices are the same as the previous distribution of the document being revised. You can add more offices.</p>
+                        @endif
                         <p class="ofi-hint">
                             Search by office name or code — selected offices show their <strong>full name</strong> here.
                             If more than 24 offices are selected, the print form shows “Please see attached list of offices” and lists them on following pages.

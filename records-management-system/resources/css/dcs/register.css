@@ -500,6 +500,32 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 
 
 /* ═══ DROPDOWN STACKING FIX ═══ */
+#section-supersede {
+    position: relative;
+    z-index: 60;
+    overflow: visible;
+}
+
+#section-supersede .reg-card-body,
+#section-supersede .reg-field {
+    overflow: visible;
+}
+
+.reg-rev-status {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+.reg-rev-status.is-latest { background: #dcfce7; color: #15803d; }
+.reg-rev-status.is-superseded { background: #eff6ff; color: #1d4ed8; }
+.reg-rev-status.is-obsolete,
+.reg-rev-status.is-archived { background: #fee2e2; color: #b91c1c; }
+#supersedeHistoryBody tr.is-supersede-target { background: #f8fafc; }
+
 #section-2        { position: relative; z-index: 50; }
 #section-syllabi  { position: relative; z-index: 45; }
 #section-1        { position: relative; z-index: 40; }
@@ -668,13 +694,21 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     grid-column: 1 / 3;
 }
 
-/* Mid grid: 5 columns */
+/* Mid grid: 5 columns. An empty revision hint must not stretch this row. */
 .reg-ml-mid {
     display: grid;
     grid-template-columns: 0.34fr 0.33fr 0.33fr 0.54fr 0.5fr;
     gap: 16px;
     overflow: visible;
     margin: 0;
+    align-items: start;
+}
+
+#section-3 #revNoHint:empty {
+    display: none !important;
+    margin: 0 !important;
+    height: 0 !important;
+    min-height: 0 !important;
 }
 
 /* Keywords / related docs row — no extra section margins (body gap handles it) */
@@ -2611,6 +2645,10 @@ select.reg-field-locked:disabled {
 .reg-office-see-more:hover {
     background: var(--reg-accent-subtle);
     border-color: var(--reg-accent);
+}
+
+#masterlistRevisionNo.reg-rev-locked {
+    pointer-events: none;
 }
 
 .reg-office-see-more.is-visible {

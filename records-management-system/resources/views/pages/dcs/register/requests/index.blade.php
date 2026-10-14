@@ -57,7 +57,7 @@ new #[Layout('layouts.dcs')] #[Title('Request — CSPC DCS')] class extends Comp
     }
 }; ?>
 
-<div class="upd-container main-content ofi-request-page">
+<div class="upd-container main-content ofi-request-page" wire:poll.5s.visible>
     <div class="upd-header">
         <div>
             <div class="upd-breadcrumb">Document Control System / Document Registration / <span>Request</span></div>

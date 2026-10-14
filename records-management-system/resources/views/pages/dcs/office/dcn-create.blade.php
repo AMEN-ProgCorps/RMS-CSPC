@@ -206,6 +206,10 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
             if (docNo) docNo.focus();
             return;
         }
+        if (form.dataset.openRequestMessage) {
+            e.preventDefault();
+            return;
+        }
         if (!form.checkValidity()) {
             e.preventDefault();
             form.reportValidity();

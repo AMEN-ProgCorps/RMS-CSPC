@@ -106,6 +106,21 @@ class RegisterUpdateHelper
             $docRequest->doc_type_id,
             $resolvedSubTypeId
         );
+        $versionIsRevised = RegisterPersistHelper::versionIdIsRevised(
+            (int) $request->input('version_id', $docRequest->version_id ?? 0)
+        );
+        $versionIsRecur = RegisterPersistHelper::versionIdIsRecur((int) ($docRequest->version_id ?? 0));
+        if ($versionIsRecur) {
+            $allowsRevision = true;
+            $request->merge([
+                'registration_mode' => 'recurring',
+                'masterlistRevisionNo' => (int) ($ml->revise_no ?? 0),
+                'version_id' => $docRequest->version_id,
+            ]);
+        } elseif ($versionIsRevised) {
+            $allowsRevision = true;
+            $request->merge(['registration_mode' => 'revised']);
+        }
         $reviseNoForSameRow = RegisterPersistHelper::resolveReviseNo($request, $ml?->revise_no);
         $sameNumber = $previousDocNo
             && strcasecmp(trim((string) $previousDocNo), trim((string) $docNo)) === 0
@@ -127,8 +142,12 @@ class RegisterUpdateHelper
             $slotTakenByOther = $slotQuery->exists();
         }
         // A second registration of the same number must stay outside the latest-revision slot.
+        // Recur replaces the selected latest, so it stays in that slot and stacks with it.
         $rowStaysSeparate = $request->boolean('allow_duplicate_doc_no')
             || ($sameNumber && ($storedSeparate || $slotTakenByOther));
+        if ($versionIsRecur) {
+            $rowStaysSeparate = false;
+        }
         if ($docNo && $allowsRevision && ! $sameNumber
             && ! $request->boolean('allow_duplicate_doc_no')
             && ! $request->boolean('insert_shift_confirmed')) {
@@ -155,8 +174,6 @@ class RegisterUpdateHelper
                         ->with('error', 'Revision ' . $reviseNo . ' for document "' . $docNo . '" already exists.');
                 }
             }
-        } else if (! $allowsRevision) {
-            $request->merge(['masterlistRevisionNo' => 0]);
         }
 
         $requestId = $id;
@@ -210,6 +227,9 @@ class RegisterUpdateHelper
         $addedDistOfficeIds = [];
 
         DB::beginTransaction();
+        if ($versionIsRecur && ! $saveAsDraft && $ml) {
+            RegisterPersistHelper::supersedeLatestForRecur($request, (int) $ml->id);
+        }
         $uploadedFiles = [];
         $filesToDelete = [];
 
@@ -441,9 +461,6 @@ class RegisterUpdateHelper
                     $masterlistData,
                     $allowsRevision && ! $rowStaysSeparate
                 );
-                if (! $allowsRevision) {
-                    $masterlistData['revise_no'] = 0;
-                }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
                     $newDocNo = trim((string) ($request->masterlistDocNo ?? ''));
                     $dcnFrom = RegisterQueryHelper::primaryDcnRevisionDocNo($requestId);
@@ -475,6 +492,9 @@ class RegisterUpdateHelper
                             $masterlistData['revised_from_doc_no'] = $inherited;
                         }
                     }
+                }
+                if ($versionIsRecur) {
+                    RegisterPersistHelper::applyRecurRevisedFrom($masterlistData, $request, 'recurring');
                 }
                 if ($masterlist) {
                     DB::table('dcs_masterlist_registration')->where('id', $masterlist->id)->update($masterlistData);
@@ -567,9 +587,6 @@ class RegisterUpdateHelper
                     $masterlistData,
                     $allowsRevision && ! $rowStaysSeparate
                 );
-                if (! $allowsRevision) {
-                    $masterlistData['revise_no'] = 0;
-                }
                 if ($masterlist) {
                     DB::table('dcs_masterlist_registration')->where('id', $masterlist->id)->update($masterlistData);
                     $masterlistId = $masterlist->id;
@@ -766,17 +783,20 @@ class RegisterUpdateHelper
                 $notifyTitle = trim((string) $savedTitle);
                 $revNo = isset($ml->revise_no) ? (int) $ml->revise_no : null;
                 $actorOffice = RegisterQueryHelper::currentOfficeCode();
-                foreach (DcsNotificationService::officeCodesFromIds($addedDistOfficeIds) as $officeCode) {
-                    if ($actorOffice && strtoupper($officeCode) === strtoupper($actorOffice)) {
-                        continue;
+                $notifyTitleOrNull = $notifyTitle !== '' ? $notifyTitle : null;
+                app()->terminating(function () use ($addedDistOfficeIds, $actorOffice, $notifyDocNo, $notifyTitleOrNull, $revNo) {
+                    foreach (DcsNotificationService::officeCodesFromIds($addedDistOfficeIds) as $officeCode) {
+                        if ($actorOffice && strtoupper($officeCode) === strtoupper($actorOffice)) {
+                            continue;
+                        }
+                        DcsNotificationService::notifyDocumentDistributed(
+                            $officeCode,
+                            $notifyDocNo,
+                            $notifyTitleOrNull,
+                            $revNo
+                        );
                     }
-                    DcsNotificationService::notifyDocumentDistributed(
-                        $officeCode,
-                        $notifyDocNo,
-                        $notifyTitle !== '' ? $notifyTitle : null,
-                        $revNo
-                    );
-                }
+                });
             }
 
             $publishedFromDraft = $isDraftRecord && ! $saveAsDraft;

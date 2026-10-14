@@ -999,6 +999,19 @@ body.dash-cl-open {
     text-align: right;
 }
 
+.dash-cl-office-more {
+    margin-top: 8px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--dash-accent, #043899);
+    font-size: 0.78rem;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
 .dash-cl-revisions {
     display: flex;
     flex-direction: column;

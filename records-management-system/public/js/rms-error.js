@@ -77,7 +77,20 @@
 
     var slowTimer = null;
     var inflight = 0;
+    var watchGeneration = 0;
+    var userActionAt = Date.now();
     var SLOW_MS = 15000;
+    var USER_WAIT_MS = 20000;
+
+    ['click', 'keydown', 'submit', 'input'].forEach(function (name) {
+        document.addEventListener(name, function () {
+            userActionAt = Date.now();
+        }, true);
+    });
+
+    function userIsWaiting() {
+        return document.visibilityState !== 'hidden' && (Date.now() - userActionAt) < USER_WAIT_MS;
+    }
 
     function subsystemHome() {
         var path = location.pathname;
@@ -89,10 +102,12 @@
         return '';
     }
 
-    function showSlowInternet() {
+    function showSlowInternet(force) {
+        if (!force && !userIsWaiting()) return;
         var existing = document.getElementById('rmsSlowInternet');
         if (existing) {
             existing.hidden = false;
+            existing.style.display = 'grid';
             return;
         }
         var wrap = document.createElement('div');
@@ -134,13 +149,24 @@
 
     function hideSlowInternet() {
         var existing = document.getElementById('rmsSlowInternet');
-        if (existing) existing.hidden = true;
+        if (existing) {
+            existing.hidden = true;
+            existing.style.display = 'none';
+        }
     }
 
     function armSlowWatch() {
+        if (!userIsWaiting()) return false;
+        var generation = watchGeneration;
         inflight += 1;
-        if (slowTimer) return;
-        slowTimer = setTimeout(showSlowInternet, SLOW_MS);
+        if (!slowTimer) {
+            slowTimer = setTimeout(function () {
+                slowTimer = null;
+                if (generation !== watchGeneration || inflight < 1) return;
+                showSlowInternet(false);
+            }, SLOW_MS);
+        }
+        return true;
     }
 
     function disarmSlowWatch(failed) {
@@ -153,28 +179,45 @@
         if (!failed) hideSlowInternet();
     }
 
+    function pauseSlowWatch() {
+        watchGeneration += 1;
+        inflight = 0;
+        if (slowTimer) {
+            clearTimeout(slowTimer);
+            slowTimer = null;
+        }
+        hideSlowInternet();
+    }
+
     if (typeof window.fetch === 'function' && !window.__rmsSlowFetch) {
         window.__rmsSlowFetch = true;
         var originalFetch = window.fetch;
         window.fetch = function (input, init) {
             var body = init && init.body;
             var isUpload = typeof FormData !== 'undefined' && body instanceof FormData;
-            if (!isUpload) armSlowWatch();
+            var armed = !isUpload && armSlowWatch();
             return originalFetch.apply(this, arguments).then(function (response) {
                 var slowStatus = response && (response.status === 408 || response.status === 504);
-                if (!isUpload) disarmSlowWatch(slowStatus);
-                if (slowStatus) showSlowInternet();
+                if (armed) disarmSlowWatch(slowStatus);
+                if (slowStatus) showSlowInternet(false);
                 return response;
             }, function (error) {
                 var aborted = error && (error.name === 'AbortError' || /abort/i.test(String(error.message || '')));
-                if (!isUpload) disarmSlowWatch(!aborted);
-                if (!aborted) showSlowInternet();
+                if (armed) disarmSlowWatch(!aborted);
+                if (!aborted) showSlowInternet(false);
                 throw error;
             });
         };
     }
 
-    window.addEventListener('offline', showSlowInternet);
+    window.addEventListener('offline', function () {
+        if (document.visibilityState === 'hidden') return;
+        showSlowInternet(true);
+    });
+    window.addEventListener('online', hideSlowInternet);
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') pauseSlowWatch();
+    });
 
     document.addEventListener('livewire:init', function () {
         if (window.__rmsErrorHooked || typeof Livewire === 'undefined' || typeof Livewire.hook !== 'function') {

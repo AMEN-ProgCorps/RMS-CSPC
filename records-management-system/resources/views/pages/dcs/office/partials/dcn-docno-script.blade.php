@@ -11,9 +11,14 @@
     const confirmed = document.getElementById('dcnDocNoConfirmed');
     const reviseInput = document.getElementById('dcnFinderReviseNo');
     const typeInput = document.getElementById('dcnFinderDocType');
+    const selectedBox = document.getElementById('dcnSelectedDocument');
+    const reselectBtn = document.getElementById('dcnDocNoReselect');
+    const finderCard = form.querySelector('.ofi-dcn-finder-card');
     if (!form || !finderNo || !finderTitle || !finderOriginator || !storedNo || !confirmed) return;
 
     const searchUrl = @json(url('/dcs/api/office/revisable-documents'));
+    const exceptDcnId = form.getAttribute('data-except-dcn') || '';
+    let duplicateMessage = '';
 
     function setStatus(message, ok) {
         if (!statusEl) return;
@@ -37,7 +42,78 @@
         });
     }
 
+    function setFieldText(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value || '—';
+    }
+
+    function lockFinder(locked) {
+        [finderNo, finderTitle, finderOriginator].forEach(function (el) {
+            el.readOnly = locked;
+        });
+        if (findBtn) findBtn.hidden = locked;
+        if (finderCard) finderCard.classList.toggle('is-selected', locked);
+        if (selectedBox) selectedBox.hidden = !locked;
+    }
+
+    function showSelected(data) {
+        const docNo = (data.document_no || finderNo.value || '').trim();
+        const title = (data.current_title || finderTitle.value || '').trim();
+        const originator = (data.originator || finderOriginator.value || '').trim();
+        const type = (data.doc_type || (typeInput && typeInput.value) || '').trim();
+        const rev = data.revise_no != null && data.revise_no !== ''
+            ? String(data.revise_no)
+            : (reviseInput ? reviseInput.value : '');
+        setFieldText('dcnSelectedNo', docNo);
+        setFieldText('dcnSelectedTitle', title);
+        setFieldText('dcnSelectedOriginator', originator);
+        setFieldText('dcnSelectedType', type);
+        setFieldText('dcnSelectedRev', rev !== '' ? ('Rev ' + rev + ' · latest') : 'Latest');
+        lockFinder(true);
+    }
+
+    let applyingMatch = false;
+
+    function showOfficeNotice(message) {
+        let root = document.getElementById('ofiNotice');
+        if (!root) {
+            root = document.createElement('div');
+            root.id = 'ofiNotice';
+            root.className = 'ofi-notice';
+            root.hidden = true;
+            root.innerHTML = ''
+                + '<div class="ofi-notice-card" role="alertdialog" aria-modal="true" aria-labelledby="ofiNoticeTitle">'
+                + '<p class="ofi-notice-kicker">Already submitted</p>'
+                + '<h2 id="ofiNoticeTitle">This document already has a request</h2>'
+                + '<p id="ofiNoticeMessage"></p>'
+                + '<button type="button" class="ofi-notice-ok" id="ofiNoticeOk">OK</button>'
+                + '</div>';
+            document.body.appendChild(root);
+            root.addEventListener('click', function (event) {
+                if (event.target === root) root.hidden = true;
+            });
+            root.querySelector('#ofiNoticeOk').addEventListener('click', function () {
+                root.hidden = true;
+            });
+        }
+        const text = root.querySelector('#ofiNoticeMessage');
+        if (text) text.textContent = message;
+        root.hidden = false;
+        root.querySelector('#ofiNoticeOk')?.focus();
+    }
+
+    function showDuplicate(message) {
+        duplicateMessage = message || '';
+        form.dataset.openRequestMessage = duplicateMessage;
+        const box = document.getElementById('dcnSelectedDuplicate');
+        if (!box) return;
+        box.hidden = duplicateMessage === '';
+        box.textContent = duplicateMessage;
+    }
+
     function clearMatch() {
+        if (applyingMatch) return;
+        showDuplicate('');
         confirmed.value = '';
         storedNo.value = '';
         suggestTitle = '';
@@ -47,6 +123,7 @@
         if (typeInput) typeInput.value = '';
         clearSuggestions();
         clearFieldSuggestions();
+        lockFinder(false);
         if (statusEl && statusEl.dataset.state === 'ok') {
             statusEl.hidden = true;
             statusEl.textContent = '';
@@ -134,16 +211,26 @@
     }
 
     function applyMatch(data) {
+        applyingMatch = true;
         const canonicalNo = (data.document_no || finderNo.value || '').trim();
         confirmed.value = '1';
         storedNo.value = canonicalNo;
-        if (reviseInput) reviseInput.value = data.revise_no != null ? String(data.revise_no) : '';
+        if (reviseInput) reviseInput.value = data.revise_no != null && data.revise_no !== '' ? String(data.revise_no) : '';
         if (typeInput) typeInput.value = data.doc_type || '';
+        if (data.document_no) finderNo.value = data.document_no;
+        if (data.current_title) finderTitle.value = data.current_title;
+        if (data.originator) finderOriginator.value = data.originator;
         clearSuggestions();
-        const rev = data.revise_no != null && data.revise_no !== '' ? (' · Rev ' + data.revise_no) : '';
-        const type = data.doc_type ? (' · ' + data.doc_type) : '';
-        setStatus('Document found' + type + rev + '.', true);
+        showDuplicate(data.open_request_message ? String(data.open_request_message) : '');
+        if (duplicateMessage) {
+            setStatus(duplicateMessage, false);
+            showOfficeNotice(duplicateMessage);
+        } else {
+            setStatus('Latest revision selected. Choose a different document if this is not the one to revise.', true);
+        }
         showFieldSuggestions(data);
+        showSelected(data);
+        applyingMatch = false;
     }
 
     function showDoYouMean(suggestions) {
@@ -155,7 +242,8 @@
         label.textContent = 'Do you mean…';
         suggestEl.appendChild(label);
         suggestions.forEach(function (item) {
-            const bits = [item.document_no, item.current_title, item.originator].filter(Boolean);
+            const rev = item.revise_no != null && item.revise_no !== '' ? ('Rev ' + item.revise_no) : '';
+            const bits = [item.document_no, item.current_title, item.originator, rev].filter(Boolean);
             suggestEl.appendChild(suggestionButton(bits.join(' · '), function () {
                 if (item.document_no) finderNo.value = item.document_no;
                 if (item.current_title) finderTitle.value = item.current_title;
@@ -181,6 +269,7 @@
                 currentTitle: title,
                 originator: originator,
             });
+            if (exceptDcnId) params.set('exceptId', exceptDcnId);
             const res = await fetch(searchUrl + '?' + params.toString(), {
                 headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                 credentials: 'same-origin',
@@ -215,6 +304,23 @@
         fillApprovals(suggestApprovals);
     });
 
+    if (reselectBtn) {
+        reselectBtn.addEventListener('click', function () {
+            clearMatch();
+            setStatus('Enter the latest document number, title, and originator, then find it again.', false);
+            finderNo.focus();
+        });
+    }
+    if (confirmed.value === '1' && storedNo.value.trim() !== '') {
+        showSelected({
+            document_no: storedNo.value,
+            current_title: finderTitle.value,
+            originator: finderOriginator.value,
+            doc_type: typeInput ? typeInput.value : '',
+            revise_no: reviseInput ? reviseInput.value : '',
+        });
+    }
+
     if (findBtn) findBtn.addEventListener('click', findDocument);
     [finderNo, finderTitle, finderOriginator].forEach(function (el) {
         el.addEventListener('input', clearMatch);
@@ -225,16 +331,26 @@
             }
         });
     });
-    form.addEventListener('submit', function (e) {
+    document.addEventListener('submit', function (e) {
+        if (e.target !== form) return;
         const submitter = e.submitter;
         if (submitter && submitter.hasAttribute('formnovalidate')) {
             return;
         }
+        if (duplicateMessage) {
+            e.preventDefault();
+            e.stopPropagation();
+            setStatus(duplicateMessage, false);
+            showDuplicate(duplicateMessage);
+            showOfficeNotice(duplicateMessage);
+            return;
+        }
         if (confirmed.value !== '1' || storedNo.value.trim() === '') {
             e.preventDefault();
+            e.stopPropagation();
             setStatus('Find the registered document before saving.', false);
             finderNo.focus();
         }
-    });
+    }, true);
 })();
 </script>

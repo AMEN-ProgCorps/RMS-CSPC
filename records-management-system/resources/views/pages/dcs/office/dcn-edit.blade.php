@@ -56,7 +56,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
             </div>
         @endif
 
-        <form method="POST" action="{{ route('dcs.office.dcn.update', $dcn->id, absolute: false) }}" id="ofiDcnForm">
+        <form method="POST" action="{{ route('dcs.office.dcn.update', $dcn->id, absolute: false) }}" id="ofiDcnForm" data-except-dcn="{{ (int) $dcn->id }}">
             @csrf
             @method('PUT')
             @include('pages.dcs.office.partials.dcn-docno-fields', [

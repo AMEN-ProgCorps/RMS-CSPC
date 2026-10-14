@@ -1114,48 +1114,19 @@ class RegisterPersistHelper
             $request->input('doc_type_id'),
             $request->input('sub_type_id')
         );
+        $officeDcnRevision = self::pendingIntakeIsOfficeDcnRevision($request);
 
-        // Non-revisable types: always New / Rev 0 / no DCN path.
-        if (! $allowsRevision) {
-            if ($mode === 'revised' && ! $saveAsDraft) {
-                return back()->withInput()
-                    ->with('error', 'This document type does not allow revisions or DCN. Register each copy as a New Document (Rev 0).');
-            }
-            $mode = 'new';
-            $request->merge([
-                'registration_mode' => 'new',
-                'masterlistRevisionNo' => 0,
-                'revised_from_doc_no' => null,
-            ]);
-            $newVersionId = self::newVersionTypeId();
-            if ($newVersionId) {
-                $request->merge(['version_id' => $newVersionId]);
-            }
-        }
-
-        $stackTarget = (int) $request->input('stack_with_request_id', 0);
-        if ($stackTarget > 0) {
-            $mode = 'new';
-            $stackMerge = [
-                'registration_mode' => 'new',
-                'allow_duplicate_doc_no' => '1',
-                'masterlistRevisionNo' => 0,
-                'revised_from_doc_no' => null,
-                'stack_with_request_id' => $stackTarget,
-            ];
-            $newVersionId = self::newVersionTypeId();
-            if ($newVersionId) {
-                $stackMerge['version_id'] = $newVersionId;
-            }
-            $request->merge($stackMerge);
-        } elseif (
+        if (
             ! $request->boolean('allow_duplicate_doc_no')
             && ! $request->boolean('insert_shift_confirmed')
         ) {
             $versionName = strtolower((string) DB::table('dcs_version_type')
                 ->where('id', $request->input('version_id'))
                 ->value('version_name'));
-            if (str_contains($versionName, 'revis')) {
+            if (str_contains($versionName, 'recur')) {
+                $mode = 'recurring';
+                $request->merge(['registration_mode' => 'recurring']);
+            } elseif (str_contains($versionName, 'revis')) {
                 $mode = 'revised';
                 $request->merge(['registration_mode' => 'revised']);
             }
@@ -1165,6 +1136,20 @@ class RegisterPersistHelper
             $request->merge([
                 'masterlistRevisionNo' => 0,
                 'revised_from_doc_no' => null,
+            ]);
+        }
+
+        if ($mode === 'recurring') {
+            $picked = self::findLatestMasterlistForRecur($request);
+            if ($picked === null) {
+                return back()->withInput()
+                    ->with('error', 'This document is not in the system. Recur can only continue a document that is already registered.');
+            }
+            $request->merge([
+                'registration_mode' => 'recurring',
+                'masterlistDocNo' => $picked->doc_no,
+                'masterlistRevisionNo' => (int) ($picked->revise_no ?? 0),
+                'revised_from_doc_no' => $picked->doc_no,
             ]);
         }
 
@@ -1280,6 +1265,18 @@ class RegisterPersistHelper
         $subType = self::dcsDocType($request->sub_type_id);
         $isSyllabi = self::isSyllabiLikeSubTypeRow($subType);
         $allowsRevision = self::effectiveAllowsRevision($request->doc_type_id, $request->sub_type_id);
+        if (! empty($officeDcnRevision)) {
+            $allowsRevision = true;
+            $mode = 'revised';
+            $revisedVersionId = self::revisedVersionTypeId();
+            $request->merge([
+                'registration_mode' => 'revised',
+                'version_id' => $revisedVersionId ?: $request->input('version_id'),
+            ]);
+        }
+        if ($mode === 'recurring') {
+            $allowsRevision = true;
+        }
 
         if ($redirect = self::rejectDuplicateSyllabiContext($request)) {
             return $redirect;
@@ -1358,6 +1355,10 @@ class RegisterPersistHelper
 
         DB::beginTransaction();
 
+        if ($mode === 'recurring' && ! $saveAsDraft) {
+            self::supersedeLatestForRecur($request);
+        }
+
         $uploadedFiles = [];
         $filesToDelete = [];
 
@@ -1392,13 +1393,6 @@ class RegisterPersistHelper
             $checkedChecklists = self::withRequiredMasterlistChecklist(
                 array_map('intval', $request->input('checklists', []))
             );
-            // Non-revisable types cannot use DCN even if the checkbox was posted.
-            if (! $allowsRevision) {
-                $checkedChecklists = array_values(array_filter(
-                    $checkedChecklists,
-                    static fn ($id) => (int) $id !== 2
-                ));
-            }
 
             if (in_array(1, $checkedChecklists, true)) {
                 $drfFile = null;
@@ -1549,9 +1543,6 @@ class RegisterPersistHelper
                     $masterlistRow,
                     $allowsRevision && ! $request->boolean('allow_duplicate_doc_no')
                 );
-                if (! $allowsRevision) {
-                    $masterlistRow['revise_no'] = 0;
-                }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistRow['originator_id'] = $originator['originator_id'];
                 }
@@ -1577,6 +1568,7 @@ class RegisterPersistHelper
                         $masterlistRow['revised_from_doc_no'] = $fromDocNo;
                     }
                 }
+                self::applyRecurRevisedFrom($masterlistRow, $request, $mode);
                 $masterlistId = DB::table('dcs_masterlist_registration')->insertGetId($masterlistRow);
 
                 self::saveOriginsFromOfficeIds($masterlistId, $request->input('masterlistOfficeIds', []));
@@ -1642,9 +1634,6 @@ class RegisterPersistHelper
                     $masterlistData,
                     $allowsRevision && ! $request->boolean('allow_duplicate_doc_no')
                 );
-                if (! $allowsRevision) {
-                    $masterlistData['revise_no'] = 0;
-                }
                 if (Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
                     $masterlistData['originator_id'] = $originator['originator_id'];
                 }
@@ -1670,6 +1659,7 @@ class RegisterPersistHelper
                         $masterlistData['revised_from_doc_no'] = $fromDocNo;
                     }
                 }
+                self::applyRecurRevisedFrom($masterlistData, $request, $mode);
 
                 if ($masterlist) {
                     DB::table('dcs_masterlist_registration')->where('id', $masterlist->id)->update($masterlistData);
@@ -1877,6 +1867,10 @@ class RegisterPersistHelper
                 }
             }
 
+            if (! $saveAsDraft) {
+                OfficeIntakeHelper::reconcileClaimedIntakesWithRegistrations();
+            }
+
             if (! $saveAsDraft && $docNo !== '') {
                 $registrarName = RegisterQueryHelper::currentUserDisplayName();
                 $revNo = isset($savedMl->revise_no) ? (int) $savedMl->revise_no : null;
@@ -1901,30 +1895,35 @@ class RegisterPersistHelper
                 ))));
                 $masterlistOnlyIds = array_values(array_diff($masterlistIds, $distIds));
 
-                foreach (DcsNotificationService::officeCodesFromIds($distIds) as $officeCode) {
-                    if (in_array(strtoupper($officeCode), $skipCodes, true)) {
-                        continue;
+                $notifyDocNo = $docNo;
+                $notifyTitle = $docTitle !== '' ? $docTitle : null;
+                $notifyRequestId = (int) $requestId;
+                app()->terminating(function () use ($distIds, $masterlistOnlyIds, $skipCodes, $registrarName, $notifyDocNo, $notifyTitle, $notifyRequestId, $revNo) {
+                    foreach (DcsNotificationService::officeCodesFromIds($distIds) as $officeCode) {
+                        if (in_array(strtoupper($officeCode), $skipCodes, true)) {
+                            continue;
+                        }
+                        DcsNotificationService::notifyDocumentDistributed(
+                            $officeCode,
+                            $notifyDocNo,
+                            $notifyTitle,
+                            $revNo
+                        );
                     }
-                    DcsNotificationService::notifyDocumentDistributed(
-                        $officeCode,
-                        $docNo,
-                        $docTitle !== '' ? $docTitle : null,
-                        $revNo
-                    );
-                }
 
-                foreach (DcsNotificationService::officeCodesFromIds($masterlistOnlyIds) as $officeCode) {
-                    if (in_array(strtoupper($officeCode), $skipCodes, true)) {
-                        continue;
+                    foreach (DcsNotificationService::officeCodesFromIds($masterlistOnlyIds) as $officeCode) {
+                        if (in_array(strtoupper($officeCode), $skipCodes, true)) {
+                            continue;
+                        }
+                        DcsNotificationService::notifyDocumentRegistered(
+                            $officeCode,
+                            $registrarName,
+                            $notifyDocNo,
+                            $notifyRequestId,
+                            $revNo
+                        );
                     }
-                    DcsNotificationService::notifyDocumentRegistered(
-                        $officeCode,
-                        $registrarName,
-                        $docNo,
-                        $requestId,
-                        $revNo
-                    );
-                }
+                });
             }
 
             $successMessage = $saveAsDraft
@@ -1999,6 +1998,65 @@ class RegisterPersistHelper
     public static function effectiveAllowsRevision(mixed $docTypeId, mixed $subTypeId = null): bool
     {
         return RegisterQueryHelper::effectiveTypeAllowsRevision($docTypeId, $subTypeId);
+    }
+
+    /**
+     * Office DCN registration (including a DRF created from that DCN) revises
+     * the document the office already selected.
+     */
+    public static function pendingIntakeIsOfficeDcnRevision(\Illuminate\Http\Request $request): bool
+    {
+        if (! class_exists(\App\Helpers\OfficeIntakeHelper::class)) {
+            return false;
+        }
+
+        $pending = \App\Helpers\OfficeIntakeHelper::pendingRegisterIntake($request);
+        if (! $pending) {
+            return false;
+        }
+        if (($pending['type'] ?? '') === 'dcn') {
+            return true;
+        }
+        if (($pending['type'] ?? '') === 'drf') {
+            return \App\Helpers\OfficeIntakeHelper::findSourceDcnIdForOfficeDrf((int) ($pending['id'] ?? 0)) !== null;
+        }
+
+        return false;
+    }
+
+    public static function versionIdIsRevised(int $versionId): bool
+    {
+        if ($versionId < 1) {
+            return false;
+        }
+        $name = strtolower((string) DB::table('dcs_version_type')->where('id', $versionId)->value('version_name'));
+
+        return str_contains($name, 'revis');
+    }
+
+    public static function versionIdIsRecur(int $versionId): bool
+    {
+        if ($versionId < 1) {
+            return false;
+        }
+        $name = strtolower((string) DB::table('dcs_version_type')->where('id', $versionId)->value('version_name'));
+
+        return str_contains($name, 'recur');
+    }
+
+    public static function revisedVersionTypeId(): ?int
+    {
+        static $id = null;
+        if ($id !== null) {
+            return $id;
+        }
+        $row = DB::table('dcs_version_type')
+            ->whereRaw("LOWER(version_name) LIKE '%revis%'")
+            ->orderBy('id')
+            ->first();
+        $id = $row ? (int) $row->id : 0;
+
+        return $id > 0 ? $id : null;
     }
 
     public static function newVersionTypeId(): ?int
@@ -3116,21 +3174,96 @@ class RegisterPersistHelper
         }
     }
 
-    /** @param  array<string, mixed>  $row */
+    /**
+     * The current latest registration Recur will continue.
+     * Accepts a latest whose version type is New or Revise.
+     */
+    public static function findLatestMasterlistForRecur(Request $request, int $exceptMasterlistId = 0): ?object
+    {
+        $pickedId = (int) $request->input('supersede_masterlist_id');
+        $lookup = trim((string) $request->input('revised_from_doc_no', ''));
+        if ($lookup === '') {
+            $lookup = trim((string) $request->input('masterlistDocNo', ''));
+        }
+        if ($lookup === '') {
+            $numbers = collect((array) $request->input('documentNo', []))
+                ->map(fn ($no) => trim((string) $no))
+                ->filter();
+            $lookup = (string) ($numbers->first() ?? '');
+        }
+        if ($pickedId < 1 && $lookup === '') {
+            return null;
+        }
+
+        $docTypeId = (int) $request->input('doc_type_id');
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->where(function ($q) {
+                $q->where('ml.revision_status', 'latest')
+                    ->orWhereNull('ml.revision_status')
+                    ->orWhere('ml.revision_status', '');
+            })
+            ->orderByDesc('ml.revise_no')
+            ->orderByDesc('ml.id')
+            ->select('ml.id', 'ml.doc_no', 'ml.revise_no', 'ml.request_id');
+        if ($pickedId > 0) {
+            $query->where('ml.id', $pickedId);
+        } else {
+            $query->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($lookup)]);
+            if ($exceptMasterlistId > 0) {
+                $query->where('ml.id', '!=', $exceptMasterlistId);
+            }
+        }
+        if ($docTypeId > 0) {
+            $query->where('dr.doc_type_id', $docTypeId);
+        }
+        RegisterQueryHelper::applyNotDeleted($query, 'dr');
+        RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
+
+        $row = $query->first();
+
+        return $row ?: null;
+    }
+
+    /** Mark the selected latest superseded before the new Recur row is inserted as latest. */
+    public static function supersedeLatestForRecur(Request $request, int $exceptMasterlistId = 0): void
+    {
+        if (! RegisterQueryHelper::supportsRevisionStatus()) {
+            return;
+        }
+        $picked = self::findLatestMasterlistForRecur($request, $exceptMasterlistId);
+        if ($picked === null || (int) $picked->id === $exceptMasterlistId) {
+            return;
+        }
+        $update = [
+            'revision_status' => 'superseded',
+            'updated_at' => now(),
+        ];
+        if (RegisterQueryHelper::supportsAllowsRevisionColumn()) {
+            $update['allows_revision'] = true;
+        }
+        DB::table('dcs_masterlist_registration')
+            ->where('id', (int) $picked->id)
+            ->update($update);
+    }
+
+    public static function applyRecurRevisedFrom(array &$row, Request $request, string $mode): void
+    {
+        if ($mode !== 'recurring' || ! Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
+            return;
+        }
+        $from = trim((string) $request->input('revised_from_doc_no', ''));
+        if ($from === '') {
+            $from = trim((string) ($request->input('masterlistDocNo') ?? ''));
+        }
+        if ($from !== '') {
+            $row['revised_from_doc_no'] = $from;
+        }
+    }
+
     private static function applyRelatedStackGroup(array &$row, Request $request): void
     {
-        if (! Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
-            return;
-        }
-        $targetId = (int) $request->input('stack_with_request_id', 0);
-        if ($targetId < 1 || ! $request->boolean('allow_duplicate_doc_no')) {
-            return;
-        }
-        $existing = trim((string) DB::table('dcs_masterlist_registration')->where('request_id', $targetId)->value('stack_group'));
-        $group = $existing !== '' ? $existing : (string) \Illuminate\Support\Str::uuid();
-        DB::table('dcs_masterlist_registration')
-            ->where('request_id', $targetId)
-            ->update(['stack_group' => $group, 'updated_at' => now()]);
-        $row['stack_group'] = $group;
+        // Stacking two Latest copies of the same number is no longer offered.
+        return;
     }
 }

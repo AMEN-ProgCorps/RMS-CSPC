@@ -174,9 +174,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <td>
                                 @php
                                     $parentStatus = strtolower((string) ($doc['revision_status'] ?? 'latest'));
-                                    $parentIsLatest = $parentStatus !== 'obsolete' && $parentStatus !== 'draft';
+                                    $parentClass = match ($parentStatus) {
+                                        'obsolete' => 'is-obsolete',
+                                        'superseded' => 'is-superseded',
+                                        'draft' => 'is-draft',
+                                        default => 'is-latest',
+                                    };
+                                    $parentLabel = match ($parentStatus) {
+                                        'obsolete' => 'Obsolete',
+                                        'superseded' => 'Superseded',
+                                        'draft' => 'Draft',
+                                        default => 'Latest',
+                                    };
                                 @endphp
-                                <span class="upd-status-badge {{ $parentIsLatest ? 'is-latest' : 'is-obsolete' }}">{{ $parentIsLatest ? 'Latest' : 'Obsolete' }}</span>
+                                <span class="upd-status-badge {{ $parentClass }}">{{ $parentLabel }}</span>
                                 @if(!empty($children))
                                     <span class="upd-rev-count">+{{ count($children) }} {{ (!array_key_exists('allows_revision', $group) || !empty($group['allows_revision'])) ? 'older' : 'more' }}</span>
                                 @endif
@@ -201,7 +212,18 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         @foreach($children as $ci => $child)
                             @php
                                 $childStatus = strtolower((string) ($child['revision_status'] ?? 'latest'));
-                                $childIsLatest = $childStatus !== 'obsolete' && $childStatus !== 'draft';
+                                $childClass = match ($childStatus) {
+                                    'obsolete' => 'is-obsolete',
+                                    'superseded' => 'is-superseded',
+                                    'draft' => 'is-draft',
+                                    default => 'is-latest',
+                                };
+                                $childLabel = match ($childStatus) {
+                                    'obsolete' => 'Obsolete',
+                                    'superseded' => 'Superseded',
+                                    'draft' => 'Draft',
+                                    default => 'Latest',
+                                };
                             @endphp
                             <tr class="upd-child-row" x-show="expanded['{{ $revKey }}']" x-cloak>
                                 <td class="upd-child-ind"></td>
@@ -209,11 +231,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 <td class="upd-doc-title">{{ $child['title'] }}</td>
                                 <td class="upd-doc-no">{{ $child['doc_no'] }}</td>
                                 <td><span class="upd-rev-badge">{{ $child['rev_no'] }}</span></td>
-                                <td><span class="upd-status-badge {{ $childIsLatest ? 'is-latest' : 'is-obsolete' }}">{{ $childIsLatest ? 'Latest' : 'Obsolete' }}</span></td>
+                                <td><span class="upd-status-badge {{ $childClass }}">{{ $childLabel }}</span></td>
                                 <td>
                                     <div class="upd-actions">
                                         @if(!empty($child['can_edit']))
-                                            <a href="{{ $child['edit_url'] }}" class="upd-btn-icon" title="{{ $childIsLatest ? 'Edit' : 'Edit obsolete revision' }}"><i class="fa-solid fa-pen"></i></a>
+                                            <a href="{{ $child['edit_url'] }}" class="upd-btn-icon" title="Edit"><i class="fa-solid fa-pen"></i></a>
                                         @endif
                                         @if($child['history_url'])
                                             <a href="{{ $child['history_url'] }}" class="upd-btn-icon" title="History"><i class="fa-solid fa-clock-rotate-left"></i></a>

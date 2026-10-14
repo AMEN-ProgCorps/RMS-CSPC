@@ -13,7 +13,7 @@
         <span>Find the document to revise</span>
     </div>
     <div class="reg-card-body">
-        <p class="ofi-hint ofi-dcn-finder-lead">Type the document number, title, and originator printed on the controlled copy. Other offices’ documents are not listed.</p>
+        <p class="ofi-hint ofi-dcn-finder-lead">Type the document number, title, and originator printed on the controlled copy. Only the latest revision can be revised.</p>
         <div class="ofi-dcn-finder-grid">
             <div class="reg-field">
                 <label for="dcnFinderDocumentNo">Registered document no. <span class="ofi-req">*</span></label>
@@ -49,6 +49,35 @@
             </p>
         </div>
         <div id="dcnDocNoSuggestions" class="ofi-suggest" hidden></div>
+        <div id="dcnSelectedDocument" class="ofi-dcn-selected" @if(! $confirmed) hidden @endif>
+            <div class="ofi-dcn-selected-head">
+                <span>Selected document</span>
+                <button type="button" class="ofi-dcn-reselect" id="dcnDocNoReselect">Select a different document</button>
+            </div>
+            <p id="dcnSelectedDuplicate" class="ofi-alert err" hidden></p>
+            <dl class="ofi-dcn-selected-meta">
+                <div>
+                    <dt>Document no.</dt>
+                    <dd id="dcnSelectedNo">{{ $storedNo !== '' ? $storedNo : $finderNo }}</dd>
+                </div>
+                <div>
+                    <dt>Title</dt>
+                    <dd id="dcnSelectedTitle">{{ $finderTitle }}</dd>
+                </div>
+                <div>
+                    <dt>Originator</dt>
+                    <dd id="dcnSelectedOriginator">{{ $finderOriginator }}</dd>
+                </div>
+                <div>
+                    <dt>Type</dt>
+                    <dd id="dcnSelectedType">{{ $docType !== '' ? $docType : '—' }}</dd>
+                </div>
+                <div>
+                    <dt>Revision</dt>
+                    <dd id="dcnSelectedRev">{{ $reviseNo !== '' && $reviseNo !== null ? 'Rev '.$reviseNo : 'Latest' }}</dd>
+                </div>
+            </dl>
+        </div>
         <input type="hidden" id="dcnDocumentNo" name="documentNo" value="{{ $storedNo }}">
         <input type="hidden" id="dcnDocNoConfirmed" name="documentNoConfirmed" value="{{ $confirmed ? '1' : '' }}">
         <input type="hidden" id="dcnFinderReviseNo" name="finderReviseNo" value="{{ $reviseNo }}">

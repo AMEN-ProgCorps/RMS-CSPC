@@ -959,7 +959,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
     private function revisionStatusLabel(?string $status): string
     {
-        return strtolower((string) $status) === 'obsolete' ? 'Obsolete' : 'Latest';
+        return match (strtolower(trim((string) $status))) {
+            'obsolete' => 'Obsolete',
+            'superseded' => 'Superseded',
+            'archived' => 'Archived',
+            default => 'Latest',
+        };
     }
 
     /**
@@ -1044,11 +1049,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
                 $prior = $indexed[$byKey[$priorKey]];
                 $priorParent = $prior['parent'];
-                $priorParent['status'] = 'Obsolete';
+                $priorParent['status'] = strtolower((string) ($priorParent['status'] ?? '')) === 'superseded'
+                    ? 'Superseded'
+                    : 'Obsolete';
                 $children[] = $priorParent;
 
                 foreach ($prior['children'] ?? [] as $child) {
-                    $child['status'] = 'Obsolete';
+                    $child['status'] = strtolower((string) ($child['status'] ?? '')) === 'superseded'
+                        ? 'Superseded'
+                        : 'Obsolete';
                     $children[] = $child;
                 }
 
@@ -1067,10 +1076,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             foreach ($stack as &$member) {
                 $isTip = (int) ($member['request_id'] ?? 0) === (int) ($tip['request_id'] ?? 0);
                 if ($stackAllowsRevision) {
+                    $kept = strtolower((string) ($member['status'] ?? ''));
                     if ($isTip && empty($member['is_deleted'])) {
                         $member['status'] = 'Latest';
-                    } elseif (!$isTip && empty($member['is_deleted'])) {
+                    } elseif (!$isTip && empty($member['is_deleted']) && $kept !== 'superseded') {
                         $member['status'] = 'Obsolete';
+                    } elseif (!$isTip && $kept === 'superseded') {
+                        $member['status'] = 'Superseded';
                     }
                 }
                 // Non-revisable: preserve DB status labels (typically all Latest).

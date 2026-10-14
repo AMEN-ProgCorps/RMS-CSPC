@@ -244,6 +244,26 @@ class DcsNotificationService
         static::createNotification($targetOfficeCode, $message, $url);
     }
 
+    /**
+     * One notice for a DCN that was saved together with its DRF.
+     * The link opens the DCN review, which also shows the linked DRF.
+     */
+    public static function notifyOfficeDcnWithDrfSubmitted(
+        string $targetOfficeCode,
+        string $submitterName,
+        string $docNo,
+        string $title,
+        int $dcnId
+    ): void {
+        $name = static::displayName($submitterName);
+        $docLabel = trim($docNo) !== '' ? ' for document ' . trim($docNo) : '';
+        $titleLabel = trim($title) !== '' ? ': ' . trim($title) : '';
+        $message = "New Document Change Notice and Document Request Form{$docLabel}{$titleLabel} was submitted by {$name} and is ready for RFIO processing.";
+        $url = '/dcs/register/requests/dcn/' . $dcnId;
+
+        static::createNotification($targetOfficeCode, $message, $url);
+    }
+
     /** Office corrected an existing intake form — notify RFIO without implying a brand-new form. */
     public static function notifyOfficeIntakeResubmitted(
         string $targetOfficeCode,

@@ -1151,26 +1151,51 @@ class DocumentStorageService
         }
 
         $relativePath = self::buildDccRelativePath($category, $storedFileName, $dccContext);
-        if (Storage::disk('local')->exists(self::localUploadsPath($relativePath)) || self::googleExistsSafe($relativePath)) {
+        if (Storage::disk('local')->exists(self::localUploadsPath($relativePath))) {
             $storedFileName = pathinfo($storedFileName, PATHINFO_FILENAME)
                 . '_' . strtoupper(Str::random(4))
                 . '.' . $extension;
             $relativePath = self::buildDccRelativePath($category, $storedFileName, $dccContext);
         }
 
-        self::ensureDriveFolderStructure($officeFolderName, 'DCS', $fileSize);
-        self::ensureDcsDirectory(trim(dirname($relativePath), '.'));
-
-        $localPath = self::localUploadsPath($relativePath);
-        Storage::disk('local')->put($localPath, $fileContent);
-
-        try {
-            Storage::disk('google')->put($relativePath, $fileContent);
-        } catch (\Throwable $e) {
-            logger()->error("Google Drive DCS upload failed for {$relativePath}: " . $e->getMessage());
+        $relativeDir = trim(str_replace('\\', '/', dirname($relativePath)), '/');
+        if ($relativeDir !== '' && $relativeDir !== '.') {
+            try {
+                Storage::disk('local')->makeDirectory(self::localUploadsPath($relativeDir));
+            } catch (\Throwable $e) {
+                logger()->warning("Local DCC directory notice ({$relativeDir}): " . $e->getMessage());
+            }
         }
 
+        Storage::disk('local')->put(self::localUploadsPath($relativePath), $fileContent);
+        self::queueDriveMirror($officeFolderName, (int) $fileSize, $relativeDir, $relativePath, (string) $fileContent);
+
         return $relativePath;
+    }
+
+    /**
+     * Mirror a scan to Drive after the HTTP response so registration is not
+     * blocked on folder lookups and the upload itself. The local copy is
+     * already written and is what the app reads first.
+     */
+    protected static function queueDriveMirror(
+        string $officeFolderName,
+        int $fileSize,
+        string $relativeDir,
+        string $relativePath,
+        string $fileContent
+    ): void {
+        app()->terminating(function () use ($officeFolderName, $fileSize, $relativeDir, $relativePath, $fileContent) {
+            try {
+                self::ensureDriveFolderStructure($officeFolderName, 'DCS', $fileSize);
+                if ($relativeDir !== '' && $relativeDir !== '.') {
+                    self::ensureGoogleDirectoryExact($relativeDir);
+                }
+                Storage::disk('google')->put($relativePath, $fileContent);
+            } catch (\Throwable $e) {
+                logger()->error("Google Drive DCS upload failed for {$relativePath}: " . $e->getMessage());
+            }
+        });
     }
 
     /**

@@ -18,6 +18,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
     public bool $allowManualCompletionButton = false;
     public bool $autoForwardCreatedTransaction = true;
     public bool $dtsQrIncludeCodeDefault = false;
+    public bool $dtsAllowCustomFlowScopeSelection = false;
     public bool $rdpRequiredUploadFile = false;
     public bool $rdpIncludeDescriptionOnPrint = false;
     public string $rdpPrintFontFamily = 'Arial, sans-serif';
@@ -337,6 +338,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         $sysTable = \Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings';
         $qrIncludeDefault = \DB::table($sysTable)->where('key', 'dts_qr_include_code_default')->value('value');
         $this->dtsQrIncludeCodeDefault = ($qrIncludeDefault === 'true');
+
+        $scopeSelection = \DB::table($sysTable)->where('key', 'dts_allow_custom_flow_scope_selection')->value('value');
+        $this->dtsAllowCustomFlowScopeSelection = ($scopeSelection === 'true');
 
         $rdpReq = \DB::table('sys_system_settings')->where('key', 'rdp_required_upload_file')->value('value');
         $this->rdpRequiredUploadFile = ($rdpReq === 'true');
@@ -807,6 +811,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                     ['key' => 'dts_qr_include_code_default'],
                     [
                         'value' => $this->dtsQrIncludeCodeDefault ? 'true' : 'false',
+                        'updated_at' => now(),
+                    ]
+                );
+
+                \DB::table($sysTable)->updateOrInsert(
+                    ['key' => 'dts_allow_custom_flow_scope_selection'],
+                    [
+                        'value' => $this->dtsAllowCustomFlowScopeSelection ? 'true' : 'false',
                         'updated_at' => now(),
                     ]
                 );
@@ -1874,6 +1886,18 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
                         </div>
                         <label class="switch">
                             <input type="checkbox" wire:model="dtsQrIncludeCodeDefault">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Setting: Custom Flow Scope Configuration (Only Me vs My Office) -->
+                    <div class="setting-item">
+                        <div class="setting-details">
+                            <span class="setting-title">Allow Personal Scope in Custom Flow ("Only Me" vs "My Office")</span>
+                            <span class="setting-desc">When enabled, users creating a Custom Flow can choose whether it is restricted to "Only Me" (personal) or shared with "My Office". When disabled (default), all created Custom Flows automatically default to "My Office" and the selection input is hidden.</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" wire:model="dtsAllowCustomFlowScopeSelection">
                             <span class="slider"></span>
                         </label>
                     </div>

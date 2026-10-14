@@ -40,6 +40,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
     public array $customFlowSequence = [];
     public string $customFlowSelectedOffice = '';
     public string $customFlowFor = 'user';
+    public bool $allowCustomFlowScopeSelection = false;
     public string $toastMessage = '';
     public string $rateLimitError = '';
 
@@ -255,6 +256,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
         if ($userOfficeCode) {
             $this->unit_college = $userOfficeCode;
         }
+
+        $this->allowCustomFlowScopeSelection = \App\Helpers\DtsFlowHelper::isScopeSelectionAllowed();
     }
 
     public function checkAvailability(): void
@@ -657,7 +660,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
         $this->customFlowDocType = '';
         $this->customFlowSequence = [];
         $this->customFlowSelectedOffice = '';
-        $this->customFlowFor = 'user';
+        $this->customFlowFor = $this->allowCustomFlowScopeSelection ? 'user' : 'office';
         $this->showCustomFlowModal = true;
     }
 
@@ -704,6 +707,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
         if (count($this->customFlowSequence) === 0) {
             $this->addError('customFlowSequence', 'You must add at least one office to the sequence.');
             return;
+        }
+
+        if (!$this->allowCustomFlowScopeSelection) {
+            $this->customFlowFor = 'office';
         }
 
         try {
@@ -1712,6 +1719,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                     </div>
 
                     <!-- Who can use this flow (Visibility) -->
+                    @if($allowCustomFlowScopeSelection)
                     <div style="display: flex; flex-direction: column; gap: 6px;">
                         <label style="font-size: 12.5px; font-weight: 600; color: #334155;">Who can use this flow?</label>
                         <select wire:model="customFlowFor" style="width: 100%; height: 38px; padding: 0 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; outline: none; background: #ffffff;">
@@ -1722,6 +1730,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Internal
                         </select>
                         @error('customFlowFor') <span style="font-size: 11.5px; color: #ef4444; font-weight: 500;">{{ $message }}</span> @enderror
                     </div>
+                    @endif
 
                     <!-- Flow Sequence Selector -->
                     <div style="display: flex; flex-direction: column; gap: 8px; padding: 16px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;">

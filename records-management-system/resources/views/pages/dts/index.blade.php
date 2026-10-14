@@ -1748,7 +1748,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         }
 
         $perms = auth()->user()?->permissions;
-        if ($perms && ($perms->is_sadm || $perms->can_dts_modify_transaction)) {
+        if ($perms && ($perms->is_sadm || $perms->can_dts_modify_transaction || ($perms->can_dts_modify_control_no ?? false) || ($perms->can_dts_list_modify_transaction ?? false))) {
             DB::table('dts_transaction_details')
                 ->where('id', $this->selectedTransactionId)
                 ->update([
@@ -1786,7 +1786,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public function toggleEditAll(): void
     {
         $perms = auth()->user()?->permissions;
-        if (!($perms?->is_sadm || $perms?->can_dts_modify_transaction)) {
+        if (!($perms?->is_sadm || ($perms?->can_dts_modify_transaction ?? false) || ($perms?->can_dts_modify_control_no ?? false) || ($perms?->can_dts_list_modify_transaction ?? false))) {
             return;
         }
         $this->editingAll = !$this->editingAll;
@@ -1812,7 +1812,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     {
         $perms = auth()->user()?->permissions;
         $isSadm = $perms?->is_sadm ?? false;
-        $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false);
+        $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false) || ($perms?->can_dts_modify_control_no ?? false);
         $isCreator = isset($this->selectedTransaction) && ($this->selectedTransaction->created_by === auth()->id());
         $isAtOrigin = isset($this->selectedTransaction) && ($this->selectedTransaction->current_office === $this->selectedTransaction->originated_from);
         $isInitialOrRevisionState = isset($this->selectedTransaction) && ($this->selectedTransaction->sequence == 1 || $this->selectedTransaction->status === 'revision');
@@ -2136,7 +2136,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     @php
         $perms = auth()->user()?->permissions;
         $isSadm = $perms?->is_sadm ?? false;
-        $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false);
+        $hasWideEditClearance = $isSadm || ($perms?->can_dts_list_modify_transaction ?? false) || ($perms?->can_dts_modify_transaction ?? false) || ($perms?->can_dts_modify_control_no ?? false);
         $isCreator = isset($selectedTransaction) && ($selectedTransaction->created_by === auth()->id());
         $isAtOrigin = isset($selectedTransaction) && ($selectedTransaction->current_office === $selectedTransaction->originated_from);
         $isInitialOrRevisionState = isset($selectedTransaction) && ($selectedTransaction->sequence == 1 || $selectedTransaction->status === 'revision');
@@ -3584,7 +3584,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     <div class="receive-fields">
                         <!-- Control Number field -->
                         @php
-                            $canSeeModalCtrlNo = (auth()->user()?->permissions?->is_sadm ?? false) || (strtolower($selectedTransaction->status ?? '') === 'completed');
+                            $perms = auth()->user()?->permissions;
+                            $canSeeModalCtrlNo = ($perms?->is_sadm ?? false) 
+                                || ($perms?->can_dts_modify_control_no ?? false) 
+                                || ($perms?->can_dts_modify_transaction ?? false)
+                                || ($perms?->can_dts_list_modify_transaction ?? false)
+                                || (strtolower($selectedTransaction->status ?? '') === 'completed');
                         @endphp
                         @if ($canSeeModalCtrlNo)
                         <div class="receive-field-row">
@@ -3592,7 +3597,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             @if ($editingAll && $hasWideEditClearance)
                                 <input type="text" class="receive-field-input" wire:model="controlNumber">
                             @else
-                                <input type="text" class="receive-field-input" value="{{ $controlNumber }}" readonly style="background-color: #f8fafc; color: #64748b;" title="{{ $editingAll ? 'Control Number can only be edited by administrators' : '' }}">
+                                <input type="text" class="receive-field-input" value="{{ $controlNumber }}" readonly style="background-color: #f8fafc; color: #64748b;" title="{{ $editingAll ? 'Control Number can only be edited by authorized roles' : '' }}">
                             @endif
                         </div>
                         @endif

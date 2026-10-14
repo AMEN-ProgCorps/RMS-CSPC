@@ -1710,34 +1710,40 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                 @endif
                             </td>
                             <td style="min-width: 180px;">
-                                <div style="display: flex; align-items: center; justify-content: flex-start; gap: 4px; flex-wrap: wrap;">
-                                    @forelse ($t->timeline_path as $stepIndex => $step)
-                                        @php
-                                            $isReceived = !is_null($step->date_in) || $t->status === 'completed';
-                                            $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
-                                            $dotColor = $isReceived ? '#10b981' : '#94a3b8';
-                                            $textColor = $isReceived ? '#10b981' : '#64748b';
-                                        @endphp
-                                        <div style="display: inline-flex; align-items: center; gap: 4px;">
-                                            <div style="width: 22px; height: 22px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;" title="Step {{ $stepIndex + 1 }}: {{ $step->office_name ?? $step->office_code }}">
-                                                @if ($isReceived)
-                                                    <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                                @else
-                                                    {{ $stepIndex + 1 }}
+                                @if(strtolower($t->status ?? '') === 'completed')
+                                    <span style="font-weight: 600; color: #16a34a; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
+                                        <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
+                                    </span>
+                                @else
+                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 4px; flex-wrap: wrap;">
+                                        @forelse ($t->timeline_path as $stepIndex => $step)
+                                            @php
+                                                $isReceived = !is_null($step->date_in) || $t->status === 'completed';
+                                                $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                                $dotColor = $isReceived ? '#10b981' : '#94a3b8';
+                                                $textColor = $isReceived ? '#10b981' : '#64748b';
+                                            @endphp
+                                            <div style="display: inline-flex; align-items: center; gap: 4px;">
+                                                <div style="width: 22px; height: 22px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;" title="Step {{ $stepIndex + 1 }}: {{ $step->office_name ?? $step->office_code }}">
+                                                    @if ($isReceived)
+                                                        <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                                    @else
+                                                        {{ $stepIndex + 1 }}
+                                                    @endif
+                                                </div>
+                                                <span style="font-size: 10px; font-weight: 700; color: {{ $textColor }};">{{ $step->office_code }}</span>
+                                                @if (!$loop->last)
+                                                    <span style="color: #cbd5e1; font-size: 10px;">&rarr;</span>
                                                 @endif
                                             </div>
-                                            <span style="font-size: 10px; font-weight: 700; color: {{ $textColor }};">{{ $step->office_code }}</span>
-                                            @if (!$loop->last)
-                                                <span style="color: #cbd5e1; font-size: 10px;">&rarr;</span>
-                                            @endif
-                                        </div>
-                                    @empty
-                                        <span style="color: #94a3b8; font-size: 11px;">—</span>
-                                    @endforelse
-                                </div>
+                                        @empty
+                                            <span style="color: #94a3b8; font-size: 11px;">—</span>
+                                        @endforelse
+                                    </div>
+                                @endif
                             </td>
                             <td style="font-weight: 600; white-space: nowrap; text-align: center;">
-                                {{ $t->elapsed_days }} day(s)
+                                {{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->elapsed_days . ' day(s)') }}
                             </td>
                             <td style="text-align: center;">
                                 <span class="status-badge status-{{ $t->status }}">

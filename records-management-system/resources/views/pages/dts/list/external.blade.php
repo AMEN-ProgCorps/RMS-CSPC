@@ -1667,35 +1667,41 @@ new #[Layout('layouts.dts')] #[Title('DTS - External Transactions')] class exten
                                 @endif
                             </td>
                             <td style="min-width: 180px;">
-                                <div style="display: flex; align-items: center; justify-content: flex-start; gap: 4px; flex-wrap: wrap;">
-                                    @forelse ($t->timeline_path as $stepIndex => $step)
-                                        @php
-                                            $isReceived = !is_null($step->date_in) || $t->status === 'completed';
-                                            $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
-                                            $badgeBg = $isForwarded ? '#d1fae5' : ($isReceived ? '#dbeafe' : '#f3f4f6');
-                                            $badgeColor = $isForwarded ? '#065f46' : ($isReceived ? '#1e40af' : '#6b7280');
-                                            $badgeBorder = $isForwarded ? '#a7f3d0' : ($isReceived ? '#bfdbfe' : '#e5e7eb');
-                                        @endphp
-                                        <div style="display: inline-flex; align-items: center; gap: 4px; background: {{ $badgeBg }}; color: {{ $badgeColor }}; border: 1px solid {{ $badgeBorder }}; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600;" title="{{ $step->office_name ?? $step->office_code }}">
-                                            @if ($isForwarded)
-                                                <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                            @elseif ($isReceived)
-                                                <i class="fa-solid fa-arrow-right-to-bracket" style="font-size: 9px;"></i>
-                                            @else
-                                                <i class="fa-regular fa-clock" style="font-size: 9px;"></i>
+                                @if(strtolower($t->status ?? '') === 'completed')
+                                    <span style="font-weight: 600; color: #16a34a; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
+                                        <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
+                                    </span>
+                                @else
+                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 4px; flex-wrap: wrap;">
+                                        @forelse ($t->timeline_path as $stepIndex => $step)
+                                            @php
+                                                $isReceived = !is_null($step->date_in) || $t->status === 'completed';
+                                                $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                                $badgeBg = $isForwarded ? '#d1fae5' : ($isReceived ? '#dbeafe' : '#f3f4f6');
+                                                $badgeColor = $isForwarded ? '#065f46' : ($isReceived ? '#1e40af' : '#6b7280');
+                                                $badgeBorder = $isForwarded ? '#a7f3d0' : ($isReceived ? '#bfdbfe' : '#e5e7eb');
+                                            @endphp
+                                            <div style="display: inline-flex; align-items: center; gap: 4px; background: {{ $badgeBg }}; color: {{ $badgeColor }}; border: 1px solid {{ $badgeBorder }}; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600;" title="{{ $step->office_name ?? $step->office_code }}">
+                                                @if ($isForwarded)
+                                                    <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                                @elseif ($isReceived)
+                                                    <i class="fa-solid fa-arrow-right-to-bracket" style="font-size: 9px;"></i>
+                                                @else
+                                                    <i class="fa-regular fa-clock" style="font-size: 9px;"></i>
+                                                @endif
+                                                <span>{{ $step->office_code }}</span>
+                                            </div>
+                                            @if (!$loop->last)
+                                                <i class="fa-solid fa-chevron-right" style="font-size: 8px; color: #9ca3af;"></i>
                                             @endif
-                                            <span>{{ $step->office_code }}</span>
-                                        </div>
-                                        @if (!$loop->last)
-                                            <i class="fa-solid fa-chevron-right" style="font-size: 8px; color: #9ca3af;"></i>
-                                        @endif
-                                    @empty
-                                        <span style="color: #94a3b8; font-size: 11px;">—</span>
-                                    @endforelse
-                                </div>
+                                        @empty
+                                            <span style="color: #94a3b8; font-size: 11px;">—</span>
+                                        @endforelse
+                                    </div>
+                                @endif
                             </td>
                             <td style="font-weight: 600; white-space: nowrap; text-align: center;">
-                                {{ $t->elapsed_days }} day(s)
+                                {{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->elapsed_days . ' day(s)') }}
                             </td>
                             <td style="text-align: center;">
                                 <span class="status-badge status-{{ $t->status }}">

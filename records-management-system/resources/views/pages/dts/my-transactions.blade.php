@@ -426,8 +426,13 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                     <div style="font-weight: 600;">{{ Str::limit($t->subject ?: 'No subject', 45) }}</div>
                                 </td>
                                 <td style="padding: 10px 12px; min-width: 220px; max-width: 320px;">
-                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
-                                         @forelse ($t->timeline_path as $index => $step)
+                                    @if(strtolower($t->status ?? '') === 'completed')
+                                        <span style="font-weight: 600; color: #16a34a; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
+                                            <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
+                                        </span>
+                                    @else
+                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                             @forelse ($t->timeline_path as $index => $step)
                                             @php
                                                 $isHub = !empty($step->is_hub);
                                                 $isReceived = !is_null($step->date_in) || $t->status === 'completed';
@@ -496,6 +501,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                             <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
                                         @endforelse
                                     </div>
+                                @endif
                                 </td>
                                 <td style="padding: 14px 16px; color: #64748b; font-size: 0.8rem;">
                                     {{ \Carbon\Carbon::parse($t->date_created)->format('M d, Y h:i A') }}
@@ -529,34 +535,40 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                             <span class="office-location-pill" style="font-size: 11px; padding: 2px 8px;">🏢 {{ $child->current_office_name ?: $child->current_office }}</span>
                                         </td>
                                         <td style="padding: 8px 12px; min-width: 220px;" colspan="2">
-                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
-                                                @forelse ($child->timeline_path as $cStepIdx => $cStep)
-                                                    @php
-                                                        $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
-                                                        $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
-                                                        $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
-                                                        $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
-                                                        $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
-                                                    @endphp
-                                                    <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
-                                                        <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
-                                                            @if ($cIsReceived)
-                                                                <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                                            @else
-                                                                {{ $cStepIdx + 1 }}
-                                                            @endif
+                                            @if(strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed')
+                                                <span style="font-weight: 600; color: #16a34a; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                    <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
+                                                </span>
+                                            @else
+                                                <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                                    @forelse ($child->timeline_path as $cStepIdx => $cStep)
+                                                        @php
+                                                            $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
+                                                            $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
+                                                            $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
+                                                            $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
+                                                            $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
+                                                        @endphp
+                                                        <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                            <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
+                                                                @if ($cIsReceived)
+                                                                    <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                                                @else
+                                                                    {{ $cStepIdx + 1 }}
+                                                                @endif
+                                                            </div>
+                                                            <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif;">
+                                                                {{ $cStep->office_code }}
+                                                            </span>
                                                         </div>
-                                                        <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif;">
-                                                            {{ $cStep->office_code }}
-                                                        </span>
-                                                    </div>
-                                                    @if (!$loop->last)
-                                                        <div style="flex: 1; height: 3px; background: {{ $cLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
-                                                    @endif
-                                                @empty
-                                                    <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
-                                                @endforelse
-                                            </div>
+                                                        @if (!$loop->last)
+                                                            <div style="flex: 1; height: 3px; background: {{ $cLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                        @endif
+                                                    @empty
+                                                        <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                                    @endforelse
+                                                </div>
+                                            @endif
                                         </td>
                                         <td style="padding: 10px 16px; color: #64748b; font-size: 0.75rem;">
                                             {{ \Carbon\Carbon::parse($child->date_created)->format('M d, Y h:i A') }}

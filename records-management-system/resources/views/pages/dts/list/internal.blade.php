@@ -1617,7 +1617,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                             <td style="text-align: center;">{{ $t->step2_received }}</td>
                             <td style="text-align: center;">{{ $t->step2_released }}</td>
                             <td style="font-weight: 600; white-space: nowrap; text-align: center;">
-                                {{ $t->elapsed_days }} day(s)
+                                {{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->elapsed_days . ' day(s)') }}
                             </td>
                             <td style="text-align: center;">
                                 <span class="status-badge status-{{ $t->status }}">

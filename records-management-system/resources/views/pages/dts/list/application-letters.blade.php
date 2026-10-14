@@ -1645,7 +1645,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                             <td style="text-align: center;">{{ $t->received_time }}</td>
                             <td>{{ $t->received_by }}</td>
                             <td style="font-weight: 600; white-space: nowrap; text-align: center;">
-                                {{ $t->elapsed_days }} day(s)
+                                {{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->elapsed_days . ' day(s)') }}
                             </td>
                             <td style="text-align: center;">
                                 <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>

@@ -2359,98 +2359,104 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             @endif
                                         </td>
                                         <td style="padding: 10px 12px; min-width: 220px; max-width: 320px;">
-                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
-                                                @forelse ($t->timeline_path as $index => $step)
-                                                    @php
-                                                        $isReceived = !is_null($step->date_in) || $t->status === 'completed';
-                                                        $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
-                                                        $hasRevision = !empty($t->revision_requested_by_sequence);
-                                                        $revReqSeq = $t->revision_requested_by_sequence ?? null;
-                                                        $revType = $t->revision_resubmit_type ?? null;
-                                                        $isRevisionStep = false;
-                                                        if ($hasRevision) {
-                                                            $seq = $step->sequence_ranking;
-                                                            if ($seq == 1) {
-                                                                $isRevisionStep = true;
-                                                            } elseif ($seq == $revReqSeq) {
-                                                                $isRevisionStep = true;
-                                                            } elseif ($revType === 'start' && $seq > 1 && $seq < $revReqSeq) {
-                                                                $isRevisionStep = true;
+                                            @if(strtolower($t->status ?? '') === 'completed')
+                                                <span style="font-weight: 600; color: #16a34a; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
+                                                    <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
+                                                </span>
+                                            @else
+                                                <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                                    @forelse ($t->timeline_path as $index => $step)
+                                                        @php
+                                                            $isReceived = !is_null($step->date_in) || $t->status === 'completed';
+                                                            $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                                            $hasRevision = !empty($t->revision_requested_by_sequence);
+                                                            $revReqSeq = $t->revision_requested_by_sequence ?? null;
+                                                            $revType = $t->revision_resubmit_type ?? null;
+                                                            $isRevisionStep = false;
+                                                            if ($hasRevision) {
+                                                                $seq = $step->sequence_ranking;
+                                                                if ($seq == 1) {
+                                                                    $isRevisionStep = true;
+                                                                } elseif ($seq == $revReqSeq) {
+                                                                    $isRevisionStep = true;
+                                                                } elseif ($revType === 'start' && $seq > 1 && $seq < $revReqSeq) {
+                                                                    $isRevisionStep = true;
+                                                                }
                                                             }
-                                                        }
 
-                                                        if ($isRevisionStep) {
-                                                            $dotColor = '#2563eb';
-                                                            $lineColor = '#3b82f6';
-                                                            $textColor = '#2563eb';
-                                                        } elseif ($isReceived) {
-                                                            $dotColor = '#10b981';
-                                                            $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
-                                                            $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
-                                                            $textColor = '#10b981';
-                                                        } else {
-                                                            $dotColor = '#dc2626';
-                                                            $lineColor = '#dc2626';
-                                                            $textColor = '#dc2626';
-                                                        }
+                                                            if ($isRevisionStep) {
+                                                                $dotColor = '#2563eb';
+                                                                $lineColor = '#3b82f6';
+                                                                $textColor = '#2563eb';
+                                                            } elseif ($isReceived) {
+                                                                $dotColor = '#10b981';
+                                                                $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
+                                                                $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
+                                                                $textColor = '#10b981';
+                                                            } else {
+                                                                $dotColor = '#dc2626';
+                                                                $lineColor = '#dc2626';
+                                                                $textColor = '#dc2626';
+                                                            }
 
-                                                        $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
-                                                        $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
-                                                    @endphp
+                                                            $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
+                                                            $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
+                                                        @endphp
 
-                                                    <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
-                                                        <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
-                                                            @if ($isRevisionStep)
-                                                                <i class="fa-solid fa-rotate-left" style="font-size: 10px;"></i>
-                                                            @elseif ($isReceived)
-                                                                <i class="fa-solid fa-check" style="font-size: 10px;"></i>
-                                                            @else
-                                                                {{ $index + 1 }}
-                                                            @endif
-                                                        </div>
-
-                                                        <span style="margin-top: 4px; font-size: 10px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
-                                                            {{ $step->office_code }}
-                                                        </span>
-
-                                                        <div class="dts-node-tooltip" style="position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); width: 210px; background: #0f172a; color: #f8fafc; padding: 8px 10px; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.15s ease; z-index: 9999; text-align: left; font-size: 11px; line-height: 1.4;">
-                                                            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 4px; margin-bottom: 4px;">
-                                                                <span style="font-weight: 700; font-size: 11px; color: #38bdf8;">Step {{ $index + 1 }}: {{ $step->office_code }}</span>
+                                                        <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                            <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
                                                                 @if ($isRevisionStep)
-                                                                    <span style="background: #1e3a8a; color: #93c5fd; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">↺ Revision</span>
-                                                                @elseif ($isReceived && $isForwarded)
-                                                                    <span style="background: #166534; color: #4ade80; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">✓ Forwarded</span>
-                                                                @elseif ($isReceived && !$isForwarded)
-                                                                    <span style="background: #1e3a8a; color: #60a5fa; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">📍 Held</span>
+                                                                    <i class="fa-solid fa-rotate-left" style="font-size: 10px;"></i>
+                                                                @elseif ($isReceived)
+                                                                    <i class="fa-solid fa-check" style="font-size: 10px;"></i>
                                                                 @else
-                                                                    <span style="background: #450a0a; color: #fca5a5; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">⏳ Pending</span>
+                                                                    {{ $index + 1 }}
                                                                 @endif
-                                                            </div>
-                                                            
-                                                            <div style="font-size: 10.5px; font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">
-                                                                {{ $step->office_name }}
                                                             </div>
 
-                                                            <div style="font-size: 10px; color: #94a3b8; display: flex; flex-direction: column; gap: 2px;">
-                                                                <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>
-                                                                <div><strong style="color: #cbd5e1;">Date Out:</strong> {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</div>
-                                                                @if (!empty($step->total_time_completed) && $step->total_time_completed !== '-')
-                                                                    <div><strong style="color: #cbd5e1;">Total Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_completed }}</span></div>
-                                                                @endif
-                                                                <div><strong style="color: #cbd5e1;">Action:</strong> {{ ($t->status === 'completed' || !is_null($step->date_out)) ? ($step->action_needed ?: 'Finished') : ($step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending')) }}</div>
+                                                            <span style="margin-top: 4px; font-size: 10px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
+                                                                {{ $step->office_code }}
+                                                            </span>
+
+                                                            <div class="dts-node-tooltip" style="position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); width: 210px; background: #0f172a; color: #f8fafc; padding: 8px 10px; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.15s ease; z-index: 9999; text-align: left; font-size: 11px; line-height: 1.4;">
+                                                                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 4px; margin-bottom: 4px;">
+                                                                    <span style="font-weight: 700; font-size: 11px; color: #38bdf8;">Step {{ $index + 1 }}: {{ $step->office_code }}</span>
+                                                                    @if ($isRevisionStep)
+                                                                        <span style="background: #1e3a8a; color: #93c5fd; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">↺ Revision</span>
+                                                                    @elseif ($isReceived && $isForwarded)
+                                                                        <span style="background: #166534; color: #4ade80; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">✓ Forwarded</span>
+                                                                    @elseif ($isReceived && !$isForwarded)
+                                                                        <span style="background: #1e3a8a; color: #60a5fa; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">📍 Held</span>
+                                                                    @else
+                                                                        <span style="background: #450a0a; color: #fca5a5; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">⏳ Pending</span>
+                                                                    @endif
+                                                                </div>
+                                                                
+                                                                <div style="font-size: 10.5px; font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">
+                                                                    {{ $step->office_name }}
+                                                                </div>
+
+                                                                <div style="font-size: 10px; color: #94a3b8; display: flex; flex-direction: column; gap: 2px;">
+                                                                    <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>
+                                                                    <div><strong style="color: #cbd5e1;">Date Out:</strong> {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</div>
+                                                                    @if (!empty($step->total_time_completed) && $step->total_time_completed !== '-')
+                                                                        <div><strong style="color: #cbd5e1;">Total Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_completed }}</span></div>
+                                                                    @endif
+                                                                    <div><strong style="color: #cbd5e1;">Action:</strong> {{ ($t->status === 'completed' || !is_null($step->date_out)) ? ($step->action_needed ?: 'Finished') : ($step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending')) }}</div>
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                    </div>
 
-                                                    @if (!$loop->last)
-                                                        <div style="flex: 1; height: 4px; background: {{ $lineColor }}; min-width: 16px; margin: 0 -2px 14px -2px; border-radius: 2px; z-index: 1; transition: all 0.3s ease;"></div>
-                                                    @endif
-                                                @empty
-                                                    <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
-                                                @endforelse
-                                            </div>
+                                                        @if (!$loop->last)
+                                                            <div style="flex: 1; height: 4px; background: {{ $lineColor }}; min-width: 16px; margin: 0 -2px 14px -2px; border-radius: 2px; z-index: 1; transition: all 0.3s ease;"></div>
+                                                        @endif
+                                                    @empty
+                                                        <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                                    @endforelse
+                                                </div>
+                                            @endif
                                         </td>
-                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
+                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
                                         <td style="padding: 12px 14px;">
                                             <span class="rms-badge badge-{{ $t->status === 'completed' ? 'success' : ($t->status === 'cancelled' ? 'danger' : 'warning') }}">
                                                 {{ ucfirst($t->status) }}
@@ -2509,38 +2515,44 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                     🏢 Unit: {{ $t->current_office_name ?: $t->current_office }}
                                                 </div>
                                             </td>
-                                            @if ($isMyTxPage)
+                                             @if ($isMyTxPage)
                                                 <td style="padding: 6px 12px; min-width: 220px; max-width: 320px;">
-                                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
-                                                        @forelse (($t->primary_branch_timeline ?? $t->timeline_path) as $pStepIdx => $pStep)
-                                                            @php
-                                                                $pIsReceived = !is_null($pStep->date_in) || $t->status === 'completed';
-                                                                $pIsForwarded = !is_null($pStep->date_out) || $t->status === 'completed';
-                                                                $pIsCurrent = $pStep->office_code === $t->current_office && is_null($pStep->date_out) && $t->status !== 'completed';
-                                                                $pDotColor = $pIsReceived ? '#10b981' : '#dc2626';
-                                                                $pLineColor = $pIsForwarded ? '#10b981' : '#cbd5e1';
-                                                            @endphp
-                                                            <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
-                                                                <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $pDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $pIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $pStep->office_name ?: $pStep->office_code }}">
-                                                                    @if ($pIsReceived)
-                                                                        <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                                                    @else
-                                                                        {{ $pStepIdx + 1 }}
-                                                                    @endif
+                                                    @if(strtolower($t->status ?? '') === 'completed')
+                                                        <span style="font-weight: 600; color: #16a34a; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
+                                                            <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
+                                                        </span>
+                                                    @else
+                                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                                            @forelse (($t->primary_branch_timeline ?? $t->timeline_path) as $pStepIdx => $pStep)
+                                                                @php
+                                                                    $pIsReceived = !is_null($pStep->date_in) || $t->status === 'completed';
+                                                                    $pIsForwarded = !is_null($pStep->date_out) || $t->status === 'completed';
+                                                                    $pIsCurrent = $pStep->office_code === $t->current_office && is_null($pStep->date_out) && $t->status !== 'completed';
+                                                                    $pDotColor = $pIsReceived ? '#10b981' : '#dc2626';
+                                                                    $pLineColor = $pIsForwarded ? '#10b981' : '#cbd5e1';
+                                                                @endphp
+                                                                <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                                    <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $pDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $pIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $pStep->office_name ?: $pStep->office_code }}">
+                                                                        @if ($pIsReceived)
+                                                                            <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                                                        @else
+                                                                            {{ $pStepIdx + 1 }}
+                                                                        @endif
+                                                                    </div>
+                                                                    <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $pDotColor }}; font-family: 'Inter', sans-serif;">
+                                                                        {{ $pStep->office_code }}
+                                                                    </span>
                                                                 </div>
-                                                                <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $pDotColor }}; font-family: 'Inter', sans-serif;">
-                                                                    {{ $pStep->office_code }}
-                                                                </span>
-                                                            </div>
-                                                            @if (!$loop->last)
-                                                                <div style="flex: 1; height: 3px; background: {{ $pLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
-                                                            @endif
-                                                        @empty
-                                                            <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
-                                                        @endforelse
-                                                    </div>
+                                                                @if (!$loop->last)
+                                                                    <div style="flex: 1; height: 3px; background: {{ $pLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                                @endif
+                                                            @empty
+                                                                <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                                            @endforelse
+                                                        </div>
+                                                    @endif
                                                 </td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
+                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
                                                 <td style="padding: 10px 14px;">
                                                     <span class="rms-badge badge-{{ $t->status === 'completed' ? 'success' : ($t->status === 'cancelled' ? 'danger' : 'warning') }}">
                                                         {{ ucfirst($t->status) }}
@@ -2548,19 +2560,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 </td>
                                             @elseif ($isIncomingPage)
                                                 <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->incoming_elapsed_days }} day(s)</td>
+                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->incoming_elapsed_days . ' day(s)') }}</td>
                                             @elseif ($isReceivedPage)
                                                 <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
                                                 <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->received_elapsed_days }} day(s)</td>
+                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->received_elapsed_days . ' day(s)') }}</td>
                                             @elseif ($isForwardedPage)
                                                 <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
                                                 <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->released_elapsed_days }} day(s)</td>
+                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->released_elapsed_days . ' day(s)') }}</td>
                                             @else
                                                 <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
                                                 <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
+                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
                                             @endif
                                             <td style="text-align: center; white-space: nowrap;">
                                                 <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
@@ -2609,36 +2621,42 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 </td>
                                                 @if ($isMyTxPage)
                                                     <td style="padding: 6px 12px; min-width: 220px; max-width: 320px;">
-                                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
-                                                            @forelse ($child->timeline_path as $cStepIdx => $cStep)
-                                                                @php
-                                                                    $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
-                                                                    $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
-                                                                    $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
-                                                                    $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
-                                                                    $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
-                                                                @endphp
-                                                                <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
-                                                                    <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
-                                                                        @if ($cIsReceived)
-                                                                            <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                                                        @else
-                                                                            {{ $cStepIdx + 1 }}
-                                                                        @endif
+                                                        @if(strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed')
+                                                            <span style="font-weight: 600; color: #16a34a; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                                <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
+                                                            </span>
+                                                        @else
+                                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                                                @forelse ($child->timeline_path as $cStepIdx => $cStep)
+                                                                    @php
+                                                                        $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
+                                                                        $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
+                                                                        $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
+                                                                        $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
+                                                                        $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
+                                                                    @endphp
+                                                                    <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                                        <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
+                                                                            @if ($cIsReceived)
+                                                                                <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                                                            @else
+                                                                                {{ $cStepIdx + 1 }}
+                                                                            @endif
+                                                                        </div>
+                                                                        <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif;">
+                                                                            {{ $cStep->office_code }}
+                                                                        </span>
                                                                     </div>
-                                                                    <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif;">
-                                                                        {{ $cStep->office_code }}
-                                                                    </span>
-                                                                </div>
-                                                                @if (!$loop->last)
-                                                                    <div style="flex: 1; height: 3px; background: {{ $cLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
-                                                                @endif
-                                                            @empty
-                                                                <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
-                                                            @endforelse
-                                                        </div>
+                                                                    @if (!$loop->last)
+                                                                        <div style="flex: 1; height: 3px; background: {{ $cLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                                    @endif
+                                                                @empty
+                                                                    <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                                                @endforelse
+                                                            </div>
+                                                        @endif
                                                     </td>
-                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
+                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
                                                     <td style="padding: 10px 14px;">
                                                         <span class="rms-badge badge-{{ $child->status === 'completed' ? 'success' : 'warning' }}">
                                                             {{ ucfirst($child->status) }}
@@ -2646,19 +2664,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                     </td>
                                                 @elseif ($isIncomingPage)
                                                     <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->incoming_elapsed_days }} day(s)</td>
+                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->incoming_elapsed_days . ' day(s)') }}</td>
                                                 @elseif ($isReceivedPage)
                                                     <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
                                                     <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->received_elapsed_days }} day(s)</td>
+                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->received_elapsed_days . ' day(s)') }}</td>
                                                 @elseif ($isForwardedPage)
                                                     <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
                                                     <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->released_elapsed_days }} day(s)</td>
+                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->released_elapsed_days . ' day(s)') }}</td>
                                                 @else
                                                     <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
                                                     <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
+                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
                                                 @endif
                                                 <td style="text-align: center; white-space: nowrap;">
                                                     <button type="button" wire:click="openTransaction('{{ $child->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
@@ -2684,7 +2702,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             @endif
                                         </td>
                                         <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->incoming_elapsed_days }} day(s)</td>
+                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->incoming_elapsed_days . ' day(s)') }}</td>
                                         <td style="text-align: center; white-space: nowrap;">
                                             <button type="button" onclick="if(window.openScannerModal) window.openScannerModal();" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                                 <i class="fa-solid fa-qrcode"></i> Scan
@@ -2709,7 +2727,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         </td>
                                         <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
                                         <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->received_elapsed_days }} day(s)</td>
+                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->received_elapsed_days . ' day(s)') }}</td>
                                         <td style="text-align: center; white-space: nowrap;">
                                             <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
                                                 <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
@@ -2737,7 +2755,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         </td>
                                         <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
                                         <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->released_elapsed_days }} day(s)</td>
+                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->released_elapsed_days . ' day(s)') }}</td>
                                         <td style="text-align: center; white-space: nowrap;">
                                             <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
                                         </td>
@@ -2760,7 +2778,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         </td>
                                         <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
                                         <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
+                                        <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
                                         <td style="text-align: center; white-space: nowrap;">
                                             <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
                                         </td>
@@ -2815,7 +2833,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         @endif
                                     </td>
                                     <td style="padding: 10px 12px; min-width: 220px; max-width: 320px;">
-                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                        @if(strtolower($t->status ?? '') === 'completed')
+                                            <span style="font-weight: 600; color: #16a34a; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
+                                                <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
+                                            </span>
+                                        @else
+                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
                                             @forelse ($t->timeline_path as $index => $step)
                                                 @php
                                                     $isReceived = !is_null($step->date_in) || $t->status === 'completed';
@@ -2904,9 +2927,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             @empty
                                                 <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
                                             @endforelse
-                                        </div>
+                                            </div>
+                                        @endif
                                     </td>
-                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
+                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
                                     <td style="padding: 12px 14px;">
                                         <span class="rms-badge badge-{{ $t->status === 'completed' ? 'success' : ($t->status === 'cancelled' ? 'danger' : 'warning') }}">
                                             {{ ucfirst($t->status) }}
@@ -2967,36 +2991,42 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         </td>
                                         @if ($isMyTxPage)
                                             <td style="padding: 6px 12px; min-width: 220px; max-width: 320px;">
-                                                <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
-                                                    @forelse (($t->primary_branch_timeline ?? $t->timeline_path) as $pStepIdx => $pStep)
-                                                        @php
-                                                            $pIsReceived = !is_null($pStep->date_in) || $t->status === 'completed';
-                                                            $pIsForwarded = !is_null($pStep->date_out) || $t->status === 'completed';
-                                                            $pIsCurrent = $pStep->office_code === $t->current_office && is_null($pStep->date_out) && $t->status !== 'completed';
-                                                            $pDotColor = $pIsReceived ? '#10b981' : '#dc2626';
-                                                            $pLineColor = $pIsForwarded ? '#10b981' : '#cbd5e1';
-                                                        @endphp
-                                                        <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
-                                                            <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $pDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $pIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $pStep->office_name ?: $pStep->office_code }}">
-                                                                @if ($pIsReceived)
-                                                                    <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                                                @else
-                                                                    {{ $pStepIdx + 1 }}
-                                                                @endif
+                                                @if(strtolower($t->status ?? '') === 'completed')
+                                                    <span style="font-weight: 600; color: #16a34a; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
+                                                        <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
+                                                    </span>
+                                                @else
+                                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                                        @forelse (($t->primary_branch_timeline ?? $t->timeline_path) as $pStepIdx => $pStep)
+                                                            @php
+                                                                $pIsReceived = !is_null($pStep->date_in) || $t->status === 'completed';
+                                                                $pIsForwarded = !is_null($pStep->date_out) || $t->status === 'completed';
+                                                                $pIsCurrent = $pStep->office_code === $t->current_office && is_null($pStep->date_out) && $t->status !== 'completed';
+                                                                $pDotColor = $pIsReceived ? '#10b981' : '#dc2626';
+                                                                $pLineColor = $pIsForwarded ? '#10b981' : '#cbd5e1';
+                                                            @endphp
+                                                            <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                                <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $pDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $pIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $pStep->office_name ?: $pStep->office_code }}">
+                                                                    @if ($pIsReceived)
+                                                                        <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                                                    @else
+                                                                        {{ $pStepIdx + 1 }}
+                                                                    @endif
+                                                                </div>
+                                                                <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $pDotColor }}; font-family: 'Inter', sans-serif;">
+                                                                    {{ $pStep->office_code }}
+                                                                </span>
                                                             </div>
-                                                            <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $pDotColor }}; font-family: 'Inter', sans-serif;">
-                                                                {{ $pStep->office_code }}
-                                                            </span>
-                                                        </div>
-                                                        @if (!$loop->last)
-                                                            <div style="flex: 1; height: 3px; background: {{ $pLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
-                                                        @endif
-                                                    @empty
-                                                        <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
-                                                    @endforelse
-                                                </div>
+                                                            @if (!$loop->last)
+                                                                <div style="flex: 1; height: 3px; background: {{ $pLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                            @endif
+                                                        @empty
+                                                            <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                                        @endforelse
+                                                    </div>
+                                                @endif
                                             </td>
-                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
+                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
                                             <td style="padding: 10px 14px;">
                                                 <span class="rms-badge badge-{{ $t->status === 'completed' ? 'success' : ($t->status === 'cancelled' ? 'danger' : 'warning') }}">
                                                     {{ ucfirst($t->status) }}
@@ -3004,19 +3034,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             </td>
                                         @elseif ($isIncomingPage)
                                             <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->incoming_elapsed_days }} day(s)</td>
+                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->incoming_elapsed_days . ' day(s)') }}</td>
                                         @elseif ($isReceivedPage)
                                             <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
                                             <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->received_elapsed_days }} day(s)</td>
+                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->received_elapsed_days . ' day(s)') }}</td>
                                         @elseif ($isForwardedPage)
                                             <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
                                             <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->released_elapsed_days }} day(s)</td>
+                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->released_elapsed_days . ' day(s)') }}</td>
                                         @else
                                             <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
                                             <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
+                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
                                         @endif
                                         <td style="text-align: center; white-space: nowrap;">
                                             <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
@@ -3063,38 +3093,44 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                     🏢 Unit: {{ $child->current_office_name ?: $child->current_office }}
                                                 </div>
                                             </td>
-                                            @if ($isMyTxPage)
+                                             @if ($isMyTxPage)
                                                 <td style="padding: 6px 12px; min-width: 220px; max-width: 320px;">
-                                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
-                                                        @forelse ($child->timeline_path as $cStepIdx => $cStep)
-                                                            @php
-                                                                $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
-                                                                $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
-                                                                $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
-                                                                $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
-                                                                $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
-                                                            @endphp
-                                                            <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
-                                                                <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
-                                                                    @if ($cIsReceived)
-                                                                        <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                                                    @else
-                                                                        {{ $cStepIdx + 1 }}
-                                                                    @endif
+                                                    @if(strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed')
+                                                        <span style="font-weight: 600; color: #16a34a; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                            <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
+                                                        </span>
+                                                    @else
+                                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                                            @forelse ($child->timeline_path as $cStepIdx => $cStep)
+                                                                @php
+                                                                    $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
+                                                                    $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
+                                                                    $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
+                                                                    $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
+                                                                    $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
+                                                                @endphp
+                                                                <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                                    <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
+                                                                        @if ($cIsReceived)
+                                                                            <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                                                        @else
+                                                                            {{ $cStepIdx + 1 }}
+                                                                        @endif
+                                                                    </div>
+                                                                    <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif;">
+                                                                        {{ $cStep->office_code }}
+                                                                    </span>
                                                                 </div>
-                                                                <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif;">
-                                                                    {{ $cStep->office_code }}
-                                                                </span>
-                                                            </div>
-                                                            @if (!$loop->last)
-                                                                <div style="flex: 1; height: 3px; background: {{ $cLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
-                                                            @endif
-                                                        @empty
-                                                            <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
-                                                        @endforelse
-                                                    </div>
+                                                                @if (!$loop->last)
+                                                                    <div style="flex: 1; height: 3px; background: {{ $cLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                                @endif
+                                                            @empty
+                                                                <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                                            @endforelse
+                                                        </div>
+                                                    @endif
                                                 </td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
+                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
                                                 <td style="padding: 10px 14px;">
                                                     <span class="rms-badge badge-{{ $child->status === 'completed' ? 'success' : 'warning' }}">
                                                         {{ ucfirst($child->status) }}
@@ -3102,19 +3138,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 </td>
                                             @elseif ($isIncomingPage)
                                                 <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->incoming_elapsed_days }} day(s)</td>
+                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->incoming_elapsed_days . ' day(s)') }}</td>
                                             @elseif ($isReceivedPage)
                                                 <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
                                                 <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->received_elapsed_days }} day(s)</td>
+                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->received_elapsed_days . ' day(s)') }}</td>
                                             @elseif ($isForwardedPage)
                                                 <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
                                                 <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->released_elapsed_days }} day(s)</td>
+                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->released_elapsed_days . ' day(s)') }}</td>
                                             @else
                                                 <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
                                                 <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ $t->total_elapsed_days }} day(s)</td>
+                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
                                             @endif
                                             <td style="text-align: center; white-space: nowrap;">
                                                 <button type="button" wire:click="openTransaction('{{ $child->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
@@ -3140,7 +3176,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         @endif
                                     </td>
                                     <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->incoming_elapsed_days }} day(s)</td>
+                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->incoming_elapsed_days . ' day(s)') }}</td>
                                     <td style="text-align: center; white-space: nowrap;">
                                         <button type="button" onclick="if(window.openScannerModal) window.openScannerModal();" class="rms-select" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px; border: none; background: transparent; cursor: pointer; color: #0284c7; font-weight: 600;">
                                             <i class="fa-solid fa-qrcode"></i> Scan
@@ -3165,7 +3201,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     </td>
                                     <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
                                     <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->received_elapsed_days }} day(s)</td>
+                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->received_elapsed_days . ' day(s)') }}</td>
                                     <td style="text-align: center; white-space: nowrap;">
                                         <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
                                             <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
@@ -3193,7 +3229,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     </td>
                                     <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
                                     <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->released_elapsed_days }} day(s)</td>
+                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->released_elapsed_days . ' day(s)') }}</td>
                                     <td style="text-align: center; white-space: nowrap;">
                                         <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
                                     </td>
@@ -3216,7 +3252,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     </td>
                                     <td style="padding: 12px 14px; color: #3b82f6; font-weight: 600;">{{ $t->next_office_name }}</td>
                                     <td style="padding: 12px 14px; color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</td>
-                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ $t->total_elapsed_days }} day(s)</td>
+                                    <td style="font-weight: 600; white-space: nowrap; text-align: center;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
                                     <td style="text-align: center; white-space: nowrap;">
                                         <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
                                     </td>
@@ -3304,65 +3340,73 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     <!-- Timeline Indicator -->
                                     <div style="margin-bottom: 12px; background: #f8fafc; padding: 10px 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
                                         <strong style="display: block; margin-bottom: 6px; color: #334155; font-size: 12px;">Timeline:</strong>
-                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 0;">
-                                            @forelse ($t->timeline_path as $index => $step)
-                                                @php
-                                                    $isReceived = !is_null($step->date_in) || $t->status === 'completed';
-                                                    $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
-                                                    $hasRevision = !empty($t->revision_requested_by_sequence);
-                                                    $revReqSeq = $t->revision_requested_by_sequence ?? null;
-                                                    $revType = $t->revision_resubmit_type ?? null;
-                                                    $isRevisionStep = false;
-                                                    if ($hasRevision) {
-                                                        $seq = $step->sequence_ranking;
-                                                        if ($seq == 1) {
-                                                            $isRevisionStep = true;
-                                                        } elseif ($seq == $revReqSeq) {
-                                                            $isRevisionStep = true;
-                                                        } elseif ($revType === 'start' && $seq > 1 && $seq < $revReqSeq) {
-                                                            $isRevisionStep = true;
+                                        @if(strtolower($t->status ?? '') === 'completed')
+                                            <div style="padding: 4px 0;">
+                                                <span style="font-weight: 600; color: #16a34a; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
+                                                    <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
+                                                </span>
+                                            </div>
+                                        @else
+                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 0;">
+                                                @forelse ($t->timeline_path as $index => $step)
+                                                    @php
+                                                        $isReceived = !is_null($step->date_in) || $t->status === 'completed';
+                                                        $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                                        $hasRevision = !empty($t->revision_requested_by_sequence);
+                                                        $revReqSeq = $t->revision_requested_by_sequence ?? null;
+                                                        $revType = $t->revision_resubmit_type ?? null;
+                                                        $isRevisionStep = false;
+                                                        if ($hasRevision) {
+                                                            $seq = $step->sequence_ranking;
+                                                            if ($seq == 1) {
+                                                                $isRevisionStep = true;
+                                                            } elseif ($seq == $revReqSeq) {
+                                                                $isRevisionStep = true;
+                                                            } elseif ($revType === 'start' && $seq > 1 && $seq < $revReqSeq) {
+                                                                $isRevisionStep = true;
+                                                            }
                                                         }
-                                                    }
 
-                                                    if ($isRevisionStep) {
-                                                        $dotColor = '#2563eb';
-                                                        $lineColor = '#3b82f6';
-                                                        $textColor = '#2563eb';
-                                                    } elseif ($isReceived) {
-                                                        $dotColor = '#10b981';
-                                                        $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
-                                                        $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
-                                                        $textColor = '#10b981';
-                                                    } else {
-                                                        $dotColor = '#dc2626';
-                                                        $lineColor = '#dc2626';
-                                                        $textColor = '#dc2626';
-                                                    }
-                                                @endphp
+                                                        if ($isRevisionStep) {
+                                                            $dotColor = '#2563eb';
+                                                            $lineColor = '#3b82f6';
+                                                            $textColor = '#2563eb';
+                                                        } elseif ($isReceived) {
+                                                            $dotColor = '#10b981';
+                                                            $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
+                                                            $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
+                                                            $textColor = '#10b981';
+                                                        } else {
+                                                            $dotColor = '#dc2626';
+                                                            $lineColor = '#dc2626';
+                                                            $textColor = '#dc2626';
+                                                        }
+                                                    @endphp
 
-                                                <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
-                                                    <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer;" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
-                                                        @if ($isRevisionStep)
-                                                            <i class="fa-solid fa-rotate-left" style="font-size: 9px;"></i>
-                                                        @elseif ($isReceived)
-                                                            <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                                        @else
-                                                            {{ $index + 1 }}
-                                                        @endif
+                                                    <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                        <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer;" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
+                                                            @if ($isRevisionStep)
+                                                                <i class="fa-solid fa-rotate-left" style="font-size: 9px;"></i>
+                                                            @elseif ($isReceived)
+                                                                <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                                            @else
+                                                                {{ $index + 1 }}
+                                                            @endif
+                                                        </div>
+
+                                                        <span style="margin-top: 3px; font-size: 9.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
+                                                            {{ $step->office_code }}
+                                                        </span>
                                                     </div>
 
-                                                    <span style="margin-top: 3px; font-size: 9.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
-                                                        {{ $step->office_code }}
-                                                    </span>
-                                                </div>
-
-                                                @if (!$loop->last)
-                                                    <div style="flex: 1; height: 3px; background: {{ $lineColor }}; min-width: 14px; margin: 0 -2px 12px -2px; border-radius: 2px; z-index: 1;"></div>
-                                                @endif
-                                            @empty
-                                                <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
-                                            @endforelse
-                                        </div>
+                                                    @if (!$loop->last)
+                                                        <div style="flex: 1; height: 3px; background: {{ $lineColor }}; min-width: 14px; margin: 0 -2px 12px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                    @endif
+                                                @empty
+                                                    <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                                @endforelse
+                                            </div>
+                                        @endif
                                     </div>
                                 @else
                                     <div style="margin-bottom: 6px;"><strong>Originator:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? 'N/A' }}</span></div>
@@ -3371,7 +3415,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
                                 @endif
 
-                                <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ $t->elapsed_days }} day(s)</span></div>
+                                <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->elapsed_days . ' day(s)') }}</span></div>
                             </div>
 
                             <!-- Card Footer action -->
@@ -3447,65 +3491,73 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 <!-- Timeline Indicator -->
                                 <div style="margin-bottom: 12px; background: #f8fafc; padding: 10px 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
                                     <strong style="display: block; margin-bottom: 6px; color: #334155; font-size: 12px;">Timeline:</strong>
-                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 0;">
-                                        @forelse ($t->timeline_path as $index => $step)
-                                            @php
-                                                $isReceived = !is_null($step->date_in) || $t->status === 'completed';
-                                                $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
-                                                $hasRevision = !empty($t->revision_requested_by_sequence);
-                                                $revReqSeq = $t->revision_requested_by_sequence ?? null;
-                                                $revType = $t->revision_resubmit_type ?? null;
-                                                $isRevisionStep = false;
-                                                if ($hasRevision) {
-                                                    $seq = $step->sequence_ranking;
-                                                    if ($seq == 1) {
-                                                        $isRevisionStep = true;
-                                                    } elseif ($seq == $revReqSeq) {
-                                                        $isRevisionStep = true;
-                                                    } elseif ($revType === 'start' && $seq > 1 && $seq < $revReqSeq) {
-                                                        $isRevisionStep = true;
+                                    @if(strtolower($t->status ?? '') === 'completed')
+                                        <div style="padding: 4px 0;">
+                                            <span style="font-weight: 600; color: #16a34a; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
+                                                <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
+                                            </span>
+                                        </div>
+                                    @else
+                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 0;">
+                                            @forelse ($t->timeline_path as $index => $step)
+                                                @php
+                                                    $isReceived = !is_null($step->date_in) || $t->status === 'completed';
+                                                    $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
+                                                    $hasRevision = !empty($t->revision_requested_by_sequence);
+                                                    $revReqSeq = $t->revision_requested_by_sequence ?? null;
+                                                    $revType = $t->revision_resubmit_type ?? null;
+                                                    $isRevisionStep = false;
+                                                    if ($hasRevision) {
+                                                        $seq = $step->sequence_ranking;
+                                                        if ($seq == 1) {
+                                                            $isRevisionStep = true;
+                                                        } elseif ($seq == $revReqSeq) {
+                                                            $isRevisionStep = true;
+                                                        } elseif ($revType === 'start' && $seq > 1 && $seq < $revReqSeq) {
+                                                            $isRevisionStep = true;
+                                                        }
                                                     }
-                                                }
 
-                                                if ($isRevisionStep) {
-                                                    $dotColor = '#2563eb';
-                                                    $lineColor = '#3b82f6';
-                                                    $textColor = '#2563eb';
-                                                } elseif ($isReceived) {
-                                                    $dotColor = '#10b981';
-                                                    $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
-                                                    $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
-                                                    $textColor = '#10b981';
-                                                } else {
-                                                    $dotColor = '#dc2626';
-                                                    $lineColor = '#dc2626';
-                                                    $textColor = '#dc2626';
-                                                }
-                                            @endphp
+                                                    if ($isRevisionStep) {
+                                                        $dotColor = '#2563eb';
+                                                        $lineColor = '#3b82f6';
+                                                        $textColor = '#2563eb';
+                                                    } elseif ($isReceived) {
+                                                        $dotColor = '#10b981';
+                                                        $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
+                                                        $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
+                                                        $textColor = '#10b981';
+                                                    } else {
+                                                        $dotColor = '#dc2626';
+                                                        $lineColor = '#dc2626';
+                                                        $textColor = '#dc2626';
+                                                    }
+                                                @endphp
 
-                                            <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
-                                                <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer;" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
-                                                    @if ($isRevisionStep)
-                                                        <i class="fa-solid fa-rotate-left" style="font-size: 9px;"></i>
-                                                    @elseif ($isReceived)
-                                                        <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                                    @else
-                                                        {{ $index + 1 }}
-                                                    @endif
+                                                <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                    <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer;" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
+                                                        @if ($isRevisionStep)
+                                                            <i class="fa-solid fa-rotate-left" style="font-size: 9px;"></i>
+                                                        @elseif ($isReceived)
+                                                            <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                                        @else
+                                                            {{ $index + 1 }}
+                                                        @endif
+                                                    </div>
+
+                                                    <span style="margin-top: 3px; font-size: 9.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
+                                                        {{ $step->office_code }}
+                                                    </span>
                                                 </div>
 
-                                                <span style="margin-top: 3px; font-size: 9.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
-                                                    {{ $step->office_code }}
-                                                </span>
-                                            </div>
-
-                                            @if (!$loop->last)
-                                                <div style="flex: 1; height: 3px; background: {{ $lineColor }}; min-width: 14px; margin: 0 -2px 12px -2px; border-radius: 2px; z-index: 1;"></div>
-                                            @endif
-                                        @empty
-                                            <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
-                                        @endforelse
-                                    </div>
+                                                @if (!$loop->last)
+                                                    <div style="flex: 1; height: 3px; background: {{ $lineColor }}; min-width: 14px; margin: 0 -2px 12px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                @endif
+                                            @empty
+                                                <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                            @endforelse
+                                        </div>
+                                    @endif
                                 </div>
                             @else
                                 <div style="margin-bottom: 6px;"><strong>Originator:</strong> <span style="color: #ef4444; font-weight: 500;">{{ $t->originated_office_name ?? 'N/A' }}</span></div>
@@ -3514,7 +3566,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                 <div style="margin-bottom: 6px;"><strong>Action Needed:</strong> <span style="color: #16a34a; font-weight: 600;">{{ $t->action_needed ?? 'For action' }}</span></div>
                             @endif
 
-                            <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ $t->elapsed_days }} day(s)</span></div>
+                            <div style="margin-bottom: 6px;"><strong>Elapsed Day:</strong> <span style="color: #ef4444; font-style: italic;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->elapsed_days . ' day(s)') }}</span></div>
                         </div>
 
                         <!-- Card Footer action -->

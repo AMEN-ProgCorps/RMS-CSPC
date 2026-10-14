@@ -1094,7 +1094,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 <!-- Full-width Clarification Badge -->
                 <div class="settings-clarification-badge" style="margin-top: 8px;">
                     <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-top: 2px;"></i>
-                    <span><strong>Clarification:</strong> Follow Scroll is <strong>disabled by default</strong>. When active, scrolling speed scales smoothly with edge proximity (closer to the edge or corner = faster scroll). Upward auto-scroll is disabled while hovering over the top header bar to protect navigation and controls.</span>
+                    <span><strong>Clarification:</strong> Follow Scroll is <strong>disabled by default</strong>. When active, scrolling speed scales smoothly with edge proximity (closer to the edge or corner = faster scroll). Upward auto-scroll is disabled while hovering over the top header bar to protect navigation and controls. Supported across Admin Console, DTS, and RDP (excluded on Document Control System / DCS).</span>
                 </div>
             </div>
         </div>

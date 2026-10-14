@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Auth;
 new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Section')] class extends Component {
     public string $type = '';
     public string $search = '';
+    public string $sortBy = 'item_no';
     public ?object $typeRecord = null;
 
     public function mount(string $type): void
@@ -83,6 +84,63 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
             $oKey = $r->recorded_at_office ? ('o_' . $r->recorded_at_office) : 'no_office';
             $byBracketAndOffice[$bKey][$oKey][] = $r;
         }
+
+        // Keep brackets in natural document order (by minimum item number)
+        uasort($byBracketAndOffice, function ($officesA, $officesB) {
+            $minA = PHP_INT_MAX;
+            foreach ($officesA as $items) {
+                foreach ($items as $item) {
+                    if ($item->item_number !== null && $item->item_number < $minA) {
+                        $minA = (int) $item->item_number;
+                    }
+                }
+            }
+            $minB = PHP_INT_MAX;
+            foreach ($officesB as $items) {
+                foreach ($items as $item) {
+                    if ($item->item_number !== null && $item->item_number < $minB) {
+                        $minB = (int) $item->item_number;
+                    }
+                }
+            }
+            if ($minA !== $minB) {
+                return $minA <=> $minB;
+            }
+            $firstOfficeA = reset($officesA);
+            $firstItemA = $firstOfficeA ? reset($firstOfficeA) : null;
+            $firstOfficeB = reset($officesB);
+            $firstItemB = $firstOfficeB ? reset($firstOfficeB) : null;
+            $bNameA = $firstItemA->bracket_name ?? '';
+            $bNameB = $firstItemB->bracket_name ?? '';
+            return strcasecmp((string)$bNameA, (string)$bNameB);
+        });
+
+        // Within each bracket, sort office groups by their minimum item number
+        foreach ($byBracketAndOffice as $bKey => &$offices) {
+            uasort($offices, function ($itemsA, $itemsB) {
+                $minA = PHP_INT_MAX;
+                foreach ($itemsA as $item) {
+                    if ($item->item_number !== null && $item->item_number < $minA) {
+                        $minA = (int) $item->item_number;
+                    }
+                }
+                $minB = PHP_INT_MAX;
+                foreach ($itemsB as $item) {
+                    if ($item->item_number !== null && $item->item_number < $minB) {
+                        $minB = (int) $item->item_number;
+                    }
+                }
+                if ($minA !== $minB) {
+                    return $minA <=> $minB;
+                }
+                $firstA = reset($itemsA);
+                $firstB = reset($itemsB);
+                $nameA = $firstA->recorded_office_name ?? ($firstA->recorded_at_office ?? '');
+                $nameB = $firstB->recorded_office_name ?? ($firstB->recorded_at_office ?? '');
+                return strcasecmp((string)$nameA, (string)$nameB);
+            });
+        }
+        unset($offices);
 
         $finalOrdered = [];
 
@@ -224,12 +282,31 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
             $baseQuery->whereIn('rdp_record_series.id', array_keys($includedIds));
         }
 
-        $allFetched = $baseQuery->orderByRaw('
-            rdp_record_series_brackets.bracket_name ASC NULLS LAST,
-            office.office_name ASC NULLS LAST,
-            rdp_record_series.item_number ASC NULLS LAST,
-            rdp_record_series.series_title ASC
-        ')->get();
+        $sortBy = in_array($this->sortBy, ['item_no', 'alphabetical', 'time_added'], true)
+            ? $this->sortBy
+            : 'item_no';
+
+        switch ($sortBy) {
+            case 'alphabetical':
+                $baseQuery->orderByRaw('
+                    rdp_record_series.series_title ASC
+                ');
+                break;
+            case 'time_added':
+                $baseQuery->orderByRaw('
+                    rdp_record_series.created_at DESC NULLS LAST,
+                    rdp_record_series.id DESC
+                ');
+                break;
+            case 'item_no':
+            default:
+                $baseQuery->orderByRaw('
+                    rdp_record_series.item_number ASC NULLS LAST,
+                    rdp_record_series.series_title ASC
+                ');
+        }
+
+        $allFetched = $baseQuery->get();
 
         $treeOrdered = $this->buildGroupedTreeHierarchy($allFetched->all());
 
@@ -295,7 +372,35 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
         .ref-search-box {
             display: flex;
             align-items: center;
-            gap: 10px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .ref-sort-box {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .ref-sort-label {
+            font-size: 13px;
+            font-weight: 700;
+            color: #475569;
+            white-space: nowrap;
+        }
+        .ref-sort-select {
+            padding: 9.5px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 13.5px;
+            font-weight: 600;
+            color: #1e293b;
+            background: #ffffff;
+            outline: none;
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .ref-sort-select:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
         }
         .ref-search-input {
             width: 320px;
@@ -348,6 +453,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
             color: #f8fafc !important;
         }
 
+        [data-theme="dark"] .ref-sort-label {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .ref-sort-select {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+
         [data-theme="dark"] .ref-clear-btn {
             background: #1e293b !important;
             border-color: #334155 !important;
@@ -395,6 +510,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Reference Se
             </p>
         </div>
         <div class="ref-search-box">
+            <div class="ref-sort-box">
+                <span class="ref-sort-label">Sort by:</span>
+                <select wire:model.live="sortBy" class="ref-sort-select" title="Sort record series">
+                    <option value="item_no">Item No. (Default)</option>
+                    <option value="alphabetical">Alphabetical (A-Z)</option>
+                    <option value="time_added">Time Added (Newest)</option>
+                </select>
+            </div>
             <input type="text" wire:model.live.debounce.250ms="search" class="ref-search-input" placeholder="Search item number, title, bracket, office...">
             @if(!empty($search))
                 <button wire:click="clearSearch" class="ref-clear-btn">Clear</button>

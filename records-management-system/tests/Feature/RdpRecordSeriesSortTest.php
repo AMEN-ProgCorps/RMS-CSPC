@@ -31,9 +31,18 @@ class RdpRecordSeriesSortTest extends TestCase
     {
         parent::setUp();
 
-        $admin = User::find(1);
+        $admin = User::whereHas('permissions', fn ($q) => $q->where('is_sadm', true)->orWhere('can_access_rdp_admin', true))->first();
+        if (!$admin) {
+            $admin = User::first();
+            if ($admin) {
+                DB::table('sys_permissions')->updateOrInsert(
+                    ['key_id' => $admin->id],
+                    ['is_sadm' => true, 'can_access_rdp_admin' => true]
+                );
+            }
+        }
         if ($admin) {
-            Auth::login($admin);
+            $this->actingAs($admin);
         }
 
         $this->cleanup();
@@ -109,12 +118,11 @@ class RdpRecordSeriesSortTest extends TestCase
         return $titles;
     }
 
-    public function test_sort_selector_renders_all_options_and_defaults_to_grouped(): void
+    public function test_sort_selector_renders_all_options_and_defaults_to_item_no(): void
     {
         Volt::test('pages.admin.rdp.record-series')
-            ->assertSet('sortBy', 'default')
+            ->assertSet('sortBy', 'item_no')
             ->assertSee('Sort by')
-            ->assertSee('value="default"', false)
             ->assertSee('value="item_no"', false)
             ->assertSee('value="alphabetical"', false)
             ->assertSee('value="time_added"', false);
@@ -124,21 +132,11 @@ class RdpRecordSeriesSortTest extends TestCase
     {
         Volt::test('pages.admin.rdp.record-series')
             ->set('paginators', ['page' => 3])
-            ->set('sortBy', 'item_no')
+            ->set('sortBy', 'alphabetical')
             ->assertSet('paginators', ['page' => 1]);
     }
 
-    public function test_default_sort_lists_all_rows(): void
-    {
-        $titles = $this->renderedTitles('default');
-
-        $this->assertEqualsCanonicalizing(
-            [self::TITLE_AAA, self::TITLE_MMM, self::TITLE_ZZZ],
-            $titles
-        );
-    }
-
-    public function test_sort_by_item_number(): void
+    public function test_default_sort_by_item_number(): void
     {
         $this->assertSame(
             [self::TITLE_MMM, self::TITLE_AAA, self::TITLE_ZZZ],
@@ -186,5 +184,71 @@ class RdpRecordSeriesSortTest extends TestCase
 
         $this->assertNotEmpty($defaultIds);
         $this->assertSame($defaultIds, $fallbackIds);
+    }
+
+    public function test_offices_within_bracket_are_ordered_by_item_number_not_alphabetical_office_name(): void
+    {
+        $bracketId = DB::table('rdp_record_series_brackets')->insertGetId([
+            'bracket_name' => 'BRACKET ORDER TEST ' . uniqid(),
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // Insert items where an office without a sys_office entry has a lower item number (23)
+        // than an office with a sys_office entry (33)
+        $idAcademic = DB::table('rdp_record_series')->insertGetId([
+            'series_title' => 'ACADEMIC DEPT ITEM ' . uniqid(),
+            'item_number' => 23,
+            'bracket_id' => $bracketId,
+            'recorded_at_office' => 'ACADEMIC DEPARTMENT',
+            'series_type' => $this->typeId,
+            'is_active' => true,
+            'is_verified' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $idGuidance = DB::table('rdp_record_series')->insertGetId([
+            'series_title' => 'GUIDANCE ITEM ' . uniqid(),
+            'item_number' => 33,
+            'bracket_id' => $bracketId,
+            'recorded_at_office' => 'Guidance',
+            'series_type' => $this->typeId,
+            'is_active' => true,
+            'is_verified' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $idDev = DB::table('rdp_record_series')->insertGetId([
+            'series_title' => 'DEV ITEM ' . uniqid(),
+            'item_number' => 39,
+            'bracket_id' => $bracketId,
+            'recorded_at_office' => 'Dev',
+            'series_type' => $this->typeId,
+            'is_active' => true,
+            'is_verified' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        try {
+            $renderedIds = [];
+            Volt::test('pages.admin.rdp.record-series')
+                ->call('selectTab', (string) $this->typeId)
+                ->set('sortBy', 'item_no')
+                ->assertViewHas('records', function ($records) use (&$renderedIds, $idAcademic, $idGuidance, $idDev) {
+                    $ids = array_column($records->items(), 'id');
+                    $renderedIds = array_values(array_filter($ids, fn ($id) => in_array($id, [$idAcademic, $idGuidance, $idDev])));
+                    return true;
+                });
+
+            // Academic Department (Item 23) must precede Guidance (Item 33) and Dev (Item 39)
+            $this->assertSame([$idAcademic, $idGuidance, $idDev], $renderedIds);
+        } finally {
+            DB::table('rdp_record_series')->whereIn('id', [$idAcademic, $idGuidance, $idDev])->delete();
+            DB::table('rdp_record_series_brackets')->where('id', $bracketId)->delete();
+        }
     }
 }

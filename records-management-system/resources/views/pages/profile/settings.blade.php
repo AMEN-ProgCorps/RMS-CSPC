@@ -50,6 +50,15 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
     /** @var string|null Feedback notification message */
     public ?string $feedbackMessage = null;
 
+    /** @var bool Personal preference for universal edge follow scroll */
+    public bool $followScrollEnabled = false;
+
+    /** @var bool Personal preference for horizontal (side) edge follow scroll */
+    public bool $followScrollSide = true;
+
+    /** @var bool Personal preference for vertical (up/down) edge follow scroll */
+    public bool $followScrollVertical = false;
+
     public ?int $currentRoleId = null;
     public array $currentPermissions = [];
 
@@ -76,6 +85,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $this->actionToggleKey = $user->actionToggleKey();
             $this->notificationToggleKey = $user->notificationToggleKey();
             $this->chatifyToggleKey = $user->chatifyToggleKey();
+            $this->followScrollEnabled = $user->followScrollEnabled();
+            $this->followScrollSide = $user->followScrollSide();
+            $this->followScrollVertical = $user->followScrollVertical();
             // Inventory column prefs: full DCS / RFIO / super-admin only — never limited office DCS users.
             $this->canManageDcsDbColumns = RegisterQueryHelper::isFullDcsUser();
             $this->dcsDbVisibleGroups = $this->canManageDcsDbColumns
@@ -148,6 +160,60 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $this->feedbackMessage = 'Theme preference updated to ' . ucfirst($theme) . ' Mode.';
             $this->js("localStorage.setItem('rms-theme', '{$theme}'); document.documentElement.setAttribute('data-theme', '{$theme}'); document.cookie = 'rms_theme={$theme}; path=/; max-age=31536000; SameSite=Lax'; document.cookie = 'dark_mode=" . ($theme === 'dark' ? 'enabled' : 'disabled') . "; path=/; max-age=31536000; SameSite=Lax';");
             $this->dispatch('rms-settings-changed', type: 'theme_change', message: 'Theme updated to ' . ucfirst($theme) . ' Mode.');
+        }
+    }
+
+    public function toggleFollowScroll(): void
+    {
+        $user = Auth::user();
+        if ($user) {
+            $setting = PersonalSetting::firstOrCreate(
+                ['user' => $user->id],
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true, 'theme' => 'light', 'modal_close_key' => 'Escape']
+            );
+            $setting->follow_scroll_enabled = !((bool)($setting->follow_scroll_enabled ?? false));
+            $setting->save();
+            $this->followScrollEnabled = (bool) $setting->follow_scroll_enabled;
+            $val = $this->followScrollEnabled ? 'true' : 'false';
+            $this->feedbackMessage = 'Preference updated: Follow Scroll ' . ($this->followScrollEnabled ? 'enabled' : 'disabled') . '.';
+            $this->js("localStorage.setItem('rms-follow-scroll-enabled', '{$val}'); window.RMS_FOLLOW_SCROLL_ENABLED = {$val}; window.dispatchEvent(new CustomEvent('rms-follow-scroll-changed', { detail: { enabled: {$val} } }));");
+            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Follow Scroll preference updated.');
+        }
+    }
+
+    public function toggleFollowScrollSide(): void
+    {
+        $user = Auth::user();
+        if ($user) {
+            $setting = PersonalSetting::firstOrCreate(
+                ['user' => $user->id],
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true, 'theme' => 'light', 'modal_close_key' => 'Escape']
+            );
+            $setting->follow_scroll_side = !((bool)($setting->follow_scroll_side ?? true));
+            $setting->save();
+            $this->followScrollSide = (bool) $setting->follow_scroll_side;
+            $val = $this->followScrollSide ? 'true' : 'false';
+            $this->feedbackMessage = 'Preference updated: Side Follow Scroll ' . ($this->followScrollSide ? 'enabled' : 'disabled') . '.';
+            $this->js("localStorage.setItem('rms-follow-scroll-side', '{$val}'); window.RMS_FOLLOW_SCROLL_SIDE = {$val}; window.dispatchEvent(new CustomEvent('rms-follow-scroll-changed', { detail: { side: {$val} } }));");
+            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Side Follow Scroll preference updated.');
+        }
+    }
+
+    public function toggleFollowScrollVertical(): void
+    {
+        $user = Auth::user();
+        if ($user) {
+            $setting = PersonalSetting::firstOrCreate(
+                ['user' => $user->id],
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true, 'theme' => 'light', 'modal_close_key' => 'Escape']
+            );
+            $setting->follow_scroll_vertical = !((bool)($setting->follow_scroll_vertical ?? false));
+            $setting->save();
+            $this->followScrollVertical = (bool) $setting->follow_scroll_vertical;
+            $val = $this->followScrollVertical ? 'true' : 'false';
+            $this->feedbackMessage = 'Preference updated: Up/Down Follow Scroll ' . ($this->followScrollVertical ? 'enabled' : 'disabled') . '.';
+            $this->js("localStorage.setItem('rms-follow-scroll-vertical', '{$val}'); window.RMS_FOLLOW_SCROLL_VERTICAL = {$val}; window.dispatchEvent(new CustomEvent('rms-follow-scroll-changed', { detail: { vertical: {$val} } }));");
+            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Up/Down Follow Scroll preference updated.');
         }
     }
 
@@ -764,6 +830,51 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             background: #1e293b !important;
             color: #f8fafc !important;
         }
+
+        /* Follow Scroll Styles */
+        .follow-scroll-subbox {
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 14px 16px;
+            background: rgba(37, 99, 235, 0.04);
+            border: 1px solid rgba(37, 99, 235, 0.15);
+            border-radius: 10px;
+            transition: all 0.25s ease;
+        }
+        .follow-scroll-subbox--disabled {
+            background: rgba(148, 163, 184, 0.06) !important;
+            border-color: rgba(203, 213, 225, 0.6) !important;
+            opacity: 0.6;
+        }
+        [data-theme="dark"] .follow-scroll-subbox {
+            background: rgba(30, 41, 59, 0.45) !important;
+            border-color: #334155 !important;
+        }
+        [data-theme="dark"] .follow-scroll-subbox--disabled {
+            background: rgba(15, 23, 42, 0.4) !important;
+            border-color: #1e293b !important;
+        }
+        .follow-scroll-subtext {
+            font-size: 13.5px;
+            font-weight: 600;
+            color: #1e293b;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-family: 'Inter', sans-serif;
+        }
+        [data-theme="dark"] .follow-scroll-subtext {
+            color: #f1f5f9 !important;
+        }
+        .follow-scroll-divider {
+            height: 1px;
+            background: rgba(37, 99, 235, 0.1);
+        }
+        [data-theme="dark"] .follow-scroll-divider {
+            background: rgba(51, 65, 85, 0.6) !important;
+        }
     </style>
 @endpush
 
@@ -919,6 +1030,71 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 <div class="settings-clarification-badge" style="margin-top: 6px;">
                     <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-top: 2px;"></i>
                     <span><strong>Clarification:</strong> Dark Mode is currently supported across <strong>Admin Console</strong>, <strong>Profile Manager</strong>, <strong>Document Tracking System (DTS)</strong>, <strong>Records Disposition Program (RDP)</strong>, and <strong>Document Control System (DCS)</strong>.</span>
+                </div>
+            </div>
+
+            <!-- Follow Scroll (Universal Edge Auto-Scroll) -->
+            <div class="settings-block-row" style="border-top: 1px solid var(--border-color, #f1f5f9); padding-top: 18px; margin-top: 14px;">
+                <div class="settings-row-header">
+                    <span class="settings-info-title">
+                        <i class="fa-solid fa-arrows-up-down-left-right" style="color: #2563eb; margin-right: 8px; font-size: 14px;"></i>
+                        Follow Scroll (Edge Auto-Scroll)
+                    </span>
+                    <button type="button" wire:click="toggleFollowScroll" role="switch" aria-checked="{{ $followScrollEnabled ? 'true' : 'false' }}"
+                        style="position: relative; display: inline-flex; width: 48px; height: 26px; border: none; cursor: pointer; background-color: {{ $followScrollEnabled ? '#2563eb' : '#cbd5e1' }}; transition: background-color 0.25s ease; border-radius: 26px; padding: 0; outline: none; flex-shrink: 0;">
+                        <span style="position: absolute; top: 3px; left: {{ $followScrollEnabled ? '25px' : '3px' }}; width: 20px; height: 20px; background-color: #ffffff; border-radius: 50%; transition: left 0.25s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"></span>
+                    </button>
+                </div>
+                <span class="settings-info-desc">
+                    Automatically scroll pages and wide data tables when moving your mouse cursor near the screen edges and corners. Useful for navigating wide tables and content when scrollbars are hidden.
+                </span>
+
+                <!-- Sub-options for Follow Scroll (active when Follow Scroll is enabled) -->
+                <div class="follow-scroll-subbox {{ !$followScrollEnabled ? 'follow-scroll-subbox--disabled' : '' }}">
+                    
+                    <!-- Side (Horizontal) Auto-Scroll Toggle -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                        <div>
+                            <span class="follow-scroll-subtext">
+                                <i class="fa-solid fa-arrows-left-right" style="color: #2563eb; font-size: 13px;"></i>
+                                Side (Horizontal) Auto-Scroll
+                                <span style="font-size: 11px; padding: 2px 7px; background: #e0f2fe; color: #0369a1; border-radius: 6px; font-weight: 500;">Default ON</span>
+                            </span>
+                            <span class="settings-info-desc" style="font-size: 12.5px; margin-top: 2px;">
+                                Auto-scroll left and right when moving your cursor to the sides of wide data tables and views.
+                            </span>
+                        </div>
+                        <button type="button" wire:click="toggleFollowScrollSide" role="switch" @disabled(!$followScrollEnabled) aria-checked="{{ $followScrollSide ? 'true' : 'false' }}"
+                            style="position: relative; display: inline-flex; width: 44px; height: 24px; border: none; cursor: {{ $followScrollEnabled ? 'pointer' : 'not-allowed' }}; background-color: {{ $followScrollSide && $followScrollEnabled ? '#2563eb' : '#cbd5e1' }}; transition: background-color 0.25s ease; border-radius: 24px; padding: 0; outline: none; flex-shrink: 0;">
+                            <span style="position: absolute; top: 2px; left: {{ $followScrollSide && $followScrollEnabled ? '22px' : '2px' }}; width: 20px; height: 20px; background-color: #ffffff; border-radius: 50%; transition: left 0.25s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"></span>
+                        </button>
+                    </div>
+
+                    <div class="follow-scroll-divider"></div>
+
+                    <!-- Up / Down (Vertical) Auto-Scroll Toggle -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                        <div>
+                            <span class="follow-scroll-subtext">
+                                <i class="fa-solid fa-arrows-up-down" style="color: #2563eb; font-size: 13px;"></i>
+                                Up / Down (Vertical) Auto-Scroll
+                                <span style="font-size: 11px; padding: 2px 7px; background: #f1f5f9; color: #64748b; border-radius: 6px; font-weight: 500;">Default OFF</span>
+                            </span>
+                            <span class="settings-info-desc" style="font-size: 12.5px; margin-top: 2px;">
+                                Auto-scroll vertically when hovering near the bottom or top of the page (below the header).
+                            </span>
+                        </div>
+                        <button type="button" wire:click="toggleFollowScrollVertical" role="switch" @disabled(!$followScrollEnabled) aria-checked="{{ $followScrollVertical ? 'true' : 'false' }}"
+                            style="position: relative; display: inline-flex; width: 44px; height: 24px; border: none; cursor: {{ $followScrollEnabled ? 'pointer' : 'not-allowed' }}; background-color: {{ $followScrollVertical && $followScrollEnabled ? '#2563eb' : '#cbd5e1' }}; transition: background-color 0.25s ease; border-radius: 24px; padding: 0; outline: none; flex-shrink: 0;">
+                            <span style="position: absolute; top: 2px; left: {{ $followScrollVertical && $followScrollEnabled ? '22px' : '2px' }}; width: 20px; height: 20px; background-color: #ffffff; border-radius: 50%; transition: left 0.25s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Full-width Clarification Badge -->
+                <div class="settings-clarification-badge" style="margin-top: 8px;">
+                    <i class="fa-solid fa-circle-info" style="color: #2563eb; margin-top: 2px;"></i>
+                    <span><strong>Clarification:</strong> Follow Scroll is <strong>disabled by default</strong>. When active, scrolling speed scales smoothly with edge proximity (closer to the edge or corner = faster scroll). Upward auto-scroll is disabled while hovering over the top header bar to protect navigation and controls.</span>
                 </div>
             </div>
         </div>

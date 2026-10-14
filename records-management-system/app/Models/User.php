@@ -164,6 +164,24 @@ class User extends Authenticatable
         );
     }
 
+    public function followScrollEnabled(): bool
+    {
+        $setting = $this->personalSetting;
+        return $setting ? (bool)($setting->follow_scroll_enabled ?? false) : false;
+    }
+
+    public function followScrollSide(): bool
+    {
+        $setting = $this->personalSetting;
+        return $setting ? (bool)($setting->follow_scroll_side ?? true) : true;
+    }
+
+    public function followScrollVertical(): bool
+    {
+        $setting = $this->personalSetting;
+        return $setting ? (bool)($setting->follow_scroll_vertical ?? false) : false;
+    }
+
     public function permissions(): HasOneThrough
     {
         return $this->hasOneThrough(

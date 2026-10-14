@@ -1200,3 +1200,260 @@ window.setupIconModeInteractions = setupIconModeInteractions;
         if (e.target) disableGrammarly(e.target);
     }, true);
 })();
+
+// Universal Follow Scroll Engine (Edge / Corner Proximity Auto-Scroll)
+(function () {
+    const EDGE_THRESHOLD = 65; // Trigger zone distance in pixels from viewport edge
+    const MIN_SPEED = 2;       // Starting speed at outer boundary of trigger zone
+    const MAX_SPEED = 30;      // Top speed right against the screen edge/corner
+
+    let mouseX = -1;
+    let mouseY = -1;
+    let isInside = false;
+    let animFrameId = null;
+
+    function getSettings() {
+        let enabled = false;
+        let side = true;
+        let vertical = false;
+
+        if (typeof window.RMS_FOLLOW_SCROLL_ENABLED !== 'undefined') {
+            enabled = Boolean(window.RMS_FOLLOW_SCROLL_ENABLED);
+        } else {
+            const stored = localStorage.getItem('rms-follow-scroll-enabled');
+            enabled = stored === 'true';
+        }
+
+        if (typeof window.RMS_FOLLOW_SCROLL_SIDE !== 'undefined') {
+            side = Boolean(window.RMS_FOLLOW_SCROLL_SIDE);
+        } else {
+            const stored = localStorage.getItem('rms-follow-scroll-side');
+            side = stored === null ? true : stored === 'true';
+        }
+
+        if (typeof window.RMS_FOLLOW_SCROLL_VERTICAL !== 'undefined') {
+            vertical = Boolean(window.RMS_FOLLOW_SCROLL_VERTICAL);
+        } else {
+            const stored = localStorage.getItem('rms-follow-scroll-vertical');
+            vertical = stored === 'true';
+        }
+
+        return { enabled, side, vertical };
+    }
+
+    function canScrollX(el, dirX) {
+        if (!el || el === document.documentElement || el === document.body) return false;
+        const style = window.getComputedStyle(el);
+        const overflowX = style.overflowX;
+        if (overflowX !== 'auto' && overflowX !== 'scroll' && overflowX !== 'overlay' && el.id !== 'article-container') {
+            return false;
+        }
+        if (el.scrollWidth <= el.clientWidth + 2) return false;
+        if (dirX > 0) {
+            return el.scrollLeft < (el.scrollWidth - el.clientWidth - 2);
+        } else {
+            return el.scrollLeft > 2;
+        }
+    }
+
+    function canScrollY(el, dirY) {
+        if (!el || el === document.documentElement || el === document.body) return false;
+        const style = window.getComputedStyle(el);
+        const overflowY = style.overflowY;
+        if (overflowY !== 'auto' && overflowY !== 'scroll' && overflowY !== 'overlay' && el.id !== 'article-container') {
+            return false;
+        }
+        if (el.scrollHeight <= el.clientHeight + 2) return false;
+        if (dirY > 0) {
+            return el.scrollTop < (el.scrollHeight - el.clientHeight - 2);
+        } else {
+            return el.scrollTop > 2;
+        }
+    }
+
+    function getHorizontalTarget(hitEl, dirX) {
+        if (!dirX) return null;
+        let curr = hitEl;
+        while (curr && curr !== document.documentElement && curr !== document.body) {
+            if (canScrollX(curr, dirX)) {
+                return curr;
+            }
+            curr = curr.parentElement;
+        }
+        const articleContainer = document.getElementById('article-container');
+        if (articleContainer && canScrollX(articleContainer, dirX)) {
+            return articleContainer;
+        }
+        const root = document.scrollingElement || document.documentElement || document.body;
+        const maxScroll = Math.max(document.body.scrollWidth, document.documentElement.scrollWidth) - window.innerWidth;
+        const currentScroll = window.pageXOffset || root.scrollLeft;
+        if (maxScroll > 2) {
+            if (dirX > 0 && currentScroll < maxScroll - 2) return window;
+            if (dirX < 0 && currentScroll > 2) return window;
+        }
+        return null;
+    }
+
+    function getVerticalTarget(hitEl, dirY) {
+        if (!dirY) return null;
+        let curr = hitEl;
+        while (curr && curr !== document.documentElement && curr !== document.body) {
+            if (canScrollY(curr, dirY)) {
+                return curr;
+            }
+            curr = curr.parentElement;
+        }
+        const articleContainer = document.getElementById('article-container');
+        if (articleContainer && canScrollY(articleContainer, dirY)) {
+            return articleContainer;
+        }
+        const root = document.scrollingElement || document.documentElement || document.body;
+        const maxScroll = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight) - window.innerHeight;
+        const currentScroll = window.pageYOffset || root.scrollTop;
+        if (maxScroll > 2) {
+            if (dirY > 0 && currentScroll < maxScroll - 2) return window;
+            if (dirY < 0 && currentScroll > 2) return window;
+        }
+        return null;
+    }
+
+    function calculateScrollDeltas(x, y, config) {
+        let speedX = 0;
+        let speedY = 0;
+        let dirX = 0;
+        let dirY = 0;
+
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        // Side (horizontal) auto-scroll
+        if (config.side) {
+            if (x >= 0 && x < EDGE_THRESHOLD) {
+                dirX = -1;
+                const dist = Math.max(0, x);
+                const intensity = Math.max(0, Math.min(1, (EDGE_THRESHOLD - dist) / EDGE_THRESHOLD));
+                speedX = -Math.round(MIN_SPEED + Math.pow(intensity, 1.4) * (MAX_SPEED - MIN_SPEED));
+            } else if (x > vw - EDGE_THRESHOLD && x <= vw) {
+                dirX = 1;
+                const dist = Math.max(0, vw - x);
+                const intensity = Math.max(0, Math.min(1, (EDGE_THRESHOLD - dist) / EDGE_THRESHOLD));
+                speedX = Math.round(MIN_SPEED + Math.pow(intensity, 1.4) * (MAX_SPEED - MIN_SPEED));
+            }
+        }
+
+        // Up/down (vertical) auto-scroll
+        if (config.vertical) {
+            const header = document.querySelector('header');
+            const headerBottom = header ? header.getBoundingClientRect().bottom : 70;
+
+            // Only scroll up if cursor is BELOW the header bar and within the top threshold zone
+            if (y > headerBottom && y < headerBottom + EDGE_THRESHOLD) {
+                dirY = -1;
+                const dist = Math.max(0, y - headerBottom);
+                const intensity = Math.max(0, Math.min(1, (EDGE_THRESHOLD - dist) / EDGE_THRESHOLD));
+                speedY = -Math.round(MIN_SPEED + Math.pow(intensity, 1.4) * (MAX_SPEED - MIN_SPEED));
+            } else if (y > vh - EDGE_THRESHOLD && y <= vh) {
+                dirY = 1;
+                const dist = Math.max(0, vh - y);
+                const intensity = Math.max(0, Math.min(1, (EDGE_THRESHOLD - dist) / EDGE_THRESHOLD));
+                speedY = Math.round(MIN_SPEED + Math.pow(intensity, 1.4) * (MAX_SPEED - MIN_SPEED));
+            }
+        }
+
+        return { speedX, speedY, dirX, dirY };
+    }
+
+    function scrollStep() {
+        const config = getSettings();
+        if (!config.enabled || !isInside) {
+            animFrameId = null;
+            return;
+        }
+
+        const { speedX, speedY, dirX, dirY } = calculateScrollDeltas(mouseX, mouseY, config);
+
+        if (speedX === 0 && speedY === 0) {
+            animFrameId = null;
+            return;
+        }
+
+        const clampedX = Math.max(2, Math.min(window.innerWidth - 3, mouseX));
+        const clampedY = Math.max(2, Math.min(window.innerHeight - 3, mouseY));
+        const hitEl = document.elementFromPoint(clampedX, clampedY);
+
+        if (speedX !== 0) {
+            const targetX = getHorizontalTarget(hitEl, dirX);
+            if (targetX === window) {
+                window.scrollBy({ left: speedX, behavior: 'auto' });
+            } else if (targetX) {
+                targetX.scrollLeft += speedX;
+            }
+        }
+
+        if (speedY !== 0) {
+            const targetY = getVerticalTarget(hitEl, dirY);
+            if (targetY === window) {
+                window.scrollBy({ top: speedY, behavior: 'auto' });
+            } else if (targetY) {
+                targetY.scrollTop += speedY;
+            }
+        }
+
+        animFrameId = requestAnimationFrame(scrollStep);
+    }
+
+    function triggerScrollLoop() {
+        const config = getSettings();
+        if (!config.enabled || !isInside) return;
+
+        const { speedX, speedY } = calculateScrollDeltas(mouseX, mouseY, config);
+        if ((speedX !== 0 || speedY !== 0) && !animFrameId) {
+            animFrameId = requestAnimationFrame(scrollStep);
+        }
+    }
+
+    window.addEventListener('mousemove', (e) => {
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+        isInside = true;
+        triggerScrollLoop();
+    }, { passive: true });
+
+    document.addEventListener('mouseleave', () => {
+        isInside = false;
+        if (animFrameId) {
+            cancelAnimationFrame(animFrameId);
+            animFrameId = null;
+        }
+    });
+
+    window.addEventListener('blur', () => {
+        isInside = false;
+        if (animFrameId) {
+            cancelAnimationFrame(animFrameId);
+            animFrameId = null;
+        }
+    });
+
+    // Real-time synchronization when toggled in preferences
+    const updateFollowScrollPrefs = (e) => {
+        if (e?.detail) {
+            if (typeof e.detail.enabled !== 'undefined') window.RMS_FOLLOW_SCROLL_ENABLED = e.detail.enabled;
+            if (typeof e.detail.side !== 'undefined') window.RMS_FOLLOW_SCROLL_SIDE = e.detail.side;
+            if (typeof e.detail.vertical !== 'undefined') window.RMS_FOLLOW_SCROLL_VERTICAL = e.detail.vertical;
+        }
+        if (!getSettings().enabled && animFrameId) {
+            cancelAnimationFrame(animFrameId);
+            animFrameId = null;
+        } else if (getSettings().enabled && isInside) {
+            triggerScrollLoop();
+        }
+    };
+
+    window.addEventListener('rms-follow-scroll-changed', updateFollowScrollPrefs);
+    window.addEventListener('storage', (e) => {
+        if (e.key && e.key.startsWith('rms-follow-scroll')) {
+            updateFollowScrollPrefs();
+        }
+    });
+})();

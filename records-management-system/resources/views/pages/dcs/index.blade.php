@@ -743,7 +743,7 @@ document.addEventListener('alpine:init', () => {
             <section class="actions-section">
                 <div class="section-header">
                     <h2>Quick Actions</h2>
-                    <span class="section-subtitle">Common registration tasks</span>
+                    <span class="section-subtitle">Frequently used operations</span>
                 </div>
                 <div class="actions-row">
                     <a href="{{ route('dcs.register.create', ['type' => 'new'], absolute: false) }}" class="action-box">

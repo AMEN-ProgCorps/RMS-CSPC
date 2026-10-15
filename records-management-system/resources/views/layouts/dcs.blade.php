@@ -21,6 +21,9 @@
             window.RMS_NOTIF_TOGGLE_KEY = notifToggleKey;
             var chatifyToggleKey = localStorage.getItem('rms-chatify-toggle-key') || '{{ auth()->user()?->chatifyToggleKey() ?? "" }}';
             window.RMS_CHATIFY_TOGGLE_KEY = chatifyToggleKey;
+            // Follow Scroll is strictly disabled on DCS
+            window.RMS_DISABLE_FOLLOW_SCROLL = true;
+            window.RMS_FOLLOW_SCROLL_ENABLED = false;
             var sidebar = localStorage.getItem('sidebarState');
             if (!sidebar) {
                 var legacyDcs = localStorage.getItem('dcs-sidebar-collapsed');

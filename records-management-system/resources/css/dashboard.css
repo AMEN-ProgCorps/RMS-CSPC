@@ -677,7 +677,6 @@ section{
         .article-container.imup{
             border-radius: 0 !important;
             box-shadow: none !important;
-            z-index: 1;
         }
     .article-container::-webkit-scrollbar {
         padding: 5px;

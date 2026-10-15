@@ -28,14 +28,14 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
 
     public function selectParentSuggestion(string $title): void
     {
-        $this->series_title = mb_strtoupper($title);
+        $this->series_title = trim($title);
         $this->showParentDropdown = false;
     }
 
     public function selectSubSuggestion(int $index, string $title): void
     {
         if (isset($this->subsections[$index])) {
-            $this->subsections[$index] = mb_strtoupper($title);
+            $this->subsections[$index] = trim($title);
         }
         $this->activeSubDropdownIndex = null;
     }
@@ -97,11 +97,11 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
         }
 
         if (empty($active)) {
-            return mb_strtoupper($storage);
+            return $storage;
         }
 
         if (empty($storage)) {
-            return mb_strtoupper($active);
+            return $active;
         }
 
         $parseTime = function(string $str) {
@@ -131,10 +131,10 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
             if ($remMonths > 0) {
                 $parts[] = $remMonths . ' ' . ($remMonths === 1 ? 'Month' : 'Months');
             }
-            return mb_strtoupper(implode(' ', $parts));
+            return implode(' ', $parts);
         }
 
-        return mb_strtoupper($active . ' + ' . $storage);
+        return $active . ' + ' . $storage;
     }
 
     public function updatedIsPermanent($val): void
@@ -183,7 +183,7 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
 
         $this->clearMessages();
 
-        $parentTitle = mb_strtoupper(trim($this->series_title));
+        $parentTitle = trim($this->series_title);
         if (empty($parentTitle)) {
             $this->errorMessage = 'Record Series Title is required to save draft.';
             return;
@@ -191,7 +191,7 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
 
         $allTitles = [$parentTitle];
         foreach ($this->subsections as $sub) {
-            $trimmed = mb_strtoupper(trim($sub));
+            $trimmed = trim($sub);
             if (!empty($trimmed)) {
                 $allTitles[] = $trimmed;
             }

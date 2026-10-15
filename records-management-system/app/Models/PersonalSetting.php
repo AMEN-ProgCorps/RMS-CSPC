@@ -24,6 +24,9 @@ class PersonalSetting extends Model
         'notification_toggle_key',
         'chatify_toggle_key',
         'dcs_db_visible_groups',
+        'follow_scroll_enabled',
+        'follow_scroll_side',
+        'follow_scroll_vertical',
     ];
 
     protected $casts = [
@@ -31,6 +34,9 @@ class PersonalSetting extends Model
         'notification_sound_alert' => 'boolean',
         'enable_top_tabs' => 'boolean',
         'dcs_db_visible_groups' => 'array',
+        'follow_scroll_enabled' => 'boolean',
+        'follow_scroll_side' => 'boolean',
+        'follow_scroll_vertical' => 'boolean',
     ];
 
     /**

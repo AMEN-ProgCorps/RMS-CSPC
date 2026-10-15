@@ -35,16 +35,25 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 24px 32px;
+    padding: 16px 24px;
     margin-bottom: 20px;
-    flex-wrap: wrap;
-    gap: 20px;
+    gap: 16px;
+    flex-wrap: nowrap;
 }
 
 .dts-nav-group {
     display: flex;
     gap: 8px;
     align-items: center;
+    flex-shrink: 0;
+}
+
+.dts-topbar-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: auto;
 }
 
 /* ── Nav buttons / links ──────────────────────────────────── */
@@ -79,10 +88,71 @@
 }
 
 .dts-nav-btn--back {
-    margin-left: -30px;
+    margin-left: 0;
 }
 
 .dts-nav-icon { flex-shrink: 0; }
+
+/* Responsive Action Buttons (Group by Office, Grid/Table View) */
+.dts-responsive-icon-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0;
+}
+
+@media screen and (max-width: 1600px) {
+    .dts-responsive-icon-btn {
+        padding: 0 12px !important;
+        width: 42px !important;
+        min-width: 42px !important;
+        height: 42px !important;
+        justify-content: center !important;
+        border-radius: 8px !important;
+    }
+    .dts-responsive-icon-btn .dts-btn-label {
+        display: none !important;
+    }
+    .dts-responsive-icon-btn .dts-btn-icon,
+    .dts-responsive-icon-btn i,
+    .dts-responsive-icon-btn svg {
+        margin-right: 0 !important;
+        margin-left: 0 !important;
+    }
+    .dts-search-wrap {
+        width: 220px !important;
+        max-width: 260px !important;
+    }
+}
+
+@media screen and (max-width: 1200px) {
+    .dts-search-wrap {
+        width: 170px !important;
+        max-width: 200px !important;
+    }
+}
+
+@media screen and (max-width: 768px) {
+    .dts-topbar {
+        flex-wrap: wrap !important;
+        padding: 12px 14px;
+        gap: 10px;
+    }
+    .dts-nav-group {
+        overflow-x: auto;
+        max-width: 100%;
+        padding-bottom: 2px;
+    }
+    .dts-topbar-actions {
+        width: 100%;
+    }
+    .dts-topbar-actions .dts-search-wrap {
+        flex: 1;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 120px;
+    }
+}
 
 /* ── Search ───────────────────────────────────────────────── */
 .dts-search-wrap {

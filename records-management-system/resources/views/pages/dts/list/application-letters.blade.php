@@ -427,7 +427,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
 
             // Released info (Step 1 / Origin)
             $releasedAt = $firstLog?->date_out ?? ($firstLog?->date_in ?? $t->date_created);
-            $t->released_date = $releasedAt ? \Carbon\Carbon::parse($releasedAt)->format('Y-m-d') : '-';
+            $t->released_date = $releasedAt ? \Carbon\Carbon::parse($releasedAt)->format('M d, Y') : '-';
             $t->released_time = $releasedAt ? \Carbon\Carbon::parse($releasedAt)->format('h:i A') : '-';
             $t->released_by = ($firstLog && $firstLog->first_name) ? ($firstLog->first_name . ' ' . $firstLog->last_name) : '-';
 
@@ -439,7 +439,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
 
             if ($receiveLog && !empty($receiveLog->date_in)) {
                 $receivedAt = $receiveLog->date_in;
-                $t->received_date = \Carbon\Carbon::parse($receivedAt)->format('Y-m-d');
+                $t->received_date = \Carbon\Carbon::parse($receivedAt)->format('M d, Y');
                 $t->received_time = \Carbon\Carbon::parse($receivedAt)->format('h:i A');
                 $t->received_by = $receiveLog->first_name ? ($receiveLog->first_name . ' ' . $receiveLog->last_name) : '-';
             } else {
@@ -1634,7 +1634,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                 {{ $canSeeCtrlNo ? $t->control_number : '—' }}
                             </td>
                             <td>{{ $t->qr_code }}</td>
-                            <td>{{ \Carbon\Carbon::parse($t->date_created)->format('Y-m-d H:i') }}</td>
+                            <td>{{ \Carbon\Carbon::parse($t->date_created)->format('M d, Y h:i A') }}</td>
                             <td>{{ $t->requestor_name ?? 'N/A' }}</td>
                             <td>{{ $t->position_applied ?? 'N/A' }}</td>
                             <td>{{ $t->originated_office_name ?: $t->originated_from }}</td>
@@ -1645,7 +1645,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                             <td style="text-align: center;">{{ $t->received_time }}</td>
                             <td>{{ $t->received_by }}</td>
                             <td style="font-weight: 600; white-space: nowrap; text-align: center;">
-                                {{ $t->elapsed_days }} day(s)
+                                {{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->elapsed_days . ' day(s)') }}
                             </td>
                             <td style="text-align: center;">
                                 <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="text-decoration: none; display: inline-block; border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 500;">View</button>
@@ -2210,7 +2210,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                                 <td class="office-cell">{{ $step->office_name }}</td>
                                                 <td style="white-space: nowrap;">
                                                     <div style="font-weight: 500; color: #1e293b;">
-                                                        {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('Y-m-d h:i A') : 'N/A' }}
+                                                        {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}
                                                     </div>
                                                     @if (!empty($step->receiver_name) && $step->receiver_name !== '—')
                                                         <div style="color: #475569; font-size: 11.5px; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;">
@@ -2221,7 +2221,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                                 </td>
                                                 <td style="white-space: nowrap;">
                                                     <div style="font-weight: 500; color: #1e293b;">
-                                                        {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('Y-m-d h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}
+                                                        {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}
                                                     </div>
                                                     @if (!empty($step->forwarder_name) && $step->forwarder_name !== '—')
                                                         <div style="color: #475569; font-size: 11.5px; margin-top: 3px; display: inline-flex; align-items: center; gap: 4px;">

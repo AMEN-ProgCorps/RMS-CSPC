@@ -15,8 +15,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public string $statusFilter = '1';
     /** @var int Entries shown per page on the record series table (10 / 20 / 50) */
     public int $perPage = 50;
-    /** @var string Sort mode: default (grouped) | item_no | alphabetical | time_added */
-    public string $sortBy = 'default';
+    /** @var string Sort mode: item_no (default) | alphabetical | time_added */
+    public string $sortBy = 'item_no';
 
     // Active Tab state: 'unregistered' or rdp_record_series_type.id (as string)
     public string $activeTab = 'unregistered';
@@ -171,13 +171,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
     public function selectBracketSuggestion(string $bracketName): void
     {
-        $this->bracketInput = mb_strtoupper($bracketName);
+        $this->bracketInput = trim($bracketName);
         $this->showBracketDropdown = false;
     }
 
     public function selectEditBracketSuggestion(string $bracketName): void
     {
-        $this->editBracketInput = mb_strtoupper($bracketName);
+        $this->editBracketInput = trim($bracketName);
         $this->showEditBracketDropdown = false;
     }
 
@@ -225,7 +225,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
     public function selectParentSuggestion(string $title): void
     {
-        $this->series_title = mb_strtoupper($title);
+        $this->series_title = trim($title);
         $this->showParentDropdown = false;
     }
 
@@ -318,7 +318,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
     public function resolveBracketId(string $inputName): ?int
     {
-        $inputName = mb_strtoupper(trim($inputName));
+        $inputName = trim($inputName);
         if (empty($inputName)) {
             return null;
         }
@@ -376,11 +376,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         }
 
         if (empty($active)) {
-            return mb_strtoupper($storage);
+            return $storage;
         }
 
         if (empty($storage)) {
-            return mb_strtoupper($active);
+            return $active;
         }
 
         $parseTime = function(string $str) {
@@ -410,10 +410,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             if ($remMonths > 0) {
                 $parts[] = $remMonths . ' ' . ($remMonths === 1 ? 'Month' : 'Months');
             }
-            return mb_strtoupper(implode(' ', $parts));
+            return implode(' ', $parts);
         }
 
-        return mb_strtoupper($active . ' + ' . $storage);
+        return $active . ' + ' . $storage;
     }
 
     private function resolveEffectiveRetention(array $allSeriesMap, object $record): object
@@ -463,6 +463,63 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             $oKey = $r->recorded_at_office ? ('o_' . $r->recorded_at_office) : 'no_office';
             $byBracketAndOffice[$bKey][$oKey][] = $r;
         }
+
+        // Keep brackets in natural document order (by minimum item number)
+        uasort($byBracketAndOffice, function ($officesA, $officesB) {
+            $minA = PHP_INT_MAX;
+            foreach ($officesA as $items) {
+                foreach ($items as $item) {
+                    if ($item->item_number !== null && $item->item_number < $minA) {
+                        $minA = (int) $item->item_number;
+                    }
+                }
+            }
+            $minB = PHP_INT_MAX;
+            foreach ($officesB as $items) {
+                foreach ($items as $item) {
+                    if ($item->item_number !== null && $item->item_number < $minB) {
+                        $minB = (int) $item->item_number;
+                    }
+                }
+            }
+            if ($minA !== $minB) {
+                return $minA <=> $minB;
+            }
+            $firstOfficeA = reset($officesA);
+            $firstItemA = $firstOfficeA ? reset($firstOfficeA) : null;
+            $firstOfficeB = reset($officesB);
+            $firstItemB = $firstOfficeB ? reset($firstOfficeB) : null;
+            $bNameA = $firstItemA->bracket_name ?? '';
+            $bNameB = $firstItemB->bracket_name ?? '';
+            return strcasecmp((string)$bNameA, (string)$bNameB);
+        });
+
+        // Within each bracket, sort office groups by their minimum item number
+        foreach ($byBracketAndOffice as $bKey => &$offices) {
+            uasort($offices, function ($itemsA, $itemsB) {
+                $minA = PHP_INT_MAX;
+                foreach ($itemsA as $item) {
+                    if ($item->item_number !== null && $item->item_number < $minA) {
+                        $minA = (int) $item->item_number;
+                    }
+                }
+                $minB = PHP_INT_MAX;
+                foreach ($itemsB as $item) {
+                    if ($item->item_number !== null && $item->item_number < $minB) {
+                        $minB = (int) $item->item_number;
+                    }
+                }
+                if ($minA !== $minB) {
+                    return $minA <=> $minB;
+                }
+                $firstA = reset($itemsA);
+                $firstB = reset($itemsB);
+                $nameA = $firstA->recorded_office_name ?? ($firstA->recorded_at_office ?? '');
+                $nameB = $firstB->recorded_office_name ?? ($firstB->recorded_at_office ?? '');
+                return strcasecmp((string)$nameA, (string)$nameB);
+            });
+        }
+        unset($offices);
 
         $finalOrdered = [];
 
@@ -534,7 +591,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             return;
         }
 
-        $parentTitle = mb_strtoupper(trim($this->series_title));
+        $parentTitle = trim($this->series_title);
         if (empty($parentTitle)) {
             $this->errorMessage = 'Series title is required.';
             return;
@@ -542,7 +599,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
         $allTitles = [$parentTitle];
         foreach ($this->subsections as $sub) {
-            $trimmed = mb_strtoupper(trim($sub));
+            $trimmed = trim($sub);
             if (!empty($trimmed)) {
                 $allTitles[] = $trimmed;
             }
@@ -647,7 +704,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
         if (!$this->editingId) return;
 
-        $title = mb_strtoupper(trim($this->editSeriesTitle));
+        $title = trim($this->editSeriesTitle);
         if (empty($title)) {
             $this->errorMessage = 'Series title is required.';
             return;
@@ -915,7 +972,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
         $titles = [];
         foreach ((preg_split('/\r\n|\r|\n/', (string) $this->subsectionTitles) ?: []) as $line) {
-            $trimmed = mb_strtoupper(trim($line));
+            $trimmed = trim($line);
             if ($trimmed !== '') {
                 $titles[] = $trimmed;
             }
@@ -1870,26 +1927,27 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             $baseQuery->where('rdp_record_series.is_active', $this->statusFilter === '1');
         }
 
-        // Sort modes: "default" keeps the grouped bracket/office sections; the
-        // others are global sorts across the whole (filtered) list.
-        $sortBy = in_array($this->sortBy, ['default', 'item_no', 'alphabetical', 'time_added'], true)
+        // Sort modes: "item_no" (default), "alphabetical", or "time_added".
+        // All sort modes sort records WITHIN their Bracket / Office groups, keeping group banners intact.
+        $sortBy = in_array($this->sortBy, ['item_no', 'alphabetical', 'time_added'], true)
             ? $this->sortBy
-            : 'default';
+            : 'item_no';
 
         switch ($sortBy) {
-            case 'item_no':
-                $baseQuery->orderByRaw('rdp_record_series.item_number ASC NULLS LAST, rdp_record_series.series_title ASC');
-                break;
             case 'alphabetical':
-                $baseQuery->orderByRaw('rdp_record_series.series_title ASC');
+                $baseQuery->orderByRaw('
+                    rdp_record_series.series_title ASC
+                ');
                 break;
             case 'time_added':
-                $baseQuery->orderByRaw('rdp_record_series.created_at DESC NULLS LAST, rdp_record_series.id DESC');
+                $baseQuery->orderByRaw('
+                    rdp_record_series.created_at DESC NULLS LAST,
+                    rdp_record_series.id DESC
+                ');
                 break;
+            case 'item_no':
             default:
                 $baseQuery->orderByRaw('
-                    rdp_record_series_brackets.bracket_name ASC NULLS LAST,
-                    office.office_name ASC NULLS LAST,
                     rdp_record_series.item_number ASC NULLS LAST,
                     rdp_record_series.series_title ASC
                 ');
@@ -1902,16 +1960,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             $allFetchedMap[$item->id] = $item;
         }
 
-        if ($sortBy === 'default') {
-            $treeOrdered = $this->buildGroupedTreeHierarchy($allFetched->all());
-        } else {
-            // Global sort: keep the flat query order (no bracket/office grouping),
-            // and render rows unindented since a parent can now sort anywhere.
-            $treeOrdered = $allFetched->all();
-            foreach ($treeOrdered as $flatItem) {
-                $flatItem->depth = 0;
-            }
-        }
+        $treeOrdered = $this->buildGroupedTreeHierarchy($allFetched->all());
 
         foreach ($treeOrdered as $item) {
             $eff = $this->resolveEffectiveRetention($allFetchedMap, $item);
@@ -2180,7 +2229,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                    class="ars-input"
                                    wire:model.live="bracketInput"
                                    wire:focus="$set('showBracketDropdown', true)"
-                                   placeholder="Type bracket name (e.g. OFFICE OF THE PRESIDENT)..."
+                                   placeholder="Type bracket name (e.g. Office of the President)..."
                                    style="width: 100%; font-weight: 700;">
 
                             @if($showBracketDropdown && count($bracketSuggestions) > 0)
@@ -2209,7 +2258,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     <!-- Item Number -->
                     <div class="ars-form-row">
                         <span class="ars-label">Item Number:</span>
-                        <input type="number" class="ars-input" wire:model="newItemNumber" placeholder="E.G. 1, 2, 100" style="max-width: 160px; font-weight: 700;">
+                        <input type="number" class="ars-input" wire:model="newItemNumber" placeholder="e.g. 1, 2, 100" style="max-width: 160px; font-weight: 700;">
                     </div>
 
                     <!-- Record Series Title (with Autocomplete Dropdown matching records-and-disposition-schedule) -->
@@ -2220,7 +2269,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                    class="ars-input"
                                    wire:model.live.debounce.150ms="series_title"
                                    wire:focus="$set('showParentDropdown', true)"
-                                   placeholder="E.G. GATE PASSES, RECEIPTS, FINANCIAL STATEMENTS"
+                                   placeholder="e.g. Gate passes, receipts, financial statements"
                                    style="width: 100%; font-weight: 700;">
 
                             @if($showParentDropdown && count($parentSuggestions) > 0)
@@ -2255,7 +2304,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                 <input type="text"
                                        class="ars-input"
                                        wire:model="subsections.{{ $index }}"
-                                       placeholder="E.G. VISITOR LOGS, DELEGATE BADGES..."
+                                       placeholder="e.g. Visitor logs, delegate badges..."
                                        style="flex: 1; font-weight: 600;">
 
                                 <button type="button" wire:click="removeSubsection({{ $index }})" class="ars-btn ars-btn-danger" style="padding: 6px 12px;" title="Remove Subsection">
@@ -2287,13 +2336,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     <!-- Active Period -->
                     <div class="ars-form-row" style="{{ $newIsPermanent ? 'opacity: 0.4; pointer-events: none; user-select: none; transition: all 0.2s;' : 'transition: all 0.2s;' }}">
                         <span class="ars-label">Active Period:</span>
-                        <input type="text" class="ars-input" wire:model.live.debounce.200ms="newActivePeriod" placeholder="E.G. 6 MONTHS, 1 YEAR" {{ $newIsPermanent ? 'disabled' : '' }}>
+                        <input type="text" class="ars-input" wire:model.live.debounce.200ms="newActivePeriod" placeholder="e.g. 6 Months, 1 Year" {{ $newIsPermanent ? 'disabled' : '' }}>
                     </div>
 
                     <!-- Storage Period -->
                     <div class="ars-form-row" style="{{ $newIsPermanent ? 'opacity: 0.4; pointer-events: none; user-select: none; transition: all 0.2s;' : 'transition: all 0.2s;' }}">
                         <span class="ars-label">Storage Period:</span>
-                        <input type="text" class="ars-input" wire:model.live.debounce.200ms="newStoragePeriod" placeholder="E.G. 1 YEAR, 4 YEARS" {{ $newIsPermanent ? 'disabled' : '' }}>
+                        <input type="text" class="ars-input" wire:model.live.debounce.200ms="newStoragePeriod" placeholder="e.g. 1 Year, 4 Years" {{ $newIsPermanent ? 'disabled' : '' }}>
                     </div>
 
                     <!-- Total Period -->
@@ -2307,7 +2356,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     <!-- Remarks -->
                     <div class="ars-form-row" style="align-items: flex-start;">
                         <span class="ars-label" style="margin-top: 10px;">Remarks:</span>
-                        <input type="text" class="ars-input" wire:model="newRemarks" placeholder="E.G. DISPOSE AFTER RETENTION, AUDIT REQUIRED">
+                        <input type="text" class="ars-input" wire:model="newRemarks" placeholder="e.g. Dispose after retention, audit required">
                     </div>
                 </div>
                 <div class="ars-modal-footer">
@@ -2320,7 +2369,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
     <!-- Add Subsection Modal (opened from the inline edit row) -->
     @if($showSubsectionModal)
-        <div class="ars-modal-overlay" style="z-index: 1000;">
+        <div class="ars-modal-overlay">
             <div class="ars-modal-card" style="width: 520px;">
                 <div class="ars-modal-header">
                     <h3>➕ Add Subsection</h3>
@@ -2380,10 +2429,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             this.collapsedOffices[id] = !this.collapsedOffices[id]; 
         },
         isBracketCollapsed(bId) { 
-            return !this.search && this.sortBy === 'default' && !!this.collapsedBrackets[bId]; 
+            return !this.search && !!this.collapsedBrackets[bId]; 
         },
         isRowCollapsed(bId, oId) { 
-            return !this.search && this.sortBy === 'default' && (!!this.collapsedBrackets[bId] || !!this.collapsedOffices[oId]); 
+            return !this.search && (!!this.collapsedBrackets[bId] || !!this.collapsedOffices[oId]); 
         }
     }">
         <div class="ars-filter-bar">
@@ -2411,8 +2460,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 <div style="display: flex; align-items: center; gap: 6px;">
                     <span style="font-size: 12.5px; font-weight: 700; color: var(--ars-slate-600); white-space: nowrap;">Sort by</span>
                     <select class="ars-input" wire:model.live="sortBy" title="Sort record series" style="max-width: 250px; font-weight: 700; cursor: pointer;">
-                        <option value="default">Grouped (Bracket / Office)</option>
-                        <option value="item_no">Item No.</option>
+                        <option value="item_no">Item No. (Default)</option>
                         <option value="alphabetical">Alphabetical (A-Z)</option>
                         <option value="time_added">Time Added (Newest)</option>
                     </select>
@@ -2472,7 +2520,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                             $oKey = 'o_' . ($record->bracket_id ?? 'none') . '_' . ($record->recorded_at_office ?? 'none');
                         @endphp
 
-                        @if($sortBy === 'default' && $bracketChanged && !empty($record->bracket_name))
+                        @if($bracketChanged && !empty($record->bracket_name))
                             <!-- Bracket Section Header Banner (Collapsible) -->
                             <tr x-on:click="toggleBracket('{{ $bKey }}')" style="background: #cbd5e1; font-weight: 800; font-size: 13.5px; text-align: center; color: #0f172a; letter-spacing: 0.8px; cursor: pointer; user-select: none;">
                                 <td colspan="7" style="padding: 10px 16px; border: 1.5px solid #94a3b8; text-transform: uppercase;">
@@ -2482,7 +2530,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                             </tr>
                         @endif
 
-                        @if($sortBy === 'default' && $officeChanged && !empty($record->recorded_at_office))
+                        @if($officeChanged && !empty($record->recorded_at_office))
                             <!-- Office / Section Header Banner (Collapsible) -->
                             <tr x-show="!isBracketCollapsed('{{ $bKey }}')" x-on:click="toggleOffice('{{ $oKey }}')" style="background: #e2e8f0; font-weight: 700; font-size: 12.5px; color: #1e293b; letter-spacing: 0.5px; cursor: pointer; user-select: none;">
                                 <td colspan="7" style="padding: 7px 20px; border: 1px solid #cbd5e1; text-align: left; padding-left: 45px; text-transform: uppercase;">
@@ -2822,7 +2870,7 @@ RECEIPTS;
 
     <!-- Rename Record Series Type Modal -->
     @if($showRenameTypeModal)
-        <div class="ars-modal-overlay" style="z-index: 1000;">
+        <div class="ars-modal-overlay">
             <div class="ars-modal-card">
                 <div class="ars-modal-header">
                     <h3>✏️ Rename Record Series Type</h3>
@@ -2852,7 +2900,7 @@ RECEIPTS;
 
     <!-- Clear Data / Remove Type Confirmation Modal -->
     @if($showTypeActionModal)
-        <div class="ars-modal-overlay" style="z-index: 1000;">
+        <div class="ars-modal-overlay">
             <div class="ars-modal-card" style="width: 460px;">
                 <div class="ars-modal-header">
                     <h3>{{ $typeActionTitle }}</h3>

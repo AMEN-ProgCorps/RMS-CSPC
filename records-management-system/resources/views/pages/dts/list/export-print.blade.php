@@ -702,7 +702,9 @@
 
                             @elseif($colKey === 'elapsed_days')
                                 <td class="col-elapsed_days align-center">
-                                     <span style="font-weight: 600; color: #334155; font-size: 9.5px;">{{ $val }}</span>
+                                    @if(strtolower($row->status ?? '') !== 'completed')
+                                        <span style="font-weight: 600; color: #334155; font-size: 9.5px;">{{ $val }}</span>
+                                    @endif
                                 </td>
 
                             @elseif($colKey === 'subject')

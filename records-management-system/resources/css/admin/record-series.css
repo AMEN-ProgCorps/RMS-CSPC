@@ -408,7 +408,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 999;
+    z-index: 99999 !important;
 }
 .ars-modal-card {
     background: var(--ars-white);

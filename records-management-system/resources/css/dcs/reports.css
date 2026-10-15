@@ -806,6 +806,13 @@ body {
 .rpt-table:not(.mon-table) thead th:last-child {
     box-shadow: none;
 }
+.rpt-table thead th.rpt-split,
+.rpt-table thead tr:nth-child(2) th.rpt-split {
+    box-shadow: inset -2px 0 0 #ffffff;
+}
+.rpt-table tbody td.rpt-split {
+    box-shadow: inset -2px 0 0 #ffffff;
+}
 
 /* Header row 2 (Date, Time, Q, E, T, A) stays under the group titles while scrolling. */
 .rpt-table thead tr:nth-child(2) th {
@@ -830,6 +837,10 @@ body {
 }
 .rpt-table:not(.mon-table) thead tr:nth-child(2) th:last-child {
     box-shadow: none;
+}
+.rpt-table:not(.mon-table) thead th.rpt-split,
+.rpt-table:not(.mon-table) thead tr:nth-child(2) th.rpt-split {
+    box-shadow: inset -2px 0 0 #ffffff;
 }
 
 /* Data cells */

@@ -285,6 +285,135 @@ class RegisterQueryHelper
     }
 
     /**
+     * An obsolete or superseded copy with no stack still belongs to the family
+     * that already has the same document number and title. A different latest
+     * that only shares the number stays its own group.
+     *
+     * @param  \Illuminate\Support\Collection<int, array<string, mixed>>  $groups
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     */
+    public static function foldOrphanStatusCopies(Collection $groups): Collection
+    {
+        $families = [];
+        $rest = [];
+        foreach ($groups as $group) {
+            if (self::groupHasLatest($group)) {
+                $families[] = $group;
+            } else {
+                $rest[] = $group;
+            }
+        }
+
+        $kept = [];
+        foreach ($rest as $orphan) {
+            if (! self::groupIsClosedHistory($orphan)) {
+                $kept[] = $orphan;
+                continue;
+            }
+            $matchIndexes = [];
+            foreach ($families as $index => $family) {
+                if (self::groupsShareTitle($family, $orphan)) {
+                    $matchIndexes[] = $index;
+                }
+            }
+            $attached = false;
+            if (count($matchIndexes) === 1) {
+                $index = $matchIndexes[0];
+                $family = $families[$index];
+                $members = array_merge([$orphan['parent']], $orphan['children'] ?? []);
+                foreach ($members as $member) {
+                    $family['children'][] = $member;
+                }
+                $family['children'] = array_values($family['children']);
+                $family['has_revisions'] = $family['children'] !== [];
+                $family['revision_count'] = 1 + count($family['children']);
+                $family['obsolete_count'] = count($family['children']);
+                $families[$index] = $family;
+                $attached = true;
+            }
+            if (! $attached) {
+                $kept[] = $orphan;
+            }
+        }
+
+        return collect($families)->concat($kept)->values();
+    }
+
+    public static function familyGroupsMatch(array $left, array $right): bool
+    {
+        $leftStack = self::firstStack($left);
+        $rightStack = self::firstStack($right);
+        if ($leftStack !== '' && $rightStack !== '' && strcasecmp($leftStack, $rightStack) === 0) {
+            return true;
+        }
+
+        return self::groupsShareTitle($left, $right);
+    }
+
+    private static function firstStack(array $group): string
+    {
+        foreach (array_merge([$group['parent'] ?? []], $group['children'] ?? []) as $row) {
+            $stack = trim((string) ($row['stack_group'] ?? ''));
+            if ($stack !== '') {
+                return $stack;
+            }
+        }
+
+        return '';
+    }
+
+    private static function groupHasLatest(array $group): bool
+    {
+        foreach (array_merge([$group['parent'] ?? []], $group['children'] ?? []) as $row) {
+            if (in_array(strtolower(trim((string) ($row['status'] ?? ''))), ['', 'latest'], true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function groupIsClosedHistory(array $group): bool
+    {
+        $rows = array_merge([$group['parent'] ?? []], $group['children'] ?? []);
+        if ($rows === []) {
+            return false;
+        }
+        foreach ($rows as $row) {
+            $status = strtolower(trim((string) ($row['status'] ?? '')));
+            if (! in_array($status, ['obsolete', 'superseded'], true)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static function groupsShareTitle(array $family, array $orphan): bool
+    {
+        $familyNo = strtolower(trim((string) ($family['doc_no'] ?? $family['parent']['doc_no'] ?? '')));
+        $orphanNo = strtolower(trim((string) ($orphan['doc_no'] ?? $orphan['parent']['doc_no'] ?? '')));
+        if ($familyNo === '' || $orphanNo === '' || $familyNo !== $orphanNo) {
+            return false;
+        }
+        $titles = [];
+        foreach (array_merge([$family['parent'] ?? []], $family['children'] ?? []) as $row) {
+            $title = mb_strtolower(trim((string) ($row['title'] ?? '')));
+            if ($title !== '') {
+                $titles[$title] = true;
+            }
+        }
+        foreach (array_merge([$orphan['parent'] ?? []], $orphan['children'] ?? []) as $row) {
+            $title = mb_strtolower(trim((string) ($row['title'] ?? '')));
+            if ($title !== '' && isset($titles[$title])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * college|program|course type for each syllabi registration.
      *
      * @param  list<int>  $requestIds
@@ -367,13 +496,8 @@ class RegisterQueryHelper
             return true;
         }
 
-        if (\Illuminate\Support\Facades\Schema::hasColumn('dcs_doc_types', 'allows_revision')
-            && property_exists($typeRow, 'allows_revision')
-            && $typeRow->allows_revision !== null) {
-            return (bool) $typeRow->allows_revision;
-        }
-
-        // Pre-migration fallback: syllabi-like names never revise.
+        // The document-type "allows revision" setting is no longer used.
+        // Every type can be revised. Syllabi stays Rev 0.
         return ! self::isSyllabiLikeName($typeRow->doc_type_name ?? null);
     }
 
@@ -4693,6 +4817,12 @@ class RegisterQueryHelper
         if (self::supportsRevisedFromDocNo()) {
             $select[] = 'ml.revised_from_doc_no';
         }
+        if (self::supportsAllowsRevisionColumn()) {
+            $select[] = 'ml.allows_revision';
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            $select[] = 'ml.stack_group';
+        }
 
         $rows = $query->orderByDesc('ml.revise_no')
             ->orderBy('ml.doc_no')
@@ -4982,8 +5112,89 @@ class RegisterQueryHelper
     }
 
     /**
+     * Copies that share a document number but are different documents
+     * (allows_revision is off) must stay as their own search hits.
+     */
+    private static function searchRowIsSeparateCopy(object $row): bool
+    {
+        if (! isset($row->allows_revision)) {
+            return false;
+        }
+
+        return $row->allows_revision === false
+            || $row->allows_revision === 0
+            || $row->allows_revision === '0'
+            || $row->allows_revision === 'f';
+    }
+
+    private static function revisionSearchIdentity(object $row): string
+    {
+        $docNo = strtolower(trim((string) ($row->doc_no ?? '')));
+        $type = (int) ($row->doc_type_id ?? 0).'|'.(int) ($row->sub_type_id ?? 0);
+        $stack = trim((string) ($row->stack_group ?? ''));
+        if ($stack !== '') {
+            return $docNo.'|'.$type.'|stack|'.$stack;
+        }
+        if (self::searchRowIsSeparateCopy($row)) {
+            $title = mb_strtolower(trim((string) ($row->doc_title ?? '')));
+            $origin = mb_strtolower(trim((string) ($row->originator_name ?? '')));
+
+            return $docNo.'|'.$type.'|copy|'.$title.'|'.$origin;
+        }
+
+        return $docNo.'|'.$type;
+    }
+
+    /**
+     * Previous copies of the picked document only.
+     * Another registration that only shares the document number stays out,
+     * including after a Recur renames the new row.
+     *
+     * @param  list<array<string, mixed>>  $merged
+     * @param  array<string, mixed>  $anchor
+     * @return list<array<string, mixed>>
+     */
+    private static function filterRevisionsToAnchorDocument(array $merged, array $anchor): array
+    {
+        $anchorRequestId = (int) ($anchor['request_id'] ?? 0);
+        $anchorStack = trim((string) ($anchor['stack_group'] ?? ''));
+        $anchorNo = mb_strtolower(trim((string) ($anchor['doc_no'] ?? '')));
+        $anchorTitle = mb_strtolower(trim((string) ($anchor['doc_title'] ?? '')));
+        $anchorRev = (int) ($anchor['revise_no'] ?? 0);
+
+        return array_values(array_filter($merged, function (array $row) use ($anchorRequestId, $anchorStack, $anchorNo, $anchorTitle, $anchorRev) {
+            if ((int) ($row['request_id'] ?? 0) === $anchorRequestId) {
+                return true;
+            }
+            $rowStack = trim((string) ($row['stack_group'] ?? ''));
+            $sameStack = $anchorStack !== '' && $rowStack !== '' && strcasecmp($rowStack, $anchorStack) === 0;
+            if ($sameStack) {
+                return true;
+            }
+            $rowNo = mb_strtolower(trim((string) ($row['doc_no'] ?? '')));
+            $rowTitle = mb_strtolower(trim((string) ($row['doc_title'] ?? '')));
+            $sameDocument = $anchorNo !== '' && $rowNo === $anchorNo && $anchorTitle !== '' && $rowTitle === $anchorTitle;
+            $status = strtolower(trim((string) ($row['revision_status'] ?? '')));
+            if ($sameDocument && $rowStack === '' && in_array($status, ['obsolete', 'superseded'], true)) {
+                return true;
+            }
+            // A renamed Recur keeps the selected copy only. Another registration
+            // that merely shares the document number stays out.
+            if ($anchorStack !== '' || $rowStack !== '') {
+                return false;
+            }
+            if (! $sameDocument) {
+                return false;
+            }
+
+            return (int) ($row['revise_no'] ?? 0) <= $anchorRev;
+        }));
+    }
+
+    /**
      * Revision picker: one row per document, always the published current rev.
      * A leftover revision draft (next unused Rev) must not win over Latest.
+     * Several latest documents may share one number; each one stays in the list.
      */
     private static function resolveRevisionSearchHits(Collection $rows, array $visibleIds, bool $hasKeywords): Collection
     {
@@ -4991,11 +5202,10 @@ class RegisterQueryHelper
         $seenKeys = [];
 
         foreach ($rows as $hit) {
-            $tip = self::resolveLineageTipMasterlist($hit, $visibleIds);
+            $separateCopy = self::searchRowIsSeparateCopy($hit);
+            $tip = $separateCopy ? null : self::resolveLineageTipMasterlist($hit, $visibleIds);
             $source = $tip ?: $hit;
-            $key = strtolower(trim((string) ($source->doc_no ?? ''))) . '|'
-                . (int) ($source->doc_type_id ?? $hit->doc_type_id ?? 0) . '|'
-                . (int) ($source->sub_type_id ?? $hit->sub_type_id ?? 0);
+            $key = self::revisionSearchIdentity($source);
             if ($key === '|0|0' || isset($seenKeys[$key])) {
                 continue;
             }
@@ -5097,19 +5307,24 @@ class RegisterQueryHelper
 
         $docTypeId = (int) $anchor->doc_type_id;
         $subTypeId = $anchor->sub_type_id ? (int) $anchor->sub_type_id : null;
-        $maxReviseNo = (int) ($anchor->revise_no ?? 0);
         $chain = self::revisionFamilyDocNos($docNo, $docTypeId, $subTypeId, $visibleIds);
 
         $merged = [];
         foreach ($chain as $chainDocNo) {
             foreach (self::masterlistRevisionsForDocNo($chainDocNo, $docTypeId, $subTypeId, $visibleIds) as $row) {
-                // When picking an older/obsolete tip (e.g. Rev 3) to insert a gap
-                // (Rev 4) below a newer Latest (Rev 5), only show that tip and older.
-                if ((int) ($row['revise_no'] ?? 0) > $maxReviseNo) {
-                    continue;
-                }
                 $merged[] = $row;
             }
+        }
+
+        $anchorRow = null;
+        foreach ($merged as $row) {
+            if ((int) ($row['request_id'] ?? 0) === $requestId) {
+                $anchorRow = $row;
+                break;
+            }
+        }
+        if ($anchorRow) {
+            $merged = self::filterRevisionsToAnchorDocument($merged, $anchorRow);
         }
 
         $merged = self::attachChecklistPresenceToRevisions($merged);
@@ -5963,26 +6178,44 @@ class RegisterQueryHelper
         if (self::supportsRevisionStatus()) {
             $cols[] = 'ml.revision_status';
         }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+            $cols[] = 'ml.originator_name';
+        }
+        if (self::supportsAllowsRevisionColumn()) {
+            $cols[] = 'ml.allows_revision';
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            $cols[] = 'ml.stack_group';
+        }
 
-        return $query
+        $rows = $query
             ->orderByDesc('ml.revise_no')
             ->orderByDesc('ml.id')
-            ->get($cols)
-            ->map(function ($row) {
-                // Rev 0 = original registration: no DCN, so no Brief Purpose.
-                // Later revs: Brief Purpose = that registration's DCN justification only
-                // (never masterlist keywords / brief_purpose).
-                $purpose = null;
-                $reviseNo = (int) ($row->revise_no ?? 0);
-                if ($reviseNo > 0 && Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
-                    $dcnPurpose = DB::table('dcs_document_change_notice')
-                        ->where('request_id', $row->request_id)
-                        ->value('brief_purpose');
-                    if ($dcnPurpose !== null && trim((string) $dcnPurpose) !== '') {
-                        $purpose = trim((string) $dcnPurpose);
-                    }
-                }
-                $row->brief_purpose = $purpose;
+            ->get($cols);
+
+        $purposeByRequest = [];
+        if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
+            $purposeIds = $rows
+                ->filter(fn ($row) => (int) ($row->revise_no ?? 0) > 0)
+                ->pluck('request_id')
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->all();
+            if ($purposeIds !== []) {
+                $purposeByRequest = DB::table('dcs_document_change_notice')
+                    ->whereIn('request_id', $purposeIds)
+                    ->pluck('brief_purpose', 'request_id')
+                    ->all();
+            }
+        }
+
+        return $rows
+            ->map(function ($row) use ($purposeByRequest) {
+                $purpose = $purposeByRequest[(int) $row->request_id] ?? null;
+                $row->brief_purpose = $purpose !== null && trim((string) $purpose) !== ''
+                    ? trim((string) $purpose)
+                    : null;
 
                 return self::mapDocumentRevisionRow($row);
             })
@@ -6000,6 +6233,9 @@ class RegisterQueryHelper
             'doc_title' => $row->doc_title,
             'revise_no' => (int) $row->revise_no,
             'revision_status' => ($row->revision_status ?? null) ?: 'latest',
+            'originator_name' => property_exists($row, 'originator_name') ? ($row->originator_name ?? null) : null,
+            'stack_group' => property_exists($row, 'stack_group') ? ($row->stack_group ?? null) : null,
+            'allows_revision' => property_exists($row, 'allows_revision') ? $row->allows_revision : null,
             'effectivity_date' => $row->effectivity_date
                 ? Carbon::parse($row->effectivity_date)->format('Y-m-d')
                 : null,
@@ -6377,6 +6613,14 @@ class RegisterQueryHelper
                 ->orderByDesc('revise_no')
                 ->first();
             $result['latest'] = $latest;
+            if ($request->boolean('duplicate_only')) {
+                return [
+                    'exists' => true,
+                    'message' => 'Document number already exists.',
+                    'existing_request_id' => (int) ($latest->request_id ?? 0),
+                    'latest_title' => $latest->doc_title ?? null,
+                ];
+            }
             if ($latest) {
                 self::attachOriginatorNames([$latest]);
                 $visibleIds = self::visibleRequestIds();
@@ -7068,7 +7312,100 @@ class RegisterQueryHelper
                 RegisterPersistHelper::dcsDocType($docRequest->sub_type_id)
             ),
             'relatedDocsData' => $relatedDocsData,
+            'recurPreviousDocuments' => self::recurPreviousDocuments($ml, $docRequest),
         ];
+    }
+
+    /**
+     * Copies this saved Recur replaced. The open registration stays out of the list.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function recurPreviousDocuments(?object $ml, ?object $docRequest): array
+    {
+        if (! $ml || ! $docRequest || trim((string) ($ml->doc_no ?? '')) === '') {
+            return [];
+        }
+        $versionName = strtolower((string) DB::table('dcs_version_type')->where('id', $docRequest->version_id ?? 0)->value('version_name'));
+        if (! str_contains($versionName, 'recur')) {
+            return [];
+        }
+
+        $docNo = trim((string) $ml->doc_no);
+        $title = trim((string) ($ml->doc_title ?? ''));
+        $stack = trim((string) ($ml->stack_group ?? ''));
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->where('dr.doc_type_id', (int) $docRequest->doc_type_id)
+            ->where('ml.request_id', '!=', (int) $docRequest->id)
+            ->where(function ($draft) {
+                $draft->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+            })
+            ->where(function ($family) use ($stack, $docNo, $title) {
+                if ($stack !== '') {
+                    $family->where('ml.stack_group', $stack);
+                }
+                $family->orWhere(function ($older) use ($docNo, $title) {
+                    $older->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)])
+                        ->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)])
+                        ->where(function ($empty) {
+                            $empty->whereNull('ml.stack_group')->orWhere('ml.stack_group', '');
+                        })
+                        ->whereIn('ml.revision_status', ['obsolete', 'superseded']);
+                });
+            });
+        self::applyNotDeleted($query, 'dr');
+
+        $purposeByRequest = [];
+        $rows = $query
+            ->orderByDesc('ml.revise_no')
+            ->orderByDesc('ml.effectivity_date')
+            ->orderByDesc('ml.id')
+            ->get([
+                'ml.id as masterlist_id',
+                'ml.request_id',
+                'ml.doc_no',
+                'ml.doc_title',
+                'ml.revise_no',
+                'ml.revision_status',
+                'ml.effectivity_date',
+                'ml.scanned_masterlist',
+                'ml.originator_id',
+            ]);
+        self::attachOriginatorNames($rows);
+        if (Schema::hasColumn('dcs_document_change_notice', 'brief_purpose')) {
+            $purposeIds = $rows->filter(fn ($row) => (int) $row->revise_no > 0)->pluck('request_id')->all();
+            if ($purposeIds !== []) {
+                $purposeByRequest = DB::table('dcs_document_change_notice')
+                    ->whereIn('request_id', $purposeIds)
+                    ->pluck('brief_purpose', 'request_id')
+                    ->all();
+            }
+        }
+
+        return $rows->map(function ($row) use ($purposeByRequest) {
+            $status = strtolower(trim((string) ($row->revision_status ?? 'latest')));
+            $label = match ($status) {
+                'obsolete' => 'Obsolete',
+                'superseded' => 'Superseded',
+                'archived' => 'Archived',
+                default => 'Latest',
+            };
+
+            return [
+                'masterlist_id' => (int) $row->masterlist_id,
+                'request_id' => (int) $row->request_id,
+                'doc_no' => (string) $row->doc_no,
+                'doc_title' => (string) $row->doc_title,
+                'revise_no' => (int) $row->revise_no,
+                'status' => $label,
+                'status_class' => strtolower($label),
+                'effectivity' => self::formatDisplayDate($row->effectivity_date, '—'),
+                'originator_name' => (string) ($row->originator_name ?? ''),
+                'brief_purpose' => trim((string) ($purposeByRequest[$row->request_id] ?? '')),
+                'scanned_copy_url' => $row->scanned_masterlist ? self::scanUrl($row->scanned_masterlist) : null,
+            ];
+        })->values()->all();
     }
 
     /**

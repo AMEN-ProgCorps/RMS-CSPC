@@ -105,8 +105,14 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <div class="reg-field">
                     <div id="supersedeDocResults" class="reg-reldocs-dropdown" style="display:none;"></div>
                     <p id="supersedeDocPicked" class="reg-number-hint" hidden></p>
+                    <button type="button" id="supersedeReselect" hidden><i class="fa-solid fa-arrow-right-arrow-left"></i> Change document</button>
                 </div>
                 <div class="reg-field reg-revision-table" id="supersedeHistoryField" hidden>
+                    <div class="reg-revision-loading" id="supersedeHistoryLoading" aria-live="polite" aria-busy="false">
+                        <div class="dcs-loading-spinner" aria-hidden="true"></div>
+                        <p class="reg-revision-loading-text">Loading document…</p>
+                        <p class="reg-revision-loading-sub">Fetching the copies that will be superseded</p>
+                    </div>
                     <label>Previous documents</label>
                     <div class="reg-table-wrap">
                         <table class="reg-table">
@@ -627,7 +633,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="reg-card-body">
                     <div class="reg-field">
                         <label>Office retrieval status</label>
-                            <p class="reg-field-hint">Mark as Retrieved to also add that office to Distribution. Then set that office’s retrieval date and time. The office stays listed here as Retrieved. Set status back to Pending (or remove it from Distribution) to undo. On the next revision, retrieved offices start again as Pending in Retrieval.</p>
+                            <p class="reg-field-hint">Mark Retrieved when the office has returned the copy, then set the retrieval date and time. A revised document is distributed to the same offices even when a copy has not been retrieved yet. Monitoring shows which offices have retrieved and which have not.</p>
                         <div class="reg-search">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <circle cx="11" cy="11" r="8"/>
@@ -1016,8 +1022,6 @@ function typeAllowsRevision(docTypeId, subTypeId) {
     const tid = docTypeId ? String(docTypeId) : '';
     const row = (allDocTypes || []).find(d => String(d.doc_type_id) === (sid || tid));
     if (!row) return true;
-    if (typeof row.allows_revision === 'boolean') return row.allows_revision;
-    // Fallback before catalog ships allows_revision: syllabi-like never revises.
     return !row.is_syllabi_like;
 }
 
@@ -1575,6 +1579,10 @@ document.addEventListener("DOMContentLoaded", async function () {
             lockOfficeIntakeRegistrationIdentity();
             return;
         }
+        if (window.__recurIdentityLocked) {
+            lockRecurRegistrationIdentity();
+            return;
+        }
         const urlType = new URLSearchParams(location.search).get('type');
         if (urlType !== 'new' && urlType !== 'revised' && urlType !== 'recurring') return;
 
@@ -1706,6 +1714,9 @@ document.addEventListener("DOMContentLoaded", async function () {
         if (typeof applyInventoryRevisePrefillFromUrl === 'function') {
             applyInventoryRevisePrefillFromUrl();
         }
+        if (typeof applyInventoryRecurPrefillFromUrl === 'function') {
+            applyInventoryRecurPrefillFromUrl();
+        }
     }, 120);
 });
 
@@ -1790,6 +1801,109 @@ async function applyInventoryRevisePrefillFromUrl() {
         console.warn('Inventory revise prefill failed:', err);
         window.__inventoryRevisePrefillApplied = false;
     }
+}
+
+async function applyInventoryRecurPrefillFromUrl() {
+    const params = new URLSearchParams(location.search);
+    if ((params.get('type') || '').toLowerCase() !== 'recurring') {
+        return;
+    }
+    const fromId = params.get('from_id');
+    const fromDocNo = (params.get('from_doc_no') || '').trim();
+    const docTypeId = params.get('doc_type_id');
+    const subTypeId = params.get('sub_type_id');
+    if (!fromId && !fromDocNo) {
+        return;
+    }
+    if (window.__inventoryRecurPrefillApplied) {
+        return;
+    }
+    window.__inventoryRecurPrefillApplied = true;
+
+    try {
+        const dt = document.getElementById('docType');
+        if (dt && docTypeId) {
+            dt.disabled = false;
+            dt.removeAttribute('disabled');
+            const opt = [...dt.options].find((o) => String(o.value) === String(docTypeId));
+            if (opt) {
+                dt.value = String(docTypeId);
+                dt.dataset.lastValid = String(docTypeId);
+                if (typeof handleDocTypeChange === 'function') handleDocTypeChange();
+            }
+        }
+        const st = document.getElementById('subType');
+        if (st && subTypeId) {
+            st.disabled = false;
+            st.removeAttribute('disabled');
+            const opt = [...st.options].find((o) => String(o.value) === String(subTypeId));
+            if (opt) {
+                st.value = String(subTypeId);
+                st.dataset.lastValid = String(subTypeId);
+                if (typeof validateChecklistState === 'function') validateChecklistState();
+            }
+        } else if (typeof unlockChecklist === 'function') {
+            unlockChecklist();
+        }
+        window.__recurFromDatabase = true;
+        if (typeof syncRecurFinder === 'function') syncRecurFinder();
+        if (typeof setSupersedeLoading === 'function') setSupersedeLoading(true);
+
+        let picked = {
+            request_id: fromId ? Number(fromId) : null,
+            doc_no: fromDocNo,
+        };
+        const familyPromise = fromId && typeof loadSupersedeFamily === 'function'
+            ? loadSupersedeFamily(picked)
+            : Promise.resolve([]);
+        const contextPromise = fromDocNo && typeof bridgeDcnPickToMasterlist === 'function'
+            ? bridgeDcnPickToMasterlist(fromDocNo)
+            : Promise.resolve(null);
+        const [rows] = await Promise.all([familyPromise, contextPromise]);
+        const match = (rows || []).find((row) => String(row.request_id) === String(fromId)) || (rows || [])[0];
+        if (match) picked = match;
+        const revRow = document.querySelector('#revisionTableBody tr input[name="documentNo[]"]');
+        if (revRow) revRow.value = picked.doc_no || fromDocNo;
+        const fromInput = document.getElementById('revisedFromDocNo');
+        if (fromInput) fromInput.value = picked.doc_no || fromDocNo;
+        const idInput = document.getElementById('supersedeMasterlistId');
+        if (idInput) idInput.value = picked.masterlist_id ? String(picked.masterlist_id) : '';
+        if (typeof fillSupersedeFinder === 'function') fillSupersedeFinder(picked);
+        if (typeof showSupersedeDocumentHistory === 'function') {
+            await showSupersedeDocumentHistory(picked, { revisions: rows && rows.length ? rows : [picked] });
+        }
+        if (typeof lockSupersedeFinderInputs === 'function') lockSupersedeFinderInputs(true);
+        if (typeof unlockChecklist === 'function') unlockChecklist();
+        lockRecurRegistrationIdentity();
+    } catch (err) {
+        console.warn('Inventory recur prefill failed:', err);
+        window.__inventoryRecurPrefillApplied = false;
+    } finally {
+        if (typeof setSupersedeLoading === 'function') setSupersedeLoading(false);
+    }
+}
+
+function lockRecurRegistrationIdentity() {
+    window.__recurIdentityLocked = true;
+    const form = document.getElementById('masterForm');
+    ['versionType', 'docType', 'subType'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.disabled = true;
+        el.setAttribute('disabled', 'disabled');
+        el.classList.add('reg-identity-locked');
+        const name = el.getAttribute('name');
+        if (!name || !form) return;
+        let hidden = form.querySelector('input[type="hidden"][data-lock-for="' + id + '"]');
+        if (!hidden) {
+            hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = name;
+            hidden.dataset.lockFor = id;
+            form.appendChild(hidden);
+        }
+        hidden.value = el.value || '';
+    });
 }
 
 /**
@@ -2250,6 +2364,37 @@ function unlockRecurDistributionOffices() {
     if (groups) groups.style.display = '';
 }
 
+function openChecklistSection(id) {
+    const cb = document.querySelector('#dynamicCheckboxes input[name="checklists[]"][value="' + id + '"]');
+    const section = document.getElementById('section-' + id);
+    if (cb) {
+        cb.checked = true;
+        cb.dataset.lastChecked = 'true';
+        if (!cb.disabled && typeof toggleSection === 'function') {
+            toggleSection(id, true);
+            return;
+        }
+    }
+    if (section) section.style.display = 'block';
+}
+
+function seedRevisedDistributionOffices(offices, bodyId, totalId) {
+    const list = Array.isArray(offices) ? offices : [];
+    if (!list.length || !tableIsEmpty(bodyId || 'distBody')) return;
+    window.__seedingDrfDistOffices = true;
+    try {
+        list.forEach((o) => {
+            if (!o || !o.office_id) return;
+            seedOfficeRow(bodyId || 'distBody', totalId || 'totalDistCopies', o.office_id, o.office_name || 'Office', o.copies || 1);
+        });
+        updateTotal(totalId || 'totalDistCopies', bodyId || 'distBody');
+        if (typeof refreshOfficeSeeMore === 'function') refreshOfficeSeeMore(bodyId || 'distBody');
+    } finally {
+        window.__seedingDrfDistOffices = false;
+    }
+    openChecklistSection(5);
+}
+
 function seedRecurDistributionOffices(offices) {
     const list = Array.isArray(offices) ? offices : [];
     window.__seedingDrfDistOffices = true;
@@ -2335,7 +2480,7 @@ function initDocNoLookup(revField) {
 
         setSaveEnabled(false);
 
-        docNoTimer = setTimeout(() => runDocNoLookup(docNo, hintEl, revField), 500);
+        docNoTimer = setTimeout(() => runDocNoLookup(docNo, hintEl, revField), 160);
     });
 }
 
@@ -2465,10 +2610,12 @@ async function runDocNoLookup(docNo, hintEl, revField) {
         const subTypeId = document.getElementById('subType').value;
         const excludeRequestId = document.getElementById('requestId')?.value
             || (window.__draftRequestId ? String(window.__draftRequestId) : '');
+        const duplicateOnly = !isRevisedMode() ? '&duplicate_only=1' : '';
         const url = '/dcs/register/check-docno?doc_no=' + encodeURIComponent(docNo) +
                     (docTypeId ? '&doc_type_id=' + docTypeId : '') +
                     (subTypeId ? '&sub_type_id=' + subTypeId : '') +
-                    (excludeRequestId ? '&exclude_request_id=' + encodeURIComponent(excludeRequestId) : '');
+                    (excludeRequestId ? '&exclude_request_id=' + encodeURIComponent(excludeRequestId) : '') +
+                    duplicateOnly;
         const res = await fetch(url);
         const data = await res.json();
 
@@ -2524,6 +2671,10 @@ function applyRevisedDocumentContext(data, options = {}) {
         titleField.value = data.latest_title;
         titleField.readOnly = false;
     }
+    const drfTitleField = document.getElementById('drfTitle');
+    if (drfTitleField && data.latest_title && !String(drfTitleField.value || '').trim()) {
+        drfTitleField.value = data.latest_title;
+    }
 
     // Non-date masterlist fields from previous revision
     const pagesField = document.getElementById('masterlistNoOfPages');
@@ -2567,13 +2718,15 @@ function applyRevisedDocumentContext(data, options = {}) {
 
     if (isRecurringMode()) {
         seedRecurDistributionOffices(data.latest_distribution_offices || []);
-    } else if (data.latest_distribution_offices && data.latest_distribution_offices.length > 0
-        && tableIsEmpty('retrievalBody')) {
-        // Previous distribution copies must be retrieved again on this revision → always Pending.
-        data.latest_distribution_offices.forEach(o => {
-            seedRetrievalOfficeRow('retrievalBody', 'totalRetrievalCopies', o.office_id, o.office_name, o.copies, 'pending');
-        });
-        updateTotal('totalRetrievalCopies', 'retrievalBody');
+    } else if (data.latest_distribution_offices && data.latest_distribution_offices.length > 0) {
+        // The new revision is distributed to the same offices. Retrieval is not required first.
+        seedRevisedDistributionOffices(data.latest_distribution_offices, 'distBody', 'totalDistCopies');
+        if (tableIsEmpty('retrievalBody')) {
+            data.latest_distribution_offices.forEach(o => {
+                seedRetrievalOfficeRow('retrievalBody', 'totalRetrievalCopies', o.office_id, o.office_name, o.copies, 'pending');
+            });
+            updateTotal('totalRetrievalCopies', 'retrievalBody');
+        }
     }
 
     // Offices retrieved on a prior cycle but not on latest distribution still need a Pending row.
@@ -3119,8 +3272,8 @@ function applyRevisionMode() {
 
     if (isRecurringMode()) {
         lockRecurRevisionField();
-        if (hintEl) {
-            hintEl.innerHTML = '<span style="color:#475569"><i class="fa-solid fa-circle-info"></i> Find the latest document by number, title, and originator. The revision number stays the same.</span>';
+        if (hintEl && !String(document.getElementById('masterlistDocNo')?.value || '').trim()) {
+            hintEl.innerHTML = '';
             hintEl.style.color = '';
             hintEl.dataset.valid = '';
         }
@@ -3311,7 +3464,7 @@ async function runRevNoCheck(seq) {
 
     // Non-revisable types always use Rev 0. An existing number still has to be
     // resolved in the document-number modal, except the shared syllabi form number.
-    if (typeof currentTypeAllowsRevision === 'function' && !currentTypeAllowsRevision()) {
+    if (!isRevisedMode() && typeof currentTypeAllowsRevision === 'function' && !currentTypeAllowsRevision()) {
         revNoDuplicate = false;
         revField.value = '0';
         revField.readOnly = true;
@@ -3372,7 +3525,7 @@ async function runRevNoCheck(seq) {
             return;
         }
 
-        if (data.allows_revision === false) {
+        if (data.allows_revision === false && !isRevisedMode()) {
             revNoDuplicate = false;
             revField.value = '0';
             revField.readOnly = true;
@@ -3480,12 +3633,25 @@ function removeRevSearchDropdown(key) {
 
 function takenRevisionDocNos(exceptInput) {
     const taken = new Set();
-    document.querySelectorAll('input[name="documentNo[]"]').forEach(function (el) {
-        if (el === exceptInput) return;
-        const value = String(el.value || '').trim().toLowerCase();
-        if (value) taken.add(value);
+    document.querySelectorAll('#revisionTableBody tr').forEach(function (tr) {
+        const input = tr.querySelector('input[name="documentNo[]"]');
+        if (!input || input === exceptInput) return;
+        const id = String(tr.dataset.linkedMasterlist || '').trim();
+        const no = String(input.value || '').trim().toLowerCase();
+        const title = String(tr.querySelector('input[name="documentTitle[]"]')?.value || '').trim().toLowerCase();
+        if (id) taken.add('id:' + id);
+        if (no && title) taken.add('nt:' + no + '|' + title);
     });
     return taken;
+}
+
+function revisionDocIsTaken(doc, taken) {
+    const id = String(doc?.masterlist_id || '').trim();
+    const no = String(doc?.doc_no || '').trim().toLowerCase();
+    const title = String(doc?.doc_title || '').trim().toLowerCase();
+    if (id && taken.has('id:' + id)) return true;
+    if (no && title && taken.has('nt:' + no + '|' + title)) return true;
+    return false;
 }
 
 function handleRevisionSearchInput(input, key, field) {
@@ -3532,7 +3698,7 @@ function handleRevisionSearchInput(input, key, field) {
             const raw = await fetch('/dcs/api/documents/search?' + params.toString()).then(r => r.json());
             const taken = takenRevisionDocNos(input);
             let data = (Array.isArray(raw) ? raw : []).filter(function (doc) {
-                return !taken.has(String(doc.doc_no || '').trim().toLowerCase());
+                return !revisionDocIsTaken(doc, taken);
             });
             if (isRecurringMode()) {
                 data = data.filter(function (doc) {
@@ -3594,11 +3760,13 @@ function populateRevisionRowFromDoc(row, doc) {
     lockRevisionScannedCopyCell(row, doc.scanned_copy_url);
 }
 
-function clearLinkedRowsForDocument(tbody, docNo, exceptRow) {
+function clearLinkedRowsForDocument(tbody, docNo, exceptRow, familyKey) {
     if (!tbody || !docNo) return;
     [...tbody.querySelectorAll('tr')].forEach(tr => {
         if (tr === exceptRow) return;
-        if ((tr.dataset.linkedDocNo || '') !== docNo) return;
+        const sameFamily = familyKey && (tr.dataset.linkedFamily || '') === familyKey;
+        const sameNumber = !familyKey && (tr.dataset.linkedDocNo || '') === docNo;
+        if (!sameFamily && !sameNumber) return;
         removeRevisionRowDropdowns(tr);
         tr.remove();
     });
@@ -3643,8 +3811,6 @@ async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {
 
     const pickedDocNo = String((options.docNo || docs[0].doc_no) || '').trim().toLowerCase();
 
-    clearLinkedRowsForDocument(tbody, pickedDocNo, anchorRow);
-
     // Current published rev first — never the next unused number from a leftover draft.
     let rowsToFill = revisionHistoryRowsForDcn(docs, options.latestRev);
     if (options.latestOnly || (typeof isRecurringMode === 'function' && isRecurringMode())) {
@@ -3660,10 +3826,15 @@ async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {
         rowsToFill = latest ? [latest] : pool.slice(0, 1);
     }
 
+    const familyKey = String(rowsToFill[0].masterlist_id || rowsToFill[0].request_id || pickedDocNo);
+    clearLinkedRowsForDocument(tbody, pickedDocNo, anchorRow, familyKey);
+
     populateRevisionRowFromDoc(anchorRow, rowsToFill[0]);
     anchorRow.dataset.linked = 'true';
     anchorRow.dataset.linkedDocNo = pickedDocNo;
-    lockRevisionHistoryRow(anchorRow);
+    anchorRow.dataset.linkedFamily = familyKey;
+    anchorRow.dataset.linkedMasterlist = String(rowsToFill[0].masterlist_id || '');
+    delete anchorRow.dataset.historyLocked;
 
     let insertAfter = anchorRow;
     for (let i = 1; i < rowsToFill.length; i++) {
@@ -3674,6 +3845,8 @@ async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {
         populateRevisionRowFromDoc(tr, rowsToFill[i]);
         tr.dataset.linked = 'true';
         tr.dataset.linkedDocNo = pickedDocNo;
+        tr.dataset.linkedFamily = familyKey;
+        tr.dataset.linkedMasterlist = String(rowsToFill[i].masterlist_id || '');
         lockRevisionHistoryRow(tr);
         insertAfter = tr;
     }
@@ -3903,21 +4076,37 @@ function suggestRevisionForSources() {
     }
 }
 
+function ensureBlankRevisionRow(tbody) {
+    if (!tbody || tbody.querySelector('tr')) return;
+    const tr = document.createElement('tr');
+    tr.innerHTML = revisionRowCellsHTML();
+    tbody.appendChild(tr);
+    bindTableFileInput(tr.querySelector('input[type="file"]'));
+    bindRevisionRowSearch(tr);
+}
+
 window.removeRevisionRow = function (btn) {
     const tr = btn.closest('tr');
     if (!tr || tr.dataset.historyLocked === 'true') return;
+    const family = tr.dataset.linkedFamily || '';
     const docNo = tr.dataset.linkedDocNo || '';
     const tbody = tr.parentElement;
-    if (docNo && tbody) {
+    if (tbody && (family || docNo)) {
         [...tbody.querySelectorAll('tr')].forEach(row => {
-            if ((row.dataset.linkedDocNo || '') !== docNo) return;
+            if (family) {
+                if ((row.dataset.linkedFamily || '') !== family) return;
+            } else if ((row.dataset.linkedDocNo || '') !== docNo) {
+                return;
+            }
             removeRevisionRowDropdowns(row);
             row.remove();
         });
+        ensureBlankRevisionRow(tbody);
         return;
     }
     removeRevisionRowDropdowns(tr);
     tr.remove();
+    ensureBlankRevisionRow(tbody);
 };
 
 // Close any open revision-search dropdown on outside click
@@ -5278,6 +5467,7 @@ async function handleVersionChange() {
     // Mode first (New vs Revised), then checklists — never restore sections
     // from a prior Document Type while version is being changed.
     updateRegistrationMode();
+    resetSupersedeFinder();
 
     if (!versionId) {
         renderChecklists([
@@ -5434,6 +5624,8 @@ function handleDocTypeChange() {
 
     if (!docTypeId) {
         lockChecklist();
+        resetSupersedeFinder();
+        syncRecurFinder();
         return;
     }
 
@@ -5455,6 +5647,8 @@ function handleDocTypeChange() {
         maybeAutofillDocNo();
         restoreOfficeIntakePrefillIfNeeded();
     }
+    resetSupersedeFinder();
+    syncRecurFinder();
     syncNonRevisableTypeUi();
     window.DCSScanNamePreview?.update();
 }
@@ -5534,6 +5728,8 @@ function validateChecklistState() {
         window.__isSyllabiMode = false;
         window.__syllabiModeLabel = 'Syllabi';
         lockChecklist();
+        resetSupersedeFinder();
+        syncRecurFinder();
         maybeAutofillDocNo();
         return;
     }
@@ -5547,9 +5743,11 @@ function validateChecklistState() {
     if (!window.__officeIntakePrefill) {
         if (subTypeChanged && window.__lastSubTypeId != null && String(window.__lastSubTypeId) !== '') {
             resetRegisterSectionInputs();
+            resetSupersedeFinder();
             if (syllabiSection) syllabiSection.style.display = "none";
         } else if (subTypeChanged) {
             resetSyllabiSection();
+            resetSupersedeFinder();
         }
     }
 
@@ -5887,25 +6085,74 @@ function revisionStatusText(status) {
     return 'Latest';
 }
 
-async function showSupersedeDocumentHistory(doc) {
+function setSupersedeLoading(on) {
+    const field = document.getElementById('supersedeHistoryField');
+    const overlay = document.getElementById('supersedeHistoryLoading');
+    if (field) {
+        field.hidden = false;
+        field.classList.toggle('is-loading', !!on);
+    }
+    if (overlay) overlay.setAttribute('aria-busy', on ? 'true' : 'false');
+}
+
+function lockSupersedeFinderInputs(locked) {
+    const section = document.getElementById('section-supersede');
+    if (section) section.classList.toggle('is-finder-locked', !!locked);
+    ['supersedeDocNo', 'supersedeDocTitle', 'supersedeDocOriginator'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.readOnly = !!locked;
+    });
+}
+
+async function loadSupersedeFamily(doc) {
+    if (!doc || !doc.request_id) return doc ? [doc] : [];
+    const params = new URLSearchParams({ request_id: String(doc.request_id) });
+    if (doc.doc_no) params.set('doc_no', doc.doc_no);
+    const raw = await fetch('/dcs/api/documents/revisions?' + params.toString()).then(function (r) { return r.json(); });
+    return Array.isArray(raw) && raw.length ? raw : (doc ? [doc] : []);
+}
+
+function supersedeHistoryTextCell(value, cellClass) {
+    const text = String(value || '').trim();
+    const wrap = text.length > 28 ? ' is-wrap' : '';
+    return '<td class="' + (cellClass || '') + '"><span class="reg-rev-title-text' + wrap + '">' + escapeHtml(text || '—') + '</span></td>';
+}
+
+async function showSupersedeDocumentHistory(doc, options) {
+    options = options || {};
     const field = document.getElementById('supersedeHistoryField');
     const body = document.getElementById('supersedeHistoryBody');
     const idInput = document.getElementById('supersedeMasterlistId');
-    if (idInput) idInput.value = doc && doc.masterlist_id ? String(doc.masterlist_id) : '';
+    const reselect = document.getElementById('supersedeReselect');
+    if (idInput && !options.keepMasterlistId) {
+        idInput.value = doc && doc.masterlist_id ? String(doc.masterlist_id) : '';
+    }
     if (!field || !body || !doc) return;
 
-    let revisions = [];
-    try {
-        if (doc.request_id) {
-            const params = new URLSearchParams({ request_id: String(doc.request_id) });
-            if (doc.doc_no) params.set('doc_no', doc.doc_no);
-            const raw = await fetch('/dcs/api/documents/revisions?' + params.toString()).then(r => r.json());
-            if (Array.isArray(raw)) revisions = raw;
+    let revisions = Array.isArray(options.revisions) ? options.revisions.slice() : [];
+    if (!revisions.length) {
+        try {
+            revisions = await loadSupersedeFamily(doc);
+        } catch (e) {
+            revisions = [];
         }
-    } catch (e) {
-        revisions = [];
     }
     if (!revisions.length) revisions = [doc];
+    if (options.excludeRequestId) {
+        const currentId = String(options.excludeRequestId);
+        revisions = revisions.filter(function (row) {
+            return String(row.request_id || '') !== currentId;
+        });
+    }
+    if (options.hideLatest) {
+        revisions = revisions.filter(function (row) {
+            return revisionStatusText(row.revision_status) !== 'Latest';
+        });
+    }
+    if (!revisions.length && doc && (doc.doc_no || doc.doc_title || doc.masterlist_id)) {
+        revisions = [doc];
+    }
 
     const selectedId = String(doc.masterlist_id || '');
     body.innerHTML = revisions.map(function (row) {
@@ -5916,18 +6163,146 @@ async function showSupersedeDocumentHistory(doc) {
         const effectivity = row.effectivity_date_label || row.effectivity_date || '—';
         const scan = row.scanned_copy_url
             ? '<button type="button" class="reg-revrow-viewfile reg-revrow-viewfile-pdf" data-scan-url="' + escapeHtml(row.scanned_copy_url) + '" title="View PDF"><i class="fa-solid fa-file-pdf"></i></button>'
-            : '<span style="color:#64748b;">—</span>';
+            : '<span class="reg-rev-title-text">—</span>';
         return '<tr' + (isTarget ? ' class="is-supersede-target"' : '') + '>'
-            + '<td>' + escapeHtml(row.doc_no || '—') + '</td>'
-            + '<td>' + escapeHtml(title || '—') + '</td>'
-            + '<td>' + escapeHtml(String(effectivity)) + '</td>'
-            + '<td>' + escapeHtml(String(row.revise_no ?? 0)) + '</td>'
+            + supersedeHistoryTextCell(row.doc_no || '—')
+            + supersedeHistoryTextCell(title || '—')
+            + supersedeHistoryTextCell(effectivity)
+            + supersedeHistoryTextCell(String(row.revise_no ?? 0), 'reg-supersede-rev')
             + '<td><span class="reg-rev-status is-' + status.toLowerCase() + '">' + escapeHtml(status) + '</span></td>'
             + '<td style="text-align:center;">' + scan + '</td>'
-            + '<td>' + escapeHtml(purpose || '—') + '</td>'
+            + supersedeHistoryTextCell(purpose || '—')
             + '</tr>';
     }).join('');
-    field.hidden = false;
+    field.hidden = revisions.length === 0;
+    if (reselect) reselect.hidden = !!(window.__recurFromDatabase || window.__recurSelectionLocked);
+    if (options.markSuperseded) {
+        body.querySelectorAll('.reg-rev-status.is-latest').forEach(function (badge) {
+            badge.textContent = 'Superseded';
+            badge.classList.remove('is-latest');
+            badge.classList.add('is-superseded');
+        });
+    }
+}
+
+function resetSupersedeFinder() {
+    if (window.__suppressSupersedeReset) return;
+    ['supersedeDocNo', 'supersedeDocTitle', 'supersedeDocOriginator', 'supersedeMasterlistId', 'revisedFromDocNo'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const picked = document.getElementById('supersedeDocPicked');
+    if (picked) {
+        picked.hidden = true;
+        picked.textContent = '';
+    }
+    const field = document.getElementById('supersedeHistoryField');
+    const body = document.getElementById('supersedeHistoryBody');
+    if (field) {
+        field.hidden = true;
+        field.classList.remove('is-loading');
+    }
+    if (body) body.innerHTML = '';
+    const results = document.getElementById('supersedeDocResults');
+    if (results) {
+        results.style.display = 'none';
+        results.innerHTML = '';
+    }
+    const reselect = document.getElementById('supersedeReselect');
+    if (reselect) reselect.hidden = true;
+    if (typeof lockSupersedeFinderInputs === 'function') lockSupersedeFinderInputs(false);
+    window.__supersedeSearch = [];
+}
+
+function clearSupersedeSelection() {
+    ['supersedeDocNo', 'supersedeDocTitle', 'supersedeDocOriginator', 'supersedeMasterlistId', 'revisedFromDocNo'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const picked = document.getElementById('supersedeDocPicked');
+    if (picked) {
+        picked.hidden = true;
+        picked.textContent = '';
+    }
+    const field = document.getElementById('supersedeHistoryField');
+    const body = document.getElementById('supersedeHistoryBody');
+    if (field) field.hidden = true;
+    if (body) body.innerHTML = '';
+    const reselect = document.getElementById('supersedeReselect');
+    if (reselect) reselect.hidden = true;
+    lockSupersedeFinderInputs(false);
+    clearRecurPickedDetails();
+    document.getElementById('supersedeDocNo')?.focus();
+}
+
+function clearRecurPickedDetails() {
+    ['section-1', 'section-3', 'section-5'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (typeof resetTextLikeInputs === 'function') resetTextLikeInputs(el);
+        if (typeof resetFileWidgetsIn === 'function') resetFileWidgetsIn(el);
+    });
+    ['masterlistTimeSpentDisplay', 'distributionTimeSpentDisplay'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) {
+            el.value = '--';
+            el.style.color = '';
+        }
+    });
+    ['masterlistTimeSpent', 'distributionTimeSpent'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    ['drf', 'masterlist', 'masterlistOriginator'].forEach(function (key) {
+        if (window.__sourceWidgets?.[key]) window.__sourceWidgets[key].reset();
+    });
+    ['drfSourceUnitSearch', 'masterlistSourceSearch', 'masterlistOriginatorSearch'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    if (typeof relatedDocsSelected !== 'undefined') {
+        relatedDocsSelected = [];
+        if (typeof renderRelatedDocsChips === 'function') renderRelatedDocsChips();
+    }
+    if (typeof unlockRecurDistributionOffices === 'function') unlockRecurDistributionOffices();
+    const distBody = document.getElementById('distBody');
+    if (distBody && typeof emptyOfficeRowHTML === 'function') {
+        distBody.innerHTML = emptyOfficeRowHTML('distBody');
+    }
+    const distTotal = document.getElementById('totalDistCopies');
+    if (distTotal) distTotal.textContent = '0';
+    const revRow = document.querySelector('#revisionTableBody tr input[name="documentNo[]"]');
+    if (revRow) revRow.value = '';
+    const revField = document.getElementById('masterlistRevisionNo');
+    if (revField && typeof isRecurringMode === 'function' && isRecurringMode()) {
+        delete revField.dataset.recurRev;
+        revField.value = '';
+        revField.readOnly = true;
+        revField.classList.add('reg-rev-locked');
+    }
+    const hint = document.getElementById('docNoHint');
+    if (hint) {
+        hint.innerHTML = '';
+        hint.style.color = '';
+        hint.dataset.valid = '';
+    }
+    if (typeof clearRevisedApprovalContext === 'function') clearRevisedApprovalContext();
+    const notApplicable = document.querySelector('input[name="approval_status"][value="not_applicable"]');
+    if (notApplicable) {
+        notApplicable.checked = true;
+        if (typeof window.handleApprovalToggle === 'function') window.handleApprovalToggle(false);
+    }
+    ['approvalNo', 'approvalDate'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const approvalBody = document.getElementById('approvalBody');
+    if (approvalBody) approvalBody.selectedIndex = 0;
+    [1, 3, 5].forEach(function (id) {
+        const cb = document.querySelector('#dynamicCheckboxes input[name="checklists[]"][value="' + id + '"]');
+        if (cb && cb.checked && typeof toggleSection === 'function') toggleSection(id, true);
+    });
+    if (typeof window.DCSScanNamePreview?.update === 'function') window.DCSScanNamePreview.update();
 }
 
 function fillSupersedeFinder(doc) {
@@ -5997,6 +6372,7 @@ function bindSupersedeFinder() {
 
     [noInput, titleInput, originInput].forEach(function (input) {
         input.addEventListener('input', function () {
+            if (input.readOnly) return;
             clearTimeout(timer);
             timer = setTimeout(function () { runSearch(input.value.trim()); }, 250);
         });
@@ -6006,17 +6382,26 @@ function bindSupersedeFinder() {
         if (!btn) return;
         const doc = (window.__supersedeSearch || [])[Number(btn.dataset.supersedeIdx)];
         if (!doc) return;
-        const row = document.querySelector('#revisionTableBody tr');
-        if (row && typeof applyRevisionDocumentPick === 'function') {
-            await applyRevisionDocumentPick(row, doc, { latestOnly: true });
-        }
-        const fromInput = document.getElementById('revisedFromDocNo');
-        if (fromInput) fromInput.value = doc.doc_no || '';
-        const idInput = document.getElementById('supersedeMasterlistId');
-        if (idInput) idInput.value = doc.masterlist_id ? String(doc.masterlist_id) : '';
-        fillSupersedeFinder(doc);
-        await showSupersedeDocumentHistory(doc);
         dd.style.display = 'none';
+        setSupersedeLoading(true);
+        try {
+            const familyPromise = loadSupersedeFamily(doc);
+            const contextPromise = doc.doc_no && typeof bridgeDcnPickToMasterlist === 'function'
+                ? bridgeDcnPickToMasterlist(doc.doc_no)
+                : Promise.resolve(null);
+            const [revisions] = await Promise.all([familyPromise, contextPromise]);
+            const revRow = document.querySelector('#revisionTableBody tr input[name="documentNo[]"]');
+            if (revRow) revRow.value = doc.doc_no || '';
+            const fromInput = document.getElementById('revisedFromDocNo');
+            if (fromInput) fromInput.value = doc.doc_no || '';
+            const idInput = document.getElementById('supersedeMasterlistId');
+            if (idInput) idInput.value = doc.masterlist_id ? String(doc.masterlist_id) : '';
+            fillSupersedeFinder(doc);
+            await showSupersedeDocumentHistory(doc, { revisions: revisions });
+            lockSupersedeFinderInputs(true);
+        } finally {
+            setSupersedeLoading(false);
+        }
     });
     const historyBody = document.getElementById('supersedeHistoryBody');
     if (historyBody && historyBody.dataset.bound !== '1') {
@@ -6027,6 +6412,11 @@ function bindSupersedeFinder() {
             const url = scan.getAttribute('data-scan-url');
             if (url) window.open(url, '_blank', 'noopener');
         });
+    }
+    const reselect = document.getElementById('supersedeReselect');
+    if (reselect && reselect.dataset.bound !== '1') {
+        reselect.dataset.bound = '1';
+        reselect.addEventListener('click', clearSupersedeSelection);
     }
 }
 

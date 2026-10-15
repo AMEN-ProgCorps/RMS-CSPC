@@ -1145,12 +1145,17 @@ class RegisterPersistHelper
                 return back()->withInput()
                     ->with('error', 'This document is not in the system. Recur can only continue a document that is already registered.');
             }
-            $request->merge([
+            $typedNo = trim((string) $request->input('masterlistDocNo', ''));
+            $pickedNo = trim((string) ($picked->doc_no ?? ''));
+            $recurMerge = [
                 'registration_mode' => 'recurring',
-                'masterlistDocNo' => $picked->doc_no,
                 'masterlistRevisionNo' => (int) ($picked->revise_no ?? 0),
-                'revised_from_doc_no' => $picked->doc_no,
-            ]);
+                'revised_from_doc_no' => $pickedNo,
+            ];
+            if ($typedNo === '') {
+                $recurMerge['masterlistDocNo'] = $pickedNo;
+            }
+            $request->merge($recurMerge);
         }
 
         if ($mode === 'revised' && ! $saveAsDraft) {
@@ -1766,7 +1771,16 @@ class RegisterPersistHelper
             }
 
             $savedMl = DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first();
-            if ($savedMl && ! $saveAsDraft) {
+            if ($savedMl && ! $saveAsDraft && $mode === 'recurring') {
+                // Recur already superseded the selected latest. Do not let the
+                // family tip rewrite turn that row back into Latest.
+                self::supersedeLatestForRecur($request, (int) $savedMl->id);
+                if (RegisterQueryHelper::supportsRevisionStatus()) {
+                    DB::table('dcs_masterlist_registration')
+                        ->where('id', (int) $savedMl->id)
+                        ->update(['revision_status' => 'latest', 'updated_at' => now()]);
+                }
+            } elseif ($savedMl && ! $saveAsDraft) {
                 $rowAllowsRevision = RegisterQueryHelper::supportsAllowsRevisionColumn()
                     ? (bool) ($savedMl->allows_revision ?? true)
                     : $allowsRevision;
@@ -3111,65 +3125,87 @@ class RegisterPersistHelper
             return;
         }
 
-        $numbers = collect((array) $request->input('documentNo', []))
-            ->map(fn ($no) => trim((string) $no))
-            ->filter()
-            ->unique(fn ($no) => strtolower($no))
-            ->values();
-        $fromDoc = trim((string) $request->input('revised_from_doc_no', ''));
-        if ($fromDoc !== '' && ! $numbers->contains(fn ($no) => strcasecmp($no, $fromDoc) === 0)) {
-            $numbers->push($fromDoc);
+        $docNos = array_values((array) $request->input('documentNo', []));
+        $titles = array_values((array) $request->input('documentTitle', []));
+        $revNos = array_values((array) $request->input('revisionNo', []));
+        $picks = [];
+        $count = max(count($docNos), count($titles), count($revNos));
+        for ($i = 0; $i < $count; $i++) {
+            $no = trim((string) ($docNos[$i] ?? ''));
+            $title = trim((string) ($titles[$i] ?? ''));
+            if ($no === '' && $title === '') {
+                continue;
+            }
+            $picks[] = [
+                'doc_no' => $no,
+                'title' => $title,
+                'revise_no' => isset($revNos[$i]) && trim((string) $revNos[$i]) !== '' ? (int) $revNos[$i] : null,
+            ];
         }
-        if ($numbers->isEmpty()) {
+        if ($picks === []) {
             return;
         }
 
-        $stackGroup = null;
-        if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
-            $stackGroup = trim((string) DB::table('dcs_masterlist_registration')->where('request_id', $newRequestId)->value('stack_group'));
-            if ($stackGroup === '') {
+        $docTypeId = (int) $request->input('doc_type_id');
+        $hasStack = Schema::hasColumn('dcs_masterlist_registration', 'stack_group');
+        foreach ($picks as $pick) {
+            $query = DB::table('dcs_masterlist_registration as ml')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                ->where('dr.doc_type_id', $docTypeId)
+                ->where('ml.request_id', '!=', $newRequestId)
+                ->select(array_values(array_filter([
+                    'ml.id',
+                    'ml.doc_no',
+                    'ml.doc_title',
+                    'ml.revision_status',
+                    'ml.revise_no',
+                    $hasStack ? 'ml.stack_group' : null,
+                ])));
+            if ($pick['doc_no'] !== '') {
+                $query->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($pick['doc_no'])]);
+            }
+            RegisterQueryHelper::applyNotDeleted($query, 'dr');
+            RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
+            $matched = $query->get()->filter(function ($row) use ($pick) {
+                if ($pick['title'] !== '' && strcasecmp(trim((string) $row->doc_title), $pick['title']) !== 0) {
+                    return false;
+                }
+                if ($pick['revise_no'] !== null && (int) $row->revise_no !== $pick['revise_no']) {
+                    return false;
+                }
+
+                return true;
+            })->values();
+            if ($matched->isEmpty()) {
+                continue;
+            }
+            $selected = $matched->first(function ($row) {
+                $status = strtolower(trim((string) ($row->revision_status ?? '')));
+
+                return $status === '' || $status === 'latest';
+            }) ?? $matched->first();
+
+            $stackGroup = $hasStack ? trim((string) ($selected->stack_group ?? '')) : '';
+            if ($hasStack && $stackGroup === '') {
                 $stackGroup = (string) \Illuminate\Support\Str::uuid();
+            }
+            $update = [
+                'revision_status' => 'obsolete',
+                'updated_at' => now(),
+            ];
+            if ($hasStack && $stackGroup !== '') {
+                $update['stack_group'] = $stackGroup;
+            }
+            $status = strtolower(trim((string) ($selected->revision_status ?? '')));
+            if ($status !== '' && $status !== 'latest') {
+                unset($update['revision_status']);
+            }
+            DB::table('dcs_masterlist_registration')->where('id', (int) $selected->id)->update($update);
+            if ($hasStack && $stackGroup !== '') {
                 DB::table('dcs_masterlist_registration')
                     ->where('request_id', $newRequestId)
                     ->update(['stack_group' => $stackGroup, 'updated_at' => now()]);
-            }
-        }
-
-        $docTypeId = (int) $request->input('doc_type_id');
-        foreach ($numbers as $docNo) {
-            $rows = DB::table('dcs_masterlist_registration as ml')
-                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-                ->where('ml.doc_no', $docNo)
-                ->where('dr.doc_type_id', $docTypeId)
-                ->where('ml.request_id', '!=', $newRequestId)
-                ->select('ml.id', 'ml.revision_status', 'ml.revise_no');
-            RegisterQueryHelper::applyNotDeleted($rows, 'dr');
-            RegisterQueryHelper::applyExcludeDrafts($rows, 'dr');
-            $matched = $rows->get();
-            $latestId = null;
-            $latestRev = -1;
-            foreach ($matched as $row) {
-                $status = strtolower(trim((string) ($row->revision_status ?? '')));
-                if ($status !== '' && $status !== 'latest') {
-                    continue;
-                }
-                $rev = (int) ($row->revise_no ?? 0);
-                if ($rev >= $latestRev) {
-                    $latestRev = $rev;
-                    $latestId = (int) $row->id;
-                }
-            }
-            foreach ($matched as $row) {
-                $update = ['updated_at' => now()];
-                if ($stackGroup !== null) {
-                    $update['stack_group'] = $stackGroup;
-                }
-                if ($latestId !== null && (int) $row->id === $latestId) {
-                    $update['revision_status'] = 'obsolete';
-                }
-                if (count($update) > 1) {
-                    DB::table('dcs_masterlist_registration')->where('id', $row->id)->update($update);
-                }
+                self::attachEmptyStackPredecessors((int) $selected->id, $stackGroup);
             }
         }
     }
@@ -3242,22 +3278,80 @@ class RegisterPersistHelper
         if (RegisterQueryHelper::supportsAllowsRevisionColumn()) {
             $update['allows_revision'] = true;
         }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            $group = trim((string) DB::table('dcs_masterlist_registration')->where('id', (int) $picked->id)->value('stack_group'));
+            if ($group === '') {
+                $group = (string) \Illuminate\Support\Str::uuid();
+                $update['stack_group'] = $group;
+            }
+            $request->merge(['recur_stack_group' => $group]);
+            self::attachEmptyStackPredecessors((int) $picked->id, $group);
+        }
         DB::table('dcs_masterlist_registration')
             ->where('id', (int) $picked->id)
             ->update($update);
     }
 
-    public static function applyRecurRevisedFrom(array &$row, Request $request, string $mode): void
+    /**
+     * Older obsolete or superseded copies of this same document join its stack.
+     * Another latest that only shares the document number is left alone.
+     */
+    private static function attachEmptyStackPredecessors(int $masterlistId, string $stackGroup): void
     {
-        if ($mode !== 'recurring' || ! Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
+        if ($stackGroup === '' || ! Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
             return;
         }
-        $from = trim((string) $request->input('revised_from_doc_no', ''));
-        if ($from === '') {
-            $from = trim((string) ($request->input('masterlistDocNo') ?? ''));
+        $picked = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->where('ml.id', $masterlistId)
+            ->select('ml.doc_no', 'ml.doc_title', 'dr.doc_type_id')
+            ->first();
+        if (! $picked) {
+            return;
         }
-        if ($from !== '') {
-            $row['revised_from_doc_no'] = $from;
+        $title = trim((string) ($picked->doc_title ?? ''));
+        $docNo = trim((string) ($picked->doc_no ?? ''));
+        if ($title === '' || $docNo === '') {
+            return;
+        }
+        $ids = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->where('dr.doc_type_id', (int) $picked->doc_type_id)
+            ->where('ml.id', '!=', $masterlistId)
+            ->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)])
+            ->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)])
+            ->where(function ($q) {
+                $q->whereNull('ml.stack_group')->orWhere('ml.stack_group', '');
+            })
+            ->whereIn('ml.revision_status', ['obsolete', 'superseded'])
+            ->pluck('ml.id');
+        if ($ids->isEmpty()) {
+            return;
+        }
+        DB::table('dcs_masterlist_registration')
+            ->whereIn('id', $ids->all())
+            ->update(['stack_group' => $stackGroup, 'updated_at' => now()]);
+    }
+
+    public static function applyRecurRevisedFrom(array &$row, Request $request, string $mode): void
+    {
+        if ($mode !== 'recurring') {
+            return;
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
+            $from = trim((string) $request->input('revised_from_doc_no', ''));
+            if ($from === '') {
+                $from = trim((string) ($request->input('masterlistDocNo') ?? ''));
+            }
+            if ($from !== '') {
+                $row['revised_from_doc_no'] = $from;
+            }
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            $group = trim((string) $request->input('recur_stack_group', ''));
+            if ($group !== '') {
+                $row['stack_group'] = $group;
+            }
         }
     }
 

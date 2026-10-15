@@ -26,7 +26,7 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
     public function mount(): void
     {
         abort_unless(RegisterQueryHelper::canAccessDcsModule('reports'), 403);
-        if (! in_array($this->status, ['all', 'awaiting', 'previous_out'], true)) {
+        if (! in_array($this->status, ['all', 'awaiting', 'not_retrieved', 'previous_out'], true)) {
             $this->status = 'all';
         }
     }
@@ -38,7 +38,7 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
 
     public function updatedStatus(): void
     {
-        if (! in_array($this->status, ['all', 'awaiting', 'previous_out'], true)) {
+        if (! in_array($this->status, ['all', 'awaiting', 'not_retrieved', 'previous_out'], true)) {
             $this->status = 'all';
         }
         $this->openId = null;
@@ -290,8 +290,9 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
             <div class="rpt-filter-group">
                 <label for="drtStatus">Status</label>
                 <select id="drtStatus" wire:model.live="status">
-                    <option value="all">All documents</option>
+                    <option value="all">All open documents</option>
                     <option value="awaiting">Waiting for receipt</option>
+                    <option value="not_retrieved">Not yet retrieved</option>
                     <option value="previous_out">Old copy still out</option>
                 </select>
             </div>
@@ -300,6 +301,7 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
                 <input id="drtSearch" type="search" wire:model.live.debounce.300ms="q" placeholder="Document no., title, or office">
             </div>
         </div>
+        <p class="rpt-template-status">A document leaves this list when every office has received the copy and returned it. Until then, open Offices: each office is marked Retrieved or Not yet retrieved, including offices that already received the new copy.</p>
     </section>
 
     @if($loadError)
@@ -367,7 +369,7 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
                                 <td>Rev {{ (int) $revision['revise_no'] }}</td>
                                 <td>{{ $officeCount }}</td>
                                 <td>{{ $receivedCount }}</td>
-                                <td>{{ $retrievedCount }}</td>
+                                <td>{{ $retrievedCount }} retrieved @if($officeCount > $retrievedCount) · {{ $officeCount - $retrievedCount }} not yet @endif</td>
                                 <td>{{ $pendingReturn > 0 ? $pendingReturn.' pending return' : 'Clear' }}</td>
                                 <td>
                                     <button type="button" class="drt-offices-btn" wire:click="showRevision({{ (int) $revision['request_id'] }})">Offices</button>
@@ -457,7 +459,7 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
                                         @elseif(($office['status'] ?? '') === 'still_out')
                                             Pending return
                                         @else
-                                            <span class="rpt-na">Not retrieved</span>
+                                            <span class="rpt-na">Not yet retrieved</span>
                                         @endif
                                     </td>
                                     <td>

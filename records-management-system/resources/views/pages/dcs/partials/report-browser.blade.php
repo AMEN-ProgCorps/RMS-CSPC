@@ -121,6 +121,7 @@
                     <select wire:model="revisionStatus">
                         <option value="all">All</option>
                         <option value="latest">Latest only</option>
+                        <option value="superseded">Superseded only</option>
                         <option value="obsolete">Obsolete only</option>
                     </select>
                     <span class="rpt-filter-hint">Blank Item No. = older revision of the row above.</span>
@@ -323,6 +324,10 @@
                         $rows = $preview['rows'];
                         $groups = $result['group_headers'] ?? [];
                         $keys = array_keys($cols);
+                        $splitKeys = \App\Helpers\ReportHelper::reportSplitKeys($keys);
+                        $withSplit = static function (string $key, string $class = '') use ($splitKeys): string {
+                            return trim($class.(in_array($key, $splitKeys, true) ? ' rpt-split' : ''));
+                        };
                         $opcrColClass = static function (string $key): string {
                             $dateKeys = ['date_received', 'date_registered', 'date_released'];
                             $timeKeys = ['time_received', 'time_registered', 'time_released'];
@@ -358,7 +363,7 @@
                                                     $group = $groups[$key] ?? null;
                                                 @endphp
                                                 @if($group === null || $group === '')
-                                                    <th rowspan="2" class="{{ $opcrColClass($key) }}">{{ $cols[$key] }}</th>
+                                                    <th rowspan="2" class="{{ $withSplit($key, $opcrColClass($key)) }}">{{ $cols[$key] }}</th>
                                                     @php $i++; @endphp
                                                 @else
                                                     @php
@@ -366,8 +371,9 @@
                                                         while ($i + $span < count($keys) && ($groups[$keys[$i + $span]] ?? null) === $group) {
                                                             $span++;
                                                         }
+                                                        $groupClass = in_array($keys[$i + $span - 1], $splitKeys, true) ? 'rpt-split' : '';
                                                     @endphp
-                                                    <th colspan="{{ $span }}">{{ $group }}</th>
+                                                    <th colspan="{{ $span }}" class="{{ $groupClass }}">{{ $group }}</th>
                                                     @php $i += $span; @endphp
                                                 @endif
                                             @endwhile
@@ -375,14 +381,14 @@
                                         <tr>
                                             @foreach($keys as $key)
                                                 @if(($groups[$key] ?? null) !== null && ($groups[$key] ?? null) !== '')
-                                                    <th class="{{ $opcrColClass($key) }}">{{ $cols[$key] }}</th>
+                                                    <th class="{{ $withSplit($key, $opcrColClass($key)) }}">{{ $cols[$key] }}</th>
                                                 @endif
                                             @endforeach
                                         </tr>
                                     @else
                                         <tr>
                                             @foreach($keys as $key)
-                                                <th class="{{ $opcrColClass($key) }}">{{ $cols[$key] }}</th>
+                                                <th class="{{ $withSplit($key, $opcrColClass($key)) }}">{{ $cols[$key] }}</th>
                                             @endforeach
                                         </tr>
                                     @endif
@@ -392,7 +398,7 @@
                                         <tr>
                                             @foreach($keys as $key)
                                                 @if(in_array($key, ['rating_q', 'rating_e', 'rating_t', 'rating_a'], true))
-                                                    <td class="opcr-rating-td">
+                                                    <td class="opcr-rating-td {{ $withSplit($key) }}">
                                                         <input type="number" class="opcr-rating-input" min="1" max="5" step="1" inputmode="numeric"
                                                             wire:key="opcr-{{ (int) $row['request_id'] }}-{{ $key }}"
                                                             value="{{ $row[$key] !== null && $row[$key] !== '' ? (int) $row[$key] : '' }}"
@@ -400,11 +406,11 @@
                                                             x-on:blur="$wire.saveRatingField({{ (int) $row['request_id'] }}, '{{ $key }}', $event.target.value)">
                                                     </td>
                                                 @elseif($key === 'days_diff')
-                                                    <td class="opcr-days-td {{ ($row[$key] ?? 0) > 0 ? 'opcr-days-advanced' : (($row[$key] ?? 0) < 0 ? 'opcr-days-delayed' : 'opcr-days-zero') }}">
+                                                    <td class="opcr-days-td {{ $withSplit($key) }} {{ ($row[$key] ?? 0) > 0 ? 'opcr-days-advanced' : (($row[$key] ?? 0) < 0 ? 'opcr-days-delayed' : 'opcr-days-zero') }}">
                                                         {{ $row[$key] === null ? '—' : abs((int) $row[$key]) }}
                                                     </td>
                                                 @elseif($key === 'remarks')
-                                                    <td class="opcr-remarks-td">
+                                                    <td class="opcr-remarks-td {{ $withSplit($key) }}">
                                                         <input type="text" class="opcr-remarks-input" placeholder="Enter remarks"
                                                             wire:key="opcr-{{ (int) $row['request_id'] }}-remarks"
                                                             value="{{ $row['remarks_override'] ?? ($row[$key] ?? '') }}"
@@ -412,11 +418,11 @@
                                                             x-on:blur="$wire.saveRatingField({{ (int) $row['request_id'] }}, 'remarks', $event.target.value)">
                                                     </td>
                                                 @elseif(in_array($key, ['item_no', 'no'], true))
-                                                    <td>{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '' }}</td>
-                                                @elseif(in_array($key, ['doc_no', 'control_number', 'doc_number'], true))
-                                                    <td class="{{ $opcrColClass($key) }}"><strong>{{ $row[$key] ?: '—' }}</strong></td>
+                                                    <td class="{{ $withSplit($key) }}">{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '' }}</td>
+                                                @elseif(in_array($key, ['doc_no', 'control_number', 'doc_number', 'drf_no', 'dcn_no'], true))
+                                                    <td class="{{ $withSplit($key, $opcrColClass($key)) }}"><strong>{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '' }}</strong></td>
                                                 @else
-                                                    <td class="{{ $opcrColClass($key) }}">{{ $row[$key] ?: '—' }}</td>
+                                                    <td class="{{ $withSplit($key, $opcrColClass($key)) }}">{{ $row[$key] ?: '—' }}</td>
                                                 @endif
                                             @endforeach
                                         </tr>
@@ -432,6 +438,10 @@
                         $rows = $preview['rows'];
                         $groups = $result['group_headers'] ?? [];
                         $keys = array_keys($cols);
+                        $splitKeys = \App\Helpers\ReportHelper::reportSplitKeys($keys);
+                        $withSplit = static function (string $key, string $class = '') use ($splitKeys): string {
+                            return trim($class.(in_array($key, $splitKeys, true) ? ' rpt-split' : ''));
+                        };
                         $monColClass = static function (string $key): string {
                             $dateKeys = ['date_received', 'date_registered', 'effectivity_date', 'deadline', 'date_released', 'ml_reg_date'];
                             $timeKeys = ['time_received', 'time_registered', 'time_released', 'ml_reg_time'];
@@ -474,7 +484,7 @@
                                                 $group = $groups[$key] ?? null;
                                             @endphp
                                             @if($group === null || $group === '')
-                                                <th rowspan="2" class="{{ $monColClass($key) }}">{!! $cols[$key] !!}</th>
+                                                <th rowspan="2" class="{{ $withSplit($key, $monColClass($key)) }}">{!! $cols[$key] !!}</th>
                                                 @php $i++; @endphp
                                             @else
                                                 @php
@@ -482,8 +492,9 @@
                                                     while ($i + $span < count($keys) && ($groups[$keys[$i + $span]] ?? null) === $group) {
                                                         $span++;
                                                     }
+                                                    $groupClass = in_array($keys[$i + $span - 1], $splitKeys, true) ? 'rpt-split' : '';
                                                 @endphp
-                                                <th colspan="{{ $span }}">{!! $group !!}</th>
+                                                <th colspan="{{ $span }}" class="{{ $groupClass }}">{!! $group !!}</th>
                                                 @php $i += $span; @endphp
                                             @endif
                                         @endwhile
@@ -491,14 +502,14 @@
                                     <tr>
                                         @foreach($keys as $key)
                                             @if(($groups[$key] ?? null) !== null && ($groups[$key] ?? null) !== '')
-                                                <th class="{{ $monColClass($key) }}">{!! $cols[$key] !!}</th>
+                                                <th class="{{ $withSplit($key, $monColClass($key)) }}">{!! $cols[$key] !!}</th>
                                             @endif
                                         @endforeach
                                     </tr>
                                 @else
                                     <tr>
                                         @foreach($keys as $key)
-                                            <th class="{{ $monColClass($key) }}">{!! $cols[$key] !!}</th>
+                                            <th class="{{ $withSplit($key, $monColClass($key)) }}">{!! $cols[$key] !!}</th>
                                         @endforeach
                                     </tr>
                                 @endif
@@ -508,7 +519,7 @@
                                     <tr>
                                         @foreach($keys as $key)
                                             @if($key === 'pdf_path')
-                                                <td>
+                                                <td class="{{ $withSplit($key) }}">
                                                     @if(!empty($row[$key]))
                                                         <a href="{{ $row[$key] }}" target="_blank" rel="noopener">View</a>
                                                     @else
@@ -516,11 +527,11 @@
                                                     @endif
                                                 </td>
                                             @elseif(in_array($key, ['item_no', 'no'], true))
-                                                <td>{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '' }}</td>
+                                                <td class="{{ $withSplit($key) }}">{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '' }}</td>
                                             @elseif(in_array($key, ['doc_no', 'control_number', 'doc_number', 'drf_no', 'dcn_no'], true))
-                                                <td class="{{ $monColClass($key) }}"><strong>{{ $row[$key] ?: '—' }}</strong></td>
+                                                <td class="{{ $withSplit($key, $monColClass($key)) }}"><strong>{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '' }}</strong></td>
                                             @elseif($key === 'forwarded_drr')
-                                                <td class="mon-drr-td">
+                                                <td class="mon-drr-td {{ $withSplit($key) }}">
                                                     <input type="checkbox" class="mon-drr-check"
                                                         @checked(!empty($row['forwarded_drr']))
                                                         @if(!empty($row['request_id']))
@@ -529,7 +540,7 @@
                                                         @endif>
                                                 </td>
                                             @elseif($key === 'remarks')
-                                                <td class="mon-remarks-td">
+                                                <td class="mon-remarks-td {{ $withSplit($key) }}">
                                                     <textarea
                                                         class="mon-remarks-input"
                                                         rows="2"
@@ -544,7 +555,7 @@
                                                     >{{ $row['remarks'] ?? '' }}</textarea>
                                                 </td>
                                             @else
-                                                <td class="{{ $monColClass($key) }}">{{ $row[$key] ?: '—' }}</td>
+                                                <td class="{{ $withSplit($key, $monColClass($key)) }}">{{ $row[$key] ?: '—' }}</td>
                                             @endif
                                         @endforeach
                                     </tr>

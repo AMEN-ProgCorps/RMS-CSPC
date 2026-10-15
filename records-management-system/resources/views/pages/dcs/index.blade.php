@@ -70,11 +70,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ->select('dr.doc_type_id')
             ->selectRaw('COUNT(*)::int as total');
         if ($hasRevStatus) {
-            $counts->selectRaw("COUNT(*) FILTER (WHERE COALESCE(NULLIF(TRIM(ml.revision_status::text), ''), 'latest') <> 'obsolete')::int as latest")
+            $counts->selectRaw("COUNT(*) FILTER (WHERE COALESCE(NULLIF(TRIM(ml.revision_status::text), ''), 'latest') = 'latest')::int as latest")
+                ->selectRaw("COUNT(*) FILTER (WHERE ml.revision_status = 'superseded')::int as superseded")
                 ->selectRaw("COUNT(*) FILTER (WHERE ml.revision_status = 'obsolete')::int as obsolete")
                 ->selectRaw("COUNT(*) FILTER (WHERE ml.revision_status IS NULL OR TRIM(ml.revision_status::text) = '' OR ml.revision_status = 'latest')::int as current");
         } else {
             $counts->selectRaw('COUNT(*)::int as latest')
+                ->selectRaw('0::int as superseded')
                 ->selectRaw('0::int as obsolete')
                 ->selectRaw('COUNT(*)::int as current');
         }
@@ -88,6 +90,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $stats = [
             'totalDocuments' => (int) $byTypeId->sum('total'),
             'latestCount' => (int) $byTypeId->sum('latest'),
+            'supersededCount' => (int) $byTypeId->sum('superseded'),
             'obsoleteCount' => (int) $byTypeId->sum('obsolete'),
             'internalCount' => $countFor('internal_docs'),
             'internalFormsCount' => $countFor('internal_forms'),
@@ -449,12 +452,16 @@ document.addEventListener('alpine:init', () => {
                     <a href="{{ route('dcs.database.index', ['revision' => 'latest'], absolute: false) }}" class="dash-queue-chip is-latest">
                         <span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong>
                     </a>
+                    <a href="{{ route('dcs.database.index', ['revision' => 'superseded'], absolute: false) }}" class="dash-queue-chip is-superseded">
+                        <span>Superseded</span><strong>{{ number_format((int) $stats['supersededCount']) }}</strong>
+                    </a>
                     <a href="{{ route('dcs.database.index', ['revision' => 'obsolete'], absolute: false) }}" class="dash-queue-chip is-obsolete">
                         <span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong>
                     </a>
                 @else
                     <div class="dash-queue-chip"><span>Total</span><strong>{{ number_format((int) $stats['totalDocuments']) }}</strong></div>
                     <div class="dash-queue-chip is-latest"><span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong></div>
+                    <div class="dash-queue-chip is-superseded"><span>Superseded</span><strong>{{ number_format((int) $stats['supersededCount']) }}</strong></div>
                     <div class="dash-queue-chip is-obsolete"><span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong></div>
                 @endif
                 @if(!empty($requestCounts))

@@ -98,7 +98,7 @@ class DocumentNumberSeriesHelper
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
 
         if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
-            $query->whereIn('ml.revision_status', ['latest', 'obsolete']);
+            $query->whereIn('ml.revision_status', ['latest', 'obsolete', 'superseded']);
         }
         if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
             $query->where(function ($q) {
@@ -344,7 +344,7 @@ class DocumentNumberSeriesHelper
                 ->whereIn('ml.request_id', $requestIds)
                 ->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower(trim($from))])
                 ->when(Schema::hasColumn('dcs_masterlist_registration', 'revision_status'), function ($q) {
-                    $q->whereIn('ml.revision_status', ['latest', 'obsolete']);
+                    $q->whereIn('ml.revision_status', ['latest', 'obsolete', 'superseded']);
                 })
                 ->lockForUpdate()
                 ->pluck('ml.id');
@@ -401,6 +401,15 @@ class DocumentNumberSeriesHelper
         );
 
         return ['ok' => true, 'mappings' => $mappings];
+    }
+
+    /**
+     * Keep the family's stack when a number moves. A new stack is only for the
+     * case where a different registration is still sitting on the old number.
+     */
+    public static function shouldReplaceShiftStack(bool $oldNumberStillOnStack): bool
+    {
+        return $oldNumberStillOnStack;
     }
 
     /**
@@ -482,15 +491,17 @@ class DocumentNumberSeriesHelper
         }
 
         foreach ($byGroup as $group => $rows) {
-            $stillShared = DB::table('dcs_masterlist_registration')
+            $oldNumbers = array_keys($fromTo);
+            $stillOnOldNumber = $oldNumbers !== [] && DB::table('dcs_masterlist_registration')
                 ->where('stack_group', $group)
                 ->whereNotIn('id', $movedIds)
+                ->where(function ($q) use ($oldNumbers) {
+                    foreach ($oldNumbers as $number) {
+                        $q->orWhereRaw('LOWER(TRIM(doc_no)) = ?', [$number]);
+                    }
+                })
                 ->exists();
-            $destinations = [];
-            foreach ($rows as $row) {
-                $destinations[mb_strtolower(trim((string) $row->doc_no))] = true;
-            }
-            if (! $stillShared && count($destinations) < 2) {
+            if (! self::shouldReplaceShiftStack($stillOnOldNumber)) {
                 continue;
             }
 

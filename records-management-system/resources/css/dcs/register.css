@@ -525,6 +525,70 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
 .reg-rev-status.is-obsolete,
 .reg-rev-status.is-archived { background: #fee2e2; color: #b91c1c; }
 #supersedeHistoryBody tr.is-supersede-target { background: #f8fafc; }
+#supersedeReselect[hidden] {
+    display: none !important;
+}
+#supersedeReselect {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 8px 14px;
+    border: 0;
+    border-radius: 8px;
+    background: #0d2a7a;
+    color: #fff;
+    font-size: 0.82rem;
+    font-weight: 700;
+    line-height: 1.2;
+    cursor: pointer;
+    align-self: flex-start;
+}
+#supersedeReselect:hover { background: #163a9a; }
+#section-supersede.is-finder-locked #supersedeDocNo,
+#section-supersede.is-finder-locked #supersedeDocTitle,
+#section-supersede.is-finder-locked #supersedeDocOriginator {
+    background: #f1f5f9;
+    color: #475569;
+    cursor: default;
+}
+#supersedeHistoryField.is-loading { min-height: 148px; }
+
+/*
+ * Previous-documents table in Document to be Superseded.
+ * Change column widths here: resources/css/dcs/register.css
+ */
+#supersedeHistoryField .reg-table {
+    min-width: 720px;
+    table-layout: fixed;
+}
+#supersedeHistoryField .reg-table thead th:nth-child(1),
+#supersedeHistoryBody td:nth-child(1) {
+    width: 190px;
+    min-width: 190px;
+    max-width: 220px;
+}
+#supersedeHistoryBody td:nth-child(1) .reg-rev-title-text {
+    white-space: nowrap;
+    word-break: keep-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 40px;
+}
+#supersedeHistoryField .reg-table thead th:nth-child(4),
+#supersedeHistoryBody td.reg-supersede-rev,
+#supersedeHistoryBody td.reg-supersede-rev .reg-rev-title-text {
+    text-align: center;
+    width: 88px;
+    min-width: 88px;
+}
+#supersedeHistoryField .reg-table thead th:nth-child(6),
+#supersedeHistoryBody td:nth-child(6) {
+    width: 110px;
+    min-width: 110px;
+    max-width: 110px;
+    text-align: center;
+}
 
 #section-2        { position: relative; z-index: 50; }
 #section-syllabi  { position: relative; z-index: 45; }
@@ -1645,6 +1709,10 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .reg-container {
     font-size: 0.78rem;
     font-weight: 400;
     color: var(--reg-text-subtle, #94a3b8);
+}
+
+#revisionTableField.is-registered .reg-rev-del-col {
+    display: none;
 }
 
 .reg-table-wrap {

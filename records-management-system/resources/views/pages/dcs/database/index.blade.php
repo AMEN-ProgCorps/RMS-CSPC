@@ -38,7 +38,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $this->docTypeId = (string) $type;
         }
         $revision = request('revision');
-        if (in_array($revision, ['all', 'latest', 'obsolete'], true)) {
+        if (in_array($revision, ['all', 'latest', 'superseded', 'obsolete'], true)) {
             $this->revisionStatus = $revision;
         }
         $search = request('search');
@@ -479,6 +479,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 ]);
             }
 
+            // An older obsolete copy with no stack stays under the family that shares its title.
+            $groups = RegisterQueryHelper::foldOrphanStatusCopies($groups);
+
             // Stack renumbered families: CSPC-F-102 under CSPC-F-1023 when revised_from_doc_no links them.
             $groups = $this->mergeRenumberLineageGroups($groups);
 
@@ -546,6 +549,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
                         return $g;
                     })
+                    ->values();
+            } elseif ($this->revisionStatus === 'superseded') {
+                $groups = $groups
+                    ->filter(fn ($g) => strtolower((string) ($g['parent']['status'] ?? '')) === 'superseded')
                     ->values();
             } elseif ($this->revisionStatus === 'obsolete') {
                 $groups = $groups
@@ -885,7 +892,6 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $docNo = $ml ? trim((string) $ml->doc_no) : '';
         $canEdit = ! $isDeleted;
         $canRevise = $canEdit
-            && $allowsRevision
             && $docNo !== ''
             && strtolower((string) $status) === 'latest';
         $reviseParams = [
@@ -894,8 +900,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'from_doc_no' => $docNo,
             'doc_type_id' => $doc->doc_type_id,
         ];
+        $recurParams = $reviseParams;
+        $recurParams['type'] = 'recurring';
         if (! empty($doc->sub_type_id)) {
             $reviseParams['sub_type_id'] = $doc->sub_type_id;
+            $recurParams['sub_type_id'] = $doc->sub_type_id;
         }
 
         return [
@@ -913,8 +922,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'allows_revision' => $allowsRevision,
             'can_edit' => $canEdit,
             'can_revise' => $canRevise,
+            'can_recur' => $canRevise,
             'edit_url' => $canEdit ? route('dcs.register.edit', $doc->id, false) : null,
             'revise_url' => $canRevise ? route('dcs.register.create', $reviseParams, false) : null,
+            'recur_url' => $canRevise ? route('dcs.register.create', $recurParams, false) : null,
             'is_deleted' => $isDeleted,
             'deleted_at' => $isDeleted ? Carbon::parse($doc->deleted_at)->format('M d, Y h:i A') : null,
             'revised_from_doc_no' => $ml->revised_from_doc_no ?? null,
@@ -1013,6 +1024,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         // revised_from is already on each row. Skip the per-family database walk;
         // that walk runs several queries for every revised document on each page load.
         $edges = RegisterQueryHelper::buildLineageMergeEdges($groupTips, []);
+        $edges = $this->dropEdgesBetweenDifferentDocuments($edges, $indexed, $byKey);
         if ($edges === []) {
             return $groups->concat($standalone)->values();
         }
@@ -1104,6 +1116,36 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
 
         return $merged->concat($standalone)->values();
+    }
+
+    /**
+     * A renumber can join a prior number. It cannot join a different document
+     * that only happens to use the same number.
+     *
+     * @param  array<string, array<string, true>>  $edges
+     * @param  \Illuminate\Support\Collection<int, array<string, mixed>>  $indexed
+     * @param  array<string, int>  $byKey
+     * @return array<string, array<string, true>>
+     */
+    private function dropEdgesBetweenDifferentDocuments(array $edges, $indexed, array $byKey): array
+    {
+        foreach ($edges as $winner => $absorbed) {
+            if (! isset($byKey[$winner])) {
+                unset($edges[$winner]);
+                continue;
+            }
+            foreach (array_keys($absorbed) as $absorbedKey) {
+                if (! isset($byKey[$absorbedKey])
+                    || ! RegisterQueryHelper::familyGroupsMatch($indexed[$byKey[$winner]], $indexed[$byKey[$absorbedKey]])) {
+                    unset($edges[$winner][$absorbedKey]);
+                }
+            }
+            if (($edges[$winner] ?? []) === []) {
+                unset($edges[$winner]);
+            }
+        }
+
+        return $edges;
     }
 
     private function renumberGroupKey(mixed $docNo, mixed $docTypeId, mixed $subTypeId): string
@@ -1210,7 +1252,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     notice: @js($notice),
     groupLabels: @js($groupLabels ?? []),
     groupMenu: { open: false, x: 0, y: 0, group: null },
-    rowMenu: { open: false, x: 0, y: 0, editUrl: '', reviseUrl: '', canEdit: false, canRevise: false, label: '' },
+    rowMenu: { open: false, x: 0, y: 0, editUrl: '', reviseUrl: '', recurUrl: '', canEdit: false, canRevise: false, canRecur: false, label: '' },
     open: { approval: true, deadline: true, masterlist: true, dcn: true, drf: true, distribution: true, retrieval: true },
     visible: @js($visibleGroups),
     forceDistributionOpen: @js($forceDistributionOpen),
@@ -1390,7 +1432,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         }
         this.closeGroupMenu();
         const menuW = 220;
-        const menuH = 96;
+        const menuH = 132;
         let x = e.clientX;
         let y = e.clientY;
         x = Math.max(8, Math.min(x, window.innerWidth - menuW - 8));
@@ -1401,8 +1443,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             y,
             editUrl: row.editUrl || '',
             reviseUrl: row.reviseUrl || '',
+            recurUrl: row.recurUrl || '',
             canEdit: !!row.canEdit,
             canRevise: !!row.canRevise,
+            canRecur: !!row.canRecur,
             label: row.label || '',
         };
     },
@@ -1543,6 +1587,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <select wire:model="revisionStatus">
             <option value="all">All</option>
             <option value="latest">Latest Only</option>
+            <option value="superseded">Superseded Only</option>
             <option value="obsolete">Obsolete Only</option>
         </select>
     </div>
@@ -1722,8 +1767,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             $rowActions = [
                                 'editUrl' => $r['edit_url'] ?? '',
                                 'reviseUrl' => $r['revise_url'] ?? '',
+                                'recurUrl' => $r['recur_url'] ?? '',
                                 'canEdit' => ! empty($r['can_edit']),
                                 'canRevise' => ! empty($r['can_revise']),
+                                'canRecur' => ! empty($r['can_recur']),
                                 'label' => ($r['doc_no'] ?? 'Document') . ' · Rev ' . ($r['rev_no'] ?? 0),
                             ];
                         @endphp
@@ -1771,8 +1818,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 $childActions = [
                                     'editUrl' => $child['edit_url'] ?? '',
                                     'reviseUrl' => $child['revise_url'] ?? '',
+                                    'recurUrl' => $child['recur_url'] ?? '',
                                     'canEdit' => ! empty($child['can_edit']),
                                     'canRevise' => ! empty($child['can_revise']),
+                                    'canRecur' => ! empty($child['can_recur']),
                                     'label' => ($child['doc_no'] ?? 'Document') . ' · Rev ' . ($child['rev_no'] ?? 0),
                                 ];
                             @endphp
@@ -1851,6 +1900,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             </button>
             <button type="button" x-show="rowMenu.canRevise" @click="goRowAction(rowMenu.reviseUrl)">
                 <i class="fa-solid fa-file-pen"></i> Register revised
+            </button>
+            <button type="button" x-show="rowMenu.canRecur" @click="goRowAction(rowMenu.recurUrl)">
+                <i class="fa-solid fa-rotate"></i> Register recur
             </button>
         </div>
     </template>

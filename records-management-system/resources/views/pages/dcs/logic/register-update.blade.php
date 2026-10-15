@@ -738,7 +738,14 @@ class RegisterUpdateHelper
             }
 
             $savedMl = DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first();
-            if ($savedMl && ! $saveAsDraft) {
+            if ($savedMl && ! $saveAsDraft && $versionIsRecur) {
+                RegisterPersistHelper::supersedeLatestForRecur($request, (int) $savedMl->id);
+                if (RegisterQueryHelper::supportsRevisionStatus()) {
+                    DB::table('dcs_masterlist_registration')
+                        ->where('id', (int) $savedMl->id)
+                        ->update(['revision_status' => 'latest', 'updated_at' => now()]);
+                }
+            } elseif ($savedMl && ! $saveAsDraft) {
                 if ($editingObsolete) {
                     // Keep the current tip as latest; do not promote this obsolete row.
                     RegisterPersistHelper::promoteLatestForDoc(

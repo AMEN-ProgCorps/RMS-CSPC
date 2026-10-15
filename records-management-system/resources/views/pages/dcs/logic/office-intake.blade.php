@@ -3979,6 +3979,11 @@ class OfficeIntakeHelper
             }
         });
 
+        // Received masterlist is the current copy this office holds, not earlier revisions.
+        if ($receiptFilter === 'received') {
+            RegisterQueryHelper::applyLatestRevisionStatus($query, 'ml');
+        }
+
         // A copy this office has already received stays on the masterlist only.
         if ($receiptFilter === 'pending') {
             $query->whereNotExists(function ($q) use ($officeId) {
@@ -3992,24 +3997,50 @@ class OfficeIntakeHelper
         }
     }
 
-    /** One row per document number — highest revision only. */
+    /**
+     * One present copy per document this office holds.
+     * Same number with a different title stays separate. Obsolete and superseded copies do not replace the current one.
+     */
     protected static function keepLatestDistributedDocuments($records)
     {
         $best = [];
         foreach ($records as $ml) {
             $docNo = strtolower(trim((string) ($ml->doc_no ?? '')));
-            $key = $docNo !== '' ? $docNo : 'id:' . (int) ($ml->id ?? 0);
-            $rev = (int) ($ml->revise_no ?? 0);
-            if (! isset($best[$key]) || $rev > (int) ($best[$key]->revise_no ?? 0)) {
-                $best[$key] = $ml;
+            $title = strtolower(trim((string) ($ml->doc_title ?? '')));
+            $key = $docNo !== '' ? $docNo.'||'.$title : 'id:'.(int) ($ml->id ?? 0);
+            $status = strtolower(trim((string) ($ml->revision_status ?? 'latest')));
+            if ($status === '') {
+                $status = 'latest';
+            }
+            $candidate = [
+                'row' => $ml,
+                'current' => $status === 'latest' ? 1 : 0,
+                'rev' => (int) ($ml->revise_no ?? 0),
+                'id' => (int) ($ml->id ?? 0),
+            ];
+            if (! isset($best[$key]) || self::distributedCopyIsCurrent($candidate, $best[$key])) {
+                $best[$key] = $candidate;
             }
         }
 
-        return collect(array_values($best))->sortBy(function ($ml) {
+        return collect(array_values(array_map(fn (array $item) => $item['row'], $best)))->sortBy(function ($ml) {
             $docNo = trim((string) ($ml->doc_no ?? ''));
 
             return sprintf('%d-%s-%010d', $docNo === '' ? 1 : 0, $docNo, (int) ($ml->id ?? 0));
         }, SORT_NATURAL | SORT_FLAG_CASE)->values();
+    }
+
+    /** @param  array{current: int, rev: int, id: int}  $candidate */
+    protected static function distributedCopyIsCurrent(array $candidate, array $current): bool
+    {
+        if ($candidate['current'] !== $current['current']) {
+            return $candidate['current'] > $current['current'];
+        }
+        if ($candidate['rev'] !== $current['rev']) {
+            return $candidate['rev'] > $current['rev'];
+        }
+
+        return $candidate['id'] > $current['id'];
     }
 
     /**
@@ -4063,6 +4094,9 @@ class OfficeIntakeHelper
         }
         if (Schema::hasColumn('dcs_masterlist_registration', 'request_id')) {
             $select[] = 'ml.request_id';
+        }
+        if (RegisterQueryHelper::supportsRevisionStatus()) {
+            $select[] = 'ml.revision_status';
         }
 
         $records = $query

@@ -37,6 +37,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     $canEditDocument = (bool) ($can_edit ?? false);
     $readOnly = (bool) ($read_only ?? ! $canEditDocument);
     $isDraftDoc = ! empty($docRequest->is_draft);
+    $recurPreviousDocuments = collect($recurPreviousDocuments ?? []);
+    $recurSource = $recurPreviousDocuments->first(fn ($row) => ($row['status'] ?? '') === 'Superseded')
+        ?? $recurPreviousDocuments->first();
     $listRoute = $isDraftDoc ? 'dcs.register.drafts' : 'dcs.register.update';
     $listLabel = $isDraftDoc
         ? 'Back to Drafts'
@@ -50,6 +53,7 @@ window.APP_CONFIG = {
     CURRENT_APPROVAL_BODY: '{{ $approval?->approval_body_id ?? '' }}',
     IS_DRAFT: {{ !empty($docRequest->is_draft) ? 'true' : 'false' }},
 };
+window.__supersedeHistoryRestored = {{ $recurPreviousDocuments->isNotEmpty() ? 'true' : 'false' }};
 window.__excludeSyllabiRequestId = {{ (int) $docRequest->id }};
 window.__existingRelatedDocs = @json($relatedDocsData);
 window.__existingDrfOffices = @json($drfOfficesSeed);
@@ -283,7 +287,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                 </div>
             </section>
 
-            <section class="reg-card" id="section-supersede" style="display: none;">
+            <section class="reg-card{{ $recurPreviousDocuments->isNotEmpty() ? ' is-finder-locked' : '' }}" id="section-supersede" style="display: none;">
                 <div class="reg-card-header">
                     <span>Document to be Superseded</span>
                 </div>
@@ -292,22 +296,23 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <div class="reg-grid-3">
                         <div class="reg-field">
                             <label for="supersedeDocNo">Document No.</label>
-                            <input type="text" id="supersedeDocNo" placeholder="Document number" autocomplete="off">
+                            <input type="text" id="supersedeDocNo" placeholder="Document number" autocomplete="off" value="{{ $recurSource['doc_no'] ?? '' }}" @if($recurSource) readonly @endif>
                         </div>
                         <div class="reg-field">
                             <label for="supersedeDocTitle">Document Title</label>
-                            <input type="text" id="supersedeDocTitle" placeholder="Title on the current document" autocomplete="off">
+                            <input type="text" id="supersedeDocTitle" placeholder="Title on the current document" autocomplete="off" value="{{ $recurSource['doc_title'] ?? '' }}" @if($recurSource) readonly @endif>
                         </div>
                         <div class="reg-field">
                             <label for="supersedeDocOriginator">Originator</label>
-                            <input type="text" id="supersedeDocOriginator" placeholder="Originator of that copy" autocomplete="off">
+                            <input type="text" id="supersedeDocOriginator" placeholder="Originator of that copy" autocomplete="off" value="{{ $recurSource['originator_name'] ?? '' }}" @if($recurSource) readonly @endif>
                         </div>
                     </div>
                     <div class="reg-field">
                         <div id="supersedeDocResults" class="reg-reldocs-dropdown" style="display:none;"></div>
-                        <p id="supersedeDocPicked" class="reg-number-hint" hidden></p>
+                        <p id="supersedeDocPicked" class="reg-number-hint" @if(!$recurSource) hidden @endif>@if($recurSource){{ $recurSource['doc_no'] }} — {{ $recurSource['doc_title'] }} (Rev {{ $recurSource['revise_no'] }}, {{ $recurSource['status'] }}) was superseded.@endif</p>
+                        <button type="button" id="supersedeReselect" hidden><i class="fa-solid fa-arrow-right-arrow-left"></i> Change document</button>
                     </div>
-                    <div class="reg-field reg-revision-table" id="supersedeHistoryField" hidden>
+                    <div class="reg-field reg-revision-table" id="supersedeHistoryField" @if($recurPreviousDocuments->isEmpty()) hidden @endif>
                         <label>Previous documents</label>
                         <div class="reg-table-wrap">
                             <table class="reg-table">
@@ -322,7 +327,25 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                         <th>Brief Purpose</th>
                                     </tr>
                                 </thead>
-                                <tbody id="supersedeHistoryBody"></tbody>
+                                <tbody id="supersedeHistoryBody">
+                                    @foreach($recurPreviousDocuments as $prev)
+                                        <tr>
+                                            <td><span class="reg-rev-title-text">{{ $prev['doc_no'] }}</span></td>
+                                            <td><span class="reg-rev-title-text{{ mb_strlen((string) $prev['doc_title']) > 28 ? ' is-wrap' : '' }}">{{ $prev['doc_title'] }}</span></td>
+                                            <td><span class="reg-rev-title-text">{{ $prev['effectivity'] }}</span></td>
+                                            <td class="reg-supersede-rev"><span class="reg-rev-title-text">{{ $prev['revise_no'] }}</span></td>
+                                            <td><span class="reg-rev-status is-{{ $prev['status_class'] }}">{{ $prev['status'] }}</span></td>
+                                            <td style="text-align:center;">
+                                                @if(!empty($prev['scanned_copy_url']))
+                                                    <button type="button" class="reg-revrow-viewfile reg-revrow-viewfile-pdf" data-scan-url="{{ $prev['scanned_copy_url'] }}" title="View PDF"><i class="fa-solid fa-file-pdf"></i></button>
+                                                @else
+                                                    <span class="reg-rev-title-text">—</span>
+                                                @endif
+                                            </td>
+                                            <td><span class="reg-rev-title-text">{{ $prev['brief_purpose'] !== '' ? $prev['brief_purpose'] : '—' }}</span></td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
                             </table>
                         </div>
                     </div>
@@ -334,7 +357,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <span>Document Change Notice</span>
                 </div>
                 <div class="reg-card-body">
-                    <div class="reg-field reg-revision-table" id="revisionTableField">
+                    <div class="reg-field reg-revision-table {{ $isDraftDoc ? '' : 'is-registered' }}" id="revisionTableField">
                         <label>Document Revisions</label>
                         <div class="reg-revision-loading" id="revisionTableLoading" aria-live="polite" aria-busy="false">
                             <div class="dcs-loading-spinner" aria-hidden="true"></div>
@@ -351,12 +374,26 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                         <th>Revision No.</th>
                                         <th>Scanned Copy</th>
                                         <th>Brief Purpose</th>
-                                        <th></th>
+                                        <th class="reg-rev-del-col"></th>
                                     </tr>
                                 </thead>
                                 <tbody id="revisionTableBody">
+                                    @php
+                                        $revisionLatestRev = [];
+                                        foreach ($revisions as $revRow) {
+                                            $revKey = mb_strtolower(trim((string) ($revRow->document_no ?? ''))).'|'.mb_strtolower(trim((string) ($revRow->title ?? '')));
+                                            $revNum = (int) ($revRow->revision_no ?? 0);
+                                            if (! isset($revisionLatestRev[$revKey]) || $revNum > $revisionLatestRev[$revKey]) {
+                                                $revisionLatestRev[$revKey] = $revNum;
+                                            }
+                                        }
+                                    @endphp
                                     @forelse($revisions as $rev)
-                                    <tr data-linked="true">
+                                    @php
+                                        $revKey = mb_strtolower(trim((string) ($rev->document_no ?? ''))).'|'.mb_strtolower(trim((string) ($rev->title ?? '')));
+                                        $revIsLatest = (int) ($rev->revision_no ?? 0) === (int) ($revisionLatestRev[$revKey] ?? 0);
+                                    @endphp
+                                    <tr data-linked="true" data-linked-family="{{ $revKey }}" @unless($isDraftDoc) data-saved="1" @endunless @unless($isDraftDoc && $revIsLatest) data-history-locked="true" @endunless>
                                         <td>
                                             <input type="text" name="documentNo[]" placeholder="Search or enter document no." value="{{ $rev->document_no }}" readonly class="reg-revrow-locked">
                                             <input type="hidden" name="revisionScannedPath[]" value="{{ $rev->scanned_copy }}">
@@ -382,7 +419,11 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                             <input type="hidden" name="revisionPurpose[]" value="{{ $rev->brief_purpose }}">
                                             <span class="reg-rev-purpose-text {{ strlen(trim((string) ($rev->brief_purpose ?? ''))) > 42 ? 'is-wrap' : '' }}">{{ $rev->brief_purpose !== null && $rev->brief_purpose !== '' ? $rev->brief_purpose : '—' }}</span>
                                         </td>
-                                        <td><button type="button" class="reg-row-del" onclick="removeRevisionRow(this)"><i class="fa-solid fa-trash-can"></i></button></td>
+                                        <td class="reg-rev-del-col">
+                                            @if($isDraftDoc && $revIsLatest)
+                                                <button type="button" class="reg-row-del" onclick="removeRevisionRow(this)"><i class="fa-solid fa-trash-can"></i></button>
+                                            @endif
+                                        </td>
                                     </tr>
                                     @empty
                                     <tr>
@@ -398,7 +439,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                             <input type="hidden" name="revisionPurpose[]" value="">
                                             <span class="reg-rev-purpose-text">—</span>
                                         </td>
-                                        <td><button type="button" class="reg-row-del" onclick="removeRevisionRow(this)"><i class="fa-solid fa-trash-can"></i></button></td>
+                                        <td class="reg-rev-del-col"><button type="button" class="reg-row-del" onclick="removeRevisionRow(this)"><i class="fa-solid fa-trash-can"></i></button></td>
                                     </tr>
                                     @endforelse
                                 </tbody>
@@ -763,7 +804,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                 <div class="reg-card-body">
                         <div class="reg-field">
                             <label>Office retrieval status</label>
-                            <p class="reg-field-hint">Mark as Retrieved to also add that office to Distribution. Then set that office’s retrieval date and time. The office stays listed here as Retrieved. Set status back to Pending (or remove it from Distribution) to undo. On the next revision, retrieved offices start again as Pending in Retrieval.</p>
+                            <p class="reg-field-hint">Mark Retrieved when the office has returned the copy, then set the retrieval date and time. A revised document is distributed to the same offices even when a copy has not been retrieved yet. Monitoring shows which offices have retrieved and which have not.</p>
                             <div class="reg-search">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <circle cx="11" cy="11" r="8"/>
@@ -1202,7 +1243,6 @@ function typeAllowsRevision(docTypeId, subTypeId) {
     const tid = docTypeId ? String(docTypeId) : '';
     const row = (allDocTypes || []).find(d => String(d.doc_type_id) === (sid || tid));
     if (!row) return true;
-    if (typeof row.allows_revision === 'boolean') return row.allows_revision;
     return !row.is_syllabi_like;
 }
 
@@ -2527,7 +2567,7 @@ function initDocNoLookup(revField) {
             hintEl.style.color = '';
             hintEl.dataset.valid = '';
         }
-        docNoTimer = setTimeout(() => runDocNoLookup(docNo, hintEl, revField), 500);
+        docNoTimer = setTimeout(() => runDocNoLookup(docNo, hintEl, revField), 160);
     };
     docNoInput.addEventListener('input', scheduleLookup);
     if (window.__isDraftDoc && docNoInput.value.trim()) {
@@ -2642,7 +2682,8 @@ async function runDocNoLookup(docNo, hintEl, revField) {
         const url = '/dcs/register/check-docno?doc_no=' + encodeURIComponent(docNo) +
                     (docTypeId ? '&doc_type_id=' + docTypeId : '') +
                     (subTypeId ? '&sub_type_id=' + subTypeId : '') +
-                    (excludeRequestId ? '&exclude_request_id=' + excludeRequestId : '');
+                    (excludeRequestId ? '&exclude_request_id=' + excludeRequestId : '') +
+                    '&duplicate_only=1';
         const res = await fetch(url);
         const data = await res.json();
 
@@ -2743,6 +2784,10 @@ function applyRevisedDocumentContext(data, options = {}) {
         titleField.value = data.latest_title;
         titleField.readOnly = false;
     }
+    const drfTitleField = document.getElementById('drfTitle');
+    if (drfTitleField && data.latest_title && !String(drfTitleField.value || '').trim()) {
+        drfTitleField.value = data.latest_title;
+    }
 
     const pagesField = document.getElementById('masterlistNoOfPages');
     if (pagesField && (data.latest_no_pages !== null && data.latest_no_pages !== undefined)
@@ -2782,12 +2827,14 @@ function applyRevisedDocumentContext(data, options = {}) {
 
     if (typeof versionLooksRecurring === 'function' && versionLooksRecurring()) {
         seedRecurDistributionOffices(data.latest_distribution_offices || []);
-    } else if (data.latest_distribution_offices && data.latest_distribution_offices.length > 0
-        && tableIsEmpty('retrievalBody')) {
-        data.latest_distribution_offices.forEach(o => {
-            seedRetrievalOfficeRow('retrievalBody', 'retrievalTotal', o.office_id, o.office_name, o.copies, 'pending');
-        });
-        updateTotal('retrievalTotal', 'retrievalBody');
+    } else if (data.latest_distribution_offices && data.latest_distribution_offices.length > 0) {
+        seedRevisedDistributionOffices(data.latest_distribution_offices, 'distBody', 'distTotal');
+        if (tableIsEmpty('retrievalBody')) {
+            data.latest_distribution_offices.forEach(o => {
+                seedRetrievalOfficeRow('retrievalBody', 'retrievalTotal', o.office_id, o.office_name, o.copies, 'pending');
+            });
+            updateTotal('retrievalTotal', 'retrievalBody');
+        }
     }
 
     if (!(typeof versionLooksRecurring === 'function' && versionLooksRecurring())
@@ -3040,6 +3087,7 @@ function recurFinderReady() {
 }
 
 function syncRecurFinder() {
+    window.__recurSelectionLocked = true;
     const on = recurFinderReady();
     const panel = document.getElementById('section-supersede');
     if (panel) panel.style.display = on ? 'block' : 'none';
@@ -3056,6 +3104,10 @@ function syncRecurFinder() {
         picked.hidden = false;
         picked.textContent = fromNo + ' will be superseded.';
         if (search && !search.value) search.value = fromNo;
+    }
+    if (!window.__supersedeHistoryRestored) {
+        window.__supersedeHistoryRestored = true;
+        restoreSupersedeHistory();
     }
 }
 
@@ -3101,25 +3153,51 @@ function revisionStatusText(status) {
     return 'Latest';
 }
 
-async function showSupersedeDocumentHistory(doc) {
+function supersedeHistoryTextCell(value, cellClass) {
+    const text = String(value || '').trim();
+    const wrap = text.length > 28 ? ' is-wrap' : '';
+    return '<td class="' + (cellClass || '') + '"><span class="reg-rev-title-text' + wrap + '">' + escapeHtml(text || '—') + '</span></td>';
+}
+
+async function showSupersedeDocumentHistory(doc, options) {
+    options = options || {};
     const field = document.getElementById('supersedeHistoryField');
     const body = document.getElementById('supersedeHistoryBody');
     const idInput = document.getElementById('supersedeMasterlistId');
-    if (idInput) idInput.value = doc && doc.masterlist_id ? String(doc.masterlist_id) : '';
+    const reselect = document.getElementById('supersedeReselect');
+    if (idInput && !options.keepMasterlistId) {
+        idInput.value = doc && doc.masterlist_id ? String(doc.masterlist_id) : '';
+    }
     if (!field || !body || !doc) return;
 
-    let revisions = [];
-    try {
-        if (doc.request_id) {
-            const params = new URLSearchParams({ request_id: String(doc.request_id) });
-            if (doc.doc_no) params.set('doc_no', doc.doc_no);
-            const raw = await fetch('/dcs/api/documents/revisions?' + params.toString()).then(r => r.json());
-            if (Array.isArray(raw)) revisions = raw;
+    let revisions = Array.isArray(options.revisions) ? options.revisions.slice() : [];
+    if (!revisions.length) {
+        try {
+            if (doc.request_id) {
+                const params = new URLSearchParams({ request_id: String(doc.request_id) });
+                if (doc.doc_no) params.set('doc_no', doc.doc_no);
+                const raw = await fetch('/dcs/api/documents/revisions?' + params.toString()).then(r => r.json());
+                if (Array.isArray(raw)) revisions = raw;
+            }
+        } catch (e) {
+            revisions = [];
         }
-    } catch (e) {
-        revisions = [];
     }
     if (!revisions.length) revisions = [doc];
+    if (options.excludeRequestId) {
+        const currentId = String(options.excludeRequestId);
+        revisions = revisions.filter(function (row) {
+            return String(row.request_id || '') !== currentId;
+        });
+    }
+    if (options.hideLatest) {
+        revisions = revisions.filter(function (row) {
+            return revisionStatusText(row.revision_status) !== 'Latest';
+        });
+    }
+    if (!revisions.length && (doc.doc_no || doc.doc_title || doc.masterlist_id)) {
+        revisions = [doc];
+    }
 
     const selectedId = String(doc.masterlist_id || '');
     body.innerHTML = revisions.map(function (row) {
@@ -3130,18 +3208,108 @@ async function showSupersedeDocumentHistory(doc) {
         const effectivity = row.effectivity_date_label || row.effectivity_date || '—';
         const scan = row.scanned_copy_url
             ? '<button type="button" class="reg-revrow-viewfile reg-revrow-viewfile-pdf" data-scan-url="' + escapeHtml(row.scanned_copy_url) + '" title="View PDF"><i class="fa-solid fa-file-pdf"></i></button>'
-            : '<span style="color:#64748b;">—</span>';
+            : '<span class="reg-rev-title-text">—</span>';
         return '<tr' + (isTarget ? ' class="is-supersede-target"' : '') + '>'
-            + '<td>' + escapeHtml(row.doc_no || '—') + '</td>'
-            + '<td>' + escapeHtml(title || '—') + '</td>'
-            + '<td>' + escapeHtml(String(effectivity)) + '</td>'
-            + '<td>' + escapeHtml(String(row.revise_no ?? 0)) + '</td>'
+            + supersedeHistoryTextCell(row.doc_no || '—')
+            + supersedeHistoryTextCell(title || '—')
+            + supersedeHistoryTextCell(effectivity)
+            + supersedeHistoryTextCell(String(row.revise_no ?? 0), 'reg-supersede-rev')
             + '<td><span class="reg-rev-status is-' + status.toLowerCase() + '">' + escapeHtml(status) + '</span></td>'
             + '<td style="text-align:center;">' + scan + '</td>'
-            + '<td>' + escapeHtml(purpose || '—') + '</td>'
+            + supersedeHistoryTextCell(purpose || '—')
             + '</tr>';
     }).join('');
-    field.hidden = false;
+    field.hidden = revisions.length === 0;
+    if (reselect) reselect.hidden = !!(window.__recurFromDatabase || window.__recurSelectionLocked);
+    if (options.markSuperseded) {
+        body.querySelectorAll('.reg-rev-status.is-latest').forEach(function (badge) {
+            badge.textContent = 'Superseded';
+            badge.classList.remove('is-latest');
+            badge.classList.add('is-superseded');
+        });
+    }
+    if (window.__recurSelectionLocked && typeof lockSupersedeFinderInputs === 'function') {
+        lockSupersedeFinderInputs(true);
+    }
+}
+
+function lockSupersedeFinderInputs(locked) {
+    const section = document.getElementById('section-supersede');
+    if (section) section.classList.toggle('is-finder-locked', !!locked);
+    ['supersedeDocNo', 'supersedeDocTitle', 'supersedeDocOriginator'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.readOnly = !!locked;
+    });
+}
+
+function clearSupersedeSelection() {
+    ['supersedeDocNo', 'supersedeDocTitle', 'supersedeDocOriginator', 'supersedeMasterlistId', 'revisedFromDocNo'].forEach(function (id) {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const picked = document.getElementById('supersedeDocPicked');
+    if (picked) {
+        picked.hidden = true;
+        picked.textContent = '';
+    }
+    const field = document.getElementById('supersedeHistoryField');
+    const body = document.getElementById('supersedeHistoryBody');
+    if (field) field.hidden = true;
+    if (body) body.innerHTML = '';
+    const reselect = document.getElementById('supersedeReselect');
+    if (reselect) reselect.hidden = true;
+    document.getElementById('supersedeDocNo')?.focus();
+}
+
+async function restoreSupersedeHistory() {
+    if (document.querySelector('#supersedeHistoryBody tr')) {
+        lockSupersedeFinderInputs(true);
+        return;
+    }
+    const requestId = document.getElementById('requestId')?.value;
+    const fromNo = (document.getElementById('revisedFromDocNo')?.value || document.getElementById('masterlistDocNo')?.value || '').trim();
+    if (!requestId || !fromNo) return;
+    let revisions = [];
+    try {
+        const params = new URLSearchParams({ request_id: String(requestId), doc_no: fromNo });
+        const raw = await fetch('/dcs/api/documents/revisions?' + params.toString()).then(r => r.json());
+        if (Array.isArray(raw)) revisions = raw;
+    } catch (e) {
+        revisions = [];
+    }
+    const selfRow = revisions.find(function (row) {
+        return String(row.request_id || '') === String(requestId);
+    });
+    const previous = revisions.filter(function (row) {
+        return String(row.request_id || '') !== String(requestId);
+    });
+    const source = previous.find(function (row) {
+        return revisionStatusText(row.revision_status) === 'Superseded';
+    }) || previous[0] || null;
+    if (source) {
+        const no = document.getElementById('supersedeDocNo');
+        const title = document.getElementById('supersedeDocTitle');
+        const origin = document.getElementById('supersedeDocOriginator');
+        if (no && !no.value) no.value = source.doc_no || fromNo;
+        if (title && !title.value) title.value = source.doc_title || '';
+        if (origin && !origin.value) origin.value = source.originator_name || '';
+        const picked = document.getElementById('supersedeDocPicked');
+        if (picked) {
+            picked.hidden = false;
+            picked.textContent = (source.doc_no || fromNo) + ' — ' + (source.doc_title || 'Untitled')
+                + ' (Rev ' + (source.revise_no ?? 0) + ', ' + revisionStatusText(source.revision_status) + ') was superseded.';
+        }
+    }
+    await showSupersedeDocumentHistory(selfRow || {
+        request_id: requestId,
+        doc_no: fromNo,
+        masterlist_id: source ? source.masterlist_id : '',
+    }, {
+        revisions: revisions,
+        keepMasterlistId: true,
+    });
+    lockSupersedeFinderInputs(true);
 }
 
 function bindSupersedeFinder() {
@@ -3251,6 +3419,11 @@ function bindSupersedeFinder() {
             if (url) window.open(url, '_blank', 'noopener');
         });
     }
+    const reselect = document.getElementById('supersedeReselect');
+    if (reselect && reselect.dataset.bound !== '1') {
+        reselect.dataset.bound = '1';
+        reselect.addEventListener('click', clearSupersedeSelection);
+    }
 }
 
 function isDistOfficesLockedFromDrf() {
@@ -3284,6 +3457,37 @@ function lockDistOfficesFromRecur() {
         hint.textContent = window.__distOfficesLockMessage;
     }
     document.querySelectorAll('#distBody tr.reg-office-added .btn-remove').forEach((btn) => btn.remove());
+}
+
+function openChecklistSection(id) {
+    const cb = document.querySelector('#dynamicCheckboxes input[name="checklists[]"][value="' + id + '"]');
+    const section = document.getElementById('section-' + id);
+    if (cb) {
+        cb.checked = true;
+        cb.dataset.lastChecked = 'true';
+        if (!cb.disabled && typeof toggleSection === 'function') {
+            toggleSection(id, true);
+            return;
+        }
+    }
+    if (section) section.style.display = 'block';
+}
+
+function seedRevisedDistributionOffices(offices, bodyId, totalId) {
+    const list = Array.isArray(offices) ? offices : [];
+    if (!list.length || !tableIsEmpty(bodyId || 'distBody')) return;
+    window.__seedingDrfDistOffices = true;
+    try {
+        list.forEach((o) => {
+            if (!o || !o.office_id) return;
+            seedOfficeRow(bodyId || 'distBody', totalId || 'distTotal', o.office_id, o.office_name || 'Office', o.copies || 1);
+        });
+        if (typeof updateTotal === 'function') updateTotal(totalId || 'distTotal', bodyId || 'distBody');
+        if (typeof refreshOfficeSeeMore === 'function') refreshOfficeSeeMore(bodyId || 'distBody');
+    } finally {
+        window.__seedingDrfDistOffices = false;
+    }
+    openChecklistSection(5);
 }
 
 function seedRecurDistributionOffices(offices) {
@@ -3327,7 +3531,7 @@ function applyRevisionMode() {
             revField.style.borderColor = '';
         }
         if (hintEl) {
-            hintEl.innerHTML = '<span style="color:#475569"><i class="fa-solid fa-circle-info"></i> Find the latest document by number, title, and originator. The revision number stays the same.</span>';
+            hintEl.innerHTML = '';
             hintEl.style.color = '';
             hintEl.dataset.valid = '';
         }
@@ -3345,7 +3549,7 @@ function applyRevisionMode() {
             revField.removeAttribute('title');
         }
         if (hintEl) {
-            hintEl.innerHTML = '<span style="color:#475569"><i class="fa-solid fa-circle-info"></i> Enter an existing document number to continue</span>';
+            hintEl.innerHTML = '';
             hintEl.style.color = '';
             hintEl.dataset.valid = '';
         }
@@ -3410,12 +3614,25 @@ function removeRevSearchDropdown(key) {
 
 function takenRevisionDocNos(exceptInput) {
     const taken = new Set();
-    document.querySelectorAll('input[name="documentNo[]"]').forEach(function (el) {
-        if (el === exceptInput) return;
-        const value = String(el.value || '').trim().toLowerCase();
-        if (value) taken.add(value);
+    document.querySelectorAll('#revisionTableBody tr').forEach(function (tr) {
+        const input = tr.querySelector('input[name="documentNo[]"]');
+        if (!input || input === exceptInput) return;
+        const id = String(tr.dataset.linkedMasterlist || '').trim();
+        const no = String(input.value || '').trim().toLowerCase();
+        const title = String(tr.querySelector('input[name="documentTitle[]"]')?.value || '').trim().toLowerCase();
+        if (id) taken.add('id:' + id);
+        if (no && title) taken.add('nt:' + no + '|' + title);
     });
     return taken;
+}
+
+function revisionDocIsTaken(doc, taken) {
+    const id = String(doc?.masterlist_id || '').trim();
+    const no = String(doc?.doc_no || '').trim().toLowerCase();
+    const title = String(doc?.doc_title || '').trim().toLowerCase();
+    if (id && taken.has('id:' + id)) return true;
+    if (no && title && taken.has('nt:' + no + '|' + title)) return true;
+    return false;
 }
 
 function handleRevisionSearchInput(input, key, field) {
@@ -3461,7 +3678,7 @@ function handleRevisionSearchInput(input, key, field) {
             const raw = await fetch('/dcs/api/documents/search?' + params.toString()).then(r => r.json());
             const taken = takenRevisionDocNos(input);
             const data = (Array.isArray(raw) ? raw : []).filter(function (doc) {
-                return !taken.has(String(doc.doc_no || '').trim().toLowerCase());
+                return !revisionDocIsTaken(doc, taken);
             });
             revSearchCache[key] = data;
 
@@ -3517,11 +3734,13 @@ function getRevisedFromDocNo() {
     return (window.__revisedFromDocNo || '').trim();
 }
 
-function clearLinkedRowsForDocument(tbody, docNo, exceptRow) {
+function clearLinkedRowsForDocument(tbody, docNo, exceptRow, familyKey) {
     if (!tbody || !docNo) return;
     [...tbody.querySelectorAll('tr')].forEach(tr => {
         if (tr === exceptRow) return;
-        if ((tr.dataset.linkedDocNo || '') !== docNo) return;
+        const sameFamily = familyKey && (tr.dataset.linkedFamily || '') === familyKey;
+        const sameNumber = !familyKey && (tr.dataset.linkedDocNo || '') === docNo;
+        if (!sameFamily && !sameNumber) return;
         removeRevisionRowDropdowns(tr);
         tr.remove();
     });
@@ -3565,14 +3784,17 @@ async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {
     if (!tbody || !anchorRow || !docs.length) return;
 
     const pickedDocNo = String((options.docNo || docs[0].doc_no) || '').trim().toLowerCase();
-
-    clearLinkedRowsForDocument(tbody, pickedDocNo, anchorRow);
-
     const rowsToFill = revisionHistoryRowsForDcn(docs, options.latestRev);
+    const familyKey = String(rowsToFill[0].masterlist_id || rowsToFill[0].request_id || pickedDocNo);
+
+    clearLinkedRowsForDocument(tbody, pickedDocNo, anchorRow, familyKey);
 
     populateRevisionRowFromDoc(anchorRow, rowsToFill[0]);
     anchorRow.dataset.linked = 'true';
     anchorRow.dataset.linkedDocNo = pickedDocNo;
+    anchorRow.dataset.linkedFamily = familyKey;
+    anchorRow.dataset.linkedMasterlist = String(rowsToFill[0].masterlist_id || '');
+    delete anchorRow.dataset.historyLocked;
 
     let insertAfter = anchorRow;
     for (let i = 1; i < rowsToFill.length; i++) {
@@ -3583,6 +3805,8 @@ async function fillRevisionTableWithDocumentHistory(anchorRow, docs, options = {
         populateRevisionRowFromDoc(tr, rowsToFill[i]);
         tr.dataset.linked = 'true';
         tr.dataset.linkedDocNo = pickedDocNo;
+        tr.dataset.linkedFamily = familyKey;
+        tr.dataset.linkedMasterlist = String(rowsToFill[i].masterlist_id || '');
         lockRevisionHistoryRow(tr);
         insertAfter = tr;
     }
@@ -3768,12 +3992,18 @@ function suggestRevisionForSources() {
 
 window.removeRevisionRow = function (btn) {
     const tr = btn.closest('tr');
-    if (!tr || tr.dataset.historyLocked === 'true') return;
+    if (!tr || tr.dataset.historyLocked === 'true' || tr.dataset.saved === '1') return;
+    const family = tr.dataset.linkedFamily || '';
     const docNo = tr.dataset.linkedDocNo || '';
     const tbody = tr.parentElement;
-    if (docNo && tbody) {
+    if (tbody && (family || docNo)) {
         [...tbody.querySelectorAll('tr')].forEach(row => {
-            if ((row.dataset.linkedDocNo || '') !== docNo) return;
+            if (row.dataset.saved === '1') return;
+            if (family) {
+                if ((row.dataset.linkedFamily || '') !== family) return;
+            } else if ((row.dataset.linkedDocNo || '') !== docNo) {
+                return;
+            }
             removeRevisionRowDropdowns(row);
             row.remove();
         });
@@ -8264,7 +8494,7 @@ function revisionRowCellsHTML() {
             <input type="hidden" name="revisionPurpose[]" value="">
             <span class="reg-rev-purpose-text">—</span>
         </td>
-        <td><button type="button" class="reg-row-del" onclick="removeRevisionRow(this)"><i class="fa-solid fa-trash-can"></i></button></td>
+        <td class="reg-rev-del-col"><button type="button" class="reg-row-del" onclick="removeRevisionRow(this)"><i class="fa-solid fa-trash-can"></i></button></td>
     `;
 }
 

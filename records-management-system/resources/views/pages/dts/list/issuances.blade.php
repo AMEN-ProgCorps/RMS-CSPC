@@ -387,6 +387,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
             'dt.sequence',
             'dt.qr_code',
             'dt.current_office',
+            'dt.revision_requested_by_sequence',
+            'dt.revision_resubmit_type',
             'dtd.control_number',
             'req.requestor_name',
             'dtd.subject',
@@ -458,7 +460,23 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                             } elseif ($step->office_code === '[H]') {
                                 $step->office_code = $clusterHeadCode;
                                 $step->office_name = $clusterHeadName;
+                            } elseif (empty($step->office_name)) {
+                                $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $step->office_code)->first();
+                                $step->office_name = $off ? $off->office_name : $step->office_code;
                             }
+
+                            if (!empty($step->date_in) && empty($step->total_time_completed) && ($step->date_out || $t->status === 'completed')) {
+                                $dateIn = \Carbon\Carbon::parse($step->date_in);
+                                $dateOut = $step->date_out ? \Carbon\Carbon::parse($step->date_out) : now();
+                                $diff = $dateIn->diff($dateOut);
+                                $parts = [];
+                                if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
+                                if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
+                                if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
+                                if (empty($parts)) $parts[] = 'less than a minute';
+                                $step->total_time_completed = implode(' ', $parts);
+                            }
+
                             return $step;
                         });
                 }
@@ -474,11 +492,24 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                 if ($logs->isNotEmpty()) {
                     $steps = $logs->map(function ($logStep, $idx) use ($t) {
                         $step = new \stdClass();
-                        $step->sequence_ranking = $idx + 1;
+                        $step->sequence_ranking = ($logStep->sequence ?? null) ?: ($idx + 1);
                         $step->office_code = $logStep->office_code;
                         $step->office_name = $logStep->office_name ?: $logStep->office_code;
                         $step->date_in = $logStep->date_in;
                         $step->date_out = $logStep->date_out;
+                        $step->action_needed = $logStep->action_needed ?? ($logStep->type === 'forwarded' ? 'Forwarded' : 'Received');
+                        $step->total_time_completed = null;
+                        if (!empty($step->date_in) && ($step->date_out || $t->status === 'completed')) {
+                            $dateIn = \Carbon\Carbon::parse($step->date_in);
+                            $dateOut = $step->date_out ? \Carbon\Carbon::parse($step->date_out) : now();
+                            $diff = $dateIn->diff($dateOut);
+                            $parts = [];
+                            if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
+                            if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
+                            if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
+                            if (empty($parts)) $parts[] = 'less than a minute';
+                            $step->total_time_completed = implode(' ', $parts);
+                        }
                         return $step;
                     });
                 }
@@ -1560,6 +1591,88 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
 ?>
 @push('styles')
     @vite(['resources/css/dts/list_transaction.css', 'resources/css/dts/receive.css'])
+    <style>
+        .dts-timeline-node-wrapper {
+            position: relative;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+        }
+        .dts-timeline-node-wrapper .dts-node-tooltip {
+            position: absolute;
+            bottom: 34px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 210px;
+            background: #0f172a;
+            color: #f8fafc;
+            padding: 8px 10px;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+            border: 1px solid #334155;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.15s ease, visibility 0.15s ease;
+            z-index: 9999;
+            text-align: left;
+            font-size: 11px;
+            line-height: 1.4;
+        }
+        .dts-timeline-node-wrapper .dts-node-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 6px;
+            border-style: solid;
+            border-color: #0f172a transparent transparent transparent;
+        }
+        .dts-timeline-node-wrapper:first-child .dts-node-tooltip {
+            left: -10px;
+            right: auto;
+            transform: none;
+        }
+        .dts-timeline-node-wrapper:first-child .dts-node-tooltip::after {
+            left: 26px;
+            right: auto;
+            transform: none;
+        }
+        .dts-timeline-node-wrapper:last-child .dts-node-tooltip {
+            left: auto;
+            right: -10px;
+            transform: none;
+        }
+        .dts-timeline-node-wrapper:last-child .dts-node-tooltip::after {
+            left: auto;
+            right: 26px;
+            transform: none;
+        }
+        .dts-timeline-node-wrapper:only-child .dts-node-tooltip,
+        .dts-timeline-node-wrapper:first-child:last-child .dts-node-tooltip {
+            left: 50%;
+            right: auto;
+            transform: translateX(-50%);
+        }
+        .dts-timeline-node-wrapper:only-child .dts-node-tooltip::after,
+        .dts-timeline-node-wrapper:first-child:last-child .dts-node-tooltip::after {
+            left: 50%;
+            right: auto;
+            transform: translateX(-50%);
+        }
+        .dts-timeline-node-wrapper:hover .dts-node-tooltip {
+            opacity: 1 !important;
+            visibility: visible !important;
+        }
+        .dts-timeline-node-dot {
+            transition: all 0.2s ease;
+        }
+        .dts-timeline-node-wrapper:hover .dts-timeline-node-dot {
+            transform: scale(1.2) !important;
+        }
+    </style>
 @endpush
 
 <div class="rms-container">
@@ -1709,35 +1822,100 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                     {{ $t->subject }}
                                 @endif
                             </td>
-                            <td style="min-width: 180px;">
+                            <td style="padding: 10px 12px; min-width: 220px; max-width: 320px;">
                                 @if(strtolower($t->status ?? '') === 'completed')
                                     <span style="font-weight: 600; color: #16a34a; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
                                         <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
                                     </span>
                                 @else
-                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 4px; flex-wrap: wrap;">
-                                        @forelse ($t->timeline_path as $stepIndex => $step)
+                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                        @forelse ($t->timeline_path as $index => $step)
                                             @php
                                                 $isReceived = !is_null($step->date_in) || $t->status === 'completed';
                                                 $isForwarded = !is_null($step->date_out) || $t->status === 'completed';
-                                                $dotColor = $isReceived ? '#10b981' : '#94a3b8';
-                                                $textColor = $isReceived ? '#10b981' : '#64748b';
+                                                $hasRevision = !empty($t->revision_requested_by_sequence);
+                                                $revReqSeq = $t->revision_requested_by_sequence ?? null;
+                                                $revType = $t->revision_resubmit_type ?? null;
+                                                $isRevisionStep = false;
+                                                if ($hasRevision) {
+                                                    $seq = $step->sequence_ranking;
+                                                    if ($seq == 1) {
+                                                        $isRevisionStep = true;
+                                                    } elseif ($seq == $revReqSeq) {
+                                                        $isRevisionStep = true;
+                                                    } elseif ($revType === 'start' && $seq > 1 && $seq < $revReqSeq) {
+                                                        $isRevisionStep = true;
+                                                    }
+                                                }
+
+                                                if ($isRevisionStep) {
+                                                    $dotColor = '#2563eb';
+                                                    $lineColor = '#3b82f6';
+                                                    $textColor = '#2563eb';
+                                                } elseif ($isReceived) {
+                                                    $dotColor = '#10b981';
+                                                    $isInRevRange = $hasRevision && $step->sequence_ranking < $revReqSeq;
+                                                    $lineColor = $isInRevRange ? '#3b82f6' : ($isForwarded ? '#10b981' : '#dc2626');
+                                                    $textColor = '#10b981';
+                                                } else {
+                                                    $dotColor = '#dc2626';
+                                                    $lineColor = '#dc2626';
+                                                    $textColor = '#dc2626';
+                                                }
+
+                                                $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
+                                                $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
                                             @endphp
-                                            <div style="display: inline-flex; align-items: center; gap: 4px;">
-                                                <div style="width: 22px; height: 22px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;" title="Step {{ $stepIndex + 1 }}: {{ $step->office_name ?? $step->office_code }}">
-                                                    @if ($isReceived)
-                                                        <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+
+                                            <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
+                                                    @if ($isRevisionStep)
+                                                        <i class="fa-solid fa-rotate-left" style="font-size: 10px;"></i>
+                                                    @elseif ($isReceived)
+                                                        <i class="fa-solid fa-check" style="font-size: 10px;"></i>
                                                     @else
-                                                        {{ $stepIndex + 1 }}
+                                                        {{ $index + 1 }}
                                                     @endif
                                                 </div>
-                                                <span style="font-size: 10px; font-weight: 700; color: {{ $textColor }};">{{ $step->office_code }}</span>
-                                                @if (!$loop->last)
-                                                    <span style="color: #cbd5e1; font-size: 10px;">&rarr;</span>
-                                                @endif
+
+                                                <span style="margin-top: 4px; font-size: 10px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
+                                                    {{ $step->office_code }}
+                                                </span>
+
+                                                <div class="dts-node-tooltip" style="position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); width: 210px; background: #0f172a; color: #f8fafc; padding: 8px 10px; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.15s ease; z-index: 9999; text-align: left; font-size: 11px; line-height: 1.4;">
+                                                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 4px; margin-bottom: 4px;">
+                                                        <span style="font-weight: 700; font-size: 11px; color: #38bdf8;">Step {{ $index + 1 }}: {{ $step->office_code }}</span>
+                                                        @if ($isRevisionStep)
+                                                            <span style="background: #1e3a8a; color: #93c5fd; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">↺ Revision</span>
+                                                        @elseif ($isReceived && $isForwarded)
+                                                            <span style="background: #166534; color: #4ade80; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">✓ Forwarded</span>
+                                                        @elseif ($isReceived && !$isForwarded)
+                                                            <span style="background: #1e3a8a; color: #60a5fa; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">📍 Held</span>
+                                                        @else
+                                                            <span style="background: #450a0a; color: #fca5a5; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">⏳ Pending</span>
+                                                        @endif
+                                                    </div>
+                                                    
+                                                    <div style="font-size: 10.5px; font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">
+                                                        {{ $step->office_name }}
+                                                    </div>
+
+                                                    <div style="font-size: 10px; color: #94a3b8; display: flex; flex-direction: column; gap: 2px;">
+                                                        <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>
+                                                        <div><strong style="color: #cbd5e1;">Date Out:</strong> {{ $step->date_out ? \Carbon\Carbon::parse($step->date_out)->format('M d, Y h:i A') : ($step->date_in ? 'Pending' : 'N/A') }}</div>
+                                                        @if (!empty($step->total_time_completed) && $step->total_time_completed !== '-')
+                                                            <div><strong style="color: #cbd5e1;">Total Time:</strong> <span style="color: #38bdf8; font-weight: 700;">{{ $step->total_time_completed }}</span></div>
+                                                        @endif
+                                                        <div><strong style="color: #cbd5e1;">Action:</strong> {{ ($t->status === 'completed' || !is_null($step->date_out)) ? ($step->action_needed ?: 'Finished') : ($step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending')) }}</div>
+                                                    </div>
+                                                </div>
                                             </div>
+
+                                            @if (!$loop->last)
+                                                <div style="flex: 1; height: 4px; background: {{ $lineColor }}; min-width: 16px; margin: 0 -2px 14px -2px; border-radius: 2px; z-index: 1; transition: all 0.3s ease;"></div>
+                                            @endif
                                         @empty
-                                            <span style="color: #94a3b8; font-size: 11px;">—</span>
+                                            <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
                                         @endforelse
                                     </div>
                                 @endif

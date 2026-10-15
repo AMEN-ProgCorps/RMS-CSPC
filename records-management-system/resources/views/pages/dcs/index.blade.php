@@ -14,6 +14,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             auth()->user()?->details?->first_name,
             auth()->user()?->details?->last_name,
         ]))) ?: (auth()->user()?->username ?? 'User');
+        $roleTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key')
+            ? 'sys_condition_key'
+            : 'condition_key';
+        $roleName = trim((string) DB::table($roleTable)
+            ->where('id', auth()->user()?->account_role)
+            ->value('key_name'));
         $headerDate = now('Asia/Manila')->format('l, F j, Y');
         $headerTime = now('Asia/Manila')->format('g:i:s A');
 
@@ -114,6 +120,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'stats' => $stats,
             'typeIds' => $typeIds,
             'userDisplayName' => $userDisplayName,
+            'roleName' => $roleName,
             'headerDate' => $headerDate,
             'headerTime' => $headerTime,
             'holidays' => $holidays,
@@ -425,7 +432,7 @@ document.addEventListener('alpine:init', () => {
     >
         <div class="dashboard-header dash-welcome-bar">
             <div class="welcome-text dash-welcome-copy">
-                <p class="header-greeting">Document Controller</p>
+                <p class="header-greeting">{{ $roleName !== '' ? $roleName : 'User' }}</p>
                 <h1 class="page-title">
                     Welcome, <span class="dash-welcome-name">{{ explode(' ', trim((string) $userDisplayName))[0] ?: 'User' }}</span>
                 </h1>
@@ -736,14 +743,14 @@ document.addEventListener('alpine:init', () => {
             <section class="actions-section">
                 <div class="section-header">
                     <h2>Quick Actions</h2>
-                    <span class="section-subtitle">Frequently used operations</span>
+                    <span class="section-subtitle">Common registration tasks</span>
                 </div>
                 <div class="actions-row">
                     <a href="{{ route('dcs.register.create', ['type' => 'new'], absolute: false) }}" class="action-box">
                         <div class="action-icon-wrap"><i class="fa-solid fa-file-circle-plus"></i></div>
                         <div class="action-content">
                             <h4>Register New Document</h4>
-                            <p>Create and route initial document draft</p>
+                            <p>Register a document that is not in the system yet</p>
                         </div>
                         <i class="fa-solid fa-arrow-right action-arrow"></i>
                     </a>
@@ -751,7 +758,7 @@ document.addEventListener('alpine:init', () => {
                         <div class="action-icon-wrap"><i class="fa-solid fa-file-pen"></i></div>
                         <div class="action-content">
                             <h4>Register Revised Document</h4>
-                            <p>Upload new version for approval</p>
+                            <p>Register the next revision of a document already on file</p>
                         </div>
                         <i class="fa-solid fa-arrow-right action-arrow"></i>
                     </a>
@@ -759,7 +766,7 @@ document.addEventListener('alpine:init', () => {
                         <div class="action-icon-wrap"><i class="fa-solid fa-rotate"></i></div>
                         <div class="action-content">
                             <h4>Update Document</h4>
-                            <p>Modify metadata or access permissions</p>
+                            <p>Change the details of a document that is already registered</p>
                         </div>
                         <i class="fa-solid fa-arrow-right action-arrow"></i>
                     </a>

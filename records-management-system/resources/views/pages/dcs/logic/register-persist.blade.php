@@ -302,7 +302,7 @@ class RegisterPersistHelper
      */
     public static function syncMasterlistScanNameAfterCommit(Request $request, int $requestId): void
     {
-        if ($requestId < 1 || $request->hasFile('uploadScannedCopy')) {
+        if ($requestId < 1) {
             return;
         }
         $ml = DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first();
@@ -326,6 +326,43 @@ class RegisterPersistHelper
         }
 
         DB::table('dcs_masterlist_registration')->where('id', $ml->id)->update($payload);
+        DocumentStorageService::relocateMasterlistScanToSource((int) $ml->id);
+    }
+
+    /**
+     * After the registration is saved, rename every stored scan to the naming convention.
+     * The name comes from the saved document, not from the file that was uploaded.
+     */
+    public static function syncSavedScanNamesAfterCommit(Request $request, int $requestId): void
+    {
+        self::syncMasterlistScanNameAfterCommit($request, $requestId);
+        self::renameStoredScan($request, $requestId, 'dcs_document_request_form', 'scanned_drf', 'DRF', $request->input('drfDate'));
+        self::renameStoredScan($request, $requestId, 'dcs_document_change_notice', 'scanned_dcn', 'DCN', $request->input('noticeDate'));
+        $distributionDate = $request->input('distributionFormDate') ?: $request->input('distributionDate');
+        self::renameStoredScan($request, $requestId, 'dcs_document_distribution', 'scanned_distribution', 'D&R', $distributionDate);
+    }
+
+    private static function renameStoredScan(Request $request, int $requestId, string $table, string $column, string $token, mixed $date): void
+    {
+        if ($requestId < 1 || ! Schema::hasTable($table) || ! Schema::hasColumn($table, $column)) {
+            return;
+        }
+        $row = DB::table($table)->where('request_id', $requestId)->orderByDesc('id')->first();
+        if (! $row || empty($row->{$column})) {
+            return;
+        }
+
+        $convention = self::buildScanBasename($request, $token, is_string($date) ? $date : null);
+        $newPath = DocumentStorageService::renameDcsScanToBasename((string) $row->{$column}, $convention);
+        if (! is_string($newPath) || $newPath === '' || $newPath === (string) $row->{$column}) {
+            return;
+        }
+
+        $payload = [$column => $newPath];
+        if (Schema::hasColumn($table, 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+        DB::table($table)->where('id', $row->id)->update($payload);
     }
 
     public static function rejectInactiveOfficeIds(Request $request): ?RedirectResponse
@@ -1818,6 +1855,12 @@ class RegisterPersistHelper
                 }
             }
 
+            try {
+                self::syncSavedScanNamesAfterCommit($request, (int) $requestId);
+            } catch (\Throwable $e) {
+                \Log::warning('Scan rename after register skipped: '.$e->getMessage());
+            }
+
             RegisterPersistHelper::logAdminChange(
                 ($saveAsDraft ? 'Saved draft #' : 'Registered document #') . $requestId
                 . (!empty($savedMl?->doc_no) ? ' — ' . $savedMl->doc_no : '')
@@ -1839,46 +1882,26 @@ class RegisterPersistHelper
 
             $docNo = trim((string) ($savedMl->doc_no ?? ''));
             $docTitle = trim((string) ($savedMl->doc_title ?? ''));
+            $revisedFrom = '';
+            if ($savedMl && Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no')) {
+                $revisedFrom = trim((string) ($savedMl->revised_from_doc_no ?? ''));
+            }
             $pending = OfficeIntakeHelper::pendingRegisterIntake($request);
 
-            // The office request stays open until this registration is saved.
-            // A draft does not mark the DRF or DCN as registered.
+            // Notify the office that created this My DRF / My DCN form when this
+            // save is that form (Proceed to Registration). A document the admin
+            // creates with only a DRF or DCN source unit has no pending intake,
+            // so those offices are not notified. A draft does not mark the forms.
             $submitterOfficeCodes = [];
             if (! $saveAsDraft && $pending && in_array($pending['type'], ['drf', 'dcn'], true) && $pending['id'] > 0) {
-                $intakeRecord = $pending['type'] === 'dcn'
-                    ? OfficeIntakeHelper::findOfficeDcn($pending['id'])
-                    : OfficeIntakeHelper::findOfficeDrf($pending['id']);
-                if ($intakeRecord) {
-                    $submitterOfficeCodes = OfficeIntakeHelper::intakeSubmitterOfficeCodes($intakeRecord);
-                }
-
-                OfficeIntakeHelper::markIntakeRegistered(
+                $submitterOfficeCodes = OfficeIntakeHelper::closePendingIntakeForRegistration(
                     $pending['type'],
-                    $pending['id'],
+                    (int) $pending['id'],
                     (int) $requestId,
                     $docNo,
                     $docTitle !== '' ? $docTitle : null,
-                    ! $saveAsDraft
+                    $revisedFrom !== '' ? $revisedFrom : null
                 );
-                $pairType = null;
-                $pairId = null;
-                if ($pending['type'] === 'dcn') {
-                    $pairType = 'drf';
-                    $pairId = OfficeIntakeHelper::findLinkedDrfIdForOfficeDcn((int) $pending['id']);
-                } elseif ($pending['type'] === 'drf') {
-                    $pairType = 'dcn';
-                    $pairId = OfficeIntakeHelper::findSourceDcnIdForOfficeDrf((int) $pending['id']);
-                }
-                if ($pairType && $pairId) {
-                    OfficeIntakeHelper::markIntakeRegistered(
-                        $pairType,
-                        (int) $pairId,
-                        (int) $requestId,
-                        $docNo,
-                        $docTitle !== '' ? $docTitle : null,
-                        ! $saveAsDraft
-                    );
-                }
             }
 
             if (! $saveAsDraft) {
@@ -2577,12 +2600,8 @@ class RegisterPersistHelper
             return null;
         }
 
-        $dest = DocumentStorageService::duplicateDcsScan($source, auth()->user());
-        if ($dest) {
-            $uploadedFiles[] = $dest;
-        }
-
-        return $dest;
+        // The revision row shows the document already on file. Keep that path.
+        return $source;
     }
 
     public static function saveDcnOfficesById(int $dcnId, array $officeIds): void

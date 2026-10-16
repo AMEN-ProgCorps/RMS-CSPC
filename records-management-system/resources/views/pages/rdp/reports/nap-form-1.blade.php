@@ -2275,6 +2275,39 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             .print-sheet:last-child { page-break-after: auto; break-after: auto; }
             @page { size: legal landscape; margin: 0.4in; }
         }
+
+        [data-theme="dark"] .nap-page-title { color: #f8fafc !important; }
+        [data-theme="dark"] .nap-page-subtitle { color: #94a3b8 !important; }
+        [data-theme="dark"] .nap-card {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            color: #cbd5e1 !important;
+            box-shadow: none !important;
+        }
+        [data-theme="dark"] .nap-input,
+        [data-theme="dark"] .nap-form-control {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .nap-btn-secondary {
+            background: #1e293b !important;
+            color: #e2e8f0 !important;
+            border-color: #334155 !important;
+        }
+        [data-theme="dark"] .nap-table th {
+            background: #0f172a !important;
+            color: #cbd5e1 !important;
+            border-color: #1e293b !important;
+        }
+        [data-theme="dark"] .nap-table td {
+            background: #131c2e !important;
+            color: #e2e8f0 !important;
+            border-color: #1e293b !important;
+        }
+        [data-theme="dark"] .nap-table tr:hover td {
+            background: #1e293b !important;
+        }
     </style>
 
     <!-- Header Section -->

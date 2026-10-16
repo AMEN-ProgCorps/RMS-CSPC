@@ -1068,6 +1068,135 @@ textarea.ia-input {
     flex-wrap: wrap;
 }
 
+.ia-mode-menu {
+    position: absolute;
+    top: calc(100% + 5px);
+    right: 0;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    min-width: 275px;
+    z-index: 1000;
+    padding: 4px 0;
+    overflow: hidden;
+}
+
+.ia-mode-option {
+    width: 100%;
+    text-align: left;
+    padding: 9px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #1e293b;
+    background: transparent;
+    border: none;
+    border-top: 1px solid transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    transition: background 0.1s ease;
+}
+
+.ia-mode-option + .ia-mode-option {
+    border-top-color: #f1f5f9;
+}
+
+.ia-mode-option:hover {
+    background: #f1f5f9;
+}
+
+.ia-mode-option.is-single.is-active {
+    background: #eff6ff;
+}
+
+.ia-mode-option.is-batch.is-active {
+    background: #ecfdf5;
+}
+
+.ia-mode-option.is-multi.is-active {
+    background: #f5f3ff;
+}
+
+.ia-mode-option.is-active:hover {
+    background: #f1f5f9;
+}
+
+.ia-mode-option-main {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 0;
+}
+
+.ia-mode-option-icon {
+    margin-top: 2px;
+    display: inline-flex;
+    flex-shrink: 0;
+}
+
+.ia-mode-option.is-single .ia-mode-option-icon,
+.ia-mode-option.is-single .ia-mode-option-title svg {
+    color: #2563eb;
+}
+
+.ia-mode-option.is-batch .ia-mode-option-icon,
+.ia-mode-option.is-batch .ia-mode-option-title svg {
+    color: #059669;
+}
+
+.ia-mode-option.is-multi .ia-mode-option-icon,
+.ia-mode-option.is-multi .ia-mode-option-title svg {
+    color: #7c3aed;
+}
+
+.ia-mode-option-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.ia-mode-option-title {
+    font-size: 12.5px;
+    font-weight: 700;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ia-mode-option-desc {
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 400;
+    margin-top: 1px;
+}
+
+.ia-mode-option-tag {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.ia-mode-option.is-single .ia-mode-option-tag {
+    color: #2563eb;
+    background: #dbeafe;
+}
+
+.ia-mode-option.is-batch .ia-mode-option-tag {
+    color: #059669;
+    background: #d1fae5;
+}
+
+.ia-mode-option.is-multi .ia-mode-option-tag {
+    color: #7c3aed;
+    background: #ede9fe;
+}
+
 .ia-side-add-pill-btn {
     display: inline-flex;
     align-items: center;
@@ -1432,6 +1561,74 @@ textarea.ia-input {
 
 [data-theme="dark"] .ia-mode-desc {
     color: #94a3b8;
+}
+
+[data-theme="dark"] .ia-mode-menu {
+    background: #131c2e;
+    border-color: #334155;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme="dark"] .ia-mode-option {
+    color: #f8fafc;
+    background: transparent;
+}
+
+[data-theme="dark"] .ia-mode-option + .ia-mode-option {
+    border-top-color: #1e293b;
+}
+
+[data-theme="dark"] .ia-mode-option.is-single:hover,
+[data-theme="dark"] .ia-mode-option.is-single.is-active {
+    background: rgba(37, 99, 235, 0.18);
+}
+
+[data-theme="dark"] .ia-mode-option.is-batch:hover,
+[data-theme="dark"] .ia-mode-option.is-batch.is-active {
+    background: rgba(5, 150, 105, 0.18);
+}
+
+[data-theme="dark"] .ia-mode-option.is-multi:hover,
+[data-theme="dark"] .ia-mode-option.is-multi.is-active {
+    background: rgba(124, 58, 237, 0.2);
+}
+
+[data-theme="dark"] .ia-mode-option-title {
+    color: #f8fafc;
+}
+
+[data-theme="dark"] .ia-mode-option-desc {
+    color: #94a3b8;
+}
+
+[data-theme="dark"] .ia-mode-option.is-single .ia-mode-option-icon,
+[data-theme="dark"] .ia-mode-option.is-single .ia-mode-option-title svg,
+[data-theme="dark"] .ia-mode-option.is-single .ia-mode-option-tag {
+    color: #93c5fd;
+}
+
+[data-theme="dark"] .ia-mode-option.is-batch .ia-mode-option-icon,
+[data-theme="dark"] .ia-mode-option.is-batch .ia-mode-option-title svg,
+[data-theme="dark"] .ia-mode-option.is-batch .ia-mode-option-tag {
+    color: #6ee7b7;
+}
+
+[data-theme="dark"] .ia-mode-option.is-multi .ia-mode-option-icon,
+[data-theme="dark"] .ia-mode-option.is-multi .ia-mode-option-title svg,
+[data-theme="dark"] .ia-mode-option.is-multi .ia-mode-option-tag {
+    color: #c4b5fd;
+}
+
+[data-theme="dark"] .ia-mode-option.is-single .ia-mode-option-tag {
+    background: rgba(37, 99, 235, 0.22);
+}
+
+[data-theme="dark"] .ia-mode-option.is-batch .ia-mode-option-tag {
+    background: rgba(5, 150, 105, 0.22);
+}
+
+[data-theme="dark"] .ia-mode-option.is-multi .ia-mode-option-tag {
+    background: rgba(124, 58, 237, 0.24);
 }
 
 [data-theme="dark"] .ia-side-add-pill-btn {

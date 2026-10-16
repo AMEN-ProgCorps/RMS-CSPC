@@ -3341,8 +3341,21 @@ class RegisterQueryHelper
             ->where('ml.doc_no', '!=', '');
         self::applyNotDeleted($revCounts, 'dr');
         self::applyRegisteredDocumentScope($revCounts, 'dr');
+        if (self::supportsRevisionStatus()) {
+            $revCounts->where(function ($q) {
+                $q->whereNull('ml.revision_status')
+                    ->orWhere('ml.revision_status', '')
+                    ->orWhereIn('ml.revision_status', ['latest', 'obsolete', 'superseded']);
+            });
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'scanned_masterlist')) {
+            $revCounts->whereNotNull('ml.scanned_masterlist')
+                ->where('ml.scanned_masterlist', '!=', '');
+        }
+        // One count per revision number. A superseded copy's file still counts when
+        // the latest row of that same revision has no scan of its own.
         $revCounts = $revCounts
-            ->select('ml.doc_no', DB::raw('COUNT(*) as rev_count'))
+            ->select('ml.doc_no', DB::raw('COUNT(DISTINCT ml.revise_no) as rev_count'))
             ->groupBy('ml.doc_no');
 
         $query = DB::table('dcs_masterlist_registration as ml')
@@ -3356,6 +3369,7 @@ class RegisterQueryHelper
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id');
         self::applyNotDeleted($query, 'dr');
         self::applyRegisteredDocumentScope($query, 'dr');
+        $query->where('rc.rev_count', '>=', 2);
         $query->orderByDesc('ml.revise_no')
             ->orderByDesc('ml.id')
             ->select([
@@ -3583,6 +3597,7 @@ class RegisterQueryHelper
             $isTip = (int) $ml->request_id === $tipRequestId;
             $rev = self::buildHistoryRevision($ml, $doc, $lookups, $isTip);
             $rev['is_latest'] = $isTip;
+            $rev['revision_status'] = strtolower(trim((string) ($ml->revision_status ?? 'latest')));
             $revisions[] = $rev;
         }
 
@@ -3671,7 +3686,11 @@ class RegisterQueryHelper
         }
 
         $history = self::history($docNo);
-        $revs = $history['revisions']; // highest revise_no first
+        $revs = array_values(array_filter($history['revisions'], function ($rev) {
+            $status = strtolower(trim((string) ($rev['revision_status'] ?? 'latest')));
+
+            return $status === '' || $status === 'latest' || $status === 'obsolete';
+        }));
         $byId = [];
         foreach ($revs as $rev) {
             $byId[(int) $rev['id']] = $rev;
@@ -3765,6 +3784,8 @@ class RegisterQueryHelper
             . ' · newer';
 
         $pair = self::reviewPairSection($left, $right, 'masterlist');
+        $pair['left_scan'] = self::reviewScanOrFamily($pair['left_scan'], $left, $history['revisions']);
+        $pair['right_scan'] = self::reviewScanOrFamily($pair['right_scan'], $right, $history['revisions']);
         $leftHasScan = !empty($pair['left_scan']['url']);
         $rightHasScan = !empty($pair['right_scan']['url']);
         $hasScan = $leftHasScan || $rightHasScan;
@@ -4099,6 +4120,44 @@ class RegisterQueryHelper
         }
 
         return $map;
+    }
+
+    /**
+     * Use this revision's PDF. When the latest row has no file, use the superseded
+     * copy of the same revision number that still has one.
+     *
+     * @param  list<array<string, mixed>>  $revisions
+     */
+    private static function reviewScanOrFamily(array $scan, array $rev, array $revisions): array
+    {
+        if (! empty($scan['url'])) {
+            return $scan;
+        }
+
+        $reviseNo = (int) ($rev['revise_no'] ?? -1);
+        $docNo = strtolower(trim((string) ($rev['doc_no'] ?? '')));
+        foreach ($revisions as $candidate) {
+            if ((int) ($candidate['revise_no'] ?? -1) !== $reviseNo) {
+                continue;
+            }
+            $candidateNo = strtolower(trim((string) ($candidate['doc_no'] ?? '')));
+            if ($docNo !== '' && $candidateNo !== '' && $candidateNo !== $docNo) {
+                continue;
+            }
+            $payload = self::reviewScanPayload(self::reviewSectionByKey($candidate, 'masterlist'));
+            if (! empty($payload['url'])) {
+                return $payload;
+            }
+            if (empty($scan['path']) && ! empty($payload['path'])) {
+                $scan = $payload;
+            }
+        }
+
+        if (! empty($scan['path']) && empty($scan['url'])) {
+            $scan['missing'] = true;
+        }
+
+        return $scan;
     }
 
     private static function reviewScanPayload(?array $section): array

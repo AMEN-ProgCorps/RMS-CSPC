@@ -717,7 +717,7 @@
             var top = Math.max(0, Math.round(natural));
             table.style.setProperty('--rpt-head-row1', top + 'px');
             var gap = subCell.getBoundingClientRect().top - band.getBoundingClientRect().bottom;
-            if (Math.abs(gap) > 0.5) {
+            if (gap > 0.5) {
                 table.style.setProperty('--rpt-head-row1', Math.max(0, Math.round(top - gap)) + 'px');
             }
         });

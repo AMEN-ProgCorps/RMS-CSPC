@@ -798,20 +798,16 @@ body {
     z-index: 3;
 }
 
-/* Column guidelines on the blue header. Horizontal edges stay blue so they do not open a light seam. */
+/* Thin white rules inside the blue header: a vertical line on every column, and a horizontal line between the two thead rows. */
 .rpt-table:not(.mon-table) thead th {
     border-color: var(--rpt-accent);
-    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.55);
+    box-shadow: inset -1px 0 0 #ffffff;
 }
-.rpt-table:not(.mon-table) thead th:last-child {
+.rpt-table:not(.mon-table) thead tr:first-child th:last-child {
     box-shadow: none;
 }
-.rpt-table thead th.rpt-split,
-.rpt-table thead tr:nth-child(2) th.rpt-split {
-    box-shadow: inset -2px 0 0 #ffffff;
-}
 .rpt-table tbody td.rpt-split {
-    box-shadow: inset -2px 0 0 #ffffff;
+    box-shadow: inset -1px 0 0 #ffffff;
 }
 
 /* Header row 2 (Date, Time, Q, E, T, A) stays under the group titles while scrolling. */
@@ -829,18 +825,23 @@ body {
     vertical-align: middle;
 }
 
-.rpt-table:not(.mon-table) thead tr:nth-child(2) th {
-    /* Overlap the row above so the sticky seam does not show the page behind it. */
-    top: calc(var(--rpt-head-row1, 0px) - 2px);
-    border-top-color: var(--rpt-accent);
-    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.55);
+.rpt-table thead tr:nth-child(2) th {
+    /* Thin rule stays inside the sticky header cell, between the two thead rows. */
+    top: var(--rpt-head-row1, 0px);
+    z-index: 4;
+    border-top-color: transparent;
+    box-shadow: inset 0 1px 0 #ffffff, inset -1px 0 0 #ffffff;
 }
-.rpt-table:not(.mon-table) thead tr:nth-child(2) th:last-child {
-    box-shadow: none;
+.rpt-table thead tr:nth-child(2) th:last-child {
+    box-shadow: inset 0 1px 0 #ffffff, inset -1px 0 0 #ffffff;
 }
-.rpt-table:not(.mon-table) thead th.rpt-split,
-.rpt-table:not(.mon-table) thead tr:nth-child(2) th.rpt-split {
-    box-shadow: inset -2px 0 0 #ffffff;
+.rpt-table thead th.rpt-split,
+.rpt-table thead tr:nth-child(2) th.rpt-split {
+    box-shadow: inset 0 1px 0 #ffffff, inset -1px 0 0 #ffffff;
+}
+.rpt-table thead tr:first-child th.rpt-split,
+.rpt-table thead tr:first-child th[rowspan].rpt-split {
+    box-shadow: inset -1px 0 0 #ffffff;
 }
 
 /* Data cells */
@@ -2392,6 +2393,21 @@ body {
 
 .drt-filters .rpt-inline-filters-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(220px, 1.4fr);
+}
+.drt-empty {
+    background: #fff;
+    border: 1px solid var(--rpt-border);
+    border-radius: 12px;
+    box-shadow: none;
+    margin-top: 0;
+    padding: 22px 20px;
+}
+.drt-empty p {
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--rpt-text-muted, #64748b);
+    background: transparent;
 }
 .drt-error {
     padding: 12px 14px;

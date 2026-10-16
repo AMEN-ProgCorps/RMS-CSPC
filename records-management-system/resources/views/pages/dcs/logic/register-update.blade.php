@@ -772,7 +772,7 @@ class RegisterUpdateHelper
 
             // After commit: rename scan to match title (file I/O is not transactional).
             try {
-                RegisterPersistHelper::syncMasterlistScanNameAfterCommit($request, (int) $requestId);
+                RegisterPersistHelper::syncSavedScanNamesAfterCommit($request, (int) $requestId);
             } catch (\Throwable $e) {
                 Log::warning('Masterlist scan rename after update skipped: '.$e->getMessage());
             }

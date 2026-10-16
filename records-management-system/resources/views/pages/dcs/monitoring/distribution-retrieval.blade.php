@@ -381,8 +381,8 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
             </div>
         </section>
     @empty
-        <section class="rpt-results">
-            <p class="rpt-template-status">No distributed documents match this view.</p>
+        <section class="rpt-results drt-empty">
+            <p>No distributed documents match this view.</p>
         </section>
     @endforelse
 

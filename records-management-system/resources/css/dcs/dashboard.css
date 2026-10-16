@@ -1077,11 +1077,11 @@ body.dash-cl-open {
 }
 .dash-queue-chip.is-latest strong { color: #047857; }
 .dash-queue-chip.is-superseded {
-    color: #92400e;
-    background: #fffbeb;
-    border-color: #fde68a;
+    color: var(--dcs-status-superseded);
+    background: var(--dcs-status-superseded-bg);
+    border-color: var(--dcs-status-superseded);
 }
-.dash-queue-chip.is-superseded strong { color: #b45309; }
+.dash-queue-chip.is-superseded strong { color: var(--dcs-status-superseded); }
 .dash-queue-chip.is-obsolete {
     color: var(--dcs-red, #dc2626);
     background: var(--dcs-red-bg, #fef2f2);

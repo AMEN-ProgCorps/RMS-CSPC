@@ -2578,6 +2578,30 @@ class OfficeIntakeHelper
     }
 
     /**
+     * The office intake this save is actually registering.
+     * A DRF/DCN source unit on a document the admin created is not enough —
+     * the form must be the one posted from Proceed to Registration, which is
+     * the row in My DRF / My DCN.
+     *
+     * @return array{type: string, id: int}|null
+     */
+    public static function explicitRegisterIntake(?\Illuminate\Http\Request $request = null): ?array
+    {
+        $type = strtolower(trim((string) ($request?->input('office_intake_type') ?? '')));
+        $id = (int) ($request?->input('office_intake_id') ?? 0);
+        if (! in_array($type, ['drf', 'dcn'], true) || $id < 1) {
+            return null;
+        }
+
+        $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
+        if (! $record || (int) ($record->created_by ?? 0) < 1) {
+            return null;
+        }
+
+        return ['type' => $type, 'id' => $id];
+    }
+
+    /**
      * A claimed office form stays "Submitted" when the registration save did not
      * carry the intake id. Link it once a controlled copy of that document
      * exists from the moment RFIO started registration.
@@ -2600,10 +2624,10 @@ class OfficeIntakeHelper
                     continue;
                 }
                 [$docNo, $docTitle] = self::masterlistIdentity($requestId);
-                self::markIntakeRegistered('dcn', (int) $row->id, $requestId, $docNo, $docTitle, false);
+                self::markIntakeRegistered('dcn', (int) $row->id, $requestId, $docNo, $docTitle, true);
                 $linkedDrfId = self::findLinkedDrfIdForOfficeDcn((int) $row->id);
                 if ($linkedDrfId) {
-                    self::markIntakeRegistered('drf', $linkedDrfId, $requestId, $docNo, $docTitle, false);
+                    self::markIntakeRegistered('drf', $linkedDrfId, $requestId, $docNo, $docTitle, true);
                 }
             }
         }
@@ -2630,9 +2654,9 @@ class OfficeIntakeHelper
                     continue;
                 }
                 [$docNo, $docTitle] = self::masterlistIdentity($requestId);
-                self::markIntakeRegistered('drf', (int) $row->id, $requestId, $docNo, $docTitle, false);
+                self::markIntakeRegistered('drf', (int) $row->id, $requestId, $docNo, $docTitle, true);
                 if ($linkedDcnId > 0) {
-                    self::markIntakeRegistered('dcn', $linkedDcnId, $requestId, $docNo, $docTitle, false);
+                    self::markIntakeRegistered('dcn', $linkedDcnId, $requestId, $docNo, $docTitle, true);
                 }
             }
         }
@@ -2729,6 +2753,164 @@ class OfficeIntakeHelper
             trim((string) ($ml->doc_no ?? '')),
             $title !== '' ? $title : null,
         ];
+    }
+
+    /**
+     * Document numbers and titles the office put on this DCN/DRF.
+     * A DRF created from a DCN uses that DCN's document as well.
+     *
+     * @return array{numbers: list<string>, titles: list<string>}
+     */
+    private static function intakeIdentity(string $type, object $record): array
+    {
+        $type = strtolower($type);
+        $numbers = [];
+        $titles = [];
+        $push = static function (array &$bucket, mixed $value): void {
+            $value = mb_strtolower(trim((string) $value));
+            if ($value !== '') {
+                $bucket[] = $value;
+            }
+        };
+
+        if ($type === 'dcn') {
+            $push($numbers, $record->document_no ?? '');
+            $push($numbers, $record->previous_document_no ?? '');
+            $push($titles, $record->document_title ?? '');
+        } else {
+            $push($titles, $record->doc_title ?? '');
+            $dcnId = (int) ($record->source_office_dcn_id ?? 0);
+            if ($dcnId > 0) {
+                $dcn = self::findOfficeDcn($dcnId);
+                if ($dcn) {
+                    $linked = self::intakeIdentity('dcn', $dcn);
+                    $numbers = array_merge($numbers, $linked['numbers']);
+                    $titles = array_merge($titles, $linked['titles']);
+                }
+            }
+        }
+
+        return [
+            'numbers' => array_values(array_unique($numbers)),
+            'titles' => array_values(array_unique($titles)),
+        ];
+    }
+
+    /**
+     * The saved registration is this office's DCN/DRF only when its document
+     * number (or the document it revises) or its title is the one they submitted.
+     */
+    public static function registrationMatchesIntake(
+        string $type,
+        object $record,
+        string $docNo,
+        ?string $docTitle = null,
+        ?string $revisedFromDocNo = null
+    ): bool {
+        $identity = self::intakeIdentity($type, $record);
+        $needles = [];
+        foreach ([$docNo, $revisedFromDocNo] as $value) {
+            $value = mb_strtolower(trim((string) $value));
+            if ($value !== '') {
+                $needles[] = $value;
+            }
+        }
+        foreach ($needles as $needle) {
+            if (in_array($needle, $identity['numbers'], true)) {
+                return true;
+            }
+        }
+
+        $savedTitle = mb_strtolower(trim((string) $docTitle));
+
+        return $savedTitle !== '' && in_array($savedTitle, $identity['titles'], true);
+    }
+
+    /**
+     * Close the pending office DCN/DRF after registration only when this document
+     * is the one that office created. A different document must not notify them.
+     *
+     * @return list<string> submitting offices that were notified
+     */
+    public static function closePendingIntakeForRegistration(
+        string $type,
+        int $id,
+        int $requestId,
+        string $docNo,
+        ?string $docTitle = null,
+        ?string $revisedFromDocNo = null
+    ): array {
+        $type = strtolower($type);
+        $record = $type === 'dcn' ? self::findOfficeDcn($id) : ($type === 'drf' ? self::findOfficeDrf($id) : null);
+        if (! $record || $id < 1 || $requestId < 1) {
+            self::clearPendingRegisterIntake();
+
+            return [];
+        }
+
+        $pairType = null;
+        $pairId = null;
+        if ($type === 'dcn') {
+            $pairType = 'drf';
+            $pairId = self::findLinkedDrfIdForOfficeDcn($id);
+        } else {
+            $pairType = 'dcn';
+            $pairId = self::findSourceDcnIdForOfficeDrf($id);
+        }
+
+        if (! self::registrationMatchesIntake($type, $record, $docNo, $docTitle, $revisedFromDocNo)) {
+            self::releaseUnregisteredClaim($type, $id);
+            if ($pairType && $pairId) {
+                self::releaseUnregisteredClaim($pairType, (int) $pairId);
+            }
+            self::clearPendingRegisterIntake();
+
+            return [];
+        }
+
+        $codes = self::intakeSubmitterOfficeCodes($record);
+        self::markIntakeRegistered($type, $id, $requestId, $docNo, $docTitle, true);
+        if ($pairType && $pairId) {
+            $pair = $pairType === 'dcn' ? self::findOfficeDcn((int) $pairId) : self::findOfficeDrf((int) $pairId);
+            if ($pair) {
+                foreach (self::intakeSubmitterOfficeCodes($pair) as $code) {
+                    $codes[] = $code;
+                }
+            }
+            self::markIntakeRegistered($pairType, (int) $pairId, $requestId, $docNo, $docTitle, true);
+        }
+
+        return collect($codes)
+            ->map(fn ($code) => strtoupper(trim((string) $code)))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    public static function clearPendingRegisterIntake(): void
+    {
+        session()->forget('dcs_office_intake_pending');
+        cookie()->queue(cookie()->forget('dcs_office_intake_pending'));
+    }
+
+    /** Return a claimed intake to the RFIO queue when this registration is not its document. */
+    private static function releaseUnregisteredClaim(string $type, int $id): void
+    {
+        $type = strtolower($type);
+        if (! in_array($type, ['drf', 'dcn'], true) || $id < 1 || self::isIntakeRegistered($type, $id)) {
+            return;
+        }
+
+        $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+        if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'rfio_claimed_at')) {
+            return;
+        }
+
+        DB::table($table)->where('id', $id)->whereNull('rfio_registered_at')->update([
+            'rfio_claimed_at' => null,
+            'updated_at' => now(),
+        ]);
     }
 
     /**

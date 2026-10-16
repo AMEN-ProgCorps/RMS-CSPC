@@ -261,7 +261,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Manage Files')] 
         $files = [];
         foreach ($allFiles as $file) {
             if ($searching) {
-                $hay = $file['name'].' '.$file['title'].' '.$file['kind'].' '.$file['path'].' '.$file['folder'];
+                $hay = $file['name'].' '.$file['title'].' '.($file['doc_label'] ?? '').' '.$file['kind'].' '.$file['path'].' '.$file['folder'];
                 if (! str_contains(mb_strtolower($hay), $needle) && RegisterQueryHelper::looseSearchScore($this->search, $hay) < 1) {
                     continue;
                 }
@@ -389,15 +389,16 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Manage Files')] 
         }
         $seen[$path] = true;
         $name = basename($path);
-        $label = $title !== '' ? $title : $name;
-        if ($docNo !== '' && ! str_contains($label, $docNo)) {
+        $label = $title !== '' ? $title : '';
+        if ($docNo !== '' && $label !== '' && ! str_contains($label, $docNo)) {
             $label = $docNo.' — '.$label;
         }
         $files[] = [
             'path' => $path,
             'folder' => $this->driveFolder($path, $category),
             'name' => $name,
-            'title' => $label,
+            'title' => $name,
+            'doc_label' => $label,
             'kind' => $this->driveKindLabel($path, $category),
             'url' => $this->driveFileUrl($path),
         ];
@@ -597,7 +598,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Manage Files')] 
                                             @endif
                                         </td>
                                         <td>{{ $file['kind'] }}</td>
-                                        <td>{{ $file['name'] }}</td>
+                                        <td>{{ $file['doc_label'] !== '' ? $file['doc_label'] : $file['name'] }}</td>
                                         <td class="path">{{ $file['folder'] !== '' ? $file['folder'] : 'My Drive' }}</td>
                                     </tr>
                                 @endforeach
@@ -632,7 +633,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Manage Files')] 
                             <i class="fa-solid fa-file-pdf mf-list-icon mf-list-icon-pdf"></i>
                             <span class="mf-list-title">{{ $file['title'] }}</span>
                             <span class="mf-list-meta">{{ $file['kind'] }}</span>
-                            <span class="mf-list-meta">{{ $file['name'] }}</span>
+                            <span class="mf-list-meta">{{ ($file['doc_label'] ?? '') !== '' ? $file['doc_label'] : $file['name'] }}</span>
                             <span class="mf-list-date path">{{ $file['folder'] !== '' ? $file['folder'] : 'My Drive' }}</span>
                         </a>
                     @endforeach
@@ -668,7 +669,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Control System - Manage Files')] 
                                     <i class="fa-solid fa-file-pdf"></i>
                                     <span class="mf-file-title">{{ $file['title'] }}</span>
                                     <span class="mf-file-kind">{{ $file['kind'] }}</span>
-                                    <span class="mf-file-name">{{ $file['name'] }}</span>
+                                    <span class="mf-file-name">{{ ($file['doc_label'] ?? '') !== '' ? $file['doc_label'] : '' }}</span>
                                 </a>
                             @endforeach
                         </div>

@@ -177,6 +177,8 @@ body {
 
 .st-table-scroll { overflow-x: auto; }
 
+[x-cloak] { display: none !important; }
+
 .st-table { width: 100%; border-collapse: collapse; table-layout: auto; }
 
 .st-table thead {
@@ -200,11 +202,12 @@ body {
 .st-table thead th.col-files i { opacity: 0.7; }
 
 /* Column width classes */
-.col-idx   { width: 48px; }
+.col-idx   { width: 72px; white-space: nowrap; }
 .col-type  { width: 130px; }
 .col-docno { width: 1%; white-space: nowrap; }
 .col-title { width: auto; }
 .col-rev   { width: 56px; }
+.col-status { width: 110px; }
 .col-files { width: 240px; }
 .col-action{ width: 120px; }
 
@@ -215,6 +218,67 @@ body {
 
 .st-table tbody tr:hover {
     background: linear-gradient(90deg, #f0f4ff 0%, #f8faff 100%);
+}
+
+.st-table tbody tr.st-family-child {
+    background: var(--dcs-bg);
+}
+
+.st-table tbody tr.st-family-child td {
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+
+.st-copy-status {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    vertical-align: middle;
+}
+
+.st-copy-status.is-obsolete {
+    color: var(--dcs-status-obsolete);
+    background: var(--dcs-status-obsolete-bg);
+}
+
+.st-copy-status.is-superseded {
+    color: var(--dcs-status-superseded);
+    background: var(--dcs-status-superseded-bg);
+}
+
+.st-copy-status.is-latest {
+    color: var(--dcs-status-latest);
+    background: var(--dcs-status-latest-bg);
+}
+
+.st-expand {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-right: 4px;
+    padding: 0;
+    border: 1px solid var(--dcs-border-strong);
+    border-radius: 3px;
+    background: var(--dcs-surface);
+    color: var(--dcs-text-muted);
+    font-size: 8px;
+    line-height: 1;
+    cursor: pointer;
+    vertical-align: middle;
+}
+
+.st-expand:hover,
+.st-expand.expanded {
+    border-color: #1d4ed8;
+    color: #1d4ed8;
+    background: #eff6ff;
 }
 
 .st-table tbody tr:last-child { border-bottom: none; }
@@ -521,7 +585,7 @@ body {
     align-items: center;
     padding: 14px 20px;
     border-top: 1px solid var(--st-border);
-    background: #f8fafc;
+    background: var(--dcs-bg);
 }
 
 .st-page-info {

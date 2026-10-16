@@ -153,16 +153,16 @@ body:has(.dcs-top-tabs-host .top-nav-tabs-wrapper) .upd-container {
     letter-spacing: 0.02em;
 }
 .upd-status-badge.is-latest {
-    background: #ecfdf5;
-    color: #047857;
+    background: var(--dcs-status-latest-bg);
+    color: var(--dcs-status-latest);
 }
 .upd-status-badge.is-obsolete {
-    background: #fef2f2;
-    color: #b91c1c;
+    background: var(--dcs-status-obsolete-bg);
+    color: var(--dcs-status-obsolete);
 }
 .upd-status-badge.is-superseded {
-    background: #eff6ff;
-    color: #1d4ed8;
+    background: var(--dcs-status-superseded-bg);
+    color: var(--dcs-status-superseded);
 }
 .upd-status-badge.is-draft {
     background: #fffbeb;

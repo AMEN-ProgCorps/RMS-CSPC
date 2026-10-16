@@ -259,7 +259,7 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
             <div class="drr-list-head">
                 <div>
                     <h2 id="drrListHeading" class="drr-list-title">Registered documents</h2>
-                    <p class="drr-list-sub">Each row shows the latest revision. Open a document, then choose a consecutive pair (e.g. Rev 0→1, 1→2).</p>
+                    <p class="drr-list-sub">A document is listed when it already has another revision with a file to compare. Open it, then choose a consecutive pair (e.g. Rev 0→1, 1→2).</p>
                 </div>
                 @if(($list['total'] ?? 0) > 0)
                     <span class="drr-count-pill">{{ $list['total'] }} {{ $list['total'] === 1 ? 'document' : 'documents' }}</span>
@@ -542,9 +542,23 @@ new #[Layout('layouts.dcs')] #[Title('Document Review — CSPC DCS')] class exte
                                     @endif
                                     @if(empty($pair['left_scan']['url']) || empty($pair['right_scan']['url']))
                                         <p class="drr-muted" style="padding:8px 12px;">
-                                            Comparison needs a masterlist PDF on <strong>both</strong> the older revision and the latest.
-                                            @if(empty($pair['right_scan']['url']))
-                                                Latest (Rev {{ $compare['latest_revise_no'] ?? '—' }}) has no scanned masterlist yet.
+                                            @if(!empty($pair['left_scan']['missing']) || !empty($pair['right_scan']['missing']))
+                                                The masterlist still lists a scan for
+                                                @if(!empty($pair['left_scan']['missing']))
+                                                    the older revision{{ !empty($pair['left_scan']['name']) ? ' ('.$pair['left_scan']['name'].')' : '' }}
+                                                @endif
+                                                @if(!empty($pair['left_scan']['missing']) && !empty($pair['right_scan']['missing']))
+                                                    and
+                                                @endif
+                                                @if(!empty($pair['right_scan']['missing']))
+                                                    the latest
+                                                @endif
+                                                , but that PDF is no longer in storage, so the pages cannot be compared.
+                                            @else
+                                                Comparison needs a masterlist PDF on <strong>both</strong> the older revision and the latest.
+                                                @if(empty($pair['right_scan']['url']))
+                                                    Latest (Rev {{ $compare['latest_revise_no'] ?? '—' }}) has no scanned masterlist yet.
+                                                @endif
                                             @endif
                                         </p>
                                     @endif

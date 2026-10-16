@@ -651,7 +651,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                                 </label>
                             </div>
                         </div>
-                        <div class="reg-field">
+                        <div class="reg-field reg-ml-receipt">
                             <label>Document Receipt</label>
                             <div class="reg-dual">
                                 <input type="date" id="masterlistReceiptDate" name="masterlistReceiptDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($masterlist->doc_receipt_date ?? '') }}" oninput="calcMasterlistTimeSpent()">
@@ -668,7 +668,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                             <label>Document Title</label>
                             <input type="text" id="masterlistDocTitle" name="masterlistDocTitle" placeholder="Document title" value="{{ $masterlist->doc_title ?? '' }}">
                         </div>
-                        <div class="reg-field">
+                        <div class="reg-field reg-ml-registered">
                             <label>Document Registered</label>
                             <div class="reg-dual">
                                 <input type="date" id="masterlistRegisteredDate" name="masterlistRegisteredDate" value="{{ \App\Helpers\RegisterQueryHelper::formatDate($masterlist->doc_registered_date ?? '') }}" oninput="calcMasterlistTimeSpent()">
@@ -804,17 +804,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                 <div class="reg-card-body">
                         <div class="reg-field">
                             <label>Office retrieval status</label>
-                            <p class="reg-field-hint">Mark Retrieved when the office has returned the copy, then set the retrieval date and time. A revised document is distributed to the same offices even when a copy has not been retrieved yet. Monitoring shows which offices have retrieved and which have not.</p>
-                            <div class="reg-search">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <circle cx="11" cy="11" r="8"/>
-                                    <path d="M21 21l-4.35-4.35"/>
-                                </svg>
-                                <input type="text" id="retrievalSearch" placeholder="Search and add office..."
-                                    oninput="handleSearch(this, 'retrievalResults', 'retrievalBody', 'retrievalTotal')"
-                                    autocomplete="off">
-                                <div id="retrievalResults" class="reg-search-dropdown" style="display:none;"></div>
-                            </div>
+                            <p class="reg-field-hint">These offices come from the previous document's distribution. Mark Retrieved when the office has returned the copy, then set the retrieval date and time. Monitoring shows which offices have retrieved and which have not.</p>
                         </div>
                         <div class="reg-office-table-wrap" id="retrievalOfficeWrap" data-office-body="retrievalBody">
                             <table class="reg-dist-table">
@@ -2111,6 +2101,18 @@ document.addEventListener("DOMContentLoaded", async function () {
             initialState['officeCount|distBody'] = String(distIds.length);
             initialState['officeIds|retrievalBody'] = retIds.join(',');
             initialState['officeIds|distBody'] = distIds.join(',');
+            ['masterlistOfficeIds[]', 'drfSourceUnit[]', 'dcnSourceUnit[]', 'masterlistOriginatorNames[]'].forEach((name) => {
+                initialState['source|' + name] = sourceHiddenIds(name).join(',');
+            });
+        }
+
+        function sourceHiddenIds(name) {
+            const form = document.getElementById('masterForm');
+            if (!form) return [];
+            return [...form.querySelectorAll('input[type="hidden"][name="' + name + '"]')]
+                .map((inp) => String(inp.value))
+                .filter(Boolean)
+                .sort();
         }
 
         function isDirty() {
@@ -2162,6 +2164,13 @@ document.addEventListener("DOMContentLoaded", async function () {
                 if (baselineIds !== undefined && baselineIds !== ids.join(',')) {
                     dirty = true;
                 }
+            });
+
+            ['masterlistOfficeIds[]', 'drfSourceUnit[]', 'dcnSourceUnit[]', 'masterlistOriginatorNames[]'].forEach((name) => {
+                if (dirty) return;
+                const baseline = initialState['source|' + name];
+                if (baseline === undefined) return;
+                if (baseline !== sourceHiddenIds(name).join(',')) dirty = true;
             });
 
             return dirty;
@@ -4035,6 +4044,12 @@ function isSyncedSourceUnitKey(key) {
     return SYNCED_SOURCE_UNIT_KEYS.includes(key);
 }
 
+function sourceSectionIsOpen(key) {
+    const ids = { drf: 'section-1', dcn: 'section-2', masterlist: 'section-3' };
+    const el = document.getElementById(ids[key] || '');
+    return !!el && el.style.display !== 'none';
+}
+
 function syncSourceUnitsAcrossSections(selection, sourceKey) {
     if (window.__syncingSourceUnits || !isSyncedSourceUnitKey(sourceKey)) return;
 
@@ -4043,6 +4058,7 @@ function syncSourceUnitsAcrossSections(selection, sourceKey) {
         const items = selection.map(i => ({ type: i.type, id: i.id, label: i.label }));
         SYNCED_SOURCE_UNIT_KEYS.forEach(key => {
             if (key === sourceKey) return;
+            if (!sourceSectionIsOpen(key)) return;
             const widget = window.__sourceWidgets[key];
             if (widget?.setSelectedItems) widget.setSelectedItems(items);
         });
@@ -4077,6 +4093,7 @@ function createSourceUnitWidget(opts) {
         selected.push({ type: 'office', id: item[idKey], label: item[labelKey] });
         render();
         maybeSyncSourceUnits();
+        markSourceEdited();
     }
 
     function addFreeText(val) {
@@ -4087,12 +4104,19 @@ function createSourceUnitWidget(opts) {
         selected.push({ type: 'name', id: 'n' + idCounter, label: val });
         render();
         maybeSyncSourceUnits();
+        markSourceEdited();
+    }
+
+    function markSourceEdited() {
+        if (window.__syncingSourceUnits) return;
+        if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
     }
 
     function removeItem(type, id) {
         selected = selected.filter(i => !(i.type === type && String(i.id) === String(id)));
         render();
         maybeSyncSourceUnits();
+        markSourceEdited();
     }
 
     function maybeSyncSourceUnits() {

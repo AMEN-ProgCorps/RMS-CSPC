@@ -98,7 +98,11 @@ class DocumentNumberSeriesHelper
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
 
         if (Schema::hasColumn('dcs_masterlist_registration', 'revision_status')) {
-            $query->whereIn('ml.revision_status', ['latest', 'obsolete', 'superseded']);
+            $query->where(function ($q) {
+                $q->where('ml.revision_status', 'latest')
+                    ->orWhereNull('ml.revision_status')
+                    ->orWhere('ml.revision_status', '');
+            });
         }
         if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
             $query->where(function ($q) {

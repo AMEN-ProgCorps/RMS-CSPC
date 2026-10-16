@@ -284,6 +284,39 @@ class DocumentStorageService
         }
     }
 
+    /**
+     * Create the local cache folder as the app user can write it.
+     * A root-owned 0700 folder makes Flysystem report "Unable to create a directory".
+     */
+    private static function ensureLocalUploadDirectory(string $relativeDir): void
+    {
+        $relativeDir = trim(str_replace('\\', '/', $relativeDir), '/');
+        if ($relativeDir === '' || str_contains($relativeDir, '..')) {
+            return;
+        }
+
+        $full = storage_path('app/private/'.self::localUploadsPath($relativeDir));
+        if (! is_dir($full) && ! @mkdir($full, 0777, true) && ! is_dir($full)) {
+            logger()->warning("Local DCC directory notice ({$relativeDir}): unable to create {$full}");
+
+            return;
+        }
+
+        $stop = storage_path('app/private/uploads');
+        $cursor = $full;
+        while (is_string($cursor) && str_starts_with($cursor, $stop)) {
+            @chmod($cursor, 0777);
+            if ($cursor === $stop) {
+                break;
+            }
+            $parent = dirname($cursor);
+            if ($parent === $cursor) {
+                break;
+            }
+            $cursor = $parent;
+        }
+    }
+
     public static function ensureDcsDirectory(string $relativeDir): void
     {
         $relativeDir = trim(str_replace('\\', '/', $relativeDir), '/');
@@ -291,11 +324,7 @@ class DocumentStorageService
             return;
         }
 
-        try {
-            Storage::disk('local')->makeDirectory(self::localUploadsPath($relativeDir));
-        } catch (\Throwable $e) {
-            logger()->warning("Local DCC directory notice ({$relativeDir}): " . $e->getMessage());
-        }
+        self::ensureLocalUploadDirectory($relativeDir);
 
         try {
             self::ensureGoogleDirectoryExact($relativeDir);
@@ -581,6 +610,60 @@ class DocumentStorageService
             'cluster' => $clusterName,
             'office_name' => trim((string) ($row->office_name ?? '')),
         ];
+    }
+
+    /**
+     * Move a saved masterlist scan into the folder for its current source unit.
+     * Logbooks and Forms use {cluster}/{office}. An empty source stays under Unassigned.
+     */
+    public static function relocateMasterlistScanToSource(int $masterlistId): ?string
+    {
+        if ($masterlistId < 1 || ! Schema::hasTable('dcs_masterlist_registration')) {
+            return null;
+        }
+
+        $ml = DB::table('dcs_masterlist_registration')->where('id', $masterlistId)->first();
+        if (! $ml || empty($ml->scanned_masterlist)) {
+            return null;
+        }
+
+        $path = ltrim(str_replace(['\\'], '/', (string) $ml->scanned_masterlist), '/');
+        $group = self::dccGroupKeyFromDocTypeId($ml->doc_type_id ?? null);
+        if ($group === '' && ! empty($ml->request_id) && Schema::hasTable('dcs_document_requests')) {
+            $typeId = DB::table('dcs_document_requests')->where('id', $ml->request_id)->value('doc_type_id');
+            $group = self::dccGroupKeyFromDocTypeId($typeId);
+        }
+        if ($group === '') {
+            return $path;
+        }
+
+        $source = self::sourceClusterOfficeForMasterlist($masterlistId);
+        $status = strtolower(trim((string) ($ml->revision_status ?? 'latest')));
+        $newPath = self::buildDccRelativePath('masterlist', basename($path), [
+            'group' => $group,
+            'latest' => $status !== 'obsolete',
+            'date' => $ml->effectivity_date ?? null,
+            'cluster' => $source['cluster'],
+            'office_name' => $source['office_name'],
+        ]);
+        if ($newPath === $path) {
+            return $path;
+        }
+
+        $moved = self::moveDcsFile($path, $newPath);
+        if ($moved === $path) {
+            return $path;
+        }
+
+        self::rememberDocumentDataPath($path, $moved);
+
+        $payload = ['scanned_masterlist' => $moved];
+        if (Schema::hasColumn('dcs_masterlist_registration', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+        DB::table('dcs_masterlist_registration')->where('id', $masterlistId)->update($payload);
+
+        return $moved;
     }
 
     /** @return array{cluster: string, office_name: string} */
@@ -1160,11 +1243,7 @@ class DocumentStorageService
 
         $relativeDir = trim(str_replace('\\', '/', dirname($relativePath)), '/');
         if ($relativeDir !== '' && $relativeDir !== '.') {
-            try {
-                Storage::disk('local')->makeDirectory(self::localUploadsPath($relativeDir));
-            } catch (\Throwable $e) {
-                logger()->warning("Local DCC directory notice ({$relativeDir}): " . $e->getMessage());
-            }
+            self::ensureLocalUploadDirectory($relativeDir);
         }
 
         Storage::disk('local')->put(self::localUploadsPath($relativePath), $fileContent);
@@ -1288,6 +1367,17 @@ class DocumentStorageService
             return $relativePath;
         }
 
+        self::rememberDocumentDataPath($relativePath, $newRelative);
+
+        return $newRelative;
+    }
+
+    private static function rememberDocumentDataPath(string $from, string $to): void
+    {
+        if ($from === '' || $to === '' || $from === $to || ! Schema::hasTable('sys_document_data')) {
+            return;
+        }
+
         $hasSavepoint = false;
         try {
             if (DB::transactionLevel() > 0) {
@@ -1296,8 +1386,8 @@ class DocumentStorageService
             }
 
             $payload = [
-                'document_path' => $newRelative,
-                'document_name' => basename($newRelative),
+                'document_path' => $to,
+                'document_name' => basename($to),
             ];
             // sys_document_data uses date_modified (not Laravel updated_at)
             if (\Illuminate\Support\Facades\Schema::hasColumn('sys_document_data', 'date_modified')) {
@@ -1305,7 +1395,7 @@ class DocumentStorageService
             }
 
             DB::table('sys_document_data')
-                ->where('document_path', $relativePath)
+                ->where('document_path', $from)
                 ->update($payload);
 
             if ($hasSavepoint) {
@@ -1313,7 +1403,7 @@ class DocumentStorageService
             }
         } catch (\Throwable $e) {
             // Do not let a metadata miss abort the outer registration transaction (pgsql 25P02).
-            logger()->warning("sys_document_data rename skipped {$relativePath}: " . $e->getMessage());
+            logger()->warning("sys_document_data rename skipped {$from}: " . $e->getMessage());
             if ($hasSavepoint) {
                 try {
                     DB::statement('ROLLBACK TO SAVEPOINT dcs_scan_rename_meta');
@@ -1322,8 +1412,6 @@ class DocumentStorageService
                 }
             }
         }
-
-        return $newRelative;
     }
 
     protected static function googleExistsSafe(string $relativePath): bool
@@ -2348,6 +2436,33 @@ class DocumentStorageService
         );
     }
 
+    /** True when any registration still stores this scan path. */
+    public static function scanPathIsReferenced(string $path): bool
+    {
+        $path = ltrim(str_replace(['\\', '../', '..\\'], '/', $path), '/');
+        if ($path === '' || str_contains($path, '..')) {
+            return false;
+        }
+
+        foreach (self::DCS_SCAN_SOURCES as $source) {
+            if (! Schema::hasTable($source['table']) || ! Schema::hasColumn($source['table'], $source['column'])) {
+                continue;
+            }
+
+            $found = DB::table($source['table'].' as src')
+                ->where(function ($query) use ($source, $path) {
+                    $query->where('src.'.$source['column'], $path)
+                        ->orWhere('src.'.$source['column'], '/'.$path);
+                })
+                ->exists();
+            if ($found) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static function deleteDcsScan(?string $path): void
     {
         if (! is_string($path) || trim($path) === '') {
@@ -2356,6 +2471,11 @@ class DocumentStorageService
 
         $path = ltrim(str_replace(['../', '..\\'], '', $path), '/');
         if ($path === '' || str_contains($path, '..')) {
+            return;
+        }
+
+        // A later revision can point at the same PDF. Replacing one row must not erase the other.
+        if (self::scanPathIsReferenced($path)) {
             return;
         }
 

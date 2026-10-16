@@ -707,8 +707,13 @@ class ReportHelper
 
     private function latestInFamily(array $family, callable $masterlistOf)
     {
-        $live = collect($family)->filter(fn ($row) => ! $this->isObsoleteMasterlist($masterlistOf($row)));
-        $pool = $live->isNotEmpty() ? $live : collect($family);
+        $current = collect($family)->filter(fn ($row) => $this->isCurrentMasterlist($masterlistOf($row)));
+        if ($current->isNotEmpty()) {
+            $pool = $current;
+        } else {
+            $live = collect($family)->filter(fn ($row) => ! $this->isObsoleteMasterlist($masterlistOf($row)));
+            $pool = $live->isNotEmpty() ? $live : collect($family);
+        }
 
         return $pool->sortByDesc(function ($row) use ($masterlistOf) {
             $ml = $masterlistOf($row);
@@ -838,15 +843,29 @@ class ReportHelper
         return strtolower(trim((string) ($ml->revision_status ?? ''))) === 'obsolete';
     }
 
+    private function isCurrentMasterlist(?object $ml): bool
+    {
+        if ($ml === null) {
+            return false;
+        }
+
+        $status = strtolower(trim((string) ($ml->revision_status ?? '')));
+
+        return $status === '' || $status === 'latest';
+    }
+
     /**
      * Sequential row/item number.
-     * Obsolete rows are unnumbered in mixed/all reports; obsolete-only reports number every row.
+     * Obsolete and superseded copies stay under the latest and do not take a new number.
+     * A report filtered to only that status numbers every row.
      */
     private function reportRowNumber(?object $ml, int &$counter, array $filters = []): int|string
     {
-        $obsoleteOnly = ($filters['revision_status'] ?? 'all') === 'obsolete';
+        $filter = strtolower(trim((string) ($filters['revision_status'] ?? 'all')));
+        $status = strtolower(trim((string) ($ml->revision_status ?? '')));
+        $historyOnly = $filter === 'obsolete' || $filter === 'superseded';
 
-        if ($this->isObsoleteMasterlist($ml) && ! $obsoleteOnly) {
+        if (! $historyOnly && in_array($status, ['obsolete', 'superseded'], true)) {
             return '';
         }
 
@@ -1002,12 +1021,7 @@ class ReportHelper
             $query->whereExists(function ($q) use ($dateFrom, $dateTo) {
                 $q->select(DB::raw(1))->from('dcs_masterlist_registration as ml')
                     ->whereColumn('ml.request_id', 'dr.id');
-                if ($dateFrom) {
-                    $q->whereDate('ml.doc_registered_date', '>=', $dateFrom);
-                }
-                if ($dateTo) {
-                    $q->whereDate('ml.doc_registered_date', '<=', $dateTo);
-                }
+                $this->applyMasterlistPeriodFilter($q, $dateFrom, $dateTo);
             });
         }
 
@@ -1193,12 +1207,7 @@ class ReportHelper
             $query->whereExists(function ($q) use ($dateFrom, $dateTo) {
                 $q->select(DB::raw(1))->from('dcs_masterlist_registration as ml')
                     ->whereColumn('ml.request_id', 'dr.id');
-                if ($dateFrom) {
-                    $q->whereDate('ml.doc_registered_date', '>=', $dateFrom);
-                }
-                if ($dateTo) {
-                    $q->whereDate('ml.doc_registered_date', '<=', $dateTo);
-                }
+                $this->applyMasterlistPeriodFilter($q, $dateFrom, $dateTo);
             });
         }
 
@@ -1757,12 +1766,7 @@ class ReportHelper
                     ->whereColumn('ml.request_id', 'dr.id')
                     ->whereNotNull('ml.doc_no')
                     ->where('ml.doc_no', '!=', '');
-                if ($startDate) {
-                    $q->whereDate('ml.doc_registered_date', '>=', $startDate);
-                }
-                if ($endDate) {
-                    $q->whereDate('ml.doc_registered_date', '<=', $endDate);
-                }
+                $this->applyMasterlistPeriodFilter($q, $startDate, $endDate);
             });
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
@@ -1993,12 +1997,7 @@ class ReportHelper
             $query->whereExists(function ($q) use ($dateFrom, $dateTo) {
                 $q->select(DB::raw(1))->from('dcs_masterlist_registration as ml')
                     ->whereColumn('ml.request_id', 'dr.id');
-                if ($dateFrom) {
-                    $q->whereDate('ml.doc_registered_date', '>=', $dateFrom);
-                }
-                if ($dateTo) {
-                    $q->whereDate('ml.doc_registered_date', '<=', $dateTo);
-                }
+                $this->applyMasterlistPeriodFilter($q, $dateFrom, $dateTo);
             });
         }
 

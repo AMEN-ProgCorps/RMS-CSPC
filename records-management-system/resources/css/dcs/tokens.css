@@ -35,6 +35,12 @@
     --dcs-red-light: #ef4444;
     --dcs-amber: #d97706;
     --dcs-amber-bg: #fffbeb;
+    --dcs-status-latest: #166534;
+    --dcs-status-latest-bg: #dcfce7;
+    --dcs-status-superseded: #b45309;
+    --dcs-status-superseded-bg: #fef3c7;
+    --dcs-status-obsolete: #b91c1c;
+    --dcs-status-obsolete-bg: #fee2e2;
     --dcs-gold-alt: #c9a227;
     --dcs-gold-bg: #fdf8ec;
     --dcs-radius: 10px;
@@ -325,6 +331,12 @@
     --dcs-red-light: #f87171;
     --dcs-amber: #fbbf24;
     --dcs-amber-bg: #451a03;
+    --dcs-status-latest: #4ade80;
+    --dcs-status-latest-bg: #052e16;
+    --dcs-status-superseded: #fbbf24;
+    --dcs-status-superseded-bg: #451a03;
+    --dcs-status-obsolete: #f87171;
+    --dcs-status-obsolete-bg: #450a0a;
     --dcs-gold-bg: #422006;
 
     --dcs-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.25);

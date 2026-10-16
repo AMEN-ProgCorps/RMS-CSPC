@@ -489,7 +489,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             </label>
                         </div>
                     </div>
-                    <div class="reg-field">
+                    <div class="reg-field reg-ml-receipt">
                         <label>Document Receipt</label>
                         <div class="reg-dual">
                             <input type="date" id="masterlistReceiptDate" name="masterlistReceiptDate" oninput="calcMasterlistTimeSpent()">
@@ -508,7 +508,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <label>Document Title</label>
                         <input type="text" id="masterlistDocTitle" name="masterlistDocTitle" placeholder="Enter Document title">
                     </div>
-                    <div class="reg-field">
+                    <div class="reg-field reg-ml-registered">
                         <label>Document Registered</label>
                         <div class="reg-dual">
                             <input type="date" id="masterlistRegisteredDate" name="masterlistRegisteredDate" oninput="calcMasterlistTimeSpent()">
@@ -633,16 +633,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             <div class="reg-card-body">
                     <div class="reg-field">
                         <label>Office retrieval status</label>
-                            <p class="reg-field-hint">Mark Retrieved when the office has returned the copy, then set the retrieval date and time. A revised document is distributed to the same offices even when a copy has not been retrieved yet. Monitoring shows which offices have retrieved and which have not.</p>
-                        <div class="reg-search">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <circle cx="11" cy="11" r="8"/>
-                                <path d="M21 21l-4.35-4.35"/>
-                            </svg>
-                            <input type="text" id="retrievalSearch" placeholder="Search and add office..." autocomplete="off"
-                                oninput="handleSearch(this, 'retrievalResults', 'retrievalBody', 'totalRetrievalCopies')">
-                            <div id="retrievalResults" class="reg-search-dropdown" style="display:none;"></div>
-                        </div>
+                            <p class="reg-field-hint">These offices come from the previous document's distribution. Mark Retrieved when the office has returned the copy, then set the retrieval date and time. Monitoring shows which offices have retrieved and which have not.</p>
                     </div>
                     <div class="reg-office-table-wrap" id="retrievalOfficeWrap" data-office-body="retrievalBody">
                         <table class="reg-dist-table">
@@ -659,7 +650,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     <td colspan="4">
                                         <div class="reg-empty-state">
                                             <i class="fa-solid fa-building-circle-xmark"></i>
-                                            <span>No offices added yet</span>
+                                            <span>No offices from the previous distribution</span>
                                         </div>
                                     </td>
                                 </tr>
@@ -1696,14 +1687,21 @@ document.addEventListener("DOMContentLoaded", async function () {
         initial: []
     });
 
-    // Office intake → Register handoff (?intake=drf|dcn&intake_id=…)
+    // Office intake → Register handoff (?intake=drf|dcn&intake_id=…).
+    // Only this registration page may carry the pending form. A later,
+    // unrelated document must not inherit it and notify that office.
     try {
-        const pending = JSON.parse(sessionStorage.getItem('dcs_office_intake_pending') || 'null');
-        if (pending?.type && pending?.id) {
-            const typeEl = document.getElementById('officeIntakeType');
-            const idEl = document.getElementById('officeIntakeId');
-            if (typeEl && !typeEl.value) typeEl.value = pending.type;
-            if (idEl && !idEl.value) idEl.value = String(pending.id);
+        const intakeParams = new URLSearchParams(location.search);
+        const urlIntake = (intakeParams.get('intake') || '').toLowerCase();
+        const urlId = intakeParams.get('intake_id') || '';
+        if ((urlIntake === 'drf' || urlIntake === 'dcn') && urlId) {
+            const pending = JSON.parse(sessionStorage.getItem('dcs_office_intake_pending') || 'null');
+            if (pending?.type === urlIntake && String(pending?.id) === String(urlId)) {
+                const typeEl = document.getElementById('officeIntakeType');
+                const idEl = document.getElementById('officeIntakeId');
+                if (typeEl && !typeEl.value) typeEl.value = pending.type;
+                if (idEl && !idEl.value) idEl.value = String(pending.id);
+            }
         }
     } catch (_) { /* ignore */ }
 
@@ -4133,6 +4131,12 @@ function isSyncedSourceUnitKey(key) {
     return SYNCED_SOURCE_UNIT_KEYS.includes(key);
 }
 
+function sourceSectionIsOpen(key) {
+    const ids = { drf: 'section-1', dcn: 'section-2', masterlist: 'section-3' };
+    const el = document.getElementById(ids[key] || '');
+    return !!el && el.style.display !== 'none';
+}
+
 function syncSourceUnitsAcrossSections(selection, sourceKey) {
     if (window.__syncingSourceUnits || !isSyncedSourceUnitKey(sourceKey)) return;
 
@@ -4141,6 +4145,7 @@ function syncSourceUnitsAcrossSections(selection, sourceKey) {
         const items = selection.map(i => ({ type: i.type, id: i.id, label: i.label }));
         SYNCED_SOURCE_UNIT_KEYS.forEach(key => {
             if (key === sourceKey) return;
+            if (!sourceSectionIsOpen(key)) return;
             const widget = window.__sourceWidgets[key];
             if (widget?.setSelectedItems) widget.setSelectedItems(items);
         });
@@ -7825,14 +7830,19 @@ window.submitForm = function () {
     if (draftFlag) draftFlag.value = '0';
     window.__regFormSubmitting = true;
     try {
-        const pending = JSON.parse(sessionStorage.getItem('dcs_office_intake_pending') || 'null');
-        if (pending?.type && pending?.id) {
-            const typeEl = document.getElementById('officeIntakeType');
-            const idEl = document.getElementById('officeIntakeId');
-            if (typeEl) typeEl.value = pending.type;
-            if (idEl) idEl.value = String(pending.id);
+        const intakeParams = new URLSearchParams(location.search);
+        const urlIntake = (intakeParams.get('intake') || '').toLowerCase();
+        const urlId = intakeParams.get('intake_id') || '';
+        if ((urlIntake === 'drf' || urlIntake === 'dcn') && urlId) {
+            const pending = JSON.parse(sessionStorage.getItem('dcs_office_intake_pending') || 'null');
+            if (pending?.type === urlIntake && String(pending?.id) === String(urlId)) {
+                const typeEl = document.getElementById('officeIntakeType');
+                const idEl = document.getElementById('officeIntakeId');
+                if (typeEl) typeEl.value = pending.type;
+                if (idEl) idEl.value = String(pending.id);
+            }
+            sessionStorage.removeItem('dcs_office_intake_pending');
         }
-        sessionStorage.removeItem('dcs_office_intake_pending');
     } catch (_) { /* ignore */ }
     showSavingDocumentOverlay();
     const form = document.getElementById("masterForm");

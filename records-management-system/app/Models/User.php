@@ -104,6 +104,12 @@ class User extends Authenticatable
         return $setting ? (bool)($setting->notification_sound_alert ?? true) : true;
     }
 
+    public function popoutNotifications(): bool
+    {
+        $setting = $this->personalSetting;
+        return $setting ? (bool)($setting->enable_popout_notifications ?? true) : true;
+    }
+
     /**
      * Array of notification type keys that the user has muted/filtered out from pings.
      *

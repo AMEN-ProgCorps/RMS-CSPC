@@ -346,4 +346,70 @@ class NotificationOverlayTest extends TestCase
         $this->assertEquals(1, $component->instance()->getPage());
         $this->assertEquals(1, $component->get('firstItem'));
     }
+
+    public function test_user_popout_notifications_preference_defaults_to_true_and_can_be_toggled_in_settings(): void
+    {
+        $user = User::find($this->userId);
+        Auth::login($user);
+
+        // 1. By default, popout notifications are enabled
+        $this->assertTrue($user->popoutNotifications());
+
+        // 2. Test in Profile Settings page
+        $component = Volt::test('pages.profile.settings');
+        $component->assertSee('Popout Notification Alerts');
+        $this->assertTrue($component->get('enablePopoutNotifications'));
+
+        // 3. Toggle off
+        $component->call('toggleEnablePopoutNotifications');
+        $component->assertDispatched('rms-popout-setting-changed', enabled: false);
+        $this->assertFalse($component->get('enablePopoutNotifications'));
+        $this->assertFalse($user->fresh()->popoutNotifications());
+
+        // 4. Toggle back on
+        $component->call('toggleEnablePopoutNotifications');
+        $component->assertDispatched('rms-popout-setting-changed', enabled: true);
+        $this->assertTrue($component->get('enablePopoutNotifications'));
+        $this->assertTrue($user->fresh()->popoutNotifications());
+    }
+
+    public function test_popout_notification_overlay_is_not_dispatched_when_disabled_by_user(): void
+    {
+        $user = User::find($this->userId);
+        Auth::login($user);
+
+        // Disable popout notifications for this user
+        $settingTable = Schema::hasTable('sys_personal_settings') ? 'sys_personal_settings' : 'personal_settings';
+        DB::table($settingTable)->updateOrInsert(
+            ['user' => $this->userId],
+            ['enable_popout_notifications' => false, 'notification_sound_alert' => true]
+        );
+
+        $this->assertFalse($user->fresh()->popoutNotifications());
+
+        // Notification component should mount with popoutNotificationsEnabled = false
+        $component = Volt::test('components.notification.notifications');
+        $this->assertFalse($component->get('popoutNotificationsEnabled'));
+
+        // Notification ping should NOT dispatch overlay
+        $component->call('onNotificationPing', [
+            'id' => 9999,
+            'content' => 'Ping with popout disabled',
+            'subsystem_name' => 'Profile Manager',
+        ]);
+        $component->assertNotDispatched('rms-notification-overlay-show');
+
+        // Dynamically enable popout via event listener
+        $component->call('onPopoutSettingChanged', true);
+        $this->assertTrue($component->get('popoutNotificationsEnabled'));
+
+        // Now notification ping DOES dispatch overlay
+        $component->call('onNotificationPing', [
+            'id' => 9999,
+            'content' => 'Ping with popout enabled',
+            'subsystem_name' => 'Profile Manager',
+        ]);
+        $component->assertDispatched('rms-notification-overlay-show');
+    }
 }
+

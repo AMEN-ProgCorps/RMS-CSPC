@@ -21,11 +21,16 @@ new class extends Component {
     /** @var bool Tracks whether initial mount load completed */
     public bool $hasMounted = false;
 
+    /** @var bool Tracks whether popout notifications are enabled for the current user */
+    public bool $popoutNotificationsEnabled = true;
+
     /**
      * Component mount hook.
      */
     public function mount()
     {
+        $user = Auth::user();
+        $this->popoutNotificationsEnabled = $user ? $user->popoutNotifications() : true;
         $this->loadNotifications();
     }
 
@@ -132,8 +137,8 @@ new class extends Component {
         $previousCount = $this->unreadCount;
         $this->unreadCount = $this->notifications->where('status', 'unread')->count();
 
-        // If unread count increases while viewing the page, trigger the popout overlay
-        if ($this->hasMounted && $this->unreadCount > $previousCount) {
+        // If unread count increases while viewing the page, trigger the popout overlay if enabled
+        if ($this->hasMounted && $this->unreadCount > $previousCount && $this->popoutNotificationsEnabled) {
             $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap((int) $userId);
             $latest = $this->notifications->first(function ($n) use ($mutedMap) {
                 return $n->status === 'unread' && !\App\Helpers\NotificationFilterHelper::isMuted(
@@ -157,12 +162,25 @@ new class extends Component {
     }
 
     /**
+     * Listener for popout notification settings change.
+     */
+    #[On('rms-popout-setting-changed')]
+    public function onPopoutSettingChanged($enabled = true): void
+    {
+        $this->popoutNotificationsEnabled = (bool) $enabled;
+    }
+
+    /**
      * Listener for notification ping events from the floating widget or background pollers.
      */
     #[On('rms-notification-ping')]
     public function onNotificationPing($notification = null)
     {
         $this->loadNotifications();
+        if (!$this->popoutNotificationsEnabled) {
+            return;
+        }
+
         $userId = Auth::id();
         $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap($userId ? (int) $userId : null);
 
@@ -499,12 +517,13 @@ new class extends Component {
     wire:poll.15s.keep-alive="loadNotifications"
     x-data="{
         open: @entangle('showDropdown'),
+        popoutEnabled: @entangle('popoutNotificationsEnabled'),
         overlayVisible: false,
         overlayData: null,
         overlayTimer: null,
         unseenQueueCount: 0,
         triggerOverlay(data) {
-            if (!data || !data.content) return;
+            if (!this.popoutEnabled || !data || !data.content) return;
             if (this.overlayVisible) {
                 this.unseenQueueCount++;
             } else {
@@ -551,6 +570,7 @@ new class extends Component {
     }"
     @click.outside="open = false"
     @close-notifications.window="open = false"
+    @rms-popout-setting-changed.window="popoutEnabled = !!($event.detail?.enabled ?? $event.detail)"
     @rms-notification-overlay-show.window="triggerOverlay($event.detail)"
 >
     <!-- Bell Button -->

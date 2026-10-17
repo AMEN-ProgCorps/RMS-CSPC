@@ -21,6 +21,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
     /** @var bool Personal preference for notification sound alerts (SFX) */
     public bool $notificationSoundAlert = true;
 
+    /** @var bool Personal preference for popout overlay notifications */
+    public bool $enablePopoutNotifications = true;
+
     /** @var bool Personal preference for DTS and RDP top navigation tabs */
     public bool $enableTopTabs = true;
 
@@ -78,6 +81,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $user = $user->fresh();
             $this->autoOpenChat = $user->autoOpenChat();
             $this->notificationSoundAlert = $user->notificationSoundAlert();
+            $this->enablePopoutNotifications = $user->popoutNotifications();
             $this->enableTopTabs = $user->enableTopTabs();
             $this->theme = $user->theme();
             $this->modalCloseKey = $user->modalCloseKey();
@@ -118,7 +122,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
         if ($user) {
             $setting = PersonalSetting::firstOrCreate(
                 ['user' => $user->id],
-                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_top_tabs' => true, 'theme' => 'light', 'modal_close_key' => 'Escape']
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_popout_notifications' => true, 'enable_top_tabs' => true, 'theme' => 'light', 'modal_close_key' => 'Escape']
             );
             $setting->notification_sound_alert = !((bool)($setting->notification_sound_alert ?? true));
             $setting->save();
@@ -126,6 +130,23 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
             $this->feedbackMessage = 'Preference updated: Notification sound alerts ' . ($this->notificationSoundAlert ? 'enabled' : 'disabled') . '.';
             $this->dispatch('rms-sound-setting-changed', enabled: $this->notificationSoundAlert);
             $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Notification sound alerts preference updated.');
+        }
+    }
+
+    public function toggleEnablePopoutNotifications(): void
+    {
+        $user = Auth::user();
+        if ($user) {
+            $setting = PersonalSetting::firstOrCreate(
+                ['user' => $user->id],
+                ['auto_open_chat' => true, 'notification_sound_alert' => true, 'enable_popout_notifications' => true, 'enable_top_tabs' => true, 'theme' => 'light', 'modal_close_key' => 'Escape']
+            );
+            $setting->enable_popout_notifications = !((bool)($setting->enable_popout_notifications ?? true));
+            $setting->save();
+            $this->enablePopoutNotifications = (bool) $setting->enable_popout_notifications;
+            $this->feedbackMessage = 'Preference updated: Popout notification alerts ' . ($this->enablePopoutNotifications ? 'enabled' : 'disabled') . '.';
+            $this->dispatch('rms-popout-setting-changed', enabled: $this->enablePopoutNotifications);
+            $this->dispatch('rms-settings-changed', type: 'profile_preference', message: 'Popout notification alerts preference updated.');
         }
     }
 
@@ -945,6 +966,23 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Preferences & Settin
                 </div>
                 <span class="settings-info-desc">
                     Play audio sound effects (SFX) whenever new unread messages or important system notifications arrive.
+                </span>
+            </div>
+
+            <!-- Popout Notification Alerts -->
+            <div class="settings-block-row">
+                <div class="settings-row-header">
+                    <span class="settings-info-title">
+                        <i class="fa-solid fa-bell" style="color: #2563eb; margin-right: 8px; font-size: 14px;"></i>
+                        Popout Notification Alerts
+                    </span>
+                    <button type="button" wire:click="toggleEnablePopoutNotifications" role="switch" aria-checked="{{ $enablePopoutNotifications ? 'true' : 'false' }}"
+                        style="position: relative; display: inline-flex; width: 48px; height: 26px; border: none; cursor: pointer; background-color: {{ $enablePopoutNotifications ? '#2563eb' : '#cbd5e1' }}; transition: background-color 0.25s ease; border-radius: 26px; padding: 0; outline: none; flex-shrink: 0;">
+                        <span style="position: absolute; top: 3px; left: {{ $enablePopoutNotifications ? '25px' : '3px' }}; width: 20px; height: 20px; background-color: #ffffff; border-radius: 50%; transition: left 0.25s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"></span>
+                    </button>
+                </div>
+                <span class="settings-info-desc">
+                    Display an interactive popout overlay card at the bottom of the screen when new notifications or transaction updates arrive.
                 </span>
             </div>
         </div>

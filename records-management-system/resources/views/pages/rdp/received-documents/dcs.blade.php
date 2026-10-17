@@ -1270,7 +1270,7 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Control Syst
                                     <div>
                                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
                                             <span class="code-pill-dcs">{{ $dcsItem->doc_no }}</span>
-                                            <span style="font-size: 11px; color: #64748b;">Rev: {{ $dcsItem->revise_no ?? '0' }} | {{ $dcsItem->originator_name ?: 'No originator' }}</span>
+                                            <span style="font-size: 11px; color: #64748b;">Rev: {{ $dcsItem->revise_no ?? '0' }} | <x-dcs.originator-lines :name="$dcsItem->originator_name ?: ''" empty="No originator" /></span>
                                         </div>
                                         <div style="font-size: 13px; font-weight: 600; color: #0f172a;">{{ $dcsItem->doc_title ?: 'No title' }}</div>
                                     </div>

@@ -35,6 +35,7 @@ class EnforceDcsIntakeAllowlist
         'dcs.office.dcn.store',
         'dcs.office.dcn.update',
         'dcs.api.office.revisable-documents',
+        'dcs.api.office-intake.print-ready',
     ];
 
     public function handle(Request $request, Closure $next): Response

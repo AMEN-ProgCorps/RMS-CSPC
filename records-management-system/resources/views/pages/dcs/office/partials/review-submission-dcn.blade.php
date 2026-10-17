@@ -69,7 +69,7 @@
         <dl class="ofi-review-fields">
             <div class="ofi-review-field">
                 <dt>Originator</dt>
-                <dd>{{ $dcn->originator_name ?: '—' }}</dd>
+                <dd><x-dcs.originator-lines :name="$dcn->originator_name" /></dd>
             </div>
             <div class="ofi-review-field">
                 <dt>Department</dt>

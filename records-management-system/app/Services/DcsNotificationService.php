@@ -205,8 +205,8 @@ class DcsNotificationService
             . '.';
 
         $url = $requestId && $requestId > 0
-            ? '/dcs/register/' . $requestId . '/edit'
-            : '/dcs/database';
+            ? '/dcs/monitoring/distribution-retrieval?doc=' . $requestId
+            : '/dcs/monitoring/distribution-retrieval';
 
         $adminOffice = \App\Helpers\RegisterQueryHelper::rfioNotificationOfficeCode();
         static::createNotification($adminOffice, $message, $url);

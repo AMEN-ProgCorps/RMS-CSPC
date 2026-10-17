@@ -30,7 +30,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
             <a href="{{ route('dcs.office.dcn.index', absolute: false) }}" class="reg-btn reg-btn-cancel">
                 <i class="fa-solid fa-arrow-left"></i> Back to list
             </a>
-            <p class="ofi-toolbar-hint">Fill in the Document Change Notice (CSPC-F-DCC-01), save, then print and submit the signed copy to RFIO.</p>
+            <p class="ofi-toolbar-hint">Fill in the Document Change Notice (CSPC-F-DCC-01) and save it. Print stays locked until RFIO confirms the form and notifies you to print and sign.</p>
         </div>
 
         @if($errors->any())
@@ -58,7 +58,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                                 <label for="dcnDocumentTitle">New document title <span class="ofi-req">*</span></label>
                                 <input type="text" id="dcnDocumentTitle" name="documentTitle"
                                     value="{{ old('documentTitle') }}"
-                                    required maxlength="255"
+                                    required
                                     placeholder="New document title"
                                     autocomplete="off">
                                 <div id="dcnSuggestTitle" class="ofi-suggest" hidden></div>
@@ -87,7 +87,7 @@ new #[Layout('layouts.dcs')] #[Title('New DCN — CSPC DCS')] class extends Comp
                         <div class="ofi-dcn-box-section">
                             <div class="reg-field">
                                 <label for="originatorName">Originator <span class="ofi-req">*</span></label>
-                                <input type="text" id="originatorName" name="originatorName" value="{{ old('originatorName') }}" required maxlength="255" placeholder="Enter originator name">
+                                <input type="text" id="originatorName" name="originatorName" value="{{ old('originatorName') }}" required placeholder="Separate multiple originators with a comma">
                                 <div id="dcnSuggestOriginator" class="ofi-suggest" hidden></div>
                             </div>
                             <div class="reg-grid-2-1">

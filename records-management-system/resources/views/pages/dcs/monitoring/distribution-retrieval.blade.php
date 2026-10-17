@@ -21,6 +21,7 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
     #[Url]
     public bool $showObsolete = false;
 
+    #[Url(as: 'doc')]
     public ?int $openId = null;
 
     public function mount(): void
@@ -322,13 +323,33 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
                     <span class="rpt-results-count">{{ count($group['rows']) }} {{ count($group['rows']) === 1 ? 'document' : 'documents' }}</span>
                 </div>
             </div>
+            @php
+                $showSubtype = collect($group['rows'])->contains(function ($card) {
+                    return trim((string) ($card['lead']['sub_type_name'] ?? '')) !== '';
+                });
+            @endphp
             <div class="rpt-table-scroll">
-                <table class="rpt-table">
+                <table class="rpt-table drt-board">
+                    <colgroup>
+                        <col class="drt-col-no">
+                        <col class="drt-col-title">
+                        @if($showSubtype)
+                            <col class="drt-col-sub">
+                        @endif
+                        <col class="drt-col-rev">
+                        <col class="drt-col-num">
+                        <col class="drt-col-num">
+                        <col class="drt-col-ret">
+                        <col class="drt-col-prev">
+                        <col class="drt-col-act">
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>Document No.</th>
                             <th>Title</th>
-                            <th>Subtype</th>
+                            @if($showSubtype)
+                                <th>Subtype</th>
+                            @endif
                             <th>Revision</th>
                             <th>Distributed</th>
                             <th>Received</th>
@@ -363,9 +384,11 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
                                 $subType = trim((string) ($revision['sub_type_name'] ?? ''));
                             @endphp
                             <tr class="drt-doc">
-                                <td>{{ $revision['doc_no'] }}</td>
-                                <td>{{ $revision['doc_title'] !== '' ? $revision['doc_title'] : 'Untitled' }}</td>
-                                <td>{{ $subType !== '' ? $subType : '—' }}</td>
+                                <td class="drt-clip">{{ $revision['doc_no'] }}</td>
+                                <td class="drt-title">{{ $revision['doc_title'] !== '' ? $revision['doc_title'] : 'Untitled' }}</td>
+                                @if($showSubtype)
+                                    <td class="drt-clip">{{ $subType !== '' ? $subType : '—' }}</td>
+                                @endif
                                 <td>Rev {{ (int) $revision['revise_no'] }}</td>
                                 <td>{{ $officeCount }}</td>
                                 <td>{{ $receivedCount }}</td>
@@ -420,7 +443,14 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
                     <p class="drt-modal-note">A newer copy was distributed before this one was returned. {{ $pendingInOpen }} {{ $pendingInOpen === 1 ? 'office still has' : 'offices still have' }} it. That return stays pending until Admin DCS retrieves it.</p>
                 @endif
                 <div class="drt-modal-table">
-                    <table class="rpt-table">
+                    <table class="rpt-table drt-office-board">
+                        <colgroup>
+                            <col class="drt-col-office">
+                            <col class="drt-col-copies">
+                            <col class="drt-col-received">
+                            <col class="drt-col-retrieved">
+                            <col class="drt-col-previous">
+                        </colgroup>
                         <thead>
                             <tr>
                                 <th>Office</th>

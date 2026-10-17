@@ -52,6 +52,48 @@ class OfficeIntakeHelper
         // Allowed for office creators and RFIO review_intake operators.
     }
 
+    /** Office users print only after RFIO sends the print-and-sign notice. */
+    public static function officeMayPrintIntake(?object $record): bool
+    {
+        if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+            return true;
+        }
+
+        return $record !== null && ! empty($record->rfio_print_notified_at);
+    }
+
+    /**
+     * Ids the current office user may print, for a live unlock on an open form.
+     *
+     * @param  list<int>  $ids
+     * @return array{ready: list<int>}
+     */
+    public static function officeIntakePrintReadyIds(string $type, array $ids): array
+    {
+        $type = strtolower($type);
+        abort_unless(in_array($type, ['drf', 'dcn'], true), 404);
+        self::assertCanAccessIntake();
+
+        $ids = array_slice(array_values(array_unique(array_filter(array_map('intval', $ids)))), 0, 50);
+        if ($ids === []) {
+            return ['ready' => []];
+        }
+
+        $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+        if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'rfio_print_notified_at')) {
+            return ['ready' => []];
+        }
+
+        $query = DB::table($table)->whereIn('id', $ids)->whereNotNull('rfio_print_notified_at');
+        if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+            $query->where('created_by', auth()->id());
+        }
+
+        return [
+            'ready' => $query->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
+        ];
+    }
+
     public static function assertOwnsDrf(object $drf): void
     {
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
@@ -111,6 +153,9 @@ class OfficeIntakeHelper
         if (Schema::hasColumn('dcs_office_intake_drf', 'registered_request_id')) {
             $cols[] = 'drf.registered_request_id';
         }
+        if (Schema::hasColumn('dcs_office_intake_drf', 'rfio_print_notified_at')) {
+            $cols[] = 'drf.rfio_print_notified_at';
+        }
 
         self::reconcileClaimedIntakesWithRegistrations();
 
@@ -156,6 +201,7 @@ class OfficeIntakeHelper
             Schema::hasColumn('dcs_office_intake_dcn', 'rfio_claimed_at') ? 'dcn.rfio_claimed_at' : null,
             Schema::hasColumn('dcs_office_intake_dcn', 'registered_request_id') ? 'dcn.registered_request_id' : null,
             Schema::hasColumn('dcs_office_intake_dcn', 'expects_drf') ? 'dcn.expects_drf' : null,
+            Schema::hasColumn('dcs_office_intake_dcn', 'rfio_print_notified_at') ? 'dcn.rfio_print_notified_at' : null,
         ]));
 
         self::reconcileClaimedIntakesWithRegistrations();
@@ -1307,8 +1353,8 @@ class OfficeIntakeHelper
 
         $data = $request->validate([
             'drfDate' => 'required|date',
-            'drfTitle' => 'required|string|max:255',
-            'originatorName' => 'required|string|max:255',
+            'drfTitle' => 'required|string',
+            'originatorName' => 'required|string',
             'docTypeKind' => 'required|in:internal,external',
             'descriptionReason' => 'required|string|max:5000',
             'distributeToOffice' => 'required|array|min:1',
@@ -1553,16 +1599,16 @@ class OfficeIntakeHelper
 
         $data = $request->validate([
             'finderDocumentNo' => 'required|string|max:150',
-            'finderCurrentTitle' => 'required|string|max:255',
-            'finderOriginator' => 'required|string|max:255',
+            'finderCurrentTitle' => 'required|string',
+            'finderOriginator' => 'required|string',
             'documentNoMode' => 'nullable|in:keep,new',
             'newDocumentNo' => 'nullable|string|max:150',
             'documentNo' => 'nullable|string|max:150',
-            'documentTitle' => 'required|string|max:255',
+            'documentTitle' => 'required|string',
             'changeFrom' => 'required|string|max:5000',
             'changeTo' => 'required|string|max:5000',
             'dcnJustification' => 'required|string|max:5000',
-            'originatorName' => 'required|string|max:255',
+            'originatorName' => 'required|string',
             'departmentDate' => 'required|date',
             'reviewedByName' => 'required|array|min:1|max:9',
             'reviewedByName.*' => 'required|string|max:255',
@@ -1693,8 +1739,8 @@ class OfficeIntakeHelper
 
         $data = $request->validate([
             'drfDate' => 'required|date',
-            'drfTitle' => 'required|string|max:255',
-            'originatorName' => 'required|string|max:255',
+            'drfTitle' => 'required|string',
+            'originatorName' => 'required|string',
             'docTypeKind' => 'required|in:internal,external',
             'descriptionReason' => 'required|string|max:5000',
             'distributeToOffice' => 'required|array|min:1',
@@ -1792,16 +1838,16 @@ class OfficeIntakeHelper
 
         $data = $request->validate([
             'finderDocumentNo' => 'required|string|max:150',
-            'finderCurrentTitle' => 'required|string|max:255',
-            'finderOriginator' => 'required|string|max:255',
+            'finderCurrentTitle' => 'required|string',
+            'finderOriginator' => 'required|string',
             'documentNoMode' => 'nullable|in:keep,new',
             'newDocumentNo' => 'nullable|string|max:150',
             'documentNo' => 'nullable|string|max:150',
-            'documentTitle' => 'required|string|max:255',
+            'documentTitle' => 'required|string',
             'changeFrom' => 'required|string|max:5000',
             'changeTo' => 'required|string|max:5000',
             'dcnJustification' => 'required|string|max:5000',
-            'originatorName' => 'required|string|max:255',
+            'originatorName' => 'required|string',
             'departmentDate' => 'required|date',
             'reviewedByName' => 'required|array|min:1|max:9',
             'reviewedByName.*' => 'required|string|max:255',

@@ -611,7 +611,18 @@ html[data-dcs-sidebar-collapsed="1"] .ofi-page {
     color: #334155;
     cursor: default;
 }
-.ofi-actions { display: flex; gap: 12px; }
+.ofi-actions { display: flex; gap: 12px; align-items: center; }
+.ofi-print-locked,
+.reg-btn.ofi-print-locked {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: auto;
+}
+.reg-btn.ofi-print-locked {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
 .ofi-actions a {
     color: #1d4ed8;
     font-size: 15px;

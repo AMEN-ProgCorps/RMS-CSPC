@@ -599,7 +599,17 @@ body {
 .rpt-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.82rem;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 10pt;
+}
+.rpt-ml-table td.rpt-ml-center {
+    text-align: center;
+    vertical-align: middle;
+}
+.rpt-table td.rpt-originator {
+    text-align: left;
+    vertical-align: top;
+    line-height: 1.25;
 }
 
 /* All cells get borders */
@@ -852,6 +862,8 @@ body {
     vertical-align: middle;
     text-align: center;
     color: var(--rpt-text);
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 10pt;
 }
 
 .rpt-table tbody tr:hover td { background: #f8f9fc; }
@@ -2461,6 +2473,34 @@ body {
     font: inherit;
     font-size: 0.78rem;
 }
+.drt-board,
+.drt-office-board {
+    table-layout: fixed !important;
+    width: 100% !important;
+}
+.drt-board .drt-col-no { width: 11.5rem !important; }
+.drt-board .drt-col-title { width: 22rem !important; }
+.drt-board .drt-col-sub { width: 9rem !important; }
+.drt-board .drt-col-rev { width: 5.5rem !important; }
+.drt-board .drt-col-num { width: 6.5rem !important; }
+.drt-board .drt-col-ret { width: 13rem !important; }
+.drt-board .drt-col-prev { width: 9.5rem !important; }
+.drt-board .drt-col-act { width: 6.5rem !important; }
+.drt-board td.drt-clip,
+.drt-board th {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.drt-board td.drt-title {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+.drt-office-board .drt-col-office { width: 34%; }
+.drt-office-board .drt-col-copies { width: 4.5rem; }
+.drt-office-board .drt-col-received { width: 8.5rem; }
+.drt-office-board .drt-col-retrieved { width: 9.5rem; }
+.drt-office-board .drt-col-previous { width: 8rem; }
 .drt-offices-btn,
 .drt-modal-dialog header button {
     height: 34px;

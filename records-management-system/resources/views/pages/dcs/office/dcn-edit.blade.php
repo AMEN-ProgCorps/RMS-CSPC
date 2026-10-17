@@ -76,7 +76,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
                                 <label for="dcnDocumentTitle">New document title <span class="ofi-req">*</span></label>
                                 <input type="text" id="dcnDocumentTitle" name="documentTitle"
                                     value="{{ old('documentTitle', $dcn->document_title) }}"
-                                    required maxlength="255"
+                                    required
                                     placeholder="New document title"
                                     autocomplete="off">
                                 <div id="dcnSuggestTitle" class="ofi-suggest" hidden></div>
@@ -105,7 +105,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DCN — CSPC DCS')] class extends Com
                         <div class="ofi-dcn-box-section">
                             <div class="reg-field">
                                 <label for="originatorName">Originator <span class="ofi-req">*</span></label>
-                                <input type="text" id="originatorName" name="originatorName" value="{{ old('originatorName', $dcn->originator_name) }}" required maxlength="255" placeholder="Enter originator name">
+                                <input type="text" id="originatorName" name="originatorName" value="{{ old('originatorName', $dcn->originator_name) }}" required placeholder="Separate multiple originators with a comma">
                                 <div id="dcnSuggestOriginator" class="ofi-suggest" hidden></div>
                             </div>
                             <div class="reg-grid-2-1">

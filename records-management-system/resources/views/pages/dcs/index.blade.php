@@ -383,7 +383,7 @@ document.addEventListener('alpine:init', () => {
                     <span class="ofi-dash-step-num">2</span>
                     <div>
                         <strong>Print and sign</strong>
-                        <p>Print the saved form, then have it signed as required.</p>
+                        <p>Print stays locked until RFIO confirms the form and notifies you. After that notice, print the form and have it signed.</p>
                     </div>
                 </li>
                 <li>

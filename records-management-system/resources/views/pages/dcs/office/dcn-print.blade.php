@@ -629,6 +629,11 @@
     $isReviewer = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake();
     $viewerMode = ! empty($viewerMode);
     $allowPrint = $allowPrint ?? true;
+    $printLockMessage = $printLockMessage ?? 'Save the form before printing.';
+    $printReadyId = (int) ($dcn->id ?? 0);
+    $printReadyUrl = $printReadyId > 0
+        ? route('dcs.api.office-intake.print-ready', ['type' => 'dcn', 'ids' => $printReadyId], false)
+        : '';
 @endphp
 @if($viewerMode)
 <script>
@@ -648,25 +653,47 @@
 </script>
 @endif
 @if(! $allowPrint)
-<style>
+<style id="ofi-print-block-style">
     @media print {
         body * { display: none !important; }
         body::after {
             display: block !important;
-            content: "Save the form before printing.";
+            content: "{{ $printLockMessage }}";
             font: 14pt Arial, sans-serif;
             color: #000;
             padding: 1in;
         }
     }
 </style>
-<script>window.print = function () {};</script>
+<script>
+window.print = function () {};
+@if($printReadyUrl !== '')
+(function () {
+    var url = @json($printReadyUrl);
+    var id = @json((string) $printReadyId);
+    var timer = setInterval(async function () {
+        try {
+            var res = await fetch(url, {
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin'
+            });
+            if (!res.ok) return;
+            var data = await res.json();
+            var ready = (data.ready || []).map(String);
+            if (ready.indexOf(id) === -1) return;
+            clearInterval(timer);
+            location.reload();
+        } catch (e) {}
+    }, 2000);
+})();
+@endif
+</script>
 @endif
 <div class="print-toolbar">
     @if($viewerMode)
         <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIO review</span>
     @elseif(! $allowPrint)
-        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">Preview only. Save the form before printing.</span>
+        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">{{ $printLockMessage }}</span>
         <button type="button" class="btn-close" onclick="window.close()">Close</button>
     @else
         @if($isReviewer)

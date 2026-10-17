@@ -353,7 +353,14 @@
         }
         .ml-table td:last-child { border-right: 0 !important; }
         .ml-table tr:last-child td { border-bottom: 0 !important; }
-        .ml-table td.is-title { text-align: left; }
+        .ml-table td.is-title,
+        .ml-table td.is-doc-no,
+        .ml-table td.is-center { text-align: center; }
+        .ml-table td.is-originator {
+            text-align: left;
+            vertical-align: top;
+            line-height: 1.2;
+        }
         .ml-table td.is-doc-no,
         .ml-table td.is-doc-no b {
             font-weight: 700 !important;
@@ -561,7 +568,9 @@
             padding: 3px 3px;
             font-size: 10pt;
         }
-        body.is-pdf .pdf-table td.is-title { text-align: left; }
+        body.is-pdf .pdf-table td.is-title,
+        body.is-pdf .pdf-table td.is-center { text-align: center; }
+        body.is-pdf .pdf-table td.is-originator { text-align: left; vertical-align: top; line-height: 1.2; }
         body.is-pdf .pdf-table td.is-doc-no { font-weight: 700; }
         body.is-pdf .pdf-ft {
             position: absolute;
@@ -696,11 +705,11 @@
                             @endphp
                             <tr>
                                 <td>{{ $item !== '' && $item !== null ? $item : '' }}</td>
-                                <td class="is-doc-no">{{ is_array($row) ? ($row['doc_no'] ?? '—') : ($row->doc_no ?? '—') }}</td>
-                                <td>{{ is_array($row) ? ($row['rev_no'] ?? '—') : ($row->rev_no ?? '—') }}</td>
-                                <td class="is-title">{{ is_array($row) ? ($row['doc_title'] ?? '—') : ($row->doc_title ?? '—') }}</td>
-                                <td>{{ is_array($row) ? ($row['effectivity_date'] ?? '—') : ($row->effectivity_date ?? '—') }}</td>
-                                <td>{{ is_array($row) ? ($row['originator'] ?? '—') : ($row->originator ?? '—') }}</td>
+                                <td class="is-doc-no is-center">{{ is_array($row) ? ($row['doc_no'] ?? '—') : ($row->doc_no ?? '—') }}</td>
+                                <td class="is-center">{{ is_array($row) ? ($row['rev_no'] ?? '—') : ($row->rev_no ?? '—') }}</td>
+                                <td class="is-title is-center">{{ is_array($row) ? ($row['doc_title'] ?? '—') : ($row->doc_title ?? '—') }}</td>
+                                <td class="is-center">{{ is_array($row) ? ($row['effectivity_date'] ?? '—') : ($row->effectivity_date ?? '—') }}</td>
+                                <td class="is-originator"><x-dcs.originator-lines :name="is_array($row) ? ($row['originator'] ?? '') : ($row->originator ?? '')" /></td>
                                 <td>{{ is_array($row) ? ($row['no_pages'] ?? '—') : ($row->no_pages ?? '—') }}</td>
                             </tr>
                         @empty
@@ -774,11 +783,11 @@
                             @endphp
                             <tr>
                                 <td>{{ $item !== '' && $item !== null ? $item : '' }}</td>
-                                <td class="is-doc-no"><b>{{ is_array($row) ? ($row['doc_no'] ?? '—') : ($row->doc_no ?? '—') }}</b></td>
-                                <td>{{ is_array($row) ? ($row['rev_no'] ?? '—') : ($row->rev_no ?? '—') }}</td>
-                                <td class="is-title">{{ is_array($row) ? ($row['doc_title'] ?? '—') : ($row->doc_title ?? '—') }}</td>
-                                <td>{{ is_array($row) ? ($row['effectivity_date'] ?? '—') : ($row->effectivity_date ?? '—') }}</td>
-                                <td>{{ is_array($row) ? ($row['originator'] ?? '—') : ($row->originator ?? '—') }}</td>
+                                <td class="is-doc-no is-center"><b>{{ is_array($row) ? ($row['doc_no'] ?? '—') : ($row->doc_no ?? '—') }}</b></td>
+                                <td class="is-center">{{ is_array($row) ? ($row['rev_no'] ?? '—') : ($row->rev_no ?? '—') }}</td>
+                                <td class="is-title is-center">{{ is_array($row) ? ($row['doc_title'] ?? '—') : ($row->doc_title ?? '—') }}</td>
+                                <td class="is-center">{{ is_array($row) ? ($row['effectivity_date'] ?? '—') : ($row->effectivity_date ?? '—') }}</td>
+                                <td class="is-originator"><x-dcs.originator-lines :name="is_array($row) ? ($row['originator'] ?? '') : ($row->originator ?? '')" /></td>
                                 <td>{{ is_array($row) ? ($row['no_pages'] ?? '—') : ($row->no_pages ?? '—') }}</td>
                             </tr>
                         @empty

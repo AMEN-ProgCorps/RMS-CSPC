@@ -887,8 +887,10 @@ Route::middleware(['auth'])
                 $logoSrc = file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode(file_get_contents($logoPath))) : '';
                 $sourceOffices = OfficeIntakeHelper::drfSourceOffices($id);
                 $viewerMode = request()->boolean('view');
+                $allowPrint = OfficeIntakeHelper::officeMayPrintIntake($drf);
+                $printLockMessage = 'Print unlocks after RFIO confirms this form and notifies you to print and sign.';
 
-                return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices', 'viewerMode'));
+                return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage'));
             })->name('office.drf.print');
             Route::match(['put', 'patch', 'post'], '/office/drf/{id}', function (Request $request, int $id) {
                 return OfficeIntakeHelper::updateDrf($request, $id);
@@ -912,8 +914,10 @@ Route::middleware(['auth'])
                 $revisions = OfficeIntakeHelper::dcnRevisions($id);
                 $sourceOffices = OfficeIntakeHelper::dcnSourceOffices($id);
                 $viewerMode = request()->boolean('view');
+                $allowPrint = OfficeIntakeHelper::officeMayPrintIntake($dcn);
+                $printLockMessage = 'Print unlocks after RFIO confirms this form and notifies you to print and sign.';
 
-                return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode'));
+                return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode', 'allowPrint', 'printLockMessage'));
             })->name('office.dcn.print');
             Route::match(['put', 'patch', 'post'], '/office/dcn/{id}', function (Request $request, int $id) {
                 return OfficeIntakeHelper::updateDcn($request, $id);
@@ -957,6 +961,12 @@ Route::middleware(['auth'])
             Route::post('/api/office-intake/{type}/{id}/notify-print-ready', function (string $type, int $id) {
                 return response()->json(OfficeIntakeHelper::notifyReadyForPrintSign($type, $id));
             })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.notify-print-ready');
+
+            Route::get('/api/office-intake/{type}/print-ready', function (string $type, Request $request) {
+                $ids = array_filter(array_map('intval', explode(',', (string) $request->query('ids', ''))));
+
+                return response()->json(OfficeIntakeHelper::officeIntakePrintReadyIds($type, $ids));
+            })->whereIn('type', ['drf', 'dcn'])->name('api.office-intake.print-ready');
 
             Route::middleware(['dcs.full'])->group(function () {
                 Route::get('/api/documents/{id}/checklist/{type}', function (int $id, string $type) {

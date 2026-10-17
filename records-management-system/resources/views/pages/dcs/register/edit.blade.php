@@ -140,7 +140,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                         </select>
                         <input type="hidden" name="doc_type_id" value="{{ $docRequest->doc_type_id }}">
                     </div>
-                    <div class="reg-field">
+                    <div class="reg-field" id="subTypeField" hidden>
                         <label>Sub-Type Document</label>
                         {{-- Drafts saved without a sub-type stay editable so it can be filled later --}}
                         <select id="subType" name="sub_type_id" autocomplete="off"
@@ -1852,10 +1852,16 @@ document.addEventListener("DOMContentLoaded", async function () {
         docTypeSelect.disabled = true;
 
         const subTypeSelect = document.getElementById("subType");
+        const subTypeField = document.getElementById("subTypeField");
         const children = allDocTypes.filter(d => d.parent_id == CURRENT_DOC_TYPE_ID);
         const draftSubTypeUnlock = !!subTypeSelect?.dataset?.draftUnlock
             && !CURRENT_SUB_TYPE_ID
             && !!(window.__isDraftDoc);
+        if (subTypeField) {
+            const showSubType = children.length > 0;
+            subTypeField.hidden = !showSubType;
+            subTypeField.style.display = showSubType ? "" : "none";
+        }
         if (children.length > 0) {
             children.forEach(c => {
                 const opt = new Option(c.doc_type_name, c.doc_type_id);
@@ -3835,29 +3841,24 @@ window.pickRevisionDocument = async function (key, idx) {
     populateRevisionRowFromDoc(row, doc);
     setRevisionTableLoading(true);
 
-    let revisions = [];
-    try {
-        if (doc.request_id) {
-            const params = new URLSearchParams({ request_id: String(doc.request_id) });
-            if (doc.doc_no) params.set('doc_no', doc.doc_no);
-            revisions = await fetch('/dcs/api/documents/revisions?' + params.toString())
-                .then(r => r.json());
-        }
-    } catch (e) {
-        console.error('Failed to load document revisions:', e);
-    }
-
-    if (!Array.isArray(revisions) || revisions.length === 0) {
-        revisions = [doc];
-    }
-
     const pickedNo = String(doc.doc_no || '').trim().toLowerCase();
+    const revisionPromise = doc.request_id
+        ? fetch('/dcs/api/documents/revisions?' + new URLSearchParams({
+            request_id: String(doc.request_id),
+            ...(doc.doc_no ? { doc_no: doc.doc_no } : {}),
+        }).toString()).then((r) => r.json()).catch((e) => {
+            console.error('Failed to load document revisions:', e);
+            return [];
+        })
+        : Promise.resolve([]);
+    const checkPromise = (isDcnSectionVisible() && doc.doc_no)
+        ? bridgeDcnPickToMasterlist(doc.doc_no)
+        : Promise.resolve(null);
 
     try {
-        let checkData = null;
-        if (isDcnSectionVisible() && doc.doc_no) {
-            checkData = await bridgeDcnPickToMasterlist(doc.doc_no);
-        }
+        const [revisionPayload, checkData] = await Promise.all([revisionPromise, checkPromise]);
+        let revisions = Array.isArray(revisionPayload) ? revisionPayload : [];
+        if (!revisions.length) revisions = [doc];
         const latestRev = checkData?.latest_rev ?? doc.revise_no;
         await fillRevisionTableWithDocumentHistory(row, revisions, { docNo: pickedNo, latestRev });
     } finally {

@@ -421,6 +421,8 @@
                                                     <td class="{{ $withSplit($key) }}">{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '' }}</td>
                                                 @elseif(in_array($key, ['doc_no', 'control_number', 'doc_number', 'drf_no', 'dcn_no'], true))
                                                     <td class="{{ $withSplit($key, $opcrColClass($key)) }}"><strong>{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '' }}</strong></td>
+                                                @elseif($key === 'originator')
+                                                    <td class="rpt-originator {{ $withSplit($key, $opcrColClass($key)) }}"><x-dcs.originator-lines :name="$row[$key] ?? ''" /></td>
                                                 @else
                                                     <td class="{{ $withSplit($key, $opcrColClass($key)) }}">{{ $row[$key] ?: '—' }}</td>
                                                 @endif
@@ -530,6 +532,8 @@
                                                 <td class="{{ $withSplit($key) }}">{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '' }}</td>
                                             @elseif(in_array($key, ['doc_no', 'control_number', 'doc_number', 'drf_no', 'dcn_no'], true))
                                                 <td class="{{ $withSplit($key, $monColClass($key)) }}"><strong>{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '' }}</strong></td>
+                                            @elseif($key === 'originator')
+                                                <td class="rpt-originator {{ $withSplit($key, $monColClass($key)) }}"><x-dcs.originator-lines :name="$row[$key] ?? ''" /></td>
                                             @elseif($key === 'forwarded_drr')
                                                 <td class="mon-drr-td {{ $withSplit($key) }}">
                                                     <input type="checkbox" class="mon-drr-check"
@@ -602,7 +606,11 @@
                                             @endif
                                         </td>
                                         @foreach($keys as $key)
-                                            <td>{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '—' }}</td>
+                                            @if($key === 'originator')
+                                                <td class="rpt-originator"><x-dcs.originator-lines :name="$row[$key] ?? ''" /></td>
+                                            @else
+                                                <td class="{{ in_array($key, ['doc_no', 'rev_no', 'doc_title', 'effectivity_date'], true) ? 'rpt-ml-center' : '' }}">{{ ($row[$key] ?? '') !== '' && ($row[$key] ?? null) !== null ? $row[$key] : '—' }}</td>
+                                            @endif
                                         @endforeach
                                     </tr>
                                 @empty

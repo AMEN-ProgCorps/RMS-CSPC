@@ -550,25 +550,22 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         return $g;
                     })
                     ->values();
-            } elseif ($this->revisionStatus === 'superseded') {
+            } elseif (in_array($this->revisionStatus, ['superseded', 'obsolete'], true)) {
+                $wanted = $this->revisionStatus === 'superseded' ? 'superseded' : 'obsolete';
                 $groups = $groups
-                    ->filter(fn ($g) => strtolower((string) ($g['parent']['status'] ?? '')) === 'superseded')
-                    ->values();
-            } elseif ($this->revisionStatus === 'obsolete') {
-                $groups = $groups
-                    ->filter(fn ($g) => $g['has_revisions'])
-                    ->flatMap(function ($g) {
-                        return collect($g['children'])->map(function ($child) use ($g) {
-                            $child['status'] = 'Obsolete';
-
-                            return [
-                                'doc_no' => $g['doc_no'],
-                                'parent' => $child,
-                                'children' => [],
-                                'has_revisions' => false,
-                                'revision_count' => $g['revision_count'],
-                            ];
-                        });
+                    ->flatMap(function ($g) use ($wanted) {
+                        return collect([$g['parent']])->merge($g['children'] ?? [])
+                            ->filter(fn ($row) => strtolower((string) ($row['status'] ?? '')) === $wanted)
+                            ->map(function ($row) use ($g) {
+                                return [
+                                    'doc_no' => $row['doc_no'] ?? ($g['doc_no'] ?? 'N/A'),
+                                    'parent' => $row,
+                                    'children' => [],
+                                    'has_revisions' => false,
+                                    'revision_count' => 1,
+                                    'allows_revision' => $g['allows_revision'] ?? true,
+                                ];
+                            });
                     })
                     ->values();
             }

@@ -85,7 +85,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                     <div class="reg-grid-2-1">
                         <div class="reg-field">
                             <label>Originator <span class="ofi-req">*</span></label>
-                            <input type="text" name="originatorName" value="{{ old('originatorName', $drf->originator_name) }}" required maxlength="255" placeholder="Name of originator">
+                            <input type="text" name="originatorName" value="{{ old('originatorName', $drf->originator_name) }}" required placeholder="Separate multiple originators with a comma">
                         </div>
                         <div class="reg-field">
                             <label>Date <span class="ofi-req">*</span></label>
@@ -94,7 +94,7 @@ new #[Layout('layouts.dcs')] #[Title('Edit DRF — CSPC DCS')] class extends Com
                     </div>
                     <div class="reg-field">
                         <label>Document Title <span class="ofi-req">*</span></label>
-                        <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle', $drf->doc_title) }}" required maxlength="255" placeholder="Enter document title">
+                        <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle', $drf->doc_title) }}" required placeholder="Enter document title">
                     </div>
                     <div class="reg-field">
                         <label>Type of document <span class="ofi-req">*</span></label>

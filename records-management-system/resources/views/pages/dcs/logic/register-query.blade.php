@@ -6303,7 +6303,7 @@ class RegisterQueryHelper
                 : null,
             'brief_purpose' => $row->brief_purpose ?? null,
             'scanned_copy_url' => $row->scanned_masterlist
-                ? self::scanUrl($row->scanned_masterlist)
+                ? self::scanUrl($row->scanned_masterlist, false)
                 : null,
             'scanned_copy_path' => $row->scanned_masterlist,
             'label' => ($row->doc_no ?: 'No number') . ' — Rev ' . (int) $row->revise_no

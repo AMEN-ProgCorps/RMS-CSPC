@@ -67,7 +67,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                 @if(($fromDcnId ?? 0) > 0)
                     Prefilled from Document Change Notice #{{ $fromDcnId }}. Document type follows the document being revised. Distribution starts with that document’s offices — add any extra offices before saving.
                 @else
-                    Fill in the form, save, then print and submit the signed copy to RFIO. Scanned DRF uploads are handled by RFIO during document registration.
+                    Fill in the form and save it. Print stays locked until RFIO confirms the form and notifies you to print and sign. Scanned DRF uploads are handled by RFIO during document registration.
                 @endif
             </p>
         </div>
@@ -95,7 +95,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                     <div class="reg-grid-2-1">
                         <div class="reg-field">
                             <label>Originator <span class="ofi-req">*</span></label>
-                            <input type="text" name="originatorName" value="{{ old('originatorName', $prefill['originatorName'] ?? '') }}" required maxlength="255" placeholder="Name of originator">
+                            <input type="text" name="originatorName" value="{{ old('originatorName', $prefill['originatorName'] ?? '') }}" required placeholder="Separate multiple originators with a comma">
                         </div>
                         <div class="reg-field">
                             <label>Date <span class="ofi-req">*</span></label>
@@ -104,7 +104,7 @@ new #[Layout('layouts.dcs')] #[Title('New DRF — CSPC DCS')] class extends Comp
                     </div>
                     <div class="reg-field">
                         <label>Document Title <span class="ofi-req">*</span></label>
-                        <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle', $prefill['drfTitle'] ?? '') }}" required maxlength="255" placeholder="Enter document title">
+                        <input type="text" id="drfTitle" name="drfTitle" value="{{ old('drfTitle', $prefill['drfTitle'] ?? '') }}" required placeholder="Enter document title">
                     </div>
                     <div class="reg-field">
                         <label>Type of document <span class="ofi-req">*</span></label>

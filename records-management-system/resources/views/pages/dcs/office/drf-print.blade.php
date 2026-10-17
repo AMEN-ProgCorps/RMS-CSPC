@@ -90,9 +90,9 @@
         }
         /* The DRF form is only the top half of the long bond sheet. */
         .sheet-main {
-            height: 6.5in !important;
+            height: auto !important;
             min-height: 6.5in !important;
-            max-height: 6.5in !important;
+            max-height: none !important;
         }
 
         /* ═══════════ HEADER ═══════════
@@ -282,6 +282,46 @@
         .fline.w-date { flex: 1 1 auto !important; width: auto !important; min-width: 1.79in !important; }
         .fline.w-fill { flex: 1 1 auto !important; width: auto !important; min-width: 0 !important; }
         .fline.w-fill .fline-val { white-space: normal !important; }
+        .fline.w-fill .fline-val.is-originator {
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            font-size: 11pt !important;
+        }
+
+        /* Long titles: line 2 starts under the first title words, beside the label. */
+        .doc-title-block {
+            display: flex !important;
+            align-items: flex-start !important;
+            width: 100% !important;
+            height: auto !important;
+            min-height: 13pt !important;
+            max-height: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: transparent !important;
+        }
+        .doc-title-block .lbl {
+            height: 13pt !important;
+            line-height: 13pt !important;
+        }
+        .doc-title-lines {
+            flex: 1 1 auto !important;
+            min-width: 0 !important;
+            display: flex !important;
+            flex-direction: column !important;
+        }
+        .doc-title-block .fline {
+            display: flex !important;
+            width: 100% !important;
+            height: 13pt !important;
+            min-height: 13pt !important;
+            max-height: 13pt !important;
+        }
+        .doc-title-block .fline.w-fill .fline-val {
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: clip !important;
+        }
 
         /* Request / Originator / Document Title — single spacing (1.0) */
         .row {
@@ -592,9 +632,9 @@
         }
         .sheet-attach .attach-doc-title {
             margin: 0 0 4pt !important;
-            height: 11pt !important;
-            min-height: 11pt !important;
-            max-height: 11pt !important;
+            height: auto !important;
+            min-height: 13pt !important;
+            max-height: none !important;
         }
         .sheet-attach .attach-dist-label {
             margin: 2pt 0 2pt !important;
@@ -664,9 +704,9 @@
                 break-inside: avoid !important;
             }
             .sheet-main {
-                height: 6.5in !important;
+                height: auto !important;
                 min-height: 6.5in !important;
-                max-height: 6.5in !important;
+                max-height: none !important;
                 page-break-after: auto !important;
                 break-after: auto !important;
                 page-break-inside: avoid !important;
@@ -810,6 +850,11 @@
     $isReviewer = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake();
     $viewerMode = ! empty($viewerMode);
     $allowPrint = $allowPrint ?? true;
+    $printLockMessage = $printLockMessage ?? 'Save the form before printing.';
+    $printReadyId = (int) ($drf->id ?? 0);
+    $printReadyUrl = $printReadyId > 0
+        ? route('dcs.api.office-intake.print-ready', ['type' => 'drf', 'ids' => $printReadyId], false)
+        : '';
 @endphp
 @if($viewerMode)
 <script>
@@ -829,25 +874,47 @@
 </script>
 @endif
 @if(! $allowPrint)
-<style>
+<style id="ofi-print-block-style">
     @media print {
         body * { display: none !important; }
         body::after {
             display: block !important;
-            content: "Save the form before printing.";
+            content: "{{ $printLockMessage }}";
             font: 14pt Arial, sans-serif;
             color: #000;
             padding: 1in;
         }
     }
 </style>
-<script>window.print = function () {};</script>
+<script>
+window.print = function () {};
+@if($printReadyUrl !== '')
+(function () {
+    var url = @json($printReadyUrl);
+    var id = @json((string) $printReadyId);
+    var timer = setInterval(async function () {
+        try {
+            var res = await fetch(url, {
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin'
+            });
+            if (!res.ok) return;
+            var data = await res.json();
+            var ready = (data.ready || []).map(String);
+            if (ready.indexOf(id) === -1) return;
+            clearInterval(timer);
+            location.reload();
+        } catch (e) {}
+    }, 2000);
+})();
+@endif
+</script>
 @endif
 <div class="print-toolbar">
     @if($viewerMode)
         <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIO review</span>
     @elseif(! $allowPrint)
-        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">Preview only. Save the form before printing.</span>
+        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">{{ $printLockMessage }}</span>
         <button type="button" class="btn-close" onclick="window.close()">Close</button>
     @else
         <p class="print-toolbar-tip">
@@ -893,12 +960,14 @@
 
         <div class="row">
             <span class="lbl">Originator :</span>
-            <div class="fline w-fill"><div class="fline-val">{{ $originator }}</div><div class="fline-rule"></div></div>
+            <div class="fline w-fill"><div class="fline-val is-originator">{{ $originator }}</div><div class="fline-rule"></div></div>
         </div>
 
-        <div class="row">
+        <div class="doc-title-block" data-doc-title="{{ $docTitle }}">
             <span class="lbl">Document Title :</span>
-            <div class="fline w-fill"><div class="fline-val">{{ $docTitle }}</div><div class="fline-rule"></div></div>
+            <div class="doc-title-lines">
+                <div class="fline w-fill"><div class="fline-val">{{ $docTitle }}</div><div class="fline-rule"></div></div>
+            </div>
         </div>
 
         <div class="check-row">
@@ -992,9 +1061,11 @@
 @php $rowOffset = $pageIndex * $attachPerPage; @endphp
 <div class="sheet sheet-attach">
     <div class="body">
-        <div class="row attach-doc-title">
+        <div class="doc-title-block attach-doc-title" data-doc-title="{{ $docTitle }}">
             <span class="lbl">Document Title :</span>
-            <div class="fline w-fill"><div class="fline-val">{{ $docTitle }}</div><div class="fline-rule"></div></div>
+            <div class="doc-title-lines">
+                <div class="fline w-fill"><div class="fline-val">{{ $docTitle }}</div><div class="fline-rule"></div></div>
+            </div>
         </div>
         <div class="attach-dist-label">Distribute document to (department/position):</div>
         <table class="attach-table">
@@ -1052,7 +1123,80 @@ function ofiFitSigText() {
     });
 }
 
+function ofiTitleLine(text) {
+    var holder = document.createElement('div');
+    holder.textContent = text;
+    return '<div class="fline w-fill"><div class="fline-val">' + holder.innerHTML + '</div><div class="fline-rule"></div></div>';
+}
+
+function ofiPackTwoLines(words, ctx, limit) {
+    var line1 = '';
+    var index = 0;
+    for (; index < words.length; index++) {
+        var next = line1 === '' ? words[index] : (line1 + ' ' + words[index]);
+        if (line1 !== '' && ctx.measureText(next).width > limit) break;
+        line1 = next;
+    }
+    if (line1 === '' && words.length) {
+        line1 = words[0];
+        index = 1;
+    }
+    return [line1, words.slice(index).join(' ')];
+}
+
+function ofiFitDocTitles() {
+    var canvas = document.createElement('canvas');
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    document.querySelectorAll('.doc-title-block[data-doc-title]').forEach(function (block) {
+        var title = (block.getAttribute('data-doc-title') || '').replace(/\s+/g, ' ').trim();
+        var host = block.querySelector('.doc-title-lines');
+        if (!host) return;
+        var width = host.clientWidth;
+        if (width < 40) width = 560;
+        var limit = width - 8;
+        var words = title === '' ? [] : title.split(' ');
+        function packedAt(pt) {
+            ctx.font = (pt * 96 / 72) + 'px Arial';
+            var packed = ofiPackTwoLines(words, ctx, limit);
+            var line1 = packed[0] === '' ? 0 : ctx.measureText(packed[0]).width;
+            var line2 = packed[1] === '' ? 0 : ctx.measureText(packed[1]).width;
+            return { ok: line1 <= limit && line2 <= limit, lines: packed };
+        }
+        var size = 11;
+        var fit = packedAt(11);
+        var lines = fit.lines;
+        if (!fit.ok) {
+            var lo = 7;
+            var hi = 11;
+            size = 7;
+            lines = packedAt(7).lines;
+            for (var step = 0; step < 24; step++) {
+                var mid = (lo + hi) / 2;
+                var trial = packedAt(mid);
+                if (trial.ok) {
+                    size = mid;
+                    lines = trial.lines;
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            size = Math.floor(size * 100) / 100;
+            if (size < 7) size = 7;
+            lines = packedAt(size).lines;
+        }
+        host.innerHTML = ofiTitleLine(lines[0]) + (lines[1] !== '' ? ofiTitleLine(lines[1]) : '');
+        host.querySelectorAll('.fline-val').forEach(function (value) {
+            value.style.setProperty('font-size', size + 'pt', 'important');
+            value.style.setProperty('white-space', 'nowrap', 'important');
+            value.style.setProperty('overflow', 'hidden', 'important');
+        });
+    });
+}
+
 function ofiPrintClean() {
+    ofiFitDocTitles();
     ofiFitSigText();
     var prevTitle = document.title;
     var prevPath = window.location.pathname + window.location.search + window.location.hash;
@@ -1071,9 +1215,20 @@ function ofiPrintClean() {
     setTimeout(restore, 1500);
 }
 
-document.addEventListener('DOMContentLoaded', ofiFitSigText);
-window.addEventListener('resize', ofiFitSigText);
-window.addEventListener('beforeprint', ofiFitSigText);
+document.addEventListener('DOMContentLoaded', function () {
+    ofiFitSigText();
+    ofiFitDocTitles();
+});
+window.addEventListener('resize', function () {
+    ofiFitSigText();
+    ofiFitDocTitles();
+});
+window.addEventListener('beforeprint', function () {
+    ofiFitDocTitles();
+    ofiFitSigText();
+});
+ofiFitDocTitles();
+window.addEventListener('load', ofiFitDocTitles);
 </script>
 </body>
 </html>

@@ -27,7 +27,7 @@
                 <label for="dcnFinderCurrentTitle">Current document title <span class="ofi-req">*</span></label>
                 <input type="text" id="dcnFinderCurrentTitle" name="finderCurrentTitle"
                     value="{{ $finderTitle }}"
-                    required maxlength="255"
+                    required
                     placeholder="Type the title printed on the current document"
                     autocomplete="off">
             </div>
@@ -35,7 +35,7 @@
                 <label for="dcnFinderOriginator">Registered originator <span class="ofi-req">*</span></label>
                 <input type="text" id="dcnFinderOriginator" name="finderOriginator"
                     value="{{ $finderOriginator }}"
-                    required maxlength="255"
+                    required
                     placeholder="Type the originator on the current document"
                     autocomplete="off">
             </div>

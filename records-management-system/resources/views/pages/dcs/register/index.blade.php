@@ -70,7 +70,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <option value="" selected disabled>Select type</option>
                     </select>
                 </div>
-                <div class="reg-field">
+                <div class="reg-field" id="subTypeField" hidden>
                     <label>Sub-Type Document</label>
                     <select id="subType" name="sub_type_id" disabled autocomplete="off">
                         <option value="" selected disabled>Select sub-type</option>
@@ -3858,29 +3858,24 @@ async function applyRevisionDocumentPick(row, doc, options = {}) {
     populateRevisionRowFromDoc(row, doc);
     setRevisionTableLoading(true);
 
-    let revisions = [];
-    try {
-        if (doc.request_id) {
-            const params = new URLSearchParams({ request_id: String(doc.request_id) });
-            if (doc.doc_no) params.set('doc_no', doc.doc_no);
-            revisions = await fetch('/dcs/api/documents/revisions?' + params.toString())
-                .then(r => r.json());
-        }
-    } catch (e) {
-        console.error('Failed to load document revisions:', e);
-    }
-
-    if (!Array.isArray(revisions) || revisions.length === 0) {
-        revisions = [doc];
-    }
-
     const pickedNo = String(doc.doc_no || '').trim().toLowerCase();
+    const revisionPromise = doc.request_id
+        ? fetch('/dcs/api/documents/revisions?' + new URLSearchParams({
+            request_id: String(doc.request_id),
+            ...(doc.doc_no ? { doc_no: doc.doc_no } : {}),
+        }).toString()).then((r) => r.json()).catch((e) => {
+            console.error('Failed to load document revisions:', e);
+            return [];
+        })
+        : Promise.resolve([]);
+    const checkPromise = (isRevisedMode() && doc.doc_no)
+        ? bridgeDcnPickToMasterlist(doc.doc_no)
+        : Promise.resolve(null);
 
     try {
-        let checkData = null;
-        if (isRevisedMode() && doc.doc_no) {
-            checkData = await bridgeDcnPickToMasterlist(doc.doc_no);
-        }
+        const [revisionPayload, checkData] = await Promise.all([revisionPromise, checkPromise]);
+        let revisions = Array.isArray(revisionPayload) ? revisionPayload : [];
+        if (!revisions.length) revisions = [doc];
         const latestRev = checkData?.latest_rev ?? doc.revise_no;
         await fillRevisionTableWithDocumentHistory(row, revisions, {
             docNo: pickedNo,
@@ -5603,8 +5598,21 @@ function resetRegisterSectionInputs() {
     setSaveEnabled(true);
 }
 
+function syncSubTypeField(docTypeId) {
+    const field = document.getElementById("subTypeField");
+    if (!field) return;
+    const children = (typeof allDocTypes !== "undefined" ? allDocTypes : []).filter(
+        (d) => String(d.parent_id) === String(docTypeId || "")
+    );
+    const show = children.length > 0;
+    field.hidden = !show;
+    field.style.display = show ? "" : "none";
+}
+
 function handleDocTypeChange() {
+    const lockedTypeId = document.getElementById("docType")?.value || "";
     if (window.__officeIntakeIdentityLocked) {
+        syncSubTypeField(lockedTypeId);
         lockOfficeIntakeRegistrationIdentity();
         return;
     }
@@ -5628,6 +5636,7 @@ function handleDocTypeChange() {
     }
 
     if (!docTypeId) {
+        syncSubTypeField("");
         lockChecklist();
         resetSupersedeFinder();
         syncRecurFinder();
@@ -5635,6 +5644,7 @@ function handleDocTypeChange() {
     }
 
     const children = allDocTypes.filter(d => String(d.parent_id) === String(docTypeId));
+    syncSubTypeField(docTypeId);
 
     if (children.length > 0) {
         children.forEach(c => subTypeSelect.add(new Option(c.doc_type_name, c.doc_type_id)));

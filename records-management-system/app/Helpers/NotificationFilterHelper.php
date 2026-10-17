@@ -131,30 +131,54 @@ class NotificationFilterHelper
     }
 
     /**
-     * Check if a given notification content is muted according to an array of muted type keys.
+     * Check if a given notification content is muted according to muted types or timestamp map.
+     * If an associative map [category => muted_at_timestamp] is provided along with the notification's
+     * creation time, muting will only apply to notifications created at or after the mute timestamp.
      *
      * @param string $content Notification message text
      * @param string $subsystem Subsystem name
-     * @param array<int, string>|null $mutedTypes List of muted keys, e.g. ['dts_receiving']
+     * @param array<mixed>|null $mutedData List of muted keys OR associative map [key => muted_at_timestamp]
+     * @param mixed $notificationCreatedAt Optional notification creation timestamp
      * @return bool
      */
-    public static function isMuted(string $content, string $subsystem = '', ?array $mutedTypes = null): bool
+    public static function isMuted(string $content, string $subsystem = '', ?array $mutedData = null, mixed $notificationCreatedAt = null): bool
     {
-        if (empty($mutedTypes)) {
+        if (empty($mutedData)) {
             return false;
         }
 
         $category = self::classify($content, $subsystem);
-        return in_array($category, $mutedTypes, true);
+
+        // Check if category exists as key in associative map [category => timestamp]
+        if (array_key_exists($category, $mutedData)) {
+            $muteTimestamp = $mutedData[$category];
+            if ($notificationCreatedAt !== null && !empty($muteTimestamp)) {
+                try {
+                    $notifTime = \Carbon\Carbon::parse($notificationCreatedAt)->timestamp;
+                    $mutedTime = is_numeric($muteTimestamp) ? (int) $muteTimestamp : \Carbon\Carbon::parse($muteTimestamp)->timestamp;
+                    // If notification was created before the category was muted, it is NOT muted
+                    if ($notifTime < $mutedTime) {
+                        return false;
+                    }
+                } catch (\Throwable $e) {
+                    // Fall back to muted on parsing exception
+                }
+            }
+            return true;
+        }
+
+        // Check sequential array ['dts_receiving', ...]
+        return in_array($category, $mutedData, true);
     }
 
     /**
-     * Retrieve the list of muted notification type keys for a given user ID.
+     * Retrieve the associative map of muted notification type keys to their mute timestamp.
+     * Format: ['dts_receiving' => 'YYYY-MM-DD HH:MM:SS', ...]
      *
      * @param int|null $userId
-     * @return array<int, string>
+     * @return array<string, string>
      */
-    public static function getUserMutedTypes(?int $userId = null): array
+    public static function getUserMutedMap(?int $userId = null): array
     {
         $userId = $userId ?: Auth::id();
         if (!$userId) {
@@ -173,35 +197,57 @@ class NotificationFilterHelper
             }
 
             $decoded = is_string($raw) ? json_decode($raw, true) : $raw;
-            if (is_array($decoded)) {
-                return array_values(array_filter($decoded, 'is_string'));
+            if (!is_array($decoded)) {
+                return [];
             }
+
+            $map = [];
+            foreach ($decoded as $key => $val) {
+                if (is_string($key) && !is_numeric($key)) {
+                    $map[$key] = (string) $val;
+                } elseif (is_string($val) && $val !== '') {
+                    $map[$val] = '2000-01-01 00:00:00';
+                }
+            }
+
+            return $map;
         } catch (\Throwable $e) {
             return [];
         }
-
-        return [];
     }
 
     /**
-     * Check if notification is muted for a specific user.
+     * Retrieve the list of muted notification type keys for a given user ID.
+     *
+     * @param int|null $userId
+     * @return array<int, string>
+     */
+    public static function getUserMutedTypes(?int $userId = null): array
+    {
+        return array_values(array_keys(self::getUserMutedMap($userId)));
+    }
+
+    /**
+     * Check if notification is muted for a specific user, considering creation time.
      *
      * @param string $content
      * @param string $subsystem
      * @param int|null $userId
+     * @param mixed $notificationCreatedAt
      * @return bool
      */
-    public static function isMutedForUser(string $content, string $subsystem = '', ?int $userId = null): bool
+    public static function isMutedForUser(string $content, string $subsystem = '', ?int $userId = null, mixed $notificationCreatedAt = null): bool
     {
-        $mutedTypes = self::getUserMutedTypes($userId);
-        return self::isMuted($content, $subsystem, $mutedTypes);
+        $mutedMap = self::getUserMutedMap($userId);
+        return self::isMuted($content, $subsystem, $mutedMap, $notificationCreatedAt);
     }
 
     /**
-     * Update user's muted notification types in personal settings.
+     * Update user's muted notification types in personal settings,
+     * recording timestamps so that muting only applies starting from the user's change.
      *
      * @param int $userId
-     * @param array<int, string> $mutedTypes
+     * @param array<int|string, string> $mutedTypes
      * @return void
      */
     public static function setUserMutedTypes(int $userId, array $mutedTypes): void
@@ -211,8 +257,25 @@ class NotificationFilterHelper
             return;
         }
 
-        $cleanTypes = array_values(array_unique(array_filter($mutedTypes, 'is_string')));
-        $json = json_encode($cleanTypes);
+        $existingMap = self::getUserMutedMap($userId);
+        $newMap = [];
+        $nowStr = now()->toDateTimeString();
+
+        foreach ($mutedTypes as $key => $val) {
+            if (is_string($key) && !is_numeric($key)) {
+                $typeKey = $key;
+                $timestamp = !empty($val) ? (string) $val : ($existingMap[$typeKey] ?? $nowStr);
+            } else {
+                $typeKey = (string) $val;
+                $timestamp = $existingMap[$typeKey] ?? $nowStr;
+            }
+
+            if ($typeKey !== '') {
+                $newMap[$typeKey] = $timestamp;
+            }
+        }
+
+        $json = json_encode($newMap);
 
         DB::table($tbl)->updateOrInsert(
             ['user' => $userId],

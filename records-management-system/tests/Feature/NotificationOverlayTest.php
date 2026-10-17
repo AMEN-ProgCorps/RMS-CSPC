@@ -102,19 +102,20 @@ class NotificationOverlayTest extends TestCase
         Auth::login($user);
     }
 
-    private function createNotification(string $content, ?string $redirectUrl = null): int
+    private function createNotification(string $content, ?string $redirectUrl = null, mixed $createdAt = null): int
     {
+        $time = $createdAt ?? now();
         $contentId = DB::table($this->tNotifContent)->insertGetId([
             'system' => $this->subsystemId,
             'content' => $content,
             'redirect_url' => $redirectUrl,
-            'created_at' => now(),
+            'created_at' => $time,
         ]);
 
         return DB::table($this->tNotifications)->insertGetId([
             'office' => $this->officeCode,
             'contents' => $contentId,
-            'created_at' => now(),
+            'created_at' => $time,
         ]);
     }
 
@@ -190,15 +191,22 @@ class NotificationOverlayTest extends TestCase
         $this->assertEquals('dcs_distribution', \App\Helpers\NotificationFilterHelper::classify('Your office has a new controlled document to receive: "ISO Manual".'));
         $this->assertEquals('dcs_registration', \App\Helpers\NotificationFilterHelper::classify('Document DOC-101 has been registered by Registrar.'));
 
-        // 2. Mute helper
+        // 2. Mute helper (flat array and timestamp map)
         $muted = ['dts_receiving', 'dcs_distribution'];
         $this->assertTrue(\App\Helpers\NotificationFilterHelper::isMuted('New Transaction CTR-002 is waiting to be received by your office.', 'Document Tracking System', $muted));
         $this->assertFalse(\App\Helpers\NotificationFilterHelper::isMuted('Transaction CTR-002 has been received by John.', 'Document Tracking System', $muted));
+
+        // Timestamp-aware muting: old notification before mute time is NOT muted
+        $timestampMap = ['dts_receiving' => '2026-10-17 12:00:00'];
+        $this->assertFalse(\App\Helpers\NotificationFilterHelper::isMuted('New Transaction CTR-002 is waiting to be received by your office.', 'Document Tracking System', $timestampMap, '2026-10-17 11:59:00'));
+        $this->assertTrue(\App\Helpers\NotificationFilterHelper::isMuted('New Transaction CTR-002 is waiting to be received by your office.', 'Document Tracking System', $timestampMap, '2026-10-17 12:01:00'));
 
         // 3. Persist and retrieve
         \App\Helpers\NotificationFilterHelper::setUserMutedTypes($this->userId, ['dts_receiving']);
         $retrieved = \App\Helpers\NotificationFilterHelper::getUserMutedTypes($this->userId);
         $this->assertEquals(['dts_receiving'], $retrieved);
+        $retrievedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap($this->userId);
+        $this->assertArrayHasKey('dts_receiving', $retrievedMap);
     }
 
     public function test_muted_notification_is_excluded_from_unread_ping_count(): void
@@ -213,8 +221,8 @@ class NotificationOverlayTest extends TestCase
         $unmutedCount = (int) $unmutedResponse->json('system_unread');
         $this->assertEquals($notifId, $unmutedResponse->json('latest_system_notification.id'));
 
-        // Mute dts_receiving for this user
-        \App\Helpers\NotificationFilterHelper::setUserMutedTypes($this->userId, ['dts_receiving']);
+        // Mute dts_receiving for this user starting before or at current time
+        \App\Helpers\NotificationFilterHelper::setUserMutedTypes($this->userId, ['dts_receiving' => now()->subMinute()->toDateTimeString()]);
 
         $mutedResponse = $this->actingAs($user)->getJson(route('chat.unread-count'));
         $mutedCount = (int) $mutedResponse->json('system_unread');
@@ -229,10 +237,16 @@ class NotificationOverlayTest extends TestCase
 
     public function test_notification_manager_renders_muted_status_and_toggles(): void
     {
-        $this->createNotification('New Transaction CTR-888 is waiting to be received by your office.', '/dts?open=888');
+        // 1. Old notification created 10 minutes ago
+        $this->createNotification('New Transaction CTR-OLD is waiting to be received by your office.', '/dts?open=OLD', now()->subMinutes(10));
 
-        // Set dts_receiving as muted
-        \App\Helpers\NotificationFilterHelper::setUserMutedTypes($this->userId, ['dts_receiving']);
+        // 2. User mutes dts_receiving 5 minutes ago
+        \App\Helpers\NotificationFilterHelper::setUserMutedTypes($this->userId, [
+            'dts_receiving' => now()->subMinutes(5)->toDateTimeString(),
+        ]);
+
+        // 3. New notification created 1 minute ago (after user action)
+        $this->createNotification('New Transaction CTR-NEW is waiting to be received by your office.', '/dts?open=NEW', now()->subMinute());
 
         $user = User::find($this->userId);
         Auth::login($user);
@@ -240,16 +254,28 @@ class NotificationOverlayTest extends TestCase
         $component = Volt::test('pages.profile.notification-manager');
         $notifs = $component->get('notifications');
 
-        $this->assertCount(1, $notifs);
-        $this->assertEquals('muted', $notifs[0]->display_status);
-        $this->assertTrue($notifs[0]->is_muted);
+        // Both notifications are listed in history
+        $this->assertCount(2, $notifs);
+
+        // Find the new and old notifications
+        $newNotif = $notifs->first(fn ($n) => str_contains($n->content, 'CTR-NEW'));
+        $oldNotif = $notifs->first(fn ($n) => str_contains($n->content, 'CTR-OLD'));
+
+        // Old notification created before the mute action remains unmuted (unread log visible)
+        $this->assertFalse($oldNotif->is_muted);
+        $this->assertEquals('unread', $oldNotif->display_status);
+
+        // New notification created after the user mute action is muted
+        $this->assertTrue($newNotif->is_muted);
+        $this->assertEquals('muted', $newNotif->display_status);
 
         // Toggle unmute via component
         $component->call('toggleMuteType', 'dts_receiving');
         $this->assertNotContains('dts_receiving', $component->get('mutedTypes'));
 
         $notifsAfter = $component->get('notifications');
-        $this->assertEquals('unread', $notifsAfter[0]->display_status);
+        $newNotifAfter = $notifsAfter->first(fn ($n) => str_contains($n->content, 'CTR-NEW'));
+        $this->assertEquals('unread', $newNotifAfter->display_status);
 
         // Test enableAllAlerts & muteAllAlerts
         $component->call('muteAllAlerts');
@@ -257,5 +283,67 @@ class NotificationOverlayTest extends TestCase
 
         $component->call('enableAllAlerts');
         $this->assertEmpty($component->get('mutedTypes'));
+
+        // Test Config button and modal open / close
+        $component->assertSee('Config');
+        $this->assertFalse($component->get('showConfigModal'));
+
+        $component->call('openConfigModal');
+        $this->assertTrue($component->get('showConfigModal'));
+        $component->assertSee('Notification Alert Filters &amp; Mute Preferences', false);
+
+        $component->call('closeConfigModal');
+        $this->assertFalse($component->get('showConfigModal'));
+
+        // Test saveMutedPreferences
+        $component->call('saveMutedPreferences', ['dts_receiving']);
+        $this->assertContains('dts_receiving', $component->get('mutedTypes'));
+        $this->assertFalse($component->get('showConfigModal'));
+    }
+
+    public function test_notification_manager_pagination_limits_to_100_per_page(): void
+    {
+        $user = User::find($this->userId);
+        Auth::login($user);
+
+        // Bulk insert 105 test notifications
+        $rows = [];
+        for ($i = 1; $i <= 105; $i++) {
+            $contentId = DB::table($this->tNotifContent)->insertGetId([
+                'system' => $this->subsystemId,
+                'content' => "Bulk notification test #{$i}",
+                'redirect_url' => '/dts',
+                'created_at' => now()->subMinutes(120 - $i),
+            ]);
+            $rows[] = [
+                'office' => $this->officeCode,
+                'contents' => $contentId,
+                'created_at' => now()->subMinutes(120 - $i),
+            ];
+        }
+        DB::table($this->tNotifications)->insert($rows);
+
+        $component = Volt::test('pages.profile.notification-manager');
+
+        // Check hardcoded PER_PAGE constant is 100
+        $this->assertEquals(100, $component->instance()::PER_PAGE);
+
+        // Page 1 should contain exactly 100 items (not 105+)
+        $this->assertCount(100, $component->get('notifications'));
+        $this->assertEquals(1, $component->get('firstItem'));
+        $this->assertEquals(100, $component->get('lastItem'));
+        $this->assertGreaterThanOrEqual(105, $component->get('totalFiltered'));
+        $this->assertGreaterThanOrEqual(2, $component->get('lastPage'));
+
+        // Navigate to Page 2
+        $component->call('gotoPage', 2);
+        $this->assertEquals(2, $component->instance()->getPage());
+        $this->assertLessThanOrEqual(100, count($component->get('notifications')));
+        $this->assertEquals(101, $component->get('firstItem'));
+
+        // Changing filter resets page back to 1
+        $component->call('setStatusFilter', 'unread');
+        $this->assertEquals(1, $component->instance()->getPage());
+        $this->assertEquals(1, $component->get('firstItem'));
     }
 }

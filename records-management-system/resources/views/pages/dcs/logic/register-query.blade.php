@@ -1052,17 +1052,19 @@ class RegisterQueryHelper
                 $notifTbl . '.id',
                 $subsystemsTbl . '.subsystem_name',
                 $notifContentTbl . '.redirect_url',
-                $notifContentTbl . '.content'
+                $notifContentTbl . '.content',
+                $notifTbl . '.created_at'
             );
 
         $list = self::filterBellNotifications($query->get());
         if ($excludeMuted) {
-            $mutedTypes = \App\Helpers\NotificationFilterHelper::getUserMutedTypes($userId);
-            if (!empty($mutedTypes)) {
+            $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap($userId);
+            if (!empty($mutedMap)) {
                 $list = $list->reject(fn ($item) => \App\Helpers\NotificationFilterHelper::isMuted(
                     (string) ($item->content ?? ''),
                     (string) ($item->subsystem_name ?? ''),
-                    $mutedTypes
+                    $mutedMap,
+                    $item->created_at ?? null
                 ));
             }
         }
@@ -1099,12 +1101,13 @@ class RegisterQueryHelper
 
         $filtered = self::filterBellNotifications($query->take(20)->get());
         if ($excludeMuted) {
-            $mutedTypes = \App\Helpers\NotificationFilterHelper::getUserMutedTypes($userId);
-            if (!empty($mutedTypes)) {
+            $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap($userId);
+            if (!empty($mutedMap)) {
                 $filtered = $filtered->reject(fn ($item) => \App\Helpers\NotificationFilterHelper::isMuted(
                     (string) ($item->content ?? ''),
                     (string) ($item->subsystem_name ?? ''),
-                    $mutedTypes
+                    $mutedMap,
+                    $item->created_at ?? null
                 ));
             }
         }

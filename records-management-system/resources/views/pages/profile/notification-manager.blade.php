@@ -9,10 +9,16 @@
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
+use Livewire\WithPagination;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager')] class extends Component {
+    use WithPagination;
+
+    /** Fixed pagination limit per page - strictly enforced in code and cannot be modified by site settings */
+    public const PER_PAGE = 100;
+
     /** @var array<int, mixed> Holds the collection of active notifications for display */
     public $notifications = [];
 
@@ -26,6 +32,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
     public array $currentPermissions = [];
     public bool $showDetailsModal = false;
     public ?array $selectedDetails = null;
+    public bool $showConfigModal = false;
 
     /** @var array<string, array<string, string>> Available notification filter categories */
     public array $availableFilters = [];
@@ -38,6 +45,45 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
 
     /** @var array<string, int> Status count summary */
     public array $statusCounts = ['all' => 0, 'unread' => 0, 'read' => 0, 'muted' => 0];
+
+    /** @var int Total notifications matching current filter */
+    public int $totalFiltered = 0;
+
+    /** @var int 1-based start index of current page items */
+    public int $firstItem = 0;
+
+    /** @var int 1-based end index of current page items */
+    public int $lastItem = 0;
+
+    /** @var int Total number of pages */
+    public int $lastPage = 1;
+
+    public function updatedPage()
+    {
+        $this->loadNotifications();
+    }
+
+    public function openConfigModal()
+    {
+        $this->showConfigModal = true;
+    }
+
+    public function closeConfigModal()
+    {
+        $this->showConfigModal = false;
+    }
+
+    public function saveMutedPreferences(array $newMutedTypes)
+    {
+        $userId = Auth::id();
+        if ($userId) {
+            $this->mutedTypes = array_values(array_unique($newMutedTypes));
+            \App\Helpers\NotificationFilterHelper::setUserMutedTypes($userId, $this->mutedTypes);
+            $this->loadNotifications();
+            $this->dispatch('rms-notification-updated');
+        }
+        $this->showConfigModal = false;
+    }
 
     public function mount()
     {
@@ -126,6 +172,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
     public function setStatusFilter(string $filter)
     {
         $this->statusFilter = $filter;
+        $this->resetPage();
         $this->loadNotifications();
     }
 
@@ -157,6 +204,10 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
         if (!$officeCode) {
             $this->notifications = collect();
             $this->statusCounts = ['all' => 0, 'unread' => 0, 'read' => 0, 'muted' => 0];
+            $this->totalFiltered = 0;
+            $this->firstItem = 0;
+            $this->lastItem = 0;
+            $this->lastPage = 1;
             return;
         }
 
@@ -218,12 +269,14 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             ->get();
 
         $this->mutedTypes = \App\Helpers\NotificationFilterHelper::getUserMutedTypes($userId);
+        $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap($userId);
 
-        $allProcessed = $rawNotifs->map(function ($item) {
+        $allProcessed = $rawNotifs->map(function ($item) use ($mutedMap) {
             $isMuted = \App\Helpers\NotificationFilterHelper::isMuted(
                 (string) ($item->content ?? ''),
                 (string) ($item->subsystem_name ?? ''),
-                $this->mutedTypes
+                $mutedMap,
+                $item->created_at ?? null
             );
             $item->is_muted = $isMuted;
             $item->display_status = $isMuted ? 'muted' : ($item->status ?? 'unread');
@@ -245,7 +298,25 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             $allProcessed = $allProcessed->where('display_status', 'muted');
         }
 
-        $this->notifications = $allProcessed->values();
+        $total = $allProcessed->count();
+        $this->totalFiltered = $total;
+        $this->lastPage = max(1, (int) ceil($total / self::PER_PAGE));
+
+        $page = (int) ($this->getPage() ?: 1);
+        if ($page > $this->lastPage) {
+            $page = $this->lastPage;
+            $this->setPage($page);
+        }
+
+        if ($total === 0) {
+            $this->firstItem = 0;
+            $this->lastItem = 0;
+            $this->notifications = collect();
+        } else {
+            $this->firstItem = (($page - 1) * self::PER_PAGE) + 1;
+            $this->lastItem = min($total, $page * self::PER_PAGE);
+            $this->notifications = $allProcessed->slice(($page - 1) * self::PER_PAGE, self::PER_PAGE)->values();
+        }
     }
 
     /**
@@ -472,6 +543,19 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             flex-direction: column;
             overflow: hidden;
             animation: notifSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .notif-config-modal {
+            background: #ffffff;
+            border-radius: 14px;
+            width: 100%;
+            max-width: 960px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            border: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: notifSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            max-height: 90vh;
         }
         @keyframes notifSlideUp {
             from { transform: translateY(16px) scale(0.97); opacity: 0; }
@@ -814,6 +898,86 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             color: #ffffff;
             border-color: #003699;
         }
+        .notif-pill.config-btn {
+            background: #003699;
+            color: #ffffff;
+            border-color: #003699;
+            margin-left: 6px;
+        }
+        .notif-pill.config-btn:hover {
+            background: #002873;
+            border-color: #002873;
+            color: #ffffff;
+        }
+        .notif-pagination-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 20px;
+            border-top: 1px solid #e2e8f0;
+            background: #ffffff;
+            flex-wrap: wrap;
+            gap: 12px;
+            border-radius: 0 0 14px 14px;
+        }
+        .notif-pagination-info {
+            font-size: 13px;
+            font-weight: 600;
+            color: #64748b;
+            font-family: 'Inter', sans-serif;
+        }
+        .notif-pagination-links {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+        .notif-page-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 34px;
+            height: 34px;
+            padding: 0 10px;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            font-size: 13px;
+            font-weight: 600;
+            color: #475569;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            outline: none;
+            font-family: 'Inter', sans-serif;
+        }
+        .notif-page-btn:hover:not(:disabled) {
+            border-color: #003699;
+            background: #eff6ff;
+            color: #003699;
+        }
+        .notif-page-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .notif-page-btn.active {
+            background: #003699;
+            border-color: #003699;
+            color: #ffffff;
+            box-shadow: 0 2px 6px rgba(0, 54, 153, 0.25);
+        }
+        .notif-page-dots {
+            color: #94a3b8;
+            padding: 0 4px;
+            font-weight: bold;
+        }
+        .notif-pagination-single {
+            padding: 12px 20px;
+            font-size: 12px;
+            color: #64748b;
+            font-weight: 500;
+            border-top: 1px solid #e2e8f0;
+            text-align: right;
+            font-family: 'Inter', sans-serif;
+        }
 
         /* Dark mode overrides */
         [data-theme="dark"] .notif-mgr-dots-btn {
@@ -835,7 +999,8 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             background: #334155;
             color: #ffffff;
         }
-        [data-theme="dark"] .notif-compact-modal {
+        [data-theme="dark"] .notif-compact-modal,
+        [data-theme="dark"] .notif-config-modal {
             background: #1e293b;
             border-color: #334155;
         }
@@ -918,6 +1083,16 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
             border-color: #3b82f6;
             color: #ffffff;
         }
+        [data-theme="dark"] .notif-pill.config-btn {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: #ffffff;
+        }
+        [data-theme="dark"] .notif-pill.config-btn:hover {
+            background: #1d4ed8;
+            border-color: #1d4ed8;
+            color: #ffffff;
+        }
         [data-theme="dark"] .notif-filter-btn.secondary {
             background: #0f172a;
             color: #f1f5f9;
@@ -926,6 +1101,30 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
         [data-theme="dark"] .notif-filter-btn.outline {
             border-color: #334155;
             color: #94a3b8;
+        }
+        [data-theme="dark"] .notif-pagination-container {
+            border-top-color: #334155;
+            background: #1e293b;
+        }
+        [data-theme="dark"] .notif-pagination-info,
+        [data-theme="dark"] .notif-pagination-single {
+            color: #94a3b8;
+            border-top-color: #334155;
+        }
+        [data-theme="dark"] .notif-page-btn {
+            border-color: #334155;
+            background: #0f172a;
+            color: #cbd5e1;
+        }
+        [data-theme="dark"] .notif-page-btn:hover:not(:disabled) {
+            border-color: #3b82f6;
+            background: #1e293b;
+            color: #93c5fd;
+        }
+        [data-theme="dark"] .notif-page-btn.active {
+            background: #3b82f6;
+            border-color: #3b82f6;
+            color: #ffffff;
         }
     </style>
 @endpush
@@ -950,71 +1149,6 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
         </div>
     </div>
 
-    <!-- Notification Alert Preferences & Mute Filters Card -->
-    <div class="profile-card notif-filter-settings-card" style="width: 100%; box-sizing: border-box; margin-bottom: 24px;">
-        <div class="notif-filter-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
-            <div>
-                <h2 class="card-title" style="margin: 0 0 4px 0;">
-                    <i class="fa-solid fa-sliders" style="color: #003699;"></i> Notification Alert Filters &amp; Mute Preferences
-                </h2>
-                <p style="margin: 0; font-size: 13px; color: #64748b;">
-                    Uncheck any notification type to mute it. Muted notifications will not trigger audio alerts or overlay popouts, but will still be recorded in your notification history marked with a <span class="badge" style="background-color: rgba(100, 116, 139, 0.15); color: #64748b; border: 1px solid rgba(100, 116, 139, 0.3); padding: 1px 6px; border-radius: 99px; font-size: 10px; font-weight: bold;"><i class="fa-solid fa-bell-slash"></i> MUTED</span> status.
-                </p>
-            </div>
-            <div style="display: flex; gap: 8px;">
-                <button type="button" wire:click="enableAllAlerts" class="notif-filter-btn secondary" title="Enable alerts for all categories">
-                    <i class="fa-solid fa-check-double"></i> Enable All
-                </button>
-                <button type="button" wire:click="muteAllAlerts" class="notif-filter-btn outline" title="Mute alerts for all categories">
-                    <i class="fa-solid fa-bell-slash"></i> Mute All
-                </button>
-            </div>
-        </div>
-
-        <div class="notif-filter-grid">
-            @php
-                $groupedFilters = collect($availableFilters)->groupBy('group');
-            @endphp
-            @foreach ($groupedFilters as $groupName => $filters)
-                <div class="notif-filter-group-card">
-                    <div class="notif-filter-group-title">
-                        <span>{{ $groupName }}</span>
-                    </div>
-                    <div class="notif-filter-items-list">
-                        @foreach ($filters as $filter)
-                            @php
-                                $isAlertEnabled = !in_array($filter['key'], $mutedTypes, true);
-                            @endphp
-                            <label class="notif-filter-item-label {{ $isAlertEnabled ? 'enabled' : 'muted' }}">
-                                <div class="notif-filter-checkbox-wrap">
-                                    <input
-                                        type="checkbox"
-                                        class="notif-filter-checkbox"
-                                        wire:click="toggleMuteType('{{ $filter['key'] }}')"
-                                        {{ $isAlertEnabled ? 'checked' : '' }}
-                                    >
-                                    <span class="notif-filter-custom-check">
-                                        <i class="fa-solid fa-check"></i>
-                                    </span>
-                                </div>
-                                <div class="notif-filter-item-info">
-                                    <div class="notif-filter-item-name">
-                                        <i class="fa-solid {{ $filter['icon'] }}"></i>
-                                        <span>{{ $filter['label'] }}</span>
-                                        @if(!$isAlertEnabled)
-                                            <span class="notif-filter-muted-pill"><i class="fa-solid fa-bell-slash"></i> Muted</span>
-                                        @endif
-                                    </div>
-                                    <div class="notif-filter-item-desc">{{ $filter['description'] }}</div>
-                                </div>
-                            </label>
-                        @endforeach
-                    </div>
-                </div>
-            @endforeach
-        </div>
-    </div>
-
     <!-- Details Card (Table) -->
     <div class="profile-card" style="width: 100%; box-sizing: border-box;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
@@ -1033,6 +1167,9 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
                 </button>
                 <button type="button" wire:click="setStatusFilter('muted')" class="notif-pill {{ $statusFilter === 'muted' ? 'active' : '' }}">
                     <i class="fa-solid fa-bell-slash"></i> Muted ({{ $statusCounts['muted'] ?? 0 }})
+                </button>
+                <button type="button" wire:click="openConfigModal" class="notif-pill config-btn" title="Notification alert filters & mute preferences">
+                    <i class="fa-solid fa-gear"></i> Config
                 </button>
             </div>
         </div>
@@ -1100,6 +1237,63 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
                 </tbody>
             </table>
         </div>
+
+        <!-- Custom Pagination -->
+        @if ($lastPage > 1)
+            <div class="notif-pagination-container">
+                <div class="notif-pagination-info">
+                    Showing {{ $firstItem }} to {{ $lastItem }} of {{ $totalFiltered }} notifications (100 per page)
+                </div>
+                <div class="notif-pagination-links">
+                    {{-- Previous Page Button --}}
+                    @if ($this->getPage() <= 1)
+                        <button type="button" class="notif-page-btn" disabled aria-label="Previous page">&laquo;</button>
+                    @else
+                        <button type="button" class="notif-page-btn" wire:click="previousPage" wire:loading.attr="disabled" aria-label="Previous page">&laquo;</button>
+                    @endif
+
+                    {{-- Page Numbers --}}
+                    @php
+                        $currPage = (int) ($this->getPage() ?: 1);
+                        $startPage = max(1, $currPage - 2);
+                        $endPage = min($lastPage, $currPage + 2);
+                    @endphp
+
+                    @if ($startPage > 1)
+                        <button type="button" class="notif-page-btn" wire:click="gotoPage(1)">1</button>
+                        @if ($startPage > 2)
+                            <span class="notif-page-dots">...</span>
+                        @endif
+                    @endif
+
+                    @for ($p = $startPage; $p <= $endPage; $p++)
+                        @if ($p === $currPage)
+                            <button type="button" class="notif-page-btn active">{{ $p }}</button>
+                        @else
+                            <button type="button" class="notif-page-btn" wire:click="gotoPage({{ $p }})" wire:loading.attr="disabled">{{ $p }}</button>
+                        @endif
+                    @endfor
+
+                    @if ($endPage < $lastPage)
+                        @if ($endPage < $lastPage - 1)
+                            <span class="notif-page-dots">...</span>
+                        @endif
+                        <button type="button" class="notif-page-btn" wire:click="gotoPage({{ $lastPage }})">{{ $lastPage }}</button>
+                    @endif
+
+                    {{-- Next Page Button --}}
+                    @if ($currPage >= $lastPage)
+                        <button type="button" class="notif-page-btn" disabled aria-label="Next page">&raquo;</button>
+                    @else
+                        <button type="button" class="notif-page-btn" wire:click="nextPage" wire:loading.attr="disabled" aria-label="Next page">&raquo;</button>
+                    @endif
+                </div>
+            </div>
+        @elseif ($totalFiltered > 0)
+            <div class="notif-pagination-single">
+                Showing all {{ $totalFiltered }} notifications (Limit: 100 per page)
+            </div>
+        @endif
     </div>
 
     <!-- Small / Compact More Details Modal -->
@@ -1208,6 +1402,115 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
                     @endif
                     <button type="button" class="notif-modal-action-btn secondary" wire:click="closeDetailsModal">
                         Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- Notification Alert Filters & Mute Preferences Modal -->
+    @if ($showConfigModal)
+        <div class="notif-modal-backdrop"
+             @click.self="saveAndClose()"
+             x-data="{
+                 muted: @js($mutedTypes),
+                 allKeys: @js(array_keys($availableFilters)),
+                 isDirty: false,
+                 toggle(key) {
+                     if (this.muted.includes(key)) {
+                         this.muted = this.muted.filter(k => k !== key);
+                     } else {
+                         this.muted.push(key);
+                     }
+                     this.isDirty = true;
+                 },
+                 enableAll() {
+                     this.muted = [];
+                     this.isDirty = true;
+                 },
+                 muteAll() {
+                     this.muted = [...this.allKeys];
+                     this.isDirty = true;
+                 },
+                 saveAndClose() {
+                     if (this.isDirty) {
+                         $wire.saveMutedPreferences(this.muted);
+                     } else {
+                         $wire.closeConfigModal();
+                     }
+                 }
+             }"
+             @keydown.escape.window="saveAndClose()">
+            <div class="notif-config-modal">
+                <div class="notif-modal-header">
+                    <div class="notif-modal-header-title">
+                        <i class="fa-solid fa-sliders" style="color: #003699;"></i>
+                        <h3>Notification Alert Filters &amp; Mute Preferences</h3>
+                    </div>
+                    <button type="button" class="notif-modal-close-btn" @click="saveAndClose()" title="Close">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <div class="notif-modal-body" style="gap: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                        <p style="margin: 0; font-size: 13px; color: #64748b; max-width: 650px;">
+                            Uncheck any notification type to mute it. Muted notifications will not trigger audio alerts or overlay popouts, but will still be recorded in your notification history marked with a <span class="badge" style="background-color: rgba(100, 116, 139, 0.15); color: #64748b; border: 1px solid rgba(100, 116, 139, 0.3); padding: 1px 6px; border-radius: 99px; font-size: 10px; font-weight: bold;"><i class="fa-solid fa-bell-slash"></i> MUTED</span> status.
+                        </p>
+                        <div style="display: flex; gap: 8px;">
+                            <button type="button" @click="enableAll()" class="notif-filter-btn secondary" title="Enable alerts for all categories">
+                                <i class="fa-solid fa-check-double"></i> Enable All
+                            </button>
+                            <button type="button" @click="muteAll()" class="notif-filter-btn outline" title="Mute alerts for all categories">
+                                <i class="fa-solid fa-bell-slash"></i> Mute All
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="notif-filter-grid">
+                        @php
+                            $groupedFilters = collect($availableFilters)->groupBy('group');
+                        @endphp
+                        @foreach ($groupedFilters as $groupName => $filters)
+                            <div class="notif-filter-group-card">
+                                <div class="notif-filter-group-title">
+                                    <span>{{ $groupName }}</span>
+                                </div>
+                                <div class="notif-filter-items-list">
+                                    @foreach ($filters as $filter)
+                                        <label class="notif-filter-item-label" :class="muted.includes('{{ $filter['key'] }}') ? 'muted' : 'enabled'">
+                                            <div class="notif-filter-checkbox-wrap">
+                                                <input
+                                                    type="checkbox"
+                                                    class="notif-filter-checkbox"
+                                                    :checked="!muted.includes('{{ $filter['key'] }}')"
+                                                    @change="toggle('{{ $filter['key'] }}')"
+                                                >
+                                                <span class="notif-filter-custom-check">
+                                                    <i class="fa-solid fa-check"></i>
+                                                </span>
+                                            </div>
+                                            <div class="notif-filter-item-info">
+                                                <div class="notif-filter-item-name">
+                                                    <i class="fa-solid {{ $filter['icon'] }}"></i>
+                                                    <span>{{ $filter['label'] }}</span>
+                                                    <span x-show="muted.includes('{{ $filter['key'] }}')" x-cloak class="notif-filter-muted-pill">
+                                                        <i class="fa-solid fa-bell-slash"></i> Muted
+                                                    </span>
+                                                </div>
+                                                <div class="notif-filter-item-desc">{{ $filter['description'] }}</div>
+                                            </div>
+                                        </label>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+
+                <div class="notif-modal-footer">
+                    <button type="button" class="notif-modal-action-btn primary" @click="saveAndClose()">
+                        <i class="fa-solid fa-check"></i> Done
                     </button>
                 </div>
             </div>

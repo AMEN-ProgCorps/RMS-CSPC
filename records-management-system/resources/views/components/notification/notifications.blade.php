@@ -134,12 +134,13 @@ new class extends Component {
 
         // If unread count increases while viewing the page, trigger the popout overlay
         if ($this->hasMounted && $this->unreadCount > $previousCount) {
-            $mutedTypes = \App\Helpers\NotificationFilterHelper::getUserMutedTypes((int) $userId);
-            $latest = $this->notifications->first(function ($n) use ($mutedTypes) {
+            $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap((int) $userId);
+            $latest = $this->notifications->first(function ($n) use ($mutedMap) {
                 return $n->status === 'unread' && !\App\Helpers\NotificationFilterHelper::isMuted(
                     (string) ($n->content ?? ''),
                     (string) ($n->subsystem_name ?? ''),
-                    $mutedTypes
+                    $mutedMap,
+                    $n->created_at ?? null
                 );
             });
             if ($latest) {
@@ -163,18 +164,24 @@ new class extends Component {
     {
         $this->loadNotifications();
         $userId = Auth::id();
-        $mutedTypes = \App\Helpers\NotificationFilterHelper::getUserMutedTypes($userId ? (int) $userId : null);
+        $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap($userId ? (int) $userId : null);
 
         if ($notification && !empty($notification['id'])) {
-            if (!\App\Helpers\NotificationFilterHelper::isMuted((string) ($notification['content'] ?? ''), (string) ($notification['subsystem_name'] ?? ''), $mutedTypes)) {
+            if (!\App\Helpers\NotificationFilterHelper::isMuted(
+                (string) ($notification['content'] ?? ''),
+                (string) ($notification['subsystem_name'] ?? ''),
+                $mutedMap,
+                $notification['created_at'] ?? now()
+            )) {
                 $this->dispatch('rms-notification-overlay-show', $notification);
             }
         } else {
-            $latest = $this->notifications->first(function ($n) use ($mutedTypes) {
+            $latest = $this->notifications->first(function ($n) use ($mutedMap) {
                 return $n->status === 'unread' && !\App\Helpers\NotificationFilterHelper::isMuted(
                     (string) ($n->content ?? ''),
                     (string) ($n->subsystem_name ?? ''),
-                    $mutedTypes
+                    $mutedMap,
+                    $n->created_at ?? null
                 );
             });
             if ($latest) {

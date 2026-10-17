@@ -1057,6 +1057,48 @@ class RegisterQueryHelper
     }
 
     /**
+     * Latest unread system notice formatted for the popout notification overlay.
+     *
+     * @param  array<int, string>  $allowedSubsystems
+     * @return array<string, mixed>|null
+     */
+    public static function latestVisibleUnreadNotification(int $userId, string $officeCode, array $allowedSubsystems): ?array
+    {
+        $notifTbl = Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifContentTbl = Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $notifDivTbl = Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+        $subsystemsTbl = Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+
+        $query = self::bellNotificationsBaseQuery($userId, $officeCode, $allowedSubsystems)
+            ->where(function ($q) use ($notifDivTbl) {
+                $q->whereNull($notifDivTbl . '.status')
+                    ->orWhere($notifDivTbl . '.status', 'unread');
+            })
+            ->orderBy($notifTbl . '.created_at', 'desc')
+            ->select(
+                $notifTbl . '.id',
+                $subsystemsTbl . '.subsystem_name',
+                $notifContentTbl . '.redirect_url',
+                $notifContentTbl . '.content',
+                $notifTbl . '.created_at'
+            );
+
+        $filtered = self::filterBellNotifications($query->take(5)->get());
+        $latest = $filtered->first();
+        if (!$latest) {
+            return null;
+        }
+
+        return [
+            'id' => (int) $latest->id,
+            'subsystem_name' => (string) ($latest->subsystem_name ?? 'RMS Notification'),
+            'content' => (string) ($latest->content ?? ''),
+            'redirect_url' => $latest->redirect_url ? (string) $latest->redirect_url : null,
+            'time' => \Carbon\Carbon::parse($latest->created_at)->diffForHumans(),
+        ];
+    }
+
+    /**
      * When browsing DCS, the bell only lists Document Control System notices
      * (same behavior as the Livewire notification component).
      *

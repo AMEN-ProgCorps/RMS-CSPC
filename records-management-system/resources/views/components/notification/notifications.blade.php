@@ -4,6 +4,7 @@
  */
 
 use Livewire\Volt\Component;
+use Livewire\Attributes\On;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
@@ -16,6 +17,9 @@ new class extends Component {
 
     /** @var bool Controlled via Alpine.js, keeps sync of dropdown state */
     public $showDropdown = false;
+
+    /** @var bool Tracks whether initial mount load completed */
+    public bool $hasMounted = false;
 
     /**
      * Component mount hook.
@@ -125,7 +129,46 @@ new class extends Component {
 
         $this->notifications = \App\Helpers\RegisterQueryHelper::filterBellNotifications($this->notifications);
 
+        $previousCount = $this->unreadCount;
         $this->unreadCount = $this->notifications->where('status', 'unread')->count();
+
+        // If unread count increases while viewing the page, trigger the popout overlay
+        if ($this->hasMounted && $this->unreadCount > $previousCount) {
+            $latest = $this->notifications->firstWhere('status', 'unread');
+            if ($latest) {
+                $this->dispatch('rms-notification-overlay-show', [
+                    'id' => (int) $latest->id,
+                    'subsystem_name' => (string) ($latest->subsystem_name ?? 'RMS Notification'),
+                    'content' => (string) ($latest->content ?? ''),
+                    'redirect_url' => $latest->redirect_url ? (string) $latest->redirect_url : null,
+                    'time' => \Carbon\Carbon::parse($latest->created_at)->diffForHumans(),
+                ]);
+            }
+        }
+        $this->hasMounted = true;
+    }
+
+    /**
+     * Listener for notification ping events from the floating widget or background pollers.
+     */
+    #[On('rms-notification-ping')]
+    public function onNotificationPing($notification = null)
+    {
+        $this->loadNotifications();
+        if ($notification && !empty($notification['id'])) {
+            $this->dispatch('rms-notification-overlay-show', $notification);
+        } else {
+            $latest = $this->notifications->firstWhere('status', 'unread');
+            if ($latest) {
+                $this->dispatch('rms-notification-overlay-show', [
+                    'id' => (int) $latest->id,
+                    'subsystem_name' => (string) ($latest->subsystem_name ?? 'RMS Notification'),
+                    'content' => (string) ($latest->content ?? ''),
+                    'redirect_url' => $latest->redirect_url ? (string) $latest->redirect_url : null,
+                    'time' => \Carbon\Carbon::parse($latest->created_at)->diffForHumans(),
+                ]);
+            }
+        }
     }
 
     /**
@@ -429,9 +472,34 @@ new class extends Component {
 <div
     class="notif-wrapper"
     wire:poll.15s.keep-alive="loadNotifications"
-    x-data="{ open: @entangle('showDropdown') }"
+    x-data="{
+        open: @entangle('showDropdown'),
+        overlayVisible: false,
+        overlayData: null,
+        overlayTimer: null,
+        triggerOverlay(data) {
+            if (!data || !data.content) return;
+            this.overlayData = data;
+            this.overlayVisible = true;
+            this.startOverlayTimer();
+        },
+        startOverlayTimer() {
+            clearTimeout(this.overlayTimer);
+            this.overlayTimer = setTimeout(() => {
+                this.overlayVisible = false;
+            }, 10000);
+        },
+        pauseOverlayTimer() {
+            clearTimeout(this.overlayTimer);
+        },
+        closeOverlay() {
+            this.overlayVisible = false;
+            clearTimeout(this.overlayTimer);
+        }
+    }"
     @click.outside="open = false"
     @close-notifications.window="open = false"
+    @rms-notification-overlay-show.window="triggerOverlay($event.detail)"
 >
     <!-- Bell Button -->
     <button
@@ -522,6 +590,63 @@ new class extends Component {
                     <p>No notification currently at this session..</p>
                 </div>
             @endforelse
+        </div>
+    </div>
+
+    <!-- Bottom-Left Popout Notification Overlay -->
+    <div
+        class="notif-overlay-container"
+        x-show="overlayVisible"
+        x-transition:enter="notif-overlay-transition-enter"
+        x-transition:enter-start="notif-overlay-transition-enter-start"
+        x-transition:enter-end="notif-overlay-transition-enter-end"
+        x-transition:leave="notif-overlay-transition-leave"
+        x-transition:leave-start="notif-overlay-transition-leave-start"
+        x-transition:leave-end="notif-overlay-transition-leave-end"
+        @mouseenter="pauseOverlayTimer()"
+        @mouseleave="startOverlayTimer()"
+        x-cloak
+    >
+        <div
+            class="notif-overlay-card"
+            @click="if (overlayData && overlayData.id) { const id = overlayData.id; closeOverlay(); $wire.handleNotificationClick(id); }"
+            role="button"
+            tabindex="0"
+        >
+            <div class="notif-overlay-header">
+                <div class="notif-overlay-badge-wrap">
+                    <span class="notif-overlay-dot"></span>
+                    <span class="notif-overlay-subsystem" x-text="overlayData ? overlayData.subsystem_name : 'RMS Notification'"></span>
+                </div>
+                <button
+                    type="button"
+                    class="notif-overlay-close-btn"
+                    @click.stop="closeOverlay()"
+                    aria-label="Close notification"
+                    title="Close"
+                >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="notif-overlay-body">
+                <p class="notif-overlay-message" x-text="overlayData ? overlayData.content : ''"></p>
+                <div class="notif-overlay-footer">
+                    <span class="notif-overlay-time" x-text="overlayData ? overlayData.time : 'Just now'"></span>
+                    <span class="notif-overlay-action-hint">
+                        <span>Click to view</span>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                            <polyline points="12 5 19 12 12 19"></polyline>
+                        </svg>
+                    </span>
+                </div>
+            </div>
+
+            <div class="notif-overlay-progress-bar"></div>
         </div>
     </div>
 </div>

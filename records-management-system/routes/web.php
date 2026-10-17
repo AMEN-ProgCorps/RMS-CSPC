@@ -342,9 +342,20 @@ Route::middleware(['auth'])
                     (string) $office->office_code,
                     $allowedSubsystems
                 );
+
+                $latestSystemNotif = null;
+                if ($systemUnread > 0) {
+                    $latestSystemNotif = \App\Helpers\RegisterQueryHelper::latestVisibleUnreadNotification(
+                        (int) $userId,
+                        (string) $office->office_code,
+                        $allowedSubsystems
+                    );
+                }
             }
         } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('chat.unread-count error: ' . $e->getMessage() . ' at ' . $e->getFile() . ':' . $e->getLine());
             $systemUnread = 0;
+            $latestSystemNotif = null;
         }
 
         $totalUnread = $chatUnread + $systemUnread;
@@ -354,6 +365,7 @@ Route::middleware(['auth'])
             'chat_unread' => $chatUnread,
             'system_unread' => $systemUnread,
             'total_unread' => $totalUnread,
+            'latest_system_notification' => $latestSystemNotif ?? null,
         ]);
     })->name('chat.unread-count');
 

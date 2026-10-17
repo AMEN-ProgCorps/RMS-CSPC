@@ -469,6 +469,12 @@
                 playNotificationSound();
             }
 
+            if (hasNewSystem && data.latest_system_notification) {
+                window.dispatchEvent(new CustomEvent('rms-notification-overlay-show', {
+                    detail: data.latest_system_notification
+                }));
+            }
+
             applyUnreadCounts(chatCount, systemCount);
         })
         .catch(err => {

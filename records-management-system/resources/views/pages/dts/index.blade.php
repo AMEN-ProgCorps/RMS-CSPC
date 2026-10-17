@@ -784,166 +784,106 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
         // Resolve sequence list accounts (received & forwarded)
         $flowCode = $this->selectedTransaction->transaction_flow;
         $flow = DB::table('dts_transaction_flow')->where('flow_code', $flowCode)->first();
-
-        $seqDataByRank = collect();
-        if ($flow) {
-            $seqDataByRank = DB::table('dts_sequence_list as seq')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as r_ad', 'r_ad.account_id', '=', 'seq.account_received')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as r_acc', 'r_acc.id', '=', 'seq.account_received')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as f_ad', 'f_ad.account_id', '=', 'seq.account_forwarded')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as f_acc', 'f_acc.id', '=', 'seq.account_forwarded')
-                ->where('seq.control_id', $flow->id)
-                ->select(
-                    'seq.*',
-                    DB::raw("TRIM(CONCAT(COALESCE(r_ad.first_name, ''), ' ', COALESCE(r_ad.last_name, ''))) as receiver_name"),
-                    'r_acc.username as receiver_username',
-                    DB::raw("TRIM(CONCAT(COALESCE(f_ad.first_name, ''), ' ', COALESCE(f_ad.last_name, ''))) as forwarder_name"),
-                    'f_acc.username as forwarder_username'
-                )
-                ->get()
-                ->keyBy('sequence_ranking');
+        if (!$flow) {
+            return collect();
         }
 
-        // PART 1: Historical steps from logs (the actual journey so far)
-        $logs = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'log.office_code')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as perf_ad', 'perf_ad.account_id', '=', 'log.performed_by')
-            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as perf_acc', 'perf_acc.id', '=', 'log.performed_by')
-            ->where('log.transaction_id', $this->selectedTransactionId)
+        $userOfficeCode = auth()->user()?->details?->office?->office_code;
+        $t = $this->selectedTransaction;
+        $isChildBranch = !empty($t->control_number) && str_contains($t->control_number, '-') && preg_match('/-\d+$/', $t->control_number);
+
+        return DB::table('dts_sequence_list as seq')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'seq.office_code')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as r_ad', 'r_ad.account_id', '=', 'seq.account_received')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as r_acc', 'r_acc.id', '=', 'seq.account_received')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details') . ' as f_ad', 'f_ad.account_id', '=', 'seq.account_forwarded')
+            ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account') . ' as f_acc', 'f_acc.id', '=', 'seq.account_forwarded')
+            ->where('seq.control_id', $flow->id)
             ->select(
-                'log.*',
+                'seq.*',
                 'office.office_name',
-                DB::raw("TRIM(CONCAT(COALESCE(perf_ad.first_name, ''), ' ', COALESCE(perf_ad.last_name, ''))) as performed_by_name"),
-                'perf_acc.username as performed_by_username'
+                DB::raw("TRIM(CONCAT(COALESCE(r_ad.first_name, ''), ' ', COALESCE(r_ad.last_name, ''))) as receiver_name"),
+                'r_acc.username as receiver_username',
+                DB::raw("TRIM(CONCAT(COALESCE(f_ad.first_name, ''), ' ', COALESCE(f_ad.last_name, ''))) as forwarder_name"),
+                'f_acc.username as forwarder_username'
             )
-            ->orderBy('log.id', 'asc')
-            ->get();
-
-        $historicalSteps = collect();
-        $stepIndex = 1;
-        foreach ($logs as $log) {
-            $step = new \stdClass();
-            $step->sequence_ranking = $stepIndex++;
-            // Logs may contain placeholder codes (written by older paths) — resolve them for display
-            $logOfficeCode = $log->office_code;
-            $logOfficeName = $log->office_name;
-            if ($logOfficeCode === 'ORIGIN') {
-                $logOfficeCode = $originOfficeCode;
-                $logOfficeName = $originOfficeName;
-            } elseif ($logOfficeCode === '[H]') {
-                $logOfficeCode = $clusterHeadCode;
-                $logOfficeName = $clusterHeadName;
-            }
-            $step->office_code = $logOfficeCode;
-            $step->office_name = $logOfficeName ?: $logOfficeCode;
-            $step->date_in = $log->date_in;
-            $step->date_out = $log->date_out;
-            $step->action_needed = match($log->type) {
-                'created' => 'Created',
-                'returned' => 'Returned for Revision',
-                'completed' => 'Finished',
-                default => null,
-            };
-            $step->note = $log->notes;
-            $step->log_type = $log->type;
-            $step->is_historical = true;
-
-            $seqData = $seqDataByRank->get($step->sequence_ranking);
-            $perfName = !empty(trim($log->performed_by_name ?? '')) ? $log->performed_by_name : ($log->performed_by_username ?: '—');
-            $step->receiver_name = !empty(trim($seqData?->receiver_name ?? '')) ? $seqData->receiver_name : ($seqData?->receiver_username ?: ($log->date_in ? $perfName : '—'));
-            $step->forwarder_name = !empty(trim($seqData?->forwarder_name ?? '')) ? $seqData->forwarder_name : ($seqData?->forwarder_username ?: ($log->date_out ? $perfName : '—'));
-
-            // Calculate elapsed time
-            $step->total_time_completed = null;
-            if (!empty($log->date_in) && !empty($log->date_out)) {
-                $dateIn = \Carbon\Carbon::parse($log->date_in);
-                $dateOut = \Carbon\Carbon::parse($log->date_out);
-                $diff = $dateIn->diff($dateOut);
-                $parts = [];
-                if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
-                if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
-                if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
-                if (empty($parts)) $parts[] = 'less than a minute';
-                $step->total_time_completed = implode(' ', $parts);
-            } elseif (!empty($log->date_in) && empty($log->date_out)) {
-                // Currently held — calculate time so far
-                $dateIn = \Carbon\Carbon::parse($log->date_in);
-                $diff = $dateIn->diff(now());
-                $parts = [];
-                if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
-                if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
-                if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
-                if (empty($parts)) $parts[] = 'less than a minute';
-                $step->total_time_completed = implode(' ', $parts) . ' (ongoing)';
-            }
-
-            // Determine if this is the active step
-            $userOfficeCode = auth()->user()?->details?->office?->office_code;
-            $step->is_active_step = (
-                $log->office_code === $userOfficeCode
-                && $log->office_code === $this->selectedTransaction->current_office
-                && in_array($this->selectedTransaction->status, ['ongoing', 'revision'])
-                && !is_null($log->date_in)
-                && is_null($log->date_out)
-            );
-
-            $step->description = $log->notes ?: 'Step in transaction flow.';
-            $step->type = $step->action_needed ?: ucfirst($log->type);
-            $step->notes = $log->notes ?: '';
-            $step->is_locked = true;
-
-            $historicalSteps->push($step);
-        }
-
-        // PART 2: Remaining future steps from sequence_list (not yet reached)
-        $futureSteps = collect();
-        if ($flow && !in_array($this->selectedTransaction->status, ['completed', 'cancelled'])) {
-            $currentSeq = $this->selectedTransaction->sequence;
-            $remaining = DB::table('dts_sequence_list as seq')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'seq.office_code')
-                ->where('seq.control_id', $flow->id)
-                ->where('seq.sequence_ranking', '>', $currentSeq)
-                ->select('seq.*', 'office.office_name')
-                ->orderBy('seq.sequence_ranking', 'asc')
-                ->get();
-
-            foreach ($remaining as $seq) {
-                $officeCode = $seq->office_code;
-                $officeName = $seq->office_name;
-                if ($officeCode === 'ORIGIN') {
-                    $officeCode = $originOfficeCode;
-                    $officeName = $originOfficeName;
-                } elseif ($officeCode === '[H]') {
-                    $officeCode = $clusterHeadCode;
-                    $officeName = $clusterHeadName;
-                } elseif (empty($officeName)) {
-                    $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $officeCode)->first();
-                    $officeName = $off ? $off->office_name : $officeCode;
+            ->orderBy('seq.sequence_ranking', 'asc')
+            ->get()
+            ->map(function ($step) use ($originOfficeCode, $originOfficeName, $clusterHeadCode, $clusterHeadName, $userOfficeCode, $t, $isChildBranch) {
+                if ($step->office_code === 'ORIGIN') {
+                    $step->office_code = $originOfficeCode;
+                    $step->office_name = $originOfficeName;
+                } elseif ($step->office_code === '[H]') {
+                    $step->office_code = $clusterHeadCode;
+                    $step->office_name = $clusterHeadName;
+                } elseif ($step->office_code === '[HUB]') {
+                    if ($isChildBranch && !empty($t->current_office) && $t->current_office !== '[HUB]') {
+                        $step->office_code = $t->current_office;
+                        $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $t->current_office)->first();
+                        $step->office_name = $off ? $off->office_name : $t->current_office;
+                        $childLog = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
+                            ->where('transaction_id', $t->transaction_id)
+                            ->where('office_code', $t->current_office)
+                            ->orderBy('id', 'desc')
+                            ->first();
+                        if ($childLog) {
+                            $step->date_in = $childLog->date_in;
+                            $step->date_out = $childLog->date_out;
+                            $step->note = $childLog->notes;
+                        }
+                    } else {
+                        $step->office_code = '[HUB]';
+                        $step->office_name = 'Office Hub [Multi-Receiving]';
+                    }
+                } elseif (empty($step->office_name)) {
+                    $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $step->office_code)->first();
+                    $step->office_name = $off ? $off->office_name : $step->office_code;
                 }
 
-                $step = new \stdClass();
-                $step->sequence_ranking = $stepIndex++;
-                $step->office_code = $officeCode;
-                $step->office_name = $officeName ?: $officeCode;
-                $step->date_in = null;
-                $step->date_out = null;
-                $step->receiver_name = '—';
-                $step->forwarder_name = '—';
-                $step->action_needed = null;
-                $step->note = null;
-                $step->total_time_completed = null;
-                $step->is_active_step = false;
-                $step->log_type = null;
-                $step->is_historical = false;
-                $step->description = 'Pending office flow step.';
-                $step->type = 'Pending';
-                $step->notes = '';
-                $step->is_locked = false;
-                $futureSteps->push($step);
-            }
-        }
+                $step->receiver_name = !empty(trim($step->receiver_name ?? '')) ? $step->receiver_name : ($step->receiver_username ?: '—');
+                $step->forwarder_name = !empty(trim($step->forwarder_name ?? '')) ? $step->forwarder_name : ($step->forwarder_username ?: '—');
 
-        return $historicalSteps->concat($futureSteps);
+                $step->is_active_step = (
+                    $step->office_code === $userOfficeCode
+                    && $step->office_code === $t->current_office
+                    && $step->sequence_ranking == $t->sequence
+                    && in_array($t->status, ['ongoing', 'revision'])
+                    && (!is_null($step->date_in) || $step->office_code === '[HUB]')
+                    && is_null($step->date_out)
+                );
+
+                if (!empty($step->date_in) && empty($step->total_time_completed) && ($step->date_out || $t->status === 'completed')) {
+                    $dateIn = \Carbon\Carbon::parse($step->date_in);
+                    $dateOut = $step->date_out ? \Carbon\Carbon::parse($step->date_out) : now();
+                    $diff = $dateIn->diff($dateOut);
+                    $parts = [];
+                    if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
+                    if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
+                    if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
+                    if (empty($parts)) $parts[] = 'less than a minute';
+                    $step->total_time_completed = implode(' ', $parts);
+                } elseif (!empty($step->date_in) && empty($step->date_out)) {
+                    $dateIn = \Carbon\Carbon::parse($step->date_in);
+                    $diff = $dateIn->diff(now());
+                    $parts = [];
+                    if ($diff->d > 0) $parts[] = $diff->d . ' ' . \Illuminate\Support\Str::plural('day', $diff->d);
+                    if ($diff->h > 0) $parts[] = $diff->h . ' ' . \Illuminate\Support\Str::plural('hour', $diff->h);
+                    if ($diff->i > 0) $parts[] = $diff->i . ' ' . \Illuminate\Support\Str::plural('minute', $diff->i);
+                    if (empty($parts)) $parts[] = 'less than a minute';
+                    $step->total_time_completed = implode(' ', $parts) . ' (ongoing)';
+                }
+
+                if ($t->status === 'completed' && $step->sequence_ranking == $t->sequence) {
+                    $step->action_needed = $step->action_needed ?: 'Finished';
+                }
+
+                $step->description = $step->note ?: 'Pending office flow step.';
+                $step->type = $step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending');
+                $step->notes = $step->note ?: '';
+                $step->is_locked = ($step->sequence_ranking <= ($t->sequence ?? 1)) || !is_null($step->date_in);
+
+                return $step;
+            });
     }
 
     public function getVisiblePathProperty()

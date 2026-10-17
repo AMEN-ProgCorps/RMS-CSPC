@@ -216,6 +216,10 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                         $cfRecord = DB::table('dts_copy_filled_transaction')->where('control_num', $tData['control_number'])->first();
                         $hubOffices = $cfRecord ? DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->pluck('office_code')->toArray() : [];
 
+                        // Exclude origin office and placeholder codes
+                        $originatedOffice = $tData['originated_from'] ?? '';
+                        $hubOffices = array_values(array_filter($hubOffices, fn($c) => $c !== $originatedOffice && !in_array($c, ['ORIGIN', '[H]', '[HUB]'])));
+
                         if (count($hubOffices) > 0) {
                             // Office 1 uses the original transaction
                             $primaryHubOffice = $hubOffices[0];

@@ -104,6 +104,28 @@ class User extends Authenticatable
         return $setting ? (bool)($setting->notification_sound_alert ?? true) : true;
     }
 
+    /**
+     * Array of notification type keys that the user has muted/filtered out from pings.
+     *
+     * @return array<int, string>
+     */
+    public function mutedNotificationTypes(): array
+    {
+        $setting = $this->personalSetting;
+        if (!$setting || empty($setting->muted_notification_types) || !is_array($setting->muted_notification_types)) {
+            return [];
+        }
+        return array_values(array_filter($setting->muted_notification_types, 'is_string'));
+    }
+
+    /**
+     * Check if a specific notification type or category is muted by the user.
+     */
+    public function isNotificationMuted(string $type): bool
+    {
+        return in_array($type, $this->mutedNotificationTypes(), true);
+    }
+
     public function enableTopTabs(): bool
     {
         $setting = $this->personalSetting;

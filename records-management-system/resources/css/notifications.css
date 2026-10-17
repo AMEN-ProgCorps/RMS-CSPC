@@ -410,6 +410,29 @@
     color: #475569;
 }
 
+.notif-overlay-more-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.2;
+    border-radius: 9999px;
+    background: #003699;
+    color: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 54, 153, 0.25);
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.15s ease;
+    white-space: nowrap;
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.notif-overlay-more-badge:hover {
+    transform: scale(1.05);
+    background: #002873;
+}
+
 .notif-overlay-close-btn {
     background: transparent;
     border: none;
@@ -525,6 +548,36 @@
 .notif-overlay-transition-leave-end {
     opacity: 0;
     transform: translateY(24px) scale(0.95);
+}
+
+/* Dark theme support for notification overlay */
+[data-theme="dark"] .notif-overlay-card {
+    background: #1e293b;
+    border-color: #334155;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+}
+[data-theme="dark"] .notif-overlay-subsystem {
+    color: #94a3b8;
+}
+[data-theme="dark"] .notif-overlay-message {
+    color: #f1f5f9;
+}
+[data-theme="dark"] .notif-overlay-time {
+    color: #64748b;
+}
+[data-theme="dark"] .notif-overlay-close-btn:hover {
+    background: #334155;
+    color: #f1f5f9;
+}
+[data-theme="dark"] .notif-overlay-action-hint {
+    color: #60a5fa;
+}
+[data-theme="dark"] .notif-overlay-more-badge {
+    background: #2563eb;
+    color: #ffffff;
+}
+[data-theme="dark"] .notif-overlay-more-badge:hover {
+    background: #1d4ed8;
 }
 
 @media (max-width: 640px) {

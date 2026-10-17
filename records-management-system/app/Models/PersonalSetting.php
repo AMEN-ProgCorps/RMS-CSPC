@@ -27,6 +27,7 @@ class PersonalSetting extends Model
         'follow_scroll_enabled',
         'follow_scroll_side',
         'follow_scroll_vertical',
+        'muted_notification_types',
     ];
 
     protected $casts = [
@@ -37,6 +38,7 @@ class PersonalSetting extends Model
         'follow_scroll_enabled' => 'boolean',
         'follow_scroll_side' => 'boolean',
         'follow_scroll_vertical' => 'boolean',
+        'muted_notification_types' => 'array',
     ];
 
     /**

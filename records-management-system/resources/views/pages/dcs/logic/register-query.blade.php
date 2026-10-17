@@ -1036,11 +1036,12 @@ class RegisterQueryHelper
     }
 
     /** Unread system notices that still appear in the bell (after the same filters). */
-    public static function countVisibleUnreadNotifications(int $userId, string $officeCode, array $allowedSubsystems): int
+    public static function countVisibleUnreadNotifications(int $userId, string $officeCode, array $allowedSubsystems, bool $excludeMuted = false): int
     {
         $notifTbl = Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
         $notifContentTbl = Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
         $notifDivTbl = Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+        $subsystemsTbl = Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
 
         $query = self::bellNotificationsBaseQuery($userId, $officeCode, $allowedSubsystems)
             ->where(function ($q) use ($notifDivTbl) {
@@ -1049,11 +1050,24 @@ class RegisterQueryHelper
             })
             ->select(
                 $notifTbl . '.id',
+                $subsystemsTbl . '.subsystem_name',
                 $notifContentTbl . '.redirect_url',
                 $notifContentTbl . '.content'
             );
 
-        return self::filterBellNotifications($query->get())->count();
+        $list = self::filterBellNotifications($query->get());
+        if ($excludeMuted) {
+            $mutedTypes = \App\Helpers\NotificationFilterHelper::getUserMutedTypes($userId);
+            if (!empty($mutedTypes)) {
+                $list = $list->reject(fn ($item) => \App\Helpers\NotificationFilterHelper::isMuted(
+                    (string) ($item->content ?? ''),
+                    (string) ($item->subsystem_name ?? ''),
+                    $mutedTypes
+                ));
+            }
+        }
+
+        return $list->count();
     }
 
     /**
@@ -1062,7 +1076,7 @@ class RegisterQueryHelper
      * @param  array<int, string>  $allowedSubsystems
      * @return array<string, mixed>|null
      */
-    public static function latestVisibleUnreadNotification(int $userId, string $officeCode, array $allowedSubsystems): ?array
+    public static function latestVisibleUnreadNotification(int $userId, string $officeCode, array $allowedSubsystems, bool $excludeMuted = true): ?array
     {
         $notifTbl = Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
         $notifContentTbl = Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
@@ -1083,7 +1097,17 @@ class RegisterQueryHelper
                 $notifTbl . '.created_at'
             );
 
-        $filtered = self::filterBellNotifications($query->take(5)->get());
+        $filtered = self::filterBellNotifications($query->take(20)->get());
+        if ($excludeMuted) {
+            $mutedTypes = \App\Helpers\NotificationFilterHelper::getUserMutedTypes($userId);
+            if (!empty($mutedTypes)) {
+                $filtered = $filtered->reject(fn ($item) => \App\Helpers\NotificationFilterHelper::isMuted(
+                    (string) ($item->content ?? ''),
+                    (string) ($item->subsystem_name ?? ''),
+                    $mutedTypes
+                ));
+            }
+        }
         $latest = $filtered->first();
         if (!$latest) {
             return null;

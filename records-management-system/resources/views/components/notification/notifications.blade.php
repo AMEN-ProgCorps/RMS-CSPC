@@ -134,7 +134,14 @@ new class extends Component {
 
         // If unread count increases while viewing the page, trigger the popout overlay
         if ($this->hasMounted && $this->unreadCount > $previousCount) {
-            $latest = $this->notifications->firstWhere('status', 'unread');
+            $mutedTypes = \App\Helpers\NotificationFilterHelper::getUserMutedTypes((int) $userId);
+            $latest = $this->notifications->first(function ($n) use ($mutedTypes) {
+                return $n->status === 'unread' && !\App\Helpers\NotificationFilterHelper::isMuted(
+                    (string) ($n->content ?? ''),
+                    (string) ($n->subsystem_name ?? ''),
+                    $mutedTypes
+                );
+            });
             if ($latest) {
                 $this->dispatch('rms-notification-overlay-show', [
                     'id' => (int) $latest->id,
@@ -155,10 +162,21 @@ new class extends Component {
     public function onNotificationPing($notification = null)
     {
         $this->loadNotifications();
+        $userId = Auth::id();
+        $mutedTypes = \App\Helpers\NotificationFilterHelper::getUserMutedTypes($userId ? (int) $userId : null);
+
         if ($notification && !empty($notification['id'])) {
-            $this->dispatch('rms-notification-overlay-show', $notification);
+            if (!\App\Helpers\NotificationFilterHelper::isMuted((string) ($notification['content'] ?? ''), (string) ($notification['subsystem_name'] ?? ''), $mutedTypes)) {
+                $this->dispatch('rms-notification-overlay-show', $notification);
+            }
         } else {
-            $latest = $this->notifications->firstWhere('status', 'unread');
+            $latest = $this->notifications->first(function ($n) use ($mutedTypes) {
+                return $n->status === 'unread' && !\App\Helpers\NotificationFilterHelper::isMuted(
+                    (string) ($n->content ?? ''),
+                    (string) ($n->subsystem_name ?? ''),
+                    $mutedTypes
+                );
+            });
             if ($latest) {
                 $this->dispatch('rms-notification-overlay-show', [
                     'id' => (int) $latest->id,
@@ -477,8 +495,14 @@ new class extends Component {
         overlayVisible: false,
         overlayData: null,
         overlayTimer: null,
+        unseenQueueCount: 0,
         triggerOverlay(data) {
             if (!data || !data.content) return;
+            if (this.overlayVisible) {
+                this.unseenQueueCount++;
+            } else {
+                this.unseenQueueCount = 0;
+            }
             this.overlayData = data;
             this.overlayVisible = true;
             this.startOverlayTimer();
@@ -486,7 +510,7 @@ new class extends Component {
         startOverlayTimer() {
             clearTimeout(this.overlayTimer);
             this.overlayTimer = setTimeout(() => {
-                this.overlayVisible = false;
+                this.closeOverlay();
             }, 10000);
         },
         pauseOverlayTimer() {
@@ -494,7 +518,28 @@ new class extends Component {
         },
         closeOverlay() {
             this.overlayVisible = false;
+            this.unseenQueueCount = 0;
             clearTimeout(this.overlayTimer);
+        },
+        handleOverlayClick() {
+            if (!this.overlayData) return;
+            if (this.overlayData.is_catchup) {
+                this.open = true;
+                this.closeOverlay();
+                return;
+            }
+            if (this.overlayData.id) {
+                const id = this.overlayData.id;
+                this.closeOverlay();
+                $wire.handleNotificationClick(id);
+            } else if (this.overlayData.redirect_url) {
+                const url = this.overlayData.redirect_url;
+                this.closeOverlay();
+                window.location.href = url;
+            } else {
+                this.open = true;
+                this.closeOverlay();
+            }
         }
     }"
     @click.outside="open = false"
@@ -609,7 +654,7 @@ new class extends Component {
     >
         <div
             class="notif-overlay-card"
-            @click="if (overlayData && overlayData.id) { const id = overlayData.id; closeOverlay(); $wire.handleNotificationClick(id); }"
+            @click="handleOverlayClick()"
             role="button"
             tabindex="0"
         >
@@ -617,6 +662,15 @@ new class extends Component {
                 <div class="notif-overlay-badge-wrap">
                     <span class="notif-overlay-dot"></span>
                     <span class="notif-overlay-subsystem" x-text="overlayData ? overlayData.subsystem_name : 'RMS Notification'"></span>
+                    <template x-if="unseenQueueCount > 0">
+                        <span
+                            class="notif-overlay-more-badge"
+                            @click.stop="open = true; closeOverlay()"
+                            title="Multiple new notifications arrived! Click to view all in notification bell"
+                        >
+                            +<span x-text="unseenQueueCount"></span> more
+                        </span>
+                    </template>
                 </div>
                 <button
                     type="button"

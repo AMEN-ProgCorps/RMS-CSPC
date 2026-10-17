@@ -459,7 +459,24 @@
             _unreadAbortController = null;
             const chatCount = parseInt(data.chat_unread !== undefined ? data.chat_unread : (data.unread || 0), 10);
             const systemCount = parseInt(data.system_unread || 0, 10);
+            const totalSystemCount = parseInt(data.total_system_unread !== undefined ? data.total_system_unread : systemCount, 10);
             const totalCount = parseInt(data.total_unread !== undefined ? data.total_unread : (chatCount + systemCount), 10);
+
+            // Offline catch-up popout on initial login / session start
+            if (lastSystemUnread === null && totalSystemCount > 0) {
+                if (!sessionStorage.getItem('rms_offline_catchup_shown')) {
+                    sessionStorage.setItem('rms_offline_catchup_shown', 'true');
+                    window.dispatchEvent(new CustomEvent('rms-notification-overlay-show', {
+                        detail: {
+                            id: null,
+                            is_catchup: true,
+                            subsystem_name: 'Notification Center',
+                            content: `Welcome back! You have ${totalSystemCount} unread notification${totalSystemCount > 1 ? 's' : ''} waiting in your inbox.`,
+                            time: 'Offline catch-up'
+                        }
+                    }));
+                }
+            }
 
             // Play notification sound if unread count increased (and not initial page load)
             const hasNewChat = (lastChatUnread !== null && chatCount > lastChatUnread);
@@ -475,7 +492,7 @@
                 }));
             }
 
-            applyUnreadCounts(chatCount, systemCount);
+            applyUnreadCounts(chatCount, systemCount, totalSystemCount);
         })
         .catch(err => {
             _unreadAbortController = null;
@@ -488,9 +505,10 @@
         });
     }
 
-    function applyUnreadCounts(chatCount, systemCount) {
+    function applyUnreadCounts(chatCount, systemCount, totalSystemCount) {
         chatCount = Math.max(0, parseInt(chatCount !== undefined ? chatCount : (lastChatUnread || 0), 10));
         systemCount = Math.max(0, parseInt(systemCount !== undefined ? systemCount : (lastSystemUnread || 0), 10));
+        totalSystemCount = Math.max(0, parseInt(totalSystemCount !== undefined ? totalSystemCount : systemCount, 10));
 
         lastChatUnread = chatCount;
         lastSystemUnread = systemCount;
@@ -521,7 +539,7 @@
         // 3. Update Header Bell Notification Badge
         const bellBadge = document.getElementById('header-notif-badge') || document.querySelector('.notif-badge');
         if (bellBadge) {
-            bellBadge.style.display = systemCount > 0 ? 'block' : 'none';
+            bellBadge.style.display = totalSystemCount > 0 ? 'block' : 'none';
         }
 
         // 4. Update Tab Title & Favicon Red Dot

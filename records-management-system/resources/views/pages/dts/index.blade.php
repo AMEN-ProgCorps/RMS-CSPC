@@ -625,18 +625,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 ->orderBy('dtd.control_number', 'asc')
                 ->get();
 
-            // Build primary branch timeline replacing [HUB] with current office (e.g. ICTU)
-            $primaryBranchSteps = $t->timeline_path->map(function ($step) use ($t) {
-                $clone = clone $step;
-                if ($clone->office_code === '[HUB]') {
-                    $clone->office_code = $t->current_office;
-                    $clone->office_name = $t->current_office_name ?: $t->current_office;
-                }
-                return $clone;
+            // Find hub step ranking in parent flow
+            $hubStep = $t->timeline_path->first(function ($s) {
+                return ($s->office_code === '[HUB]' || !empty($s->is_hub));
             });
-            $t->primary_branch_timeline = $primaryBranchSteps;
+            $hubRank = $hubStep ? $hubStep->sequence_ranking : 2;
 
-            $childBranches->transform(function ($child) use ($t) {
+            $childBranches->transform(function ($child) use ($t, $hubRank) {
                 $childLogs = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
                     ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'log.office_code')
                     ->where('log.transaction_id', $child->transaction_id)
@@ -645,6 +640,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     ->get();
 
                 $destLog = $childLogs->where('office_code', $child->current_office)->last();
+
+                $childIsCompleted = strtolower($child->status ?? '') === 'completed';
+                $childIsForwarded = !empty($destLog?->date_out);
+                $childPassed = ($child->sequence ?? 0) > $hubRank;
+                $child->is_completed_or_forwarded = ($childIsCompleted || $childIsForwarded || $childPassed);
 
                 if ($t->timeline_path->isNotEmpty()) {
                     $childSteps = $t->timeline_path->map(function ($pStep) use ($child, $destLog, $t) {
@@ -685,7 +685,65 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                 return $child;
             });
 
+            // Priority sort: pending action (0) ABOVE, completed & forwarded (1) LOWEST.
+            // Secondary sort: Cluster, Office Name, Control Number.
+            $childBranches = $childBranches->sort(function ($a, $b) {
+                $pA = $a->is_completed_or_forwarded ? 1 : 0;
+                $pB = $b->is_completed_or_forwarded ? 1 : 0;
+                if ($pA !== $pB) {
+                    return $pA <=> $pB;
+                }
+
+                $clusterA = $a->current_cluster_name ?: ($a->current_office_cluster ?: 'ZZZZ');
+                $clusterB = $b->current_cluster_name ?: ($b->current_office_cluster ?: 'ZZZZ');
+                $cComp = strcasecmp($clusterA, $clusterB);
+                if ($cComp !== 0) {
+                    return $cComp;
+                }
+
+                $nameA = $a->current_office_name ?: $a->current_office;
+                $nameB = $b->current_office_name ?: $b->current_office;
+                $nComp = strcasecmp($nameA, $nameB);
+                if ($nComp !== 0) {
+                    return $nComp;
+                }
+
+                return strcasecmp($a->control_number, $b->control_number);
+            })->values();
+
             $t->child_branches = $childBranches;
+
+            // Hub counts for timeline step
+            $hubCompletedCount = $childBranches->where('is_completed_or_forwarded', true)->count();
+            $hubTotalCount = $childBranches->count();
+
+            if ($hubTotalCount === 0) {
+                $cfRecord = DB::table('dts_copy_filled_transaction')->where('control_num', $t->control_number)->first();
+                $hubOffices = $cfRecord ? DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->pluck('office_code')->toArray() : [];
+                $hubTotalCount = count($hubOffices);
+            }
+
+            foreach ($t->timeline_path as $pStep) {
+                if ($pStep->office_code === '[HUB]' || !empty($pStep->is_hub)) {
+                    $pStep->is_hub = true;
+                    $pStep->hub_forwarded_count = $hubCompletedCount;
+                    $pStep->hub_total = $hubTotalCount;
+                    if ($hubTotalCount > 0 && $hubCompletedCount >= $hubTotalCount) {
+                        $pStep->date_out = now();
+                    }
+                }
+            }
+
+            // Build primary branch timeline replacing [HUB] with current office (e.g. ICTU)
+            $primaryBranchSteps = $t->timeline_path->map(function ($step) use ($t) {
+                $clone = clone $step;
+                if ($clone->office_code === '[HUB]') {
+                    $clone->office_code = $t->current_office;
+                    $clone->office_name = $t->current_office_name ?: $t->current_office;
+                }
+                return $clone;
+            });
+            $t->primary_branch_timeline = $primaryBranchSteps;
 
             return $t;
         });
@@ -850,6 +908,45 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     } else {
                         $step->office_code = '[HUB]';
                         $step->office_name = 'Office Hub [Multi-Receiving]';
+                        $step->is_hub = true;
+
+                        // Calculate hub counts for modal view
+                        $cBranches = DB::table('dts_transactions as dt')
+                            ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
+                            ->where('dtd.control_number', 'like', $t->control_number . '-%')
+                            ->where('dtd.is_active', 1)
+                            ->whereNotIn('dt.status', ['cancelled'])
+                            ->select('dt.transaction_id', 'dt.status', 'dt.sequence', 'dt.current_office')
+                            ->get();
+
+                        $hubTotal = $cBranches->count();
+                        if ($hubTotal === 0) {
+                            $cfRecord = DB::table('dts_copy_filled_transaction')->where('control_num', $t->control_number)->first();
+                            $hubOffices = $cfRecord ? DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->pluck('office_code')->toArray() : [];
+                            $hubTotal = count($hubOffices);
+                        }
+
+                        $hubDone = 0;
+                        if ($cBranches->isNotEmpty()) {
+                            $cIds = $cBranches->pluck('transaction_id')->toArray();
+                            $fwdLogs = DB::table(\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs')
+                                ->whereIn('transaction_id', $cIds)
+                                ->whereNotNull('date_out')
+                                ->pluck('transaction_id')
+                                ->toArray();
+
+                            foreach ($cBranches as $cb) {
+                                if (strtolower($cb->status) === 'completed' || in_array($cb->transaction_id, $fwdLogs) || ($cb->sequence ?? 0) > $step->sequence_ranking) {
+                                    $hubDone++;
+                                }
+                            }
+                        }
+
+                        $step->hub_forwarded_count = $hubDone;
+                        $step->hub_total = $hubTotal;
+                        if ($hubTotal > 0 && $hubDone >= $hubTotal) {
+                            $step->date_out = now();
+                        }
                     }
                 } elseif (empty($step->office_name)) {
                     $off = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('office_code', $step->office_code)->first();
@@ -2342,7 +2439,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                     <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
                                                 </span>
                                             @else
-                                                <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                                <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; padding: 4px 10px 22px 10px;">
                                                     @forelse ($t->timeline_path as $index => $step)
                                                         @php
                                                             $isReceived = !is_null($step->date_in) || $t->status === 'completed';
@@ -2381,7 +2478,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                             $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
                                                         @endphp
 
-                                                        <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                        <div class="dts-timeline-node-wrapper" style="width: 26px; min-width: 26px; height: 26px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
                                                             <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
                                                                 @if ($isRevisionStep)
                                                                     <i class="fa-solid fa-rotate-left" style="font-size: 10px;"></i>
@@ -2392,13 +2489,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                 @endif
                                                             </div>
 
-                                                            <span style="margin-top: 4px; font-size: 10px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
-                                                                {{ $step->office_code }}
+                                                            <span style="position: absolute; top: 30px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
+                                                                @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
+                                                                    [HUB]@if(isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
+                                                                @else
+                                                                    {{ $step->office_code }}
+                                                                @endif
                                                             </span>
 
                                                             <div class="dts-node-tooltip" style="position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); width: 210px; background: #0f172a; color: #f8fafc; padding: 8px 10px; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.15s ease; z-index: 9999; text-align: left; font-size: 11px; line-height: 1.4;">
                                                                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 4px; margin-bottom: 4px;">
-                                                                    <span style="font-weight: 700; font-size: 11px; color: #38bdf8;">Step {{ $index + 1 }}: {{ $step->office_code }}</span>
+                                                                    <span style="font-weight: 700; font-size: 11px; color: #38bdf8;">
+                                                                        Step {{ $index + 1 }}: @if ($step->office_code === '[HUB]' || !empty($step->is_hub)) [HUB] @else {{ $step->office_code }} @endif
+                                                                    </span>
                                                                     @if ($isRevisionStep)
                                                                         <span style="background: #1e3a8a; color: #93c5fd; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">↺ Revision</span>
                                                                     @elseif ($isReceived && $isForwarded)
@@ -2413,6 +2516,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                 <div style="font-size: 10.5px; font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">
                                                                     {{ $step->office_name }}
                                                                 </div>
+                                                                @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
+                                                                    <div style="font-size: 10px; color: #93c5fd; margin-bottom: 4px; font-weight: 600;">
+                                                                        Completed &amp; Forwarded: {{ $step->hub_forwarded_count ?? 0 }} / {{ $step->hub_total ?? 0 }} offices
+                                                                    </div>
+                                                                @endif
 
                                                                 <div style="font-size: 10px; color: #94a3b8; display: flex; flex-direction: column; gap: 2px;">
                                                                     <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>
@@ -2426,7 +2534,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         </div>
 
                                                         @if (!$loop->last)
-                                                            <div style="flex: 1; height: 4px; background: {{ $lineColor }}; min-width: 16px; margin: 0 -2px 14px -2px; border-radius: 2px; z-index: 1; transition: all 0.3s ease;"></div>
+                                                            <div style="flex: 1; height: 4px; background: {{ $lineColor }}; min-width: 16px; margin: 0 -2px; border-radius: 2px; z-index: 1; transition: all 0.3s ease;"></div>
                                                         @endif
                                                     @empty
                                                         <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
@@ -2511,7 +2619,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                                     <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
                                                                                 </span>
                                                                             @else
-                                                                                <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                                                                <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; padding: 2px 6px 18px 6px;">
                                                                                     @forelse ($child->timeline_path as $cStepIdx => $cStep)
                                                                                         @php
                                                                                             $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
@@ -2520,7 +2628,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                                             $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
                                                                                             $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
                                                                                         @endphp
-                                                                                        <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                                                        <div class="dts-timeline-node-wrapper" style="width: 20px; min-width: 20px; height: 20px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
                                                                                             <div class="dts-timeline-node-dot" style="width: 20px; height: 20px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
                                                                                                 @if ($cIsReceived)
                                                                                                     <i class="fa-solid fa-check" style="font-size: 8px;"></i>
@@ -2528,12 +2636,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                                                     {{ $cStepIdx + 1 }}
                                                                                                 @endif
                                                                                             </div>
-                                                                                            <span style="margin-top: 2px; font-size: 8.5px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif;">
+                                                                                            <span style="position: absolute; top: 23px; left: 50%; transform: translateX(-50%); font-size: 8.5px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
                                                                                                 {{ $cStep->office_code }}
                                                                                             </span>
                                                                                         </div>
                                                                                         @if (!$loop->last)
-                                                                                            <div style="flex: 1; height: 2.5px; background: {{ $cLineColor }}; min-width: 12px; margin: 0 -2px 8px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                                                            <div style="flex: 1; height: 2.5px; background: {{ $cLineColor }}; min-width: 12px; margin: 0 -2px; border-radius: 2px; z-index: 1;"></div>
                                                                                         @endif
                                                                                     @empty
                                                                                         <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
@@ -2715,7 +2823,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
                                             </span>
                                         @else
-                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; padding: 4px 10px 22px 10px;">
                                             @forelse ($t->timeline_path as $index => $step)
                                                 @php
                                                     $isReceived = !is_null($step->date_in) || $t->status === 'completed';
@@ -2754,7 +2862,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                     $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
                                                 @endphp
 
-                                                <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                <div class="dts-timeline-node-wrapper" style="width: 26px; min-width: 26px; height: 26px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
                                                     <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
                                                         @if ($isRevisionStep)
                                                             <i class="fa-solid fa-rotate-left" style="font-size: 10px;"></i>
@@ -2765,18 +2873,24 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         @endif
                                                     </div>
 
-                                                    <span style="margin-top: 4px; font-size: 10px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
-                                                        {{ $step->office_code }}
+                                                    <span style="position: absolute; top: 30px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
+                                                        @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
+                                                            [HUB]@if(isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
+                                                        @else
+                                                            {{ $step->office_code }}
+                                                        @endif
                                                     </span>
 
                                                     <div class="dts-node-tooltip" style="position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%); width: 210px; background: #0f172a; color: #f8fafc; padding: 8px 10px; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 0.15s ease; z-index: 9999; text-align: left; font-size: 11px; line-height: 1.4;">
                                                         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 4px; margin-bottom: 4px;">
-                                                            <span style="font-weight: 700; font-size: 11px; color: #38bdf8;">Step {{ $index + 1 }}: {{ $step->office_code }}</span>
+                                                            <span style="font-weight: 700; font-size: 11px; color: #38bdf8;">
+                                                                Step {{ $index + 1 }}: @if ($step->office_code === '[HUB]' || !empty($step->is_hub)) [HUB] @else {{ $step->office_code }} @endif
+                                                            </span>
                                                             @if ($isRevisionStep)
                                                                 <span style="background: #1e3a8a; color: #93c5fd; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">↺ Revision</span>
                                                             @elseif ($isReceived && $isForwarded)
                                                                 <span style="background: #166534; color: #4ade80; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">✓ Forwarded</span>
-                                                            @elseif ($isReceived && !$isForwarded)
+                                                                @elseif ($isReceived && !$isForwarded)
                                                                 <span style="background: #1e3a8a; color: #60a5fa; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">📍 Held</span>
                                                             @else
                                                                 <span style="background: #450a0a; color: #fca5a5; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 10px;">⏳ Pending</span>
@@ -2786,6 +2900,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         <div style="font-size: 10.5px; font-weight: 600; color: #f1f5f9; margin-bottom: 4px;">
                                                             {{ $step->office_name }}
                                                         </div>
+                                                        @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
+                                                            <div style="font-size: 10px; color: #93c5fd; margin-bottom: 4px; font-weight: 600;">
+                                                                Completed &amp; Forwarded: {{ $step->hub_forwarded_count ?? 0 }} / {{ $step->hub_total ?? 0 }} offices
+                                                            </div>
+                                                        @endif
 
                                                         <div style="font-size: 10px; color: #94a3b8; display: flex; flex-direction: column; gap: 2px;">
                                                             <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>
@@ -2799,7 +2918,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 </div>
 
                                                 @if (!$loop->last)
-                                                    <div style="flex: 1; height: 4px; background: {{ $lineColor }}; min-width: 16px; margin: 0 -2px 14px -2px; border-radius: 2px; z-index: 1; transition: all 0.3s ease;"></div>
+                                                    <div style="flex: 1; height: 4px; background: {{ $lineColor }}; min-width: 16px; margin: 0 -2px; border-radius: 2px; z-index: 1; transition: all 0.3s ease;"></div>
                                                 @endif
                                             @empty
                                                 <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
@@ -2884,7 +3003,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                                 <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
                                                                             </span>
                                                                         @else
-                                                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; padding: 2px 6px 18px 6px;">
                                                                                 @forelse ($child->timeline_path as $cStepIdx => $cStep)
                                                                                     @php
                                                                                         $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
@@ -2893,7 +3012,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                                         $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
                                                                                         $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
                                                                                     @endphp
-                                                                                    <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                                                    <div class="dts-timeline-node-wrapper" style="width: 20px; min-width: 20px; height: 20px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
                                                                                         <div class="dts-timeline-node-dot" style="width: 20px; height: 20px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
                                                                                             @if ($cIsReceived)
                                                                                                 <i class="fa-solid fa-check" style="font-size: 8px;"></i>
@@ -2901,12 +3020,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                                                                 {{ $cStepIdx + 1 }}
                                                                                             @endif
                                                                                         </div>
-                                                                                        <span style="margin-top: 2px; font-size: 8.5px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif;">
+                                                                                        <span style="position: absolute; top: 23px; left: 50%; transform: translateX(-50%); font-size: 8.5px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
                                                                                             {{ $cStep->office_code }}
                                                                                         </span>
                                                                                     </div>
                                                                                     @if (!$loop->last)
-                                                                                        <div style="flex: 1; height: 2.5px; background: {{ $cLineColor }}; min-width: 12px; margin: 0 -2px 8px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                                                        <div style="flex: 1; height: 2.5px; background: {{ $cLineColor }}; min-width: 12px; margin: 0 -2px; border-radius: 2px; z-index: 1;"></div>
                                                                                     @endif
                                                                                 @empty
                                                                                     <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
@@ -3123,7 +3242,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 </span>
                                             </div>
                                         @else
-                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 0;">
+                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 8px 20px 8px;">
                                                 @forelse ($t->timeline_path as $index => $step)
                                                     @php
                                                         $isReceived = !is_null($step->date_in) || $t->status === 'completed';
@@ -3159,7 +3278,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         }
                                                     @endphp
 
-                                                    <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                    <div class="dts-timeline-node-wrapper" style="width: 24px; min-width: 24px; height: 24px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
                                                         <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer;" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
                                                             @if ($isRevisionStep)
                                                                 <i class="fa-solid fa-rotate-left" style="font-size: 9px;"></i>
@@ -3170,13 +3289,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                             @endif
                                                         </div>
 
-                                                        <span style="margin-top: 3px; font-size: 9.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
-                                                            {{ $step->office_code }}
+                                                        <span style="position: absolute; top: 27px; left: 50%; transform: translateX(-50%); font-size: 9.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
+                                                            @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
+                                                                [HUB]@if(isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
+                                                            @else
+                                                                {{ $step->office_code }}
+                                                            @endif
                                                         </span>
                                                     </div>
 
                                                     @if (!$loop->last)
-                                                        <div style="flex: 1; height: 3px; background: {{ $lineColor }}; min-width: 14px; margin: 0 -2px 12px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                        <div style="flex: 1; height: 3px; background: {{ $lineColor }}; min-width: 14px; margin: 0 -2px; border-radius: 2px; z-index: 1;"></div>
                                                     @endif
                                                 @empty
                                                     <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
@@ -3274,7 +3397,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             </span>
                                         </div>
                                     @else
-                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 0;">
+                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; overflow-x: auto; padding: 4px 8px 20px 8px;">
                                             @forelse ($t->timeline_path as $index => $step)
                                                 @php
                                                     $isReceived = !is_null($step->date_in) || $t->status === 'completed';
@@ -3310,7 +3433,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                     }
                                                 @endphp
 
-                                                <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                <div class="dts-timeline-node-wrapper" style="width: 24px; min-width: 24px; height: 24px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
                                                     <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer;" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
                                                         @if ($isRevisionStep)
                                                             <i class="fa-solid fa-rotate-left" style="font-size: 9px;"></i>
@@ -3321,13 +3444,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         @endif
                                                     </div>
 
-                                                    <span style="margin-top: 3px; font-size: 9.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
-                                                        {{ $step->office_code }}
+                                                    <span style="position: absolute; top: 27px; left: 50%; transform: translateX(-50%); font-size: 9.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
+                                                        @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
+                                                            [HUB]@if(isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
+                                                        @else
+                                                            {{ $step->office_code }}
+                                                        @endif
                                                     </span>
                                                 </div>
 
                                                 @if (!$loop->last)
-                                                    <div style="flex: 1; height: 3px; background: {{ $lineColor }}; min-width: 14px; margin: 0 -2px 12px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                    <div style="flex: 1; height: 3px; background: {{ $lineColor }}; min-width: 14px; margin: 0 -2px; border-radius: 2px; z-index: 1;"></div>
                                                 @endif
                                             @empty
                                                 <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
@@ -3901,14 +4028,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                              </div>
 
                                              <!-- Office Code Below Dot -->
-                                             <span style="margin-top: 8px; font-size: 11.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif;">
-                                                 {{ $step->office_code }}
+                                             <span style="margin-top: 8px; font-size: 11.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
+                                                 @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
+                                                     [HUB]@if(isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
+                                                 @else
+                                                     {{ $step->office_code }}
+                                                 @endif
                                              </span>
 
                                             <!-- Hover Tooltip Card (Appears on Hover) -->
                                             <div class="dts-node-tooltip">
                                                 <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 6px; margin-bottom: 6px;">
-                                                    <span style="font-weight: 700; font-size: 12px; color: #38bdf8;">Step {{ $index + 1 }}: {{ $step->office_code }}</span>
+                                                    <span style="font-weight: 700; font-size: 12px; color: #38bdf8;">
+                                                        Step {{ $index + 1 }}: @if ($step->office_code === '[HUB]' || !empty($step->is_hub)) [HUB] @else {{ $step->office_code }} @endif
+                                                    </span>
                                                     @if ($isRevision)
                                                         <span style="background: #1e3a8a; color: #93c5fd; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 12px;">↺ Revision</span>
                                                     @elseif ($isReceived && $isForwarded)
@@ -3923,6 +4056,11 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                 <div style="font-size: 11px; font-weight: 600; color: #f1f5f9; margin-bottom: 6px; line-height: 1.3;">
                                                     {{ $step->office_name }}
                                                 </div>
+                                                @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
+                                                    <div style="font-size: 10.5px; color: #93c5fd; margin-bottom: 6px; font-weight: 600;">
+                                                        Completed &amp; Forwarded: {{ $step->hub_forwarded_count ?? 0 }} / {{ $step->hub_total ?? 0 }} offices
+                                                    </div>
+                                                @endif
 
                                                 <div style="font-size: 10.5px; color: #94a3b8; display: flex; flex-direction: column; gap: 3px;">
                                                     <div><strong style="color: #cbd5e1;">Date In:</strong> {{ $step->date_in ? \Carbon\Carbon::parse($step->date_in)->format('M d, Y h:i A') : 'N/A' }}</div>

@@ -411,5 +411,98 @@ class NotificationOverlayTest extends TestCase
         ]);
         $component->assertDispatched('rms-notification-overlay-show');
     }
+
+    public function test_portal_page_has_notification_bell_and_subsystem_badges(): void
+    {
+        $user = User::find($this->userId);
+        Auth::login($user);
+
+        // Ensure subsystems exist in DB
+        $dtsSubId = DB::table($this->tSubsystems)->where('subsystem_name', 'Document Tracking System')->value('subsystem_id')
+            ?? DB::table($this->tSubsystems)->insertGetId([
+                'subsystem_name' => 'Document Tracking System',
+                'subsystem_version' => '1.0.0',
+                'created_at' => now(),
+                'update_at' => now(),
+            ]);
+
+        $dcsSubId = DB::table($this->tSubsystems)->where('subsystem_name', 'Document Control System')->value('subsystem_id')
+            ?? DB::table($this->tSubsystems)->insertGetId([
+                'subsystem_name' => 'Document Control System',
+                'subsystem_version' => '1.0.0',
+                'created_at' => now(),
+                'update_at' => now(),
+            ]);
+
+        $adminSubId = DB::table($this->tSubsystems)->where('subsystem_name', 'Admin Console')->value('subsystem_id')
+            ?? DB::table($this->tSubsystems)->insertGetId([
+                'subsystem_name' => 'Admin Console',
+                'subsystem_version' => '1.0.0',
+                'created_at' => now(),
+                'update_at' => now(),
+            ]);
+
+        // Insert notifications for DTS and DCS
+        $c1 = DB::table($this->tNotifContent)->insertGetId([
+            'system' => $dtsSubId,
+            'content' => 'DTS Document Transaction Pending',
+            'redirect_url' => '/dts',
+            'created_at' => now(),
+        ]);
+        DB::table($this->tNotifications)->insert([
+            'office' => $this->officeCode,
+            'contents' => $c1,
+            'created_at' => now(),
+        ]);
+
+        $c2 = DB::table($this->tNotifContent)->insertGetId([
+            'system' => $dcsSubId,
+            'content' => 'DCS Controlled Document Pending',
+            'redirect_url' => '/dcs',
+            'created_at' => now(),
+        ]);
+        DB::table($this->tNotifications)->insert([
+            'office' => $this->officeCode,
+            'contents' => $c2,
+            'created_at' => now(),
+        ]);
+
+        // Insert notification for Admin Console (should be EXEMPT from badge)
+        $c3 = DB::table($this->tNotifContent)->insertGetId([
+            'system' => $adminSubId,
+            'content' => 'Admin Console system log notification',
+            'redirect_url' => '/admin/console',
+            'created_at' => now(),
+        ]);
+        DB::table($this->tNotifications)->insert([
+            'office' => $this->officeCode,
+            'contents' => $c3,
+            'created_at' => now(),
+        ]);
+
+        $portal = Volt::test('pages.portal.access-page');
+
+        // 1. Verify notification bell header actions container exists with desktop-only constraint
+        $portal->assertSee('portal-header-actions');
+        $portal->assertSee('portal-notif-btn-wrapper desktop-only', false);
+
+        // 2. Verify subsystem unread counts
+        $counts = $portal->get('subsystemUnreadCounts');
+        $this->assertGreaterThanOrEqual(1, $counts['dts'] ?? 0);
+        $this->assertGreaterThanOrEqual(1, $counts['dcs'] ?? 0);
+
+        // 3. Verify EXCEPTIONS: Profile, Admin Console, and Chatify MUST NOT have unread notification badges
+        $this->assertEquals(0, $counts['profile'] ?? 0);
+        $this->assertEquals(0, $counts['admin'] ?? 0);
+        $this->assertEquals(0, $counts['chatify'] ?? 0);
+
+        // 4. Verify badges render in HTML for DTS and DCS
+        $portal->assertSee('subsystem-notif-badge');
+
+        // 5. Verify event listener updates subsystem unread counts
+        $portal->call('loadSubsystemUnreadCounts');
+        $this->assertGreaterThanOrEqual(1, $portal->get('subsystemUnreadCounts')['dts']);
+        $this->assertEquals(0, $portal->get('subsystemUnreadCounts')['profile']);
+    }
 }
 

@@ -1073,6 +1073,44 @@ class RegisterQueryHelper
     }
 
     /**
+     * Unread system notices grouped by subsystem name.
+     *
+     * @param  array<int, string>  $allowedSubsystems
+     * @return array<string, int>
+     */
+    public static function countVisibleUnreadNotificationsBySubsystem(int $userId, string $officeCode, array $allowedSubsystems): array
+    {
+        $notifTbl = Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifContentTbl = Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $notifDivTbl = Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+        $subsystemsTbl = Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+
+        $query = self::bellNotificationsBaseQuery($userId, $officeCode, $allowedSubsystems)
+            ->where(function ($q) use ($notifDivTbl) {
+                $q->whereNull($notifDivTbl . '.status')
+                    ->orWhere($notifDivTbl . '.status', 'unread');
+            })
+            ->select(
+                $notifTbl . '.id',
+                $subsystemsTbl . '.subsystem_name',
+                $notifContentTbl . '.redirect_url',
+                $notifContentTbl . '.content',
+                $notifTbl . '.created_at'
+            );
+
+        $list = self::filterBellNotifications($query->get());
+        $counts = [];
+        foreach ($list as $item) {
+            $name = trim((string) ($item->subsystem_name ?? ''));
+            if ($name !== '') {
+                $counts[$name] = ($counts[$name] ?? 0) + 1;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
      * Latest unread system notice formatted for the popout notification overlay.
      *
      * @param  array<int, string>  $allowedSubsystems

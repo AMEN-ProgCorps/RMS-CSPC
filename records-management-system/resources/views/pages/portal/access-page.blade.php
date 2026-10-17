@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
@@ -11,6 +12,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
 
     public ?int $currentRoleId = null;
     public array $currentPermissions = [];
+    public array $subsystemUnreadCounts = [];
 
     public function mount(): mixed
     {
@@ -24,9 +26,75 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
                 ?: $user->username;
         }
 
+        $this->loadSubsystemUnreadCounts();
         $this->checkRoleUpdate();
 
         return null;
+    }
+
+    #[On('rms-notification-updated')]
+    #[On('rms-notification-ping')]
+    public function loadSubsystemUnreadCounts(): void
+    {
+        $user = Auth::user();
+        if (! $user) {
+            $this->subsystemUnreadCounts = [];
+            return;
+        }
+
+        $office = $user->details?->office;
+        $officeCode = (string) ($office?->office_code ?? '');
+        if ($officeCode === '') {
+            $this->subsystemUnreadCounts = [];
+            return;
+        }
+
+        $perms = $user->permissions;
+        $allowedSubsystems = ['Profile Manager'];
+        if ($perms) {
+            if ($perms->is_sadm) {
+                $allowedSubsystems[] = 'Document Tracking System';
+                $allowedSubsystems[] = 'Records Disposition Program';
+                $allowedSubsystems[] = 'Document Control System';
+                $allowedSubsystems[] = 'Admin Console';
+            } else {
+                if ($perms->can_access_dts) {
+                    $allowedSubsystems[] = 'Document Tracking System';
+                }
+                if ($perms->can_access_rdp) {
+                    $allowedSubsystems[] = 'Records Disposition Program';
+                }
+                if ($perms->can_access_dcs) {
+                    $allowedSubsystems[] = 'Document Control System';
+                }
+            }
+        }
+        $allowedSubsystems = \App\Helpers\RegisterQueryHelper::scopeBellSubsystemsForRequest($allowedSubsystems);
+
+        $rawCounts = \App\Helpers\RegisterQueryHelper::countVisibleUnreadNotificationsBySubsystem(
+            (int) $user->id,
+            $officeCode,
+            $allowedSubsystems
+        );
+
+        // Map to subsystem keys.
+        // Exceptions per specification: Admin Console, Chatify, and Profile do NOT show notification badges on the portal page.
+        $this->subsystemUnreadCounts = [
+            'dts' => (int) ($rawCounts['Document Tracking System'] ?? 0),
+            'rdp' => (int) ($rawCounts['Records Disposition Program'] ?? 0),
+            'dcs' => (int) ($rawCounts['Document Control System'] ?? 0),
+            'profile' => 0, // Exception: Profile does not show badge on portal
+            'chatify' => 0,
+            'admin' => 0,
+        ];
+
+        // Any dynamic subsystems in DB
+        foreach ($rawCounts as $subName => $cnt) {
+            $slug = \Illuminate\Support\Str::slug($subName);
+            if (! isset($this->subsystemUnreadCounts[$slug])) {
+                $this->subsystemUnreadCounts[$slug] = (int) $cnt;
+            }
+        }
     }
 
     public function checkRoleUpdate()
@@ -35,6 +103,8 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
         if (!$user) return;
         $user = $user->fresh();
         
+        $this->loadSubsystemUnreadCounts();
+
         $perms = $user->permissions;
         $permValues = $perms ? [
             $perms->is_sadm, $perms->can_access_dts, $perms->can_access_rdp, $perms->can_access_dcs,
@@ -99,6 +169,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
             'label' => 'Profile',
             'target' => '_self',
             'is_desktop_only' => true,
+            'unread_count' => 0, // Exception: Profile does not show badge on portal
         ];
         if ($chatifyActive) {
             $personalItems[] = [
@@ -107,6 +178,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
                 'label' => 'Chatify',
                 'target' => '_blank',
                 'is_desktop_only' => false,
+                'unread_count' => 0, // Exception: Chatify has its own floating widget
             ];
         }
         if ($perms?->is_sadm && $adminActive) {
@@ -116,6 +188,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
                 'label' => 'Admin Console',
                 'target' => '_self',
                 'is_desktop_only' => true,
+                'unread_count' => 0, // Exception: Admin Console has no user-action required
             ];
         }
 
@@ -128,6 +201,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
                 'label' => 'Document Tracking System',
                 'target' => '_self',
                 'is_desktop_only' => true,
+                'unread_count' => (int) ($this->subsystemUnreadCounts['dts'] ?? 0),
             ];
         }
         if (($perms?->is_sadm || $perms?->can_access_rdp) && $rdpActive) {
@@ -137,6 +211,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
                 'label' => 'Records Disposition Program',
                 'target' => '_self',
                 'is_desktop_only' => true,
+                'unread_count' => (int) ($this->subsystemUnreadCounts['rdp'] ?? 0),
             ];
         }
         if (($perms?->is_sadm || $perms?->can_access_dcs) && $dcsActive) {
@@ -146,6 +221,7 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
                 'label' => 'Document Control System',
                 'target' => '_self',
                 'is_desktop_only' => true,
+                'unread_count' => (int) ($this->subsystemUnreadCounts['dcs'] ?? 0),
             ];
         }
 
@@ -157,12 +233,14 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
             ->get();
 
         foreach ($extraSubsystems as $sub) {
+            $slug = \Illuminate\Support\Str::slug($sub->subsystem_name);
             $mainItems[] = [
-                'id' => \Str::slug($sub->subsystem_name),
+                'id' => $slug,
                 'route' => $sub->url ?? '#',
                 'label' => $sub->subsystem_name,
                 'target' => '_self',
                 'is_desktop_only' => true,
+                'unread_count' => (int) ($this->subsystemUnreadCounts[$slug] ?? 0),
             ];
         }
 
@@ -280,6 +358,97 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
             color: #FFD166;
             letter-spacing: 0.02em;
         }
+
+        .portal-header-actions {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: inline-flex;
+            align-items: center;
+            gap: 14px;
+            z-index: 100;
+        }
+
+        .portal-notif-btn-wrapper {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .portal-notif-btn-wrapper .notif-bell-btn {
+            width: 32px;
+            height: 32px;
+            padding: 4px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            transition: all 0.2s ease;
+        }
+
+        .portal-notif-btn-wrapper .notif-bell-btn:hover {
+            background-color: rgba(255, 255, 255, 0.22);
+            border-color: rgba(255, 255, 255, 0.4);
+            transform: scale(1.06);
+        }
+
+        .portal-notif-btn-wrapper .notif-bell-svg {
+            width: 20px;
+            height: 20px;
+            stroke: #ffffff;
+        }
+
+        .system-con {
+            position: relative !important;
+        }
+
+        .subsystem-notif-badge {
+            position: absolute;
+            top: -7px;
+            right: -7px;
+            min-width: 22px;
+            height: 22px;
+            padding: 0 6px;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: #ffffff !important;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+            font-size: 11px !important;
+            font-weight: 700 !important;
+            line-height: 20px;
+            text-align: center;
+            border-radius: 9999px;
+            border: 2px solid #ffffff;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(220, 38, 38, 0.2);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            pointer-events: none;
+            box-sizing: border-box;
+            user-select: none;
+            animation: pulseSubsystemBadge 3s infinite ease-in-out;
+        }
+
+        @keyframes pulseSubsystemBadge {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.08);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .portal-header-actions {
+                top: 14px;
+                right: 14px;
+                gap: 10px;
+            }
+            .portal-notif-btn-wrapper,
+            .notif-overlay-container {
+                display: none !important;
+            }
+        }
     </style>
 @endpush
 
@@ -289,7 +458,10 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
     <span class="office-name">{{ auth()->user()?->details?->office?->office_name ?? 'Records and Freedom of Information Office' }}</span>
 </header>
 <section>
-    <div class="logout-con">
+    <div class="portal-header-actions">
+        <div class="portal-notif-btn-wrapper desktop-only">
+            <livewire:components.notification.notifications />
+        </div>
         <button type="button" title="Logout" class="logout" wire:click="logout">
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -317,6 +489,11 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Portal')] class extends Compon
             <div class="display-box">
                 <span>{{ $item['label'] }}</span>
             </div>
+            @if(!empty($item['unread_count']) && $item['unread_count'] > 0)
+                <span class="subsystem-notif-badge" title="{{ $item['unread_count'] }} unread {{ \Illuminate\Support\Str::plural('notification', $item['unread_count']) }}">
+                    {{ $item['unread_count'] > 99 ? '99+' : $item['unread_count'] }}
+                </span>
+            @endif
         </a>
         @endforeach
 

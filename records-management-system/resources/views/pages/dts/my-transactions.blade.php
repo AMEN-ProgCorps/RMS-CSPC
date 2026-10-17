@@ -520,6 +520,9 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
 
                                                 $lineColor = $isForwarded ? '#10b981' : ($isHub && $step->hub_received_count > 0 ? '#93c5fd' : '#cbd5e1');
 
+                                                $isHubStep = ($isHub || $step->office_code === '[HUB]');
+                                                $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $t->sequence || $t->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+
                                                 $tooltipTitle = $isHub 
                                                     ? ("Step " . ($index + 1) . ": " . ($step->office_name ?? '[HUB]') . " — " . ($step->hub_received_count ?? 0) . " of " . ($step->hub_total ?? 0) . " Received (" . ($isForwarded ? 'Forwarded' : ($isReceived ? 'Holding/Active' : 'Pending')) . ")")
                                                     : ("Step " . ($index + 1) . ": " . ($step->office_name ?? $step->office_code) . " (" . ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') . ")");
@@ -541,8 +544,8 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                                 </div>
 
                                                 <span style="position: absolute; top: 30px; left: 50%; transform: translateX(-50%); font-size: 9.5px; font-weight: 700; color: {{ $labelColor }}; font-family: 'Inter', sans-serif; max-width: 65px; width: max-content; text-align: center; line-height: 1.15; overflow-wrap: break-word; pointer-events: none;">
-                                                    @if($isHub || $step->office_code === '[HUB]')
-                                                        [HUB]@if(isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
+                                                    @if($isHubStep)
+                                                        [HUB]@if($isOnHubArea && isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
                                                     @else
                                                         {{ $step->office_code }}
                                                     @endif

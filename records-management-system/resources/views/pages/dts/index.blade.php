@@ -2476,6 +2476,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                                                             $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
                                                             $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
+                                                            $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
+                                                            $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $t->sequence || $t->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
                                                         @endphp
 
                                                         <div class="dts-timeline-node-wrapper" style="width: 26px; min-width: 26px; height: 26px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
@@ -2490,8 +2492,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                             </div>
 
                                                             <span style="position: absolute; top: 30px; left: 50%; transform: translateX(-50%); font-size: 9.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; max-width: 65px; width: max-content; text-align: center; line-height: 1.15; overflow-wrap: break-word; pointer-events: none;">
-                                                                @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
-                                                                    [HUB]@if(isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
+                                                                @if ($isHubStep)
+                                                                    [HUB]@if($isOnHubArea && isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
                                                                 @else
                                                                     {{ $step->office_code }}
                                                                 @endif
@@ -2860,6 +2862,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                                                     $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
                                                     $isInTransitToThisOffice = $step->sequence_ranking == $t->sequence && is_null($step->date_in) && $t->status !== 'completed';
+                                                    $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
+                                                    $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $t->sequence || $t->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
                                                 @endphp
 
                                                 <div class="dts-timeline-node-wrapper" style="width: 26px; min-width: 26px; height: 26px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
@@ -2874,8 +2878,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                     </div>
 
                                                     <span style="position: absolute; top: 30px; left: 50%; transform: translateX(-50%); font-size: 9.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; max-width: 65px; width: max-content; text-align: center; line-height: 1.15; overflow-wrap: break-word; pointer-events: none;">
-                                                        @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
-                                                            [HUB]@if(isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
+                                                        @if ($isHubStep)
+                                                            [HUB]@if($isOnHubArea && isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
                                                         @else
                                                             {{ $step->office_code }}
                                                         @endif
@@ -3276,6 +3280,9 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                             $lineColor = '#dc2626';
                                                             $textColor = '#dc2626';
                                                         }
+                                                        $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
+                                                        $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
+                                                        $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $t->sequence || $t->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
                                                     @endphp
 
                                                     <div class="dts-timeline-node-wrapper" style="width: 24px; min-width: 24px; height: 24px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
@@ -3290,8 +3297,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         </div>
 
                                                         <span style="position: absolute; top: 27px; left: 50%; transform: translateX(-50%); font-size: 9.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
-                                                            @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
-                                                                [HUB]@if(isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
+                                                            @if ($isHubStep)
+                                                                [HUB]@if($isOnHubArea && isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
                                                             @else
                                                                 {{ $step->office_code }}
                                                             @endif
@@ -3431,26 +3438,29 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                         $lineColor = '#dc2626';
                                                         $textColor = '#dc2626';
                                                     }
+                                                    $isCurrentOffice = $step->office_code === $t->current_office && $step->sequence_ranking == $t->sequence && $t->status !== 'completed';
+                                                    $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
+                                                    $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $t->sequence || $t->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
                                                 @endphp
 
-                                                <div class="dts-timeline-node-wrapper" style="width: 24px; min-width: 24px; height: 24px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
-                                                    <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer;" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
-                                                        @if ($isRevisionStep)
-                                                            <i class="fa-solid fa-rotate-left" style="font-size: 9px;"></i>
-                                                        @elseif ($isReceived)
-                                                            <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                                        @else
-                                                            {{ $index + 1 }}
-                                                        @endif
-                                                    </div>
+                                                    <div class="dts-timeline-node-wrapper" style="width: 24px; min-width: 24px; height: 24px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
+                                                        <div class="dts-timeline-node-dot" style="width: 24px; height: 24px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer;" title="Step {{ $index + 1 }}: {{ $step->office_name ?? $step->office_code }} ({{ $isRevisionStep ? 'Returned for Revision' : ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') }})">
+                                                            @if ($isRevisionStep)
+                                                                <i class="fa-solid fa-rotate-left" style="font-size: 9px;"></i>
+                                                            @elseif ($isReceived)
+                                                                <i class="fa-solid fa-check" style="font-size: 9px;"></i>
+                                                            @else
+                                                                {{ $index + 1 }}
+                                                            @endif
+                                                        </div>
 
-                                                    <span style="position: absolute; top: 27px; left: 50%; transform: translateX(-50%); font-size: 9.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
-                                                        @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
-                                                            [HUB]@if(isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
-                                                        @else
-                                                            {{ $step->office_code }}
-                                                        @endif
-                                                    </span>
+                                                        <span style="position: absolute; top: 27px; left: 50%; transform: translateX(-50%); font-size: 9.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
+                                                            @if ($isHubStep)
+                                                                [HUB]@if($isOnHubArea && isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
+                                                            @else
+                                                                {{ $step->office_code }}
+                                                            @endif
+                                                        </span>
                                                 </div>
 
                                                 @if (!$loop->last)
@@ -3994,6 +4004,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                                              $isCurrentOffice = $step->is_active_step && !is_null($step->date_in) && is_null($step->date_out) && $selectedTransaction->status !== 'completed';
                                              $isInTransitToThisOffice = $step->is_active_step && is_null($step->date_in) && $selectedTransaction->status !== 'completed';
+                                             $isHubStep = ($step->office_code === '[HUB]' || !empty($step->is_hub));
+                                             $isOnHubArea = $isHubStep && (!empty($step->is_active_step) || ($selectedTransaction->current_office ?? '') === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
                                          @endphp
 
                                          <!-- Node Wrapper -->
@@ -4029,8 +4041,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
 
                                              <!-- Office Code Below Dot -->
                                              <span style="margin-top: 8px; font-size: 11.5px; font-weight: 700; color: {{ $textColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
-                                                 @if ($step->office_code === '[HUB]' || !empty($step->is_hub))
-                                                     [HUB]@if(isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
+                                                 @if ($isHubStep)
+                                                     [HUB]@if($isOnHubArea && isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
                                                  @else
                                                      {{ $step->office_code }}
                                                  @endif

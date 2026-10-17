@@ -21,12 +21,13 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
     #[Url]
     public bool $showObsolete = false;
 
+    #[Url(as: 'doc')]
     public ?int $openId = null;
 
     public function mount(): void
     {
         abort_unless(RegisterQueryHelper::canAccessDcsModule('reports'), 403);
-        if (! in_array($this->status, ['all', 'awaiting', 'previous_out'], true)) {
+        if (! in_array($this->status, ['all', 'awaiting', 'not_retrieved', 'previous_out'], true)) {
             $this->status = 'all';
         }
     }
@@ -38,7 +39,7 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
 
     public function updatedStatus(): void
     {
-        if (! in_array($this->status, ['all', 'awaiting', 'previous_out'], true)) {
+        if (! in_array($this->status, ['all', 'awaiting', 'not_retrieved', 'previous_out'], true)) {
             $this->status = 'all';
         }
         $this->openId = null;
@@ -290,8 +291,9 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
             <div class="rpt-filter-group">
                 <label for="drtStatus">Status</label>
                 <select id="drtStatus" wire:model.live="status">
-                    <option value="all">All documents</option>
+                    <option value="all">All open documents</option>
                     <option value="awaiting">Waiting for receipt</option>
+                    <option value="not_retrieved">Not yet retrieved</option>
                     <option value="previous_out">Old copy still out</option>
                 </select>
             </div>
@@ -300,6 +302,7 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
                 <input id="drtSearch" type="search" wire:model.live.debounce.300ms="q" placeholder="Document no., title, or office">
             </div>
         </div>
+        <p class="rpt-template-status">A document leaves this list when every office has received the copy and returned it. Until then, open Offices: each office is marked Retrieved or Not yet retrieved, including offices that already received the new copy.</p>
     </section>
 
     @if($loadError)
@@ -320,13 +323,33 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
                     <span class="rpt-results-count">{{ count($group['rows']) }} {{ count($group['rows']) === 1 ? 'document' : 'documents' }}</span>
                 </div>
             </div>
+            @php
+                $showSubtype = collect($group['rows'])->contains(function ($card) {
+                    return trim((string) ($card['lead']['sub_type_name'] ?? '')) !== '';
+                });
+            @endphp
             <div class="rpt-table-scroll">
-                <table class="rpt-table">
+                <table class="rpt-table drt-board">
+                    <colgroup>
+                        <col class="drt-col-no">
+                        <col class="drt-col-title">
+                        @if($showSubtype)
+                            <col class="drt-col-sub">
+                        @endif
+                        <col class="drt-col-rev">
+                        <col class="drt-col-num">
+                        <col class="drt-col-num">
+                        <col class="drt-col-ret">
+                        <col class="drt-col-prev">
+                        <col class="drt-col-act">
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>Document No.</th>
                             <th>Title</th>
-                            <th>Subtype</th>
+                            @if($showSubtype)
+                                <th>Subtype</th>
+                            @endif
                             <th>Revision</th>
                             <th>Distributed</th>
                             <th>Received</th>
@@ -361,13 +384,15 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
                                 $subType = trim((string) ($revision['sub_type_name'] ?? ''));
                             @endphp
                             <tr class="drt-doc">
-                                <td>{{ $revision['doc_no'] }}</td>
-                                <td>{{ $revision['doc_title'] !== '' ? $revision['doc_title'] : 'Untitled' }}</td>
-                                <td>{{ $subType !== '' ? $subType : '—' }}</td>
+                                <td class="drt-clip">{{ $revision['doc_no'] }}</td>
+                                <td class="drt-title">{{ $revision['doc_title'] !== '' ? $revision['doc_title'] : 'Untitled' }}</td>
+                                @if($showSubtype)
+                                    <td class="drt-clip">{{ $subType !== '' ? $subType : '—' }}</td>
+                                @endif
                                 <td>Rev {{ (int) $revision['revise_no'] }}</td>
                                 <td>{{ $officeCount }}</td>
                                 <td>{{ $receivedCount }}</td>
-                                <td>{{ $retrievedCount }}</td>
+                                <td>{{ $retrievedCount }} retrieved @if($officeCount > $retrievedCount) · {{ $officeCount - $retrievedCount }} not yet @endif</td>
                                 <td>{{ $pendingReturn > 0 ? $pendingReturn.' pending return' : 'Clear' }}</td>
                                 <td>
                                     <button type="button" class="drt-offices-btn" wire:click="showRevision({{ (int) $revision['request_id'] }})">Offices</button>
@@ -379,8 +404,8 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
             </div>
         </section>
     @empty
-        <section class="rpt-results">
-            <p class="rpt-template-status">No distributed documents match this view.</p>
+        <section class="rpt-results drt-empty">
+            <p>No distributed documents match this view.</p>
         </section>
     @endforelse
 
@@ -418,7 +443,14 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
                     <p class="drt-modal-note">A newer copy was distributed before this one was returned. {{ $pendingInOpen }} {{ $pendingInOpen === 1 ? 'office still has' : 'offices still have' }} it. That return stays pending until Admin DCS retrieves it.</p>
                 @endif
                 <div class="drt-modal-table">
-                    <table class="rpt-table">
+                    <table class="rpt-table drt-office-board">
+                        <colgroup>
+                            <col class="drt-col-office">
+                            <col class="drt-col-copies">
+                            <col class="drt-col-received">
+                            <col class="drt-col-retrieved">
+                            <col class="drt-col-previous">
+                        </colgroup>
                         <thead>
                             <tr>
                                 <th>Office</th>
@@ -457,7 +489,7 @@ new #[Layout('layouts.dcs')] #[Title('Distribution & Retrieval — CSPC DCS')] c
                                         @elseif(($office['status'] ?? '') === 'still_out')
                                             Pending return
                                         @else
-                                            <span class="rpt-na">Not retrieved</span>
+                                            <span class="rpt-na">Not yet retrieved</span>
                                         @endif
                                     </td>
                                     <td>

@@ -138,7 +138,7 @@ class DcsNotificationTest extends TestCase
         $adminOffice = \App\Helpers\RegisterQueryHelper::rfioNotificationOfficeCode();
         $this->assertDatabaseHas($this->contentTable(), [
             'content' => 'College of Computer Studies received "Human Rights Education Process" (CSPC-WI-CHRE-01, Rev 1) (marked by Niño Bermundo).',
-            'redirect_url' => '/dcs/register/42/edit',
+            'redirect_url' => '/dcs/monitoring/distribution-retrieval?doc=42',
         ]);
         $this->assertDatabaseHas($this->notifTable(), [
             'office' => $adminOffice,

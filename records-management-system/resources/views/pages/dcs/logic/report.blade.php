@@ -9,6 +9,31 @@ use Illuminate\Support\Facades\Schema;
 
 class ReportHelper
 {
+    /**
+     * Right edge of these columns is a white section rule.
+     * Forms monitoring: after Source, Category, and the first Time Spent.
+     *
+     * @param  list<string>  $keys
+     * @return list<string>
+     */
+    public static function reportSplitKeys(array $keys): array
+    {
+        if (in_array('time_spent1', $keys, true)) {
+            return ['source', 'category', 'time_spent1'];
+        }
+        if (in_array('mins_spent', $keys, true)) {
+            return ['time_received', 'mins_spent', 'source'];
+        }
+        if (in_array('rating_q', $keys, true)) {
+            return array_values(array_intersect(
+                ['doc_number', 'control_number', 'time_received', 'time_released', 'days_diff'],
+                $keys
+            ));
+        }
+
+        return [];
+    }
+
     // ════════════════════════════════════════════
     // REPORT DEFINITIONS
     // ════════════════════════════════════════════
@@ -152,10 +177,24 @@ class ReportHelper
     private function renderPreviewPdf(string $html): ?string
     {
         $binary = null;
-        foreach (['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable'] as $path) {
-            if (is_executable($path)) {
+        $candidates = array_filter([
+            getenv('CHROMIUM_PATH') ?: null,
+            '/usr/bin/chromium',
+            '/usr/bin/chromium-browser',
+            '/usr/bin/google-chrome',
+            '/usr/bin/google-chrome-stable',
+            '/usr/lib/chromium/chromium',
+        ]);
+        foreach ($candidates as $path) {
+            if (is_string($path) && is_executable($path)) {
                 $binary = $path;
                 break;
+            }
+        }
+        if ($binary === null && function_exists('shell_exec')) {
+            $found = trim((string) shell_exec('command -v chromium || command -v chromium-browser || command -v google-chrome || true'));
+            if ($found !== '' && is_executable($found)) {
+                $binary = $found;
             }
         }
         if ($binary === null) {
@@ -181,7 +220,7 @@ class ReportHelper
         ]);
 
         exec($cmd.' 2>/dev/null', $unused, $code);
-        $pdf = ($code === 0 && is_file($pdfFile)) ? file_get_contents($pdfFile) : false;
+        $pdf = (is_file($pdfFile) && filesize($pdfFile) > 100) ? file_get_contents($pdfFile) : false;
         @unlink($htmlFile);
         @unlink($pdfFile);
 
@@ -545,7 +584,7 @@ class ReportHelper
             }
 
             $stored = strtolower(trim((string) ($ml->revision_status ?? '')));
-            $isLatest = $stored !== 'obsolete';
+            $isLatest = $stored === 'latest' || $stored === '';
 
             return $status === 'latest' ? $isLatest : $stored === $status;
         })->values();
@@ -668,8 +707,13 @@ class ReportHelper
 
     private function latestInFamily(array $family, callable $masterlistOf)
     {
-        $live = collect($family)->filter(fn ($row) => ! $this->isObsoleteMasterlist($masterlistOf($row)));
-        $pool = $live->isNotEmpty() ? $live : collect($family);
+        $current = collect($family)->filter(fn ($row) => $this->isCurrentMasterlist($masterlistOf($row)));
+        if ($current->isNotEmpty()) {
+            $pool = $current;
+        } else {
+            $live = collect($family)->filter(fn ($row) => ! $this->isObsoleteMasterlist($masterlistOf($row)));
+            $pool = $live->isNotEmpty() ? $live : collect($family);
+        }
 
         return $pool->sortByDesc(function ($row) use ($masterlistOf) {
             $ml = $masterlistOf($row);
@@ -799,15 +843,29 @@ class ReportHelper
         return strtolower(trim((string) ($ml->revision_status ?? ''))) === 'obsolete';
     }
 
+    private function isCurrentMasterlist(?object $ml): bool
+    {
+        if ($ml === null) {
+            return false;
+        }
+
+        $status = strtolower(trim((string) ($ml->revision_status ?? '')));
+
+        return $status === '' || $status === 'latest';
+    }
+
     /**
      * Sequential row/item number.
-     * Obsolete rows are unnumbered in mixed/all reports; obsolete-only reports number every row.
+     * Obsolete and superseded copies stay under the latest and do not take a new number.
+     * A report filtered to only that status numbers every row.
      */
     private function reportRowNumber(?object $ml, int &$counter, array $filters = []): int|string
     {
-        $obsoleteOnly = ($filters['revision_status'] ?? 'all') === 'obsolete';
+        $filter = strtolower(trim((string) ($filters['revision_status'] ?? 'all')));
+        $status = strtolower(trim((string) ($ml->revision_status ?? '')));
+        $historyOnly = $filter === 'obsolete' || $filter === 'superseded';
 
-        if ($this->isObsoleteMasterlist($ml) && ! $obsoleteOnly) {
+        if (! $historyOnly && in_array($status, ['obsolete', 'superseded'], true)) {
             return '';
         }
 
@@ -963,12 +1021,7 @@ class ReportHelper
             $query->whereExists(function ($q) use ($dateFrom, $dateTo) {
                 $q->select(DB::raw(1))->from('dcs_masterlist_registration as ml')
                     ->whereColumn('ml.request_id', 'dr.id');
-                if ($dateFrom) {
-                    $q->whereDate('ml.doc_registered_date', '>=', $dateFrom);
-                }
-                if ($dateTo) {
-                    $q->whereDate('ml.doc_registered_date', '<=', $dateTo);
-                }
+                $this->applyMasterlistPeriodFilter($q, $dateFrom, $dateTo);
             });
         }
 
@@ -1154,12 +1207,7 @@ class ReportHelper
             $query->whereExists(function ($q) use ($dateFrom, $dateTo) {
                 $q->select(DB::raw(1))->from('dcs_masterlist_registration as ml')
                     ->whereColumn('ml.request_id', 'dr.id');
-                if ($dateFrom) {
-                    $q->whereDate('ml.doc_registered_date', '>=', $dateFrom);
-                }
-                if ($dateTo) {
-                    $q->whereDate('ml.doc_registered_date', '<=', $dateTo);
-                }
+                $this->applyMasterlistPeriodFilter($q, $dateFrom, $dateTo);
             });
         }
 
@@ -1313,10 +1361,14 @@ class ReportHelper
         $query = DB::table('dcs_document_request_form as drf')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'drf.request_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
-            ->select('drf.*', 'dt.doc_type_name');
+            ->leftJoin('dcs_masterlist_registration as ml', function ($join) {
+                $join->on('ml.request_id', '=', 'dr.id')
+                    ->whereRaw('ml.id = (SELECT MAX(ml2.id) FROM dcs_masterlist_registration ml2 WHERE ml2.request_id = dr.id)');
+            })
+            ->select('drf.*', 'dt.doc_type_name', 'ml.doc_no as masterlist_doc_no');
         RegisterQueryHelper::applyExcludeOfficeIntakeDrf($query, 'drf');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
-        RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
+        RegisterQueryHelper::applyOfficeScope($query, 'dr');
 
         $formYear = $filters['form_year'] ?? null;
         if ($formYear) {
@@ -1335,9 +1387,12 @@ class ReportHelper
         $drfs = $query->get();
 
         $rows = $drfs->map(function ($drf, $index) {
+            $docNo = trim((string) ($drf->masterlist_doc_no ?? ''));
+
             return [
                 'item_no'          => $index + 1,
                 'drf_no'           => $drf->drf_no,
+                'doc_no'           => $docNo !== '' ? $docNo : null,
                 'drf_date'         => $drf->drf_date
                     ? RegisterQueryHelper::formatSmartDate($drf->drf_date) : null,
                 'doc_title'        => $drf->doc_title,
@@ -1354,6 +1409,7 @@ class ReportHelper
         $columns = [
             'item_no'      => 'ITEM NO.',
             'drf_no'       => 'DRF NO.',
+            'doc_no'       => 'DOCUMENT NO.',
             'drf_date'     => 'DRF DATE',
             'doc_title'    => 'DOCUMENT TITLE',
             'receipt_date' => 'RECEIPT DATE',
@@ -1375,10 +1431,14 @@ class ReportHelper
         $query = DB::table('dcs_document_change_notice as dcn')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'dcn.request_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
-            ->select('dcn.*', 'dt.doc_type_name');
+            ->leftJoin('dcs_masterlist_registration as ml', function ($join) {
+                $join->on('ml.request_id', '=', 'dr.id')
+                    ->whereRaw('ml.id = (SELECT MAX(ml2.id) FROM dcs_masterlist_registration ml2 WHERE ml2.request_id = dr.id)');
+            })
+            ->select('dcn.*', 'dt.doc_type_name', 'ml.doc_no as masterlist_doc_no');
         RegisterQueryHelper::applyExcludeOfficeIntakeDcn($query, 'dcn');
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
-        RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
+        RegisterQueryHelper::applyOfficeScope($query, 'dr');
 
         $formYear = $filters['form_year'] ?? null;
         if ($formYear) {
@@ -1400,10 +1460,12 @@ class ReportHelper
         $rows = $dcns->map(function ($dcn, $index) use ($revsByDcn) {
             $revisions = $revsByDcn->get($dcn->id, collect());
             $purpose = trim((string) ($dcn->brief_purpose ?? '')) ?: null;
+            $docNo = trim((string) ($dcn->masterlist_doc_no ?? ''));
 
             return [
                 'item_no'          => $index + 1,
                 'dcn_no'           => $dcn->dcn_no,
+                'doc_no'           => $docNo !== '' ? $docNo : null,
                 'dcn_date'         => $dcn->dcn_date
                     ? RegisterQueryHelper::formatSmartDate($dcn->dcn_date) : null,
                 'receipt_date'     => $dcn->dcn_receipt_date
@@ -1421,6 +1483,7 @@ class ReportHelper
         $columns = [
             'item_no'        => 'ITEM NO.',
             'dcn_no'         => 'DCN NO.',
+            'doc_no'         => 'DOCUMENT NO.',
             'dcn_date'       => 'DCN DATE',
             'receipt_date'   => 'RECEIPT DATE',
             'receipt_time'   => 'RECEIPT TIME',
@@ -1703,12 +1766,7 @@ class ReportHelper
                     ->whereColumn('ml.request_id', 'dr.id')
                     ->whereNotNull('ml.doc_no')
                     ->where('ml.doc_no', '!=', '');
-                if ($startDate) {
-                    $q->whereDate('ml.doc_registered_date', '>=', $startDate);
-                }
-                if ($endDate) {
-                    $q->whereDate('ml.doc_registered_date', '<=', $endDate);
-                }
+                $this->applyMasterlistPeriodFilter($q, $startDate, $endDate);
             });
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
@@ -1939,12 +1997,7 @@ class ReportHelper
             $query->whereExists(function ($q) use ($dateFrom, $dateTo) {
                 $q->select(DB::raw(1))->from('dcs_masterlist_registration as ml')
                     ->whereColumn('ml.request_id', 'dr.id');
-                if ($dateFrom) {
-                    $q->whereDate('ml.doc_registered_date', '>=', $dateFrom);
-                }
-                if ($dateTo) {
-                    $q->whereDate('ml.doc_registered_date', '<=', $dateTo);
-                }
+                $this->applyMasterlistPeriodFilter($q, $dateFrom, $dateTo);
             });
         }
 
@@ -2170,7 +2223,8 @@ class ReportHelper
             }
 
             if ($output === null) {
-            $viewData['isPdf'] = true;
+            $viewData['isPdf'] = ! $isMlPrint;
+            $viewData['embed'] = $isMlPrint;
 
             $html = view($isMlPrint ? 'pages.dcs.reports.export-masterlist-internal' : 'pages.dcs.reports.export', $viewData)->render();
 

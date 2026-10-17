@@ -1,21 +1,26 @@
 (function () {
     'use strict';
 
-    const root = document.getElementById('ofiRequestActions');
-    if (!root) return;
+    const roots = document.querySelectorAll('[data-ofi-actions]');
+    if (!roots.length) return;
 
+    roots.forEach(bindActions);
+
+    function bindActions(root) {
     const type = root.getAttribute('data-type');
     const id = root.getAttribute('data-id');
-    const check = document.getElementById('ofiRequestReceived');
-    const receiveMeta = document.getElementById('ofiRequestReceiveMeta');
-    const unlockBlock = document.getElementById('ofiRequestUnlockBlock');
-    const unlockReason = document.getElementById('ofiRequestUnlockReason');
-    const unlockBtn = document.getElementById('ofiRequestUnlockBtn');
-    const unlockMeta = document.getElementById('ofiRequestUnlockMeta');
-    const notifyBtn = document.getElementById('ofiRequestNotifyPrintBtn');
-    const notifyLabel = document.getElementById('ofiRequestNotifyPrintLabel');
-    const notifyMeta = document.getElementById('ofiRequestNotifyMeta');
-    const proceed = document.getElementById('ofiRequestProceed');
+    const proceedType = root.getAttribute('data-proceed-type') || type;
+    const proceedId = root.getAttribute('data-proceed-id') || id;
+    const check = root.querySelector('[data-ofi-received]');
+    const receiveMeta = root.querySelector('[data-ofi-receive-meta]');
+    const unlockBlock = root.querySelector('[data-ofi-unlock-block]');
+    const unlockReason = root.querySelector('[data-ofi-unlock-reason]');
+    const unlockBtn = root.querySelector('[data-ofi-unlock-btn]');
+    const unlockMeta = root.querySelector('[data-ofi-unlock-meta]');
+    const notifyBtn = root.querySelector('[data-ofi-notify-btn]');
+    const notifyLabel = root.querySelector('[data-ofi-notify-label]');
+    const notifyMeta = root.querySelector('[data-ofi-notify-meta]');
+    const proceed = root.querySelector('[data-ofi-proceed]');
 
     let busy = false;
     let registerUrl = root.getAttribute('data-register-url') || '';
@@ -48,10 +53,26 @@
         return true;
     }
 
+    const proceedHint = root.querySelector('[data-ofi-proceed-hint]');
+    const pairLabel = root.getAttribute('data-pair-label') || 'linked form';
+
+    function pairReceived() {
+        return root.getAttribute('data-pair-received') !== '0';
+    }
+
     function syncProceed(received) {
         if (!proceed) return;
-        const ok = !!received && canRegister && !!registerUrl;
+        const ok = !!received && pairReceived() && canRegister && !!registerUrl;
         proceed.disabled = !ok;
+        if (!proceedHint) return;
+        if (ok) {
+            proceedHint.hidden = true;
+            return;
+        }
+        proceedHint.hidden = false;
+        proceedHint.textContent = !received
+            ? 'Confirm receipt of the signed ' + String(type).toUpperCase() + ' first to unlock registration.'
+            : 'Switch to the ' + pairLabel + ' preview and confirm receipt of that signed form before registration.';
     }
 
     function syncUnlock(received) {
@@ -109,6 +130,7 @@
             }
             syncUnlock(true);
             syncProceed(true);
+            syncPairPanels(type, true);
         } catch (err) {
             if (check) check.checked = false;
             alert(err.message || 'Could not mark as received.');
@@ -137,6 +159,7 @@
             if (receiveMeta) receiveMeta.hidden = true;
             syncUnlock(false);
             syncProceed(false);
+            syncPairPanels(type, false);
         } catch (err) {
             if (check) check.checked = true;
             alert(err.message || 'Could not clear received status.');
@@ -247,9 +270,11 @@
         if (!registerUrl || proceed?.disabled) return;
         proceed.disabled = true;
         proceed.innerHTML = 'Opening… <i class="fa-solid fa-spinner fa-spin"></i>';
+        let landedType = proceedType;
+        let landedId = proceedId;
         try {
-            await fetch(
-                '/dcs/api/office-intake/' + encodeURIComponent(type) + '/' + encodeURIComponent(id) + '/begin-register',
+            const response = await fetch(
+                '/dcs/api/office-intake/' + encodeURIComponent(proceedType) + '/' + encodeURIComponent(proceedId) + '/begin-register',
                 {
                     method: 'POST',
                     headers: {
@@ -262,12 +287,28 @@
                     body: JSON.stringify({}),
                 }
             );
-        } catch (_) { /* still navigate */ }
+            const data = await response.json().catch(function () { return {}; });
+            if (!response.ok) {
+                const message = data.message || data.error || 'Receive the signed form before registration.';
+                alert(message);
+                proceed.disabled = false;
+                proceed.innerHTML = 'Proceed to Registration <i class="fa-solid fa-arrow-right"></i>';
+                syncProceed(check?.checked);
+                return;
+            }
+            if (data.registerUrl) registerUrl = data.registerUrl;
+            if (data.type) landedType = data.type;
+            if (data.id) landedId = data.id;
+        } catch (_) {
+            proceed.disabled = false;
+            proceed.innerHTML = 'Proceed to Registration <i class="fa-solid fa-arrow-right"></i>';
+            return;
+        }
 
         try {
             sessionStorage.setItem(
                 'dcs_office_intake_pending',
-                JSON.stringify({ type, id: Number(id) })
+                JSON.stringify({ type: landedType, id: Number(landedId) })
             );
         } catch (_) { /* ignore */ }
 
@@ -282,6 +323,19 @@
     notifyBtn?.addEventListener('click', notifyPrintReady);
     proceed?.addEventListener('click', proceedToRegistration);
 
+    if (check) check.checked = root.getAttribute('data-received') === '1';
     syncProceed(root.getAttribute('data-received') === '1');
     syncUnlock(root.getAttribute('data-received') === '1');
+    root.addEventListener('ofi-pair-sync', function () {
+        syncProceed(check?.checked);
+    });
+    }
+
+    function syncPairPanels(sourceType, received) {
+        document.querySelectorAll('[data-ofi-actions]').forEach(function (other) {
+            if ((other.getAttribute('data-pair-label') || '').toUpperCase() !== String(sourceType).toUpperCase()) return;
+            other.setAttribute('data-pair-received', received ? '1' : '0');
+            other.dispatchEvent(new CustomEvent('ofi-pair-sync'));
+        });
+    }
 })();

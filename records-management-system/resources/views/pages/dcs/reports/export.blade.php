@@ -159,6 +159,10 @@
             font-weight: 700;
             padding: 5px 4px;
         }
+        .data-table th.rpt-split,
+        .data-table td.rpt-split {
+            box-shadow: inset -2px 0 0 #ffffff;
+        }
         .data-table td {
             font-family: Arial, sans-serif;
             font-size: 10pt;
@@ -414,6 +418,10 @@
             $keys = array_keys($visCols);
             $groups = $groupHeaders ?? ($group_headers ?? []);
             $hasGroups = collect($groups)->contains(fn ($g) => $g !== null && $g !== '');
+            $splitKeys = \App\Helpers\ReportHelper::reportSplitKeys($keys);
+            $withSplit = static function (string $key, string $class = '') use ($splitKeys): string {
+                return trim($class.(in_array($key, $splitKeys, true) ? ' rpt-split' : ''));
+            };
             $monColClass = static function (string $key): string {
                 $dateKeys = ['date_received', 'date_registered', 'effectivity_date', 'deadline', 'date_released', 'ml_reg_date'];
                 $timeKeys = ['time_received', 'time_registered', 'time_released', 'ml_reg_time'];
@@ -440,7 +448,7 @@
                                 $group = $groups[$key] ?? null;
                             @endphp
                             @if($group === null || $group === '')
-                                <th rowspan="2" class="{{ $monColClass($key) }}">{!! $visCols[$key] !!}</th>
+                                <th rowspan="2" class="{{ $withSplit($key, $monColClass($key)) }}">{!! $visCols[$key] !!}</th>
                                 @php $i++; @endphp
                             @else
                                 @php
@@ -448,8 +456,9 @@
                                     while ($i + $span < count($keys) && ($groups[$keys[$i + $span]] ?? null) === $group) {
                                         $span++;
                                     }
+                                    $groupClass = in_array($keys[$i + $span - 1], $splitKeys, true) ? 'rpt-split' : '';
                                 @endphp
-                                <th colspan="{{ $span }}">{!! $group !!}</th>
+                                <th colspan="{{ $span }}" class="{{ $groupClass }}">{!! $group !!}</th>
                                 @php $i += $span; @endphp
                             @endif
                         @endwhile
@@ -457,12 +466,12 @@
                     <tr>
                         @foreach($keys as $key)
                             @if(($groups[$key] ?? null) !== null && ($groups[$key] ?? null) !== '')
-                                <th class="{{ $monColClass($key) }}">{!! $visCols[$key] !!}</th>
+                                <th class="{{ $withSplit($key, $monColClass($key)) }}">{!! $visCols[$key] !!}</th>
                             @endif
                         @endforeach
                     </tr>
                 @else
-                    <tr>@foreach($visCols as $k => $h)<th class="{{ $monColClass($k) }}">{!! $h !!}</th>@endforeach</tr>
+                    <tr>@foreach($visCols as $k => $h)<th class="{{ $withSplit($k, $monColClass($k)) }}">{!! $h !!}</th>@endforeach</tr>
                 @endif
             </thead>
             <tbody>
@@ -474,20 +483,21 @@
                                     ? ($row[$k] ?? null)
                                     : (is_object($row) ? ($row->{$k} ?? null) : null);
                             @endphp
+                            @php $cellClass = $withSplit($k, $monColClass($k)); @endphp
                             @if(in_array($k, ['item_no', 'no'], true) && ($v === null || $v === ''))
-                                <td></td>
-                            @elseif(in_array($k, ['doc_no', 'control_number', 'doc_number'], true) && $v !== null && $v !== '')
-                                <td class="{{ $monColClass($k) }}"><strong>{{ $v }}</strong></td>
+                                <td class="{{ $cellClass }}"></td>
+                            @elseif(in_array($k, ['doc_no', 'control_number', 'doc_number', 'drf_no', 'dcn_no'], true))
+                                <td class="{{ $cellClass }}"><strong>{{ $v !== null && $v !== '' ? $v : '' }}</strong></td>
                             @elseif($k === 'days_diff')
-                                <td>{{ $v === null || $v === '' ? '—' : abs((int) $v) }}</td>
+                                <td class="{{ $cellClass }}">{{ $v === null || $v === '' ? '—' : abs((int) $v) }}</td>
                             @elseif($k === 'forwarded_drr')
-                                <td class="mon-drr-td">{{ !empty($v) ? '☑' : '☐' }}</td>
+                                <td class="mon-drr-td {{ $cellClass }}">{{ !empty($v) ? '☑' : '☐' }}</td>
                             @elseif($k === 'remarks' && $v !== null && $v !== '')
-                                <td class="{{ $monColClass($k) }}">{!! nl2br(e((string) $v)) !!}</td>
+                                <td class="{{ $cellClass }}">{!! nl2br(e((string) $v)) !!}</td>
                             @elseif($v !== null && $v !== '')
-                                <td class="{{ $monColClass($k) }}">{{ $v }}</td>
+                                <td class="{{ $cellClass }}">{{ $v }}</td>
                             @else
-                                <td class="rpt-na {{ $monColClass($k) }}">&mdash;</td>
+                                <td class="rpt-na {{ $cellClass }}">&mdash;</td>
                             @endif
                         @endforeach
                     </tr>

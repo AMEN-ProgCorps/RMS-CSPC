@@ -841,6 +841,70 @@ new #[Layout('layouts.rdp')] #[Title('Received Documents - Document Tracking Sys
             justify-content: flex-end;
             gap: 10px;
         }
+        [data-theme="dark"] .table-card,
+        [data-theme="dark"] .empty-state {
+            background: #131c2e !important;
+            border-color: #1e293b !important;
+            color: #94a3b8 !important;
+            box-shadow: none !important;
+        }
+        [data-theme="dark"] .empty-state h3 {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .empty-state svg {
+            color: #64748b !important;
+        }
+        [data-theme="dark"] .data-table th {
+            background: #0f172a !important;
+            color: #cbd5e1 !important;
+            border-color: #1e293b !important;
+        }
+        [data-theme="dark"] .data-table td {
+            background: #131c2e !important;
+            color: #e2e8f0 !important;
+            border-color: #1e293b !important;
+        }
+        [data-theme="dark"] select[style*="background: #ffffff"],
+        [data-theme="dark"] select[style*="background:#ffffff"] {
+            background: #0f172a !important;
+            color: #f8fafc !important;
+            border-color: #334155 !important;
+        }
+        [data-theme="dark"] .header-title-box h1 {
+            color: #f8fafc !important;
+        }
+        [data-theme="dark"] .header-title-box p {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .header-icon {
+            background: rgba(37, 99, 235, 0.18) !important;
+            color: #93c5fd !important;
+            border-color: #1e3a8a !important;
+        }
+        [data-theme="dark"] .subsystem-badge {
+            background: rgba(37, 99, 235, 0.22) !important;
+            color: #93c5fd !important;
+        }
+        [data-theme="dark"] .filter-tabs {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+        }
+        [data-theme="dark"] .filter-tab-btn {
+            color: #94a3b8 !important;
+        }
+        [data-theme="dark"] .filter-tab-btn.active {
+            background: #1e293b !important;
+            color: #93c5fd !important;
+            box-shadow: none !important;
+        }
+        [data-theme="dark"] .badge-counter {
+            background: #1e293b !important;
+            color: #cbd5e1 !important;
+        }
+        [data-theme="dark"] .filter-tab-btn.active .badge-counter {
+            background: rgba(37, 99, 235, 0.28) !important;
+            color: #bfdbfe !important;
+        }
     </style>
 
     <!-- Header -->

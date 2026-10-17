@@ -205,8 +205,8 @@ class DcsNotificationService
             . '.';
 
         $url = $requestId && $requestId > 0
-            ? '/dcs/register/' . $requestId . '/edit'
-            : '/dcs/database';
+            ? '/dcs/monitoring/distribution-retrieval?doc=' . $requestId
+            : '/dcs/monitoring/distribution-retrieval';
 
         $adminOffice = \App\Helpers\RegisterQueryHelper::rfioNotificationOfficeCode();
         static::createNotification($adminOffice, $message, $url);
@@ -239,6 +239,26 @@ class DcsNotificationService
         $number = trim($dcnNo) !== '' ? ' ' . trim($dcnNo) : '';
         $docLabel = trim($docNo) !== '' ? " for document {$docNo}" : '';
         $message = "New Document Change Notice{$number}{$docLabel} was submitted by {$name} and is ready for RFIO processing.";
+        $url = '/dcs/register/requests/dcn/' . $dcnId;
+
+        static::createNotification($targetOfficeCode, $message, $url);
+    }
+
+    /**
+     * One notice for a DCN that was saved together with its DRF.
+     * The link opens the DCN review, which also shows the linked DRF.
+     */
+    public static function notifyOfficeDcnWithDrfSubmitted(
+        string $targetOfficeCode,
+        string $submitterName,
+        string $docNo,
+        string $title,
+        int $dcnId
+    ): void {
+        $name = static::displayName($submitterName);
+        $docLabel = trim($docNo) !== '' ? ' for document ' . trim($docNo) : '';
+        $titleLabel = trim($title) !== '' ? ': ' . trim($title) : '';
+        $message = "New Document Change Notice and Document Request Form{$docLabel}{$titleLabel} was submitted by {$name} and is ready for RFIO processing.";
         $url = '/dcs/register/requests/dcn/' . $dcnId;
 
         static::createNotification($targetOfficeCode, $message, $url);

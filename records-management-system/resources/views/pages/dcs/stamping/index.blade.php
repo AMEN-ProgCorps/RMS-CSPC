@@ -3,6 +3,7 @@
 use App\Helpers\RegisterQueryHelper;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
@@ -50,8 +51,21 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     public function with(): array
     {
         $query = DB::table('dcs_document_requests as dr')
-            ->join(DB::raw("(SELECT DISTINCT request_id FROM dcs_masterlist_registration WHERE scanned_masterlist IS NOT NULL AND scanned_masterlist <> '') AS scanned_ml"), 'scanned_ml.request_id', '=', 'dr.id')
-            ->select(['dr.id', 'dr.doc_type_id', 'dr.sub_type_id']);
+            ->join('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+            ->whereNotNull('ml.scanned_masterlist')
+            ->where('ml.scanned_masterlist', '<>', '')
+            ->select([
+                'dr.id',
+                'dr.doc_type_id',
+                'dr.sub_type_id',
+                'ml.doc_no',
+                'ml.doc_title',
+                'ml.revise_no',
+                'ml.revision_status',
+            ]);
+        if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            $query->addSelect('ml.stack_group');
+        }
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyRegisteredDocumentScope($query, 'dr');
         $query->orderByDesc('dr.id');
@@ -106,16 +120,41 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             });
         }
 
-        $total = (clone $query)->count();
+        $scanned = $query->get()->unique(fn ($row) => (int) $row->id)->values();
+        $families = $this->stampFamilies($scanned);
         $perPage = $this->pageSize();
-        $lastPage = max(1, (int) ceil($total / $perPage));
+        $total = $families->count();
+        $lastPage = max(1, (int) ceil($total / max(1, $perPage)));
         $page = min(max(1, $this->page), $lastPage);
-        $rows = RegisterQueryHelper::hydrateRequests(
-            (clone $query)->offset(($page - 1) * $perPage)->limit($perPage)->get(),
-            ['types', 'masterlist', 'stamps']
-        );
+        $slice = $families->slice(($page - 1) * $perPage, $perPage)->values();
+        $ids = [];
+        foreach ($slice as $family) {
+            $ids[] = (int) ($family['parent']['request_id'] ?? 0);
+            foreach ($family['children'] as $child) {
+                $ids[] = (int) ($child['request_id'] ?? 0);
+            }
+        }
+        $ids = array_values(array_filter(array_unique($ids)));
+        $hydrated = $ids === []
+            ? collect()
+            : RegisterQueryHelper::hydrateRequests(
+                DB::table('dcs_document_requests')->whereIn('id', $ids)->get(),
+                ['types', 'masterlist', 'stamps']
+            )->keyBy(fn ($doc) => (int) $doc->id);
+        $pageFamilies = $slice->map(function (array $family) use ($hydrated) {
+            $parent = $hydrated->get((int) ($family['parent']['request_id'] ?? 0));
+            $children = collect($family['children'])
+                ->map(fn (array $child) => $hydrated->get((int) ($child['request_id'] ?? 0)))
+                ->filter()
+                ->values();
+
+            return [
+                'parent' => $parent,
+                'children' => $children,
+            ];
+        })->filter(fn (array $family) => $family['parent'] !== null)->values();
         $documents = new \Illuminate\Pagination\LengthAwarePaginator(
-            $rows,
+            $pageFamilies,
             $total,
             $perPage,
             $page,
@@ -132,6 +171,102 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
     private function pageSize(): int
     {
         return in_array($this->perPage, [10, 15, 25, 50, 100], true) ? $this->perPage : 15;
+    }
+
+    /**
+     * One stamp row per family. Obsolete and superseded copies sit under the latest.
+     *
+     * @param  \Illuminate\Support\Collection<int, object>  $scanned
+     */
+    private function stampFamilies($scanned)
+    {
+        $typeIds = $scanned->pluck('doc_type_id')->merge($scanned->pluck('sub_type_id'))->filter()->unique()->values();
+        $types = $typeIds->isEmpty()
+            ? collect()
+            : DB::table('dcs_doc_types')->whereIn('id', $typeIds->all())->get()->keyBy(fn ($type) => (int) $type->id);
+        $rows = $scanned->map(fn ($row) => $this->stampFamilyRow($row, $types));
+        $docNos = $rows->pluck('doc_no')->filter(fn ($no) => trim((string) $no) !== '')->unique()->values();
+        if ($docNos->isNotEmpty()) {
+            $extra = DB::table('dcs_document_requests as dr')
+                ->join('dcs_masterlist_registration as ml', 'ml.request_id', '=', 'dr.id')
+                ->whereIn('ml.doc_no', $docNos->all())
+                ->whereNotIn('dr.id', $rows->pluck('request_id')->all() ?: [0])
+                ->where(function ($query) {
+                    $query->whereIn('ml.revision_status', ['latest', ''])
+                        ->orWhereNull('ml.revision_status');
+                })
+                ->select([
+                    'dr.id',
+                    'dr.doc_type_id',
+                    'dr.sub_type_id',
+                    'ml.doc_no',
+                    'ml.doc_title',
+                    'ml.revise_no',
+                    'ml.revision_status',
+                ]);
+            if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+                $extra->addSelect('ml.stack_group');
+            }
+            RegisterQueryHelper::applyNotDeleted($extra, 'dr');
+            RegisterQueryHelper::applyRegisteredDocumentScope($extra, 'dr');
+            if ($this->typeId !== 'all' && $this->typeId !== '') {
+                $extra->where('dr.doc_type_id', $this->typeId);
+            }
+            $extraRows = $extra->get();
+            $extraTypeIds = $extraRows->pluck('doc_type_id')->merge($extraRows->pluck('sub_type_id'))->filter()->unique()
+                ->reject(fn ($id) => $types->has((int) $id));
+            if ($extraTypeIds->isNotEmpty()) {
+                $types = $types->union(
+                    DB::table('dcs_doc_types')->whereIn('id', $extraTypeIds->all())->get()->keyBy(fn ($type) => (int) $type->id)
+                );
+            }
+            foreach ($extraRows as $row) {
+                $rows->push($this->stampFamilyRow($row, $types));
+            }
+        }
+
+        $groups = collect();
+        foreach ($rows->groupBy(fn (array $row) => RegisterQueryHelper::inventoryStackKey($row)) as $members) {
+            $allowsRevision = (bool) ($members->first()['allows_revision'] ?? true);
+            $sorted = $members->sortByDesc('rev_no')->values();
+            $parent = $allowsRevision
+                ? ($members->first(fn (array $row) => ($row['status'] ?? '') === 'latest' || ($row['status'] ?? '') === '') ?? $sorted->first())
+                : $sorted->first();
+            $children = $members
+                ->filter(fn (array $row) => (int) $row['request_id'] !== (int) ($parent['request_id'] ?? 0))
+                ->filter(fn (array $row) => in_array($row['status'] ?? '', ['obsolete', 'superseded'], true))
+                ->sortByDesc('rev_no')
+                ->values();
+            $groups->push([
+                'doc_no' => $parent['doc_no'] ?? '',
+                'parent' => $parent,
+                'children' => $children->all(),
+                'has_revisions' => $children->isNotEmpty(),
+                'revision_count' => 1 + $children->count(),
+                'obsolete_count' => $children->count(),
+            ]);
+        }
+
+        return RegisterQueryHelper::foldOrphanStatusCopies($groups)
+            ->sortByDesc(fn (array $family) => (int) ($family['parent']['request_id'] ?? 0))
+            ->values();
+    }
+
+    private function stampFamilyRow(object $row, $types): array
+    {
+        $type = $types->get((int) ($row->sub_type_id ?: $row->doc_type_id));
+
+        return [
+            'request_id' => (int) $row->id,
+            'doc_type_id' => (int) ($row->doc_type_id ?? 0),
+            'sub_type_id' => (int) ($row->sub_type_id ?? 0),
+            'doc_no' => (string) ($row->doc_no ?? ''),
+            'title' => (string) ($row->doc_title ?? ''),
+            'rev_no' => (int) ($row->revise_no ?? 0),
+            'status' => strtolower(trim((string) ($row->revision_status ?? 'latest'))) ?: 'latest',
+            'stack_group' => (string) ($row->stack_group ?? ''),
+            'allows_revision' => RegisterQueryHelper::typeAllowsRevision($type),
+        ];
     }
 }; ?>
 
@@ -182,7 +317,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         </div>
 
         {{-- ═══ Table ═══ --}}
-        <div class="st-table-card" style="position:relative;" wire:loading.class="is-loading">
+        <div class="st-table-card" style="position:relative;" wire:loading.class="is-loading" x-data="{ open: {} }">
             <div class="st-table-scroll">
                 <table class="st-table">
                     <thead>
@@ -192,13 +327,17 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                             <th class="col-docno">Document No.</th>
                             <th class="col-title">Document Title</th>
                             <th class="col-rev">Rev</th>
+                            <th class="col-status">Status</th>
                             <th class="col-files"><i class="fa-solid fa-paperclip"></i>&nbsp; Scanned File</th>
                             <th class="col-action">Action</th>
                         </tr>
                     </thead>
                     <tbody id="stTableBody">
-                        @forelse($documents as $i => $doc)
+                        @forelse($documents as $i => $family)
+                            @php $revKey = (int) ($family['parent']->id ?? 0); $childCount = $family['children']->count(); @endphp
+                            @foreach(collect([$family['parent']])->merge($family['children']) as $memberIndex => $doc)
                             @php
+                                $isChild = $memberIndex > 0;
                                 $ml   = $doc->masterlistRegistration;
                                 $drf  = $doc->documentRequestForm;
 
@@ -206,6 +345,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                 $title   = $ml->doc_title ?? $drf->doc_title ?? 'Untitled';
                                 $revNo   = $ml->revise_no ?? 0;
                                 $docType = $doc->docType->doc_type_name ?? 'N/A';
+                                $copyStatus = strtolower(trim((string) ($ml->revision_status ?? '')));
+                                $statusLabel = match ($copyStatus) {
+                                    'obsolete' => 'Obsolete',
+                                    'superseded' => 'Superseded',
+                                    'archived' => 'Archived',
+                                    default => 'Latest',
+                                };
 
                                 // Build stamp lookup
                                 $stampMap = [];
@@ -235,12 +381,20 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
                                 $anyStamped = collect($files)->contains(fn($f) => $f['stamped']);
                             @endphp
-                            <tr>
-                                <td class="col-idx">{{ $documents->firstItem() + $i }}</td>
+                            <tr class="{{ $isChild ? 'st-family-child' : 'st-family-lead' }}" @if($isChild) x-show="open[{{ $revKey }}]" x-cloak @endif>
+                                <td class="col-idx">
+                                    @if(! $isChild && $childCount > 0)
+                                        <button type="button" class="st-expand" :class="{ expanded: open[{{ $revKey }}] }" x-on:click.stop="open[{{ $revKey }}] = !open[{{ $revKey }}]" :title="open[{{ $revKey }}] ? 'Hide older copies' : 'Show {{ $childCount }} older {{ $childCount === 1 ? 'copy' : 'copies' }}'">
+                                            <span x-text="open[{{ $revKey }}] ? '▼' : '▶'"></span>
+                                        </button>
+                                    @endif
+                                    {{ $isChild ? '' : $documents->firstItem() + $i }}
+                                </td>
                                 <td class="col-type"><span class="st-badge-type">{{ $docType }}</span></td>
                                 <td class="col-docno"><span class="st-doc-no">{{ $docNo }}</span></td>
                                 <td class="col-title"><span class="st-doc-title" title="{{ $title }}">{{ $title }}</span></td>
                                 <td class="col-rev"><span class="st-badge-rev">{{ $revNo }}</span></td>
+                                <td class="col-status"><span class="st-copy-status is-{{ $copyStatus !== '' ? $copyStatus : 'latest' }}">{{ $statusLabel }}</span></td>
                                 <td class="col-files">
                                     @if(count($files) > 0)
                                         <div class="st-files-group">
@@ -271,6 +425,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                     @endif
                                 </td>
                                 <td class="col-action">
+                                    @if(count($files) > 0)
                                     <button type="button" class="st-btn-stamp {{ $anyStamped ? 'st-btn-stamp-change' : '' }}"
                                         data-files='@json($files)'
                                         data-request-id="{{ $doc->id }}"
@@ -285,11 +440,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                                             <span>Stamp</span>
                                         @endif
                                     </button>
+                                    @endif
                                 </td>
                             </tr>
+                            @endforeach
                         @empty
                             <tr>
-                                <td colspan="7">
+                                <td colspan="8">
                                     <div class="st-empty">
                                         <div class="st-empty-icon">
                                             <i class="fa-solid fa-stamp"></i>

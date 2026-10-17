@@ -711,13 +711,17 @@ function handleUniversalModalClose(event) {
             'button[onclick*="close" i]',
             'button[onclick*="toggle" i]',
             'button[x-on\\:click*="close" i]',
-            'button[@click*="close" i]',
             'button.btn-close',
             '[data-dismiss="modal"]'
         ];
 
         for (const sel of closeSelectors) {
-            const btn = topModal.querySelector(sel);
+            let btn = null;
+            try {
+                btn = topModal.querySelector(sel);
+            } catch (e) {
+                continue;
+            }
             if (btn && isElementVisibleForModal(btn) && !btn.disabled) {
                 btn.click();
                 event.preventDefault();

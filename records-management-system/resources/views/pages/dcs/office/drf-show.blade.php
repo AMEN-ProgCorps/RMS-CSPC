@@ -43,6 +43,8 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
             'canEdit' => OfficeIntakeHelper::canOfficeEditIntake('drf', $this->id),
             'editReason' => trim((string) ($drf->edit_unlock_reason ?? '')),
             'isRegistered' => OfficeIntakeHelper::isIntakeRegistered('drf', $this->id),
+            'canPrint' => OfficeIntakeHelper::officeMayPrintIntake($drf),
+            'printHint' => 'Print stays locked until RFIO confirms this form and notifies you to print and sign.',
         ];
     }
 }; ?>
@@ -69,9 +71,19 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
                         <i class="fa-solid fa-pen"></i> Edit form
                     </a>
                 @endif
-                <a href="{{ route('dcs.office.drf.print', $drf->id, absolute: false) }}" target="_blank" class="reg-btn reg-btn-save">
-                    <i class="fa-solid fa-print"></i> Print form
-                </a>
+                @if($canPrint ?? false)
+                    <a href="{{ route('dcs.office.drf.print', $drf->id, absolute: false) }}" target="_blank" class="reg-btn reg-btn-save">
+                        <i class="fa-solid fa-print"></i> Print form
+                    </a>
+                @else
+                    <span id="ofiPrintControl" class="reg-btn reg-btn-save ofi-print-locked" title="{{ $printHint }}"
+                        data-locked="1"
+                        data-intake-id="{{ $drf->id }}"
+                        data-status-url="{{ route('dcs.api.office-intake.print-ready', ['type' => 'drf', 'ids' => $drf->id], false) }}"
+                        data-print-url="{{ route('dcs.office.drf.print', $drf->id, false) }}">
+                        <i class="fa-solid fa-print"></i> Print form
+                    </span>
+                @endif
             </div>
         </div>
 
@@ -88,6 +100,13 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
                 <strong>RFIO asked for corrections:</strong> {{ $editReason }}
             </div>
         @endif
+
+        @unless($canPrint ?? false)
+            <div class="ofi-alert" id="ofiPrintHint">
+                <i class="fa-solid fa-print"></i>
+                {{ $printHint }}
+            </div>
+        @endunless
 
         <div class="ofi-lock-banner {{ ($isRegistered ?? false) ? 'is-registered' : (($canEdit ?? false) ? 'is-edit' : '') }}">
             @if($isRegistered ?? false)
@@ -111,7 +130,7 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
                 <div class="reg-grid-2-1">
                     <div class="reg-field">
                         <label>Originator</label>
-                        <div class="ofi-show-value">{{ $originator ?: '—' }}</div>
+                        <div class="ofi-show-value"><x-dcs.originator-lines :name="$originator" /></div>
                     </div>
                     <div class="reg-field">
                         <label>Date</label>
@@ -211,3 +230,4 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
         </section>
     </div>
 </div>
+@include('pages.dcs.office.partials.print-unlock-watch')

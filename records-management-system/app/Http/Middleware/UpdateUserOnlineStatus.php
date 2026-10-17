@@ -61,6 +61,11 @@ class UpdateUserOnlineStatus
         });
 
         $isBackgroundPoll = $this->isAutomatedBackgroundPoll($request);
+        $clientActiveMs = (int) ($_COOKIE['rms_client_active'] ?? 0);
+        $clientAgeMs = $clientActiveMs > 0 ? ((int) round(microtime(true) * 1000) - $clientActiveMs) : PHP_INT_MAX;
+        $clientFresh = $clientActiveMs > 0
+            && $clientAgeMs < ($timeoutMinutes * 60 * 1000)
+            && $clientAgeMs > -120000;
 
         if ($user) {
             $details = DB::table($accDetailsTbl)->where('account_id', $user->id)->first();
@@ -132,7 +137,7 @@ class UpdateUserOnlineStatus
             // this Laravel middleware entirely, so they never refresh last_online_time here.
             // Without this guard, a passive poll would see the stale timestamp and force a logout
             // even though the user is actively chatting — the poll should observe, not enforce.
-            if (! $isBackgroundPoll && $details && $details->last_online_time !== null) {
+            if (! $isBackgroundPoll && ! $clientFresh && $details && $details->last_online_time !== null) {
                 $lastOnline = \Carbon\Carbon::parse($details->last_online_time);
                 if ($lastOnline->diffInMinutes($now) >= $timeoutMinutes) {
                     $statusId = 3;
@@ -163,8 +168,9 @@ class UpdateUserOnlineStatus
                 }
             }
 
-            // C. Update current user activity ONLY if this was NOT an automated background poll
-            if (! $isBackgroundPoll) {
+            // C. Refresh activity for a real request, or for a poll while the browser
+            // still reports the user as active (including inside a preview iframe).
+            if (! $isBackgroundPoll || $clientFresh) {
                 DB::table($accDetailsTbl)
                     ->where('account_id', $user->id)
                     ->update([
@@ -218,7 +224,7 @@ class UpdateUserOnlineStatus
                         foreach ($calls as $call) {
                             $method = $call['method'] ?? '';
                             // Methods used purely by background polls
-                            $backgroundPollMethods = ['checkRoleUpdate', 'refresh', 'ping', 'render'];
+                            $backgroundPollMethods = ['checkRoleUpdate', 'refresh', 'ping', 'render', 'loadNotifications'];
                             if (! in_array($method, $backgroundPollMethods, true)) {
                                 $hasUserAction = true;
                                 break 2;

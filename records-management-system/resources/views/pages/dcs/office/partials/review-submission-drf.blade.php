@@ -50,7 +50,7 @@
             </div>
             <div class="ofi-review-field">
                 <dt>Originator</dt>
-                <dd>{{ $originator ?: '—' }}</dd>
+                <dd><x-dcs.originator-lines :name="$originator" /></dd>
             </div>
             <div class="ofi-review-field">
                 <dt>Document type</dt>

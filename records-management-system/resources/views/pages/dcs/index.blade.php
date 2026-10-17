@@ -14,6 +14,12 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             auth()->user()?->details?->first_name,
             auth()->user()?->details?->last_name,
         ]))) ?: (auth()->user()?->username ?? 'User');
+        $roleTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_key')
+            ? 'sys_condition_key'
+            : 'condition_key';
+        $roleName = trim((string) DB::table($roleTable)
+            ->where('id', auth()->user()?->account_role)
+            ->value('key_name'));
         $headerDate = now('Asia/Manila')->format('l, F j, Y');
         $headerTime = now('Asia/Manila')->format('g:i:s A');
 
@@ -70,11 +76,13 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             ->select('dr.doc_type_id')
             ->selectRaw('COUNT(*)::int as total');
         if ($hasRevStatus) {
-            $counts->selectRaw("COUNT(*) FILTER (WHERE COALESCE(NULLIF(TRIM(ml.revision_status::text), ''), 'latest') <> 'obsolete')::int as latest")
+            $counts->selectRaw("COUNT(*) FILTER (WHERE COALESCE(NULLIF(TRIM(ml.revision_status::text), ''), 'latest') = 'latest')::int as latest")
+                ->selectRaw("COUNT(*) FILTER (WHERE ml.revision_status = 'superseded')::int as superseded")
                 ->selectRaw("COUNT(*) FILTER (WHERE ml.revision_status = 'obsolete')::int as obsolete")
                 ->selectRaw("COUNT(*) FILTER (WHERE ml.revision_status IS NULL OR TRIM(ml.revision_status::text) = '' OR ml.revision_status = 'latest')::int as current");
         } else {
             $counts->selectRaw('COUNT(*)::int as latest')
+                ->selectRaw('0::int as superseded')
                 ->selectRaw('0::int as obsolete')
                 ->selectRaw('COUNT(*)::int as current');
         }
@@ -88,6 +96,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         $stats = [
             'totalDocuments' => (int) $byTypeId->sum('total'),
             'latestCount' => (int) $byTypeId->sum('latest'),
+            'supersededCount' => (int) $byTypeId->sum('superseded'),
             'obsoleteCount' => (int) $byTypeId->sum('obsolete'),
             'internalCount' => $countFor('internal_docs'),
             'internalFormsCount' => $countFor('internal_forms'),
@@ -111,6 +120,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             'stats' => $stats,
             'typeIds' => $typeIds,
             'userDisplayName' => $userDisplayName,
+            'roleName' => $roleName,
             'headerDate' => $headerDate,
             'headerTime' => $headerTime,
             'holidays' => $holidays,
@@ -373,7 +383,7 @@ document.addEventListener('alpine:init', () => {
                     <span class="ofi-dash-step-num">2</span>
                     <div>
                         <strong>Print and sign</strong>
-                        <p>Print the saved form, then have it signed as required.</p>
+                        <p>Print stays locked until RFIO confirms the form and notifies you. After that notice, print the form and have it signed.</p>
                     </div>
                 </li>
                 <li>
@@ -422,7 +432,7 @@ document.addEventListener('alpine:init', () => {
     >
         <div class="dashboard-header dash-welcome-bar">
             <div class="welcome-text dash-welcome-copy">
-                <p class="header-greeting">Document Controller</p>
+                <p class="header-greeting">{{ $roleName !== '' ? $roleName : 'User' }}</p>
                 <h1 class="page-title">
                     Welcome, <span class="dash-welcome-name">{{ explode(' ', trim((string) $userDisplayName))[0] ?: 'User' }}</span>
                 </h1>
@@ -449,12 +459,16 @@ document.addEventListener('alpine:init', () => {
                     <a href="{{ route('dcs.database.index', ['revision' => 'latest'], absolute: false) }}" class="dash-queue-chip is-latest">
                         <span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong>
                     </a>
+                    <a href="{{ route('dcs.database.index', ['revision' => 'superseded'], absolute: false) }}" class="dash-queue-chip is-superseded">
+                        <span>Superseded</span><strong>{{ number_format((int) $stats['supersededCount']) }}</strong>
+                    </a>
                     <a href="{{ route('dcs.database.index', ['revision' => 'obsolete'], absolute: false) }}" class="dash-queue-chip is-obsolete">
                         <span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong>
                     </a>
                 @else
                     <div class="dash-queue-chip"><span>Total</span><strong>{{ number_format((int) $stats['totalDocuments']) }}</strong></div>
                     <div class="dash-queue-chip is-latest"><span>Latest</span><strong>{{ number_format((int) $stats['latestCount']) }}</strong></div>
+                    <div class="dash-queue-chip is-superseded"><span>Superseded</span><strong>{{ number_format((int) $stats['supersededCount']) }}</strong></div>
                     <div class="dash-queue-chip is-obsolete"><span>Obsolete</span><strong>{{ number_format((int) $stats['obsoleteCount']) }}</strong></div>
                 @endif
                 @if(!empty($requestCounts))
@@ -640,7 +654,7 @@ document.addEventListener('alpine:init', () => {
                                                                         </tr>
                                                                     </thead>
                                                                     <tbody>
-                                                                        <template x-for="(office, officeIdx) in section.offices" :key="officeIdx">
+                                                                        <template x-for="(office, officeIdx) in visibleSectionOffices(section)" :key="officeIdx">
                                                                             <tr>
                                                                                 <td class="dash-cl-office-col-name" x-text="office.office"></td>
                                                                                 <td class="dash-cl-office-col-copies" x-show="section.with_copies" x-text="office.copies"></td>
@@ -648,6 +662,13 @@ document.addEventListener('alpine:init', () => {
                                                                         </template>
                                                                     </tbody>
                                                                 </table>
+                                                                <button
+                                                                    type="button"
+                                                                    class="dash-cl-office-more"
+                                                                    x-show="sectionOfficesNeedMore(section)"
+                                                                    @click="toggleSectionOffices(section)"
+                                                                    x-text="officeListExpanded[section.heading] ? 'See less' : ('See more (' + (section.offices.length - 4) + ' more)')"
+                                                                ></button>
                                                             </div>
                                                         </template>
                                                         <template x-if="section.items">
@@ -729,7 +750,7 @@ document.addEventListener('alpine:init', () => {
                         <div class="action-icon-wrap"><i class="fa-solid fa-file-circle-plus"></i></div>
                         <div class="action-content">
                             <h4>Register New Document</h4>
-                            <p>Create and route initial document draft</p>
+                            <p>Register a document that is not in the system yet</p>
                         </div>
                         <i class="fa-solid fa-arrow-right action-arrow"></i>
                     </a>
@@ -737,7 +758,7 @@ document.addEventListener('alpine:init', () => {
                         <div class="action-icon-wrap"><i class="fa-solid fa-file-pen"></i></div>
                         <div class="action-content">
                             <h4>Register Revised Document</h4>
-                            <p>Upload new version for approval</p>
+                            <p>Register the next revision of a document already on file</p>
                         </div>
                         <i class="fa-solid fa-arrow-right action-arrow"></i>
                     </a>
@@ -745,7 +766,7 @@ document.addEventListener('alpine:init', () => {
                         <div class="action-icon-wrap"><i class="fa-solid fa-rotate"></i></div>
                         <div class="action-content">
                             <h4>Update Document</h4>
-                            <p>Modify metadata or access permissions</p>
+                            <p>Change the details of a document that is already registered</p>
                         </div>
                         <i class="fa-solid fa-arrow-right action-arrow"></i>
                     </a>
@@ -1020,6 +1041,7 @@ document.addEventListener('alpine:init', () => {
         revisionsLoading: false,
         checklistLoading: false,
         checklistPreview: null,
+        officeListExpanded: {},
         checklistEditUrl: '',
         checklistStampUrl: '',
         activeChecklistKey: '',
@@ -1164,10 +1186,28 @@ document.addEventListener('alpine:init', () => {
             const preferred = options.find((cl) => cl.key === current) || options[0];
             await this.loadChecklist(preferred.key);
         },
+        visibleSectionOffices(section) {
+            const list = Array.isArray(section?.offices) ? section.offices : [];
+            const heading = String(section?.heading || '');
+            if (!/retrieval/i.test(heading) || this.officeListExpanded[heading]) return list;
+            return list.slice(0, 4);
+        },
+        sectionOfficesNeedMore(section) {
+            const list = Array.isArray(section?.offices) ? section.offices : [];
+            return /retrieval/i.test(String(section?.heading || '')) && list.length > 4;
+        },
+        toggleSectionOffices(section) {
+            const heading = String(section?.heading || '');
+            this.officeListExpanded = {
+                ...this.officeListExpanded,
+                [heading]: !this.officeListExpanded[heading],
+            };
+        },
         async loadChecklist(type) {
             this.activeChecklistKey = type;
             this.checklistLoading = true;
             this.checklistPreview = null;
+            this.officeListExpanded = {};
             try {
                 const res = await fetch('/dcs/api/documents/' + this.activeRequestId + '/checklist/' + type);
                 if (!res.ok) throw new Error('not found');

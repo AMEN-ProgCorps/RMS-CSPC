@@ -255,22 +255,26 @@
             line-height: 1.0;
         }
         .r1-title-hang {
+            display: flex;
+            align-items: flex-start;
             width: 100%;
-            padding-left: 0.48in;
-            text-indent: -0.48in;
+            gap: 4px;
             word-break: normal;
             overflow-wrap: break-word;
             white-space: normal;
         }
         .r1-title-hang .lbl-10 {
             display: inline;
+            flex: 0 0 auto;
             margin-right: 0;
             text-decoration: none;
         }
         .r1-title-hang .r1-title-val {
+            flex: 1 1 auto;
+            min-width: 0;
             font-weight: 400;
             font-size: 10pt;
-            line-height: 1.0;
+            line-height: 1.15;
             text-decoration: underline;
             text-underline-offset: 2px;
             text-decoration-thickness: 1px;
@@ -397,10 +401,15 @@
 
         /* Row 4: 0.18 × 5 = 0.90in */
         .r4 { height: 0.90in; }
+        .r4.has-extra-reviewer { height: 1.08in; }
         .r4-inner {
             height: 0.90in;
             display: flex;
             flex-direction: column;
+        }
+        .r4.has-extra-reviewer .r4-inner {
+            height: 1.08in;
+            padding-bottom: 0.14in;
         }
         .r4-band {
             height: 0.18in;
@@ -505,7 +514,11 @@
             align-items: center;
             justify-content: center;
             width: 100%;
-            min-height: 0.18in;
+            height: 1.44in;
+            min-height: 1.44in;
+        }
+        .appr-col-stack.is-multi {
+            justify-content: space-evenly;
         }
         .appr-col-stack .appr-cell {
             display: block;
@@ -615,10 +628,73 @@
 @php
     $isReviewer = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake();
     $viewerMode = ! empty($viewerMode);
+    $allowPrint = $allowPrint ?? true;
+    $printLockMessage = $printLockMessage ?? 'Save the form before printing.';
+    $printReadyId = (int) ($dcn->id ?? 0);
+    $printReadyUrl = $printReadyId > 0
+        ? route('dcs.api.office-intake.print-ready', ['type' => 'dcn', 'ids' => $printReadyId], false)
+        : '';
 @endphp
+@if($viewerMode)
+<script>
+(function () {
+    var last = 0;
+    function ping() {
+        var now = Date.now();
+        if (now - last < 4000) return;
+        last = now;
+        try { parent.postMessage({ type: 'rms-user-activity' }, location.origin); } catch (e) {}
+    }
+    ['mousemove', 'mousedown', 'keydown', 'scroll', 'click', 'touchstart'].forEach(function (name) {
+        document.addEventListener(name, ping, { passive: true });
+    });
+    ping();
+})();
+</script>
+@endif
+@if(! $allowPrint)
+<style id="ofi-print-block-style">
+    @media print {
+        body * { display: none !important; }
+        body::after {
+            display: block !important;
+            content: "{{ $printLockMessage }}";
+            font: 14pt Arial, sans-serif;
+            color: #000;
+            padding: 1in;
+        }
+    }
+</style>
+<script>
+window.print = function () {};
+@if($printReadyUrl !== '')
+(function () {
+    var url = @json($printReadyUrl);
+    var id = @json((string) $printReadyId);
+    var timer = setInterval(async function () {
+        try {
+            var res = await fetch(url, {
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin'
+            });
+            if (!res.ok) return;
+            var data = await res.json();
+            var ready = (data.ready || []).map(String);
+            if (ready.indexOf(id) === -1) return;
+            clearInterval(timer);
+            location.reload();
+        } catch (e) {}
+    }, 2000);
+})();
+@endif
+</script>
+@endif
 <div class="print-toolbar">
     @if($viewerMode)
         <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIO review</span>
+    @elseif(! $allowPrint)
+        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">{{ $printLockMessage }}</span>
+        <button type="button" class="btn-close" onclick="window.close()">Close</button>
     @else
         @if($isReviewer)
             <a href="{{ route('dcs.requests.index', absolute: false) }}" class="btn-close" style="text-decoration:none;display:inline-flex;align-items:center;">Back to Request</a>
@@ -725,7 +801,7 @@
         </tr>
 
         {{-- Row 4: Originator / Department / Reviewed (5 × 0.18) --}}
-        <tr class="r4">
+        <tr class="r4{{ $reviewedByDate2 !== '' ? ' has-extra-reviewer' : '' }}">
             <td>
                 <div class="r4-inner">
                     <div class="r4-band"></div>
@@ -816,7 +892,7 @@
                     </colgroup>
                     <tr>
                         <td>
-                            <div class="appr-col-stack">
+                            <div class="appr-col-stack {{ count($filledApprovals) > 1 ? 'is-multi' : '' }}">
                                 @forelse($filledApprovals as $appr)
                                     <span class="appr-cell">{{ $appr['position'] }}</span>
                                 @empty
@@ -825,7 +901,7 @@
                             </div>
                         </td>
                         <td>
-                            <div class="appr-col-stack">
+                            <div class="appr-col-stack {{ count($filledApprovals) > 1 ? 'is-multi' : '' }}">
                                 @forelse($filledApprovals as $appr)
                                     <span class="appr-cell">{{ $appr['name'] }}</span>
                                 @empty
@@ -834,7 +910,7 @@
                             </div>
                         </td>
                         <td>
-                            <div class="appr-col-stack">
+                            <div class="appr-col-stack {{ count($filledApprovals) > 1 ? 'is-multi' : '' }}">
                                 @forelse($filledApprovals as $appr)
                                     <span class="appr-cell">&nbsp;</span>
                                 @empty
@@ -843,7 +919,7 @@
                             </div>
                         </td>
                         <td>
-                            <div class="appr-col-stack">
+                            <div class="appr-col-stack {{ count($filledApprovals) > 1 ? 'is-multi' : '' }}">
                                 @forelse($filledApprovals as $appr)
                                     <span class="appr-cell">{{ $appr['date'] }}</span>
                                 @empty

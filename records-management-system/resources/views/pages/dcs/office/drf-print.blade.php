@@ -7,7 +7,7 @@
     <style>
         /*
          * CSPC-F-DCC-06 Document Request Form — forced print geometry
-         * Long bond / Mexico Legal ~8.5 × 13.39in | header top margin fixed at 0.23in
+         * Philippine long bond 8.5 × 13in. The form itself uses the top half (6.5in).
          * Logo: left 0.46in, top 0.23in, size 0.57×0.59, gap to line 0.03in
          * Header/footer rules: 3px
          *
@@ -15,8 +15,8 @@
          * that CSS cannot remove and makes the header look shifted down.
          */
         @page {
-            /* Prefer Mexico Legal (Brother / PH long bond) so the sheet fills the page */
-            size: 8.5in 13.39in;
+            /* Philippine long bond. The form occupies the top half of this sheet. */
+            size: 8.5in 13in;
             margin: 0 !important;
         }
 
@@ -71,12 +71,12 @@
         .print-toolbar .btn-print { background: #0d2a7a; color: #fff; border-color: #0d2a7a; }
         .print-toolbar .btn-close { background: #fff; color: #64748b; }
 
-        /* Full long-bond sheet (Mexico Legal 8.5 × 13.39); form uses upper area */
+        /* Long bond is 13in tall. The DRF form is the top half; the lower half stays blank. */
         .sheet {
             width: 8.5in !important;
-            height: 13.39in !important;
-            min-height: 13.39in !important;
-            max-height: 13.39in !important;
+            height: 13in !important;
+            min-height: 13in !important;
+            max-height: 13in !important;
             margin: 16px auto;
             padding: 0 !important;
             background: #fff !important;
@@ -87,6 +87,12 @@
             line-height: 1 !important;
             color: #000 !important;
             overflow: hidden !important;
+        }
+        /* The DRF form is only the top half of the long bond sheet. */
+        .sheet-main {
+            height: auto !important;
+            min-height: 6.5in !important;
+            max-height: none !important;
         }
 
         /* ═══════════ HEADER ═══════════
@@ -276,6 +282,46 @@
         .fline.w-date { flex: 1 1 auto !important; width: auto !important; min-width: 1.79in !important; }
         .fline.w-fill { flex: 1 1 auto !important; width: auto !important; min-width: 0 !important; }
         .fline.w-fill .fline-val { white-space: normal !important; }
+        .fline.w-fill .fline-val.is-originator {
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            font-size: 11pt !important;
+        }
+
+        /* Long titles: line 2 starts under the first title words, beside the label. */
+        .doc-title-block {
+            display: flex !important;
+            align-items: flex-start !important;
+            width: 100% !important;
+            height: auto !important;
+            min-height: 13pt !important;
+            max-height: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: transparent !important;
+        }
+        .doc-title-block .lbl {
+            height: 13pt !important;
+            line-height: 13pt !important;
+        }
+        .doc-title-lines {
+            flex: 1 1 auto !important;
+            min-width: 0 !important;
+            display: flex !important;
+            flex-direction: column !important;
+        }
+        .doc-title-block .fline {
+            display: flex !important;
+            width: 100% !important;
+            height: 13pt !important;
+            min-height: 13pt !important;
+            max-height: 13pt !important;
+        }
+        .doc-title-block .fline.w-fill .fline-val {
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: clip !important;
+        }
 
         /* Request / Originator / Document Title — single spacing (1.0) */
         .row {
@@ -283,9 +329,9 @@
             align-items: flex-end !important;
             margin: 0 !important;
             padding: 0 !important;
-            height: 11pt !important;
-            min-height: 11pt !important;
-            max-height: 11pt !important;
+            height: 13pt !important;
+            min-height: 13pt !important;
+            max-height: 13pt !important;
             background: transparent !important;
             font-size: 11pt !important;
             line-height: 1 !important;
@@ -313,10 +359,10 @@
         .check-row {
             display: flex !important;
             align-items: center !important;
-            height: 11pt !important;
-            min-height: 11pt !important;
-            max-height: 11pt !important;
-            margin: 0 0 9pt !important; /* Arial 9 space before Description */
+            height: 10pt !important;
+            min-height: 10pt !important;
+            max-height: 10pt !important;
+            margin: 0 0 10.5pt !important; /* 11 */
             padding: 0 !important;
             font-size: 11pt !important;
             line-height: 1 !important;
@@ -337,7 +383,7 @@
             display: inline-block !important;
             width: 0.17in !important;
             height: 0.14in !important;
-            border: 1px solid #000 !important;
+            border: 0.5px solid #000 !important;
             text-align: center !important;
             line-height: 0.12in !important;
             font-size: 8pt !important;
@@ -348,7 +394,7 @@
         }
 
         .desc-block {
-            margin: 0 0 11pt !important; /* Arial 11 before Distribute */
+            margin: 0 0 13pt !important;
             padding: 0 !important;
             background: transparent !important;
         }
@@ -362,9 +408,9 @@
             display: flex !important;
             flex-direction: column !important;
             justify-content: flex-end !important;
-            height: 11pt !important;
-            min-height: 11pt !important;
-            max-height: 11pt !important;
+            height: 13pt !important;
+            min-height: 13pt !important;
+            max-height: 13pt !important;
             margin: 0 !important;
             padding: 0 !important;
             background: transparent !important;
@@ -389,7 +435,7 @@
             display: grid !important;
             grid-template-columns: repeat(4, 1fr) !important;
             column-gap: 0.33in !important;
-            margin: 0 0 27pt !important; /* Arial 8+8+11 before table */
+            margin: 0 0 27pt !important;
             padding: 0 !important;
             background: transparent !important;
         }
@@ -403,9 +449,9 @@
             display: flex !important;
             flex-direction: column !important;
             justify-content: flex-end !important;
-            height: 11pt !important;
-            min-height: 11pt !important;
-            max-height: 11pt !important;
+            height: 12.5pt !important;
+            min-height: 12.5pt !important;
+            max-height: 12.5pt !important;
             margin: 0 !important;
             padding: 0 !important;
             background: transparent !important;
@@ -436,9 +482,9 @@
         .sig-table th,
         .sig-table td {
             border: 0.5pt solid #000 !important;
-            height: 0.2in !important;
-            min-height: 0.2in !important;
-            max-height: 0.2in !important;
+            height: 0.21in !important;
+            min-height: 0.21in !important;
+            max-height: 0.21in !important;
             padding: 0 3px !important;
             vertical-align: middle !important;
             line-height: 1.0 !important;
@@ -495,7 +541,7 @@
 
         .footer-rule {
             border: none !important;
-            margin: 7px calc(-0.5in + 0.35in) 0 calc(-0.5in + 0.4in) !important;
+            margin: 10px calc(-0.5in + 0.35in) 0 calc(-0.5in + 0.4in) !important;
             padding: 0 !important;
             height: 2.5pt !important;
             min-height: 2.5pt !important;
@@ -570,20 +616,25 @@
          * Attach pages: pack office rows until long-bond body is full,
          * then spill to the next page (footer stays pinned to bottom).
          */
+        /*
+         * Distribution continuation page (page 2 and after).
+         * Edit the FIRST number in padding below to change the top margin.
+         * It is 0.75in right now. Example: padding: 1.10in 0.5in 0.12in !important;
+         */
         .sheet-attach .body {
             display: flex !important;
             flex-direction: column !important;
             box-sizing: border-box !important;
-            height: calc(13.39in - 0.85in) !important;
-            min-height: calc(13.39in - 0.85in) !important;
-            max-height: calc(13.39in - 0.85in) !important;
-            padding: 0.08in 0.5in 0.12in !important;
+            height: calc(13in - 0.85in) !important;
+            min-height: calc(13in - 0.85in) !important;
+            max-height: calc(13in - 0.85in) !important;
+            padding: 0.75in 0.5in 0.12in !important;
         }
         .sheet-attach .attach-doc-title {
             margin: 0 0 4pt !important;
-            height: 11pt !important;
-            min-height: 11pt !important;
-            max-height: 11pt !important;
+            height: auto !important;
+            min-height: 13pt !important;
+            max-height: none !important;
         }
         .sheet-attach .attach-dist-label {
             margin: 2pt 0 2pt !important;
@@ -591,6 +642,12 @@
             font-size: 11pt !important;
             font-weight: 700 !important;
             line-height: 1.15 !important;
+            color: #000 !important;
+        }
+        .sheet-attach .attach-office-name {
+            font-family: Arial, Helvetica, sans-serif !important;
+            font-size: 11pt !important;
+            line-height: 1.35 !important;
             color: #000 !important;
         }
         .sheet-attach .attach-dist-note {
@@ -636,9 +693,9 @@
                 margin: 0 !important;
                 padding: 0 !important;
                 width: 8.5in !important;
-                height: 13.39in !important;
-                min-height: 13.39in !important;
-                max-height: 13.39in !important;
+                height: 13in !important;
+                min-height: 13in !important;
+                max-height: 13in !important;
                 overflow: hidden !important;
                 position: relative !important;
                 top: 0 !important;
@@ -647,6 +704,9 @@
                 break-inside: avoid !important;
             }
             .sheet-main {
+                height: auto !important;
+                min-height: 6.5in !important;
+                max-height: none !important;
                 page-break-after: auto !important;
                 break-after: auto !important;
                 page-break-inside: avoid !important;
@@ -744,12 +804,11 @@
     $attachPages = $distributeOverflow
         ? array_chunk($attachOfficeRows, $attachPerPage)
         : [];
-    $printPageTotal = $distributeOverflow ? (1 + max(1, count($attachPages))) : 1;
 
     if ($distributeOverflow) {
         $distribute = array_fill(0, 24, '');
-        $distribute[0] = 'Please see attached';
-        $distribute[1] = 'distribution list';
+        $distribute[1] = 'Please see attached';
+        $distribute[2] = 'distribution list';
     } else {
         $distribute = array_pad(array_slice($allDistribute, 0, 24), 24, '');
     }
@@ -790,14 +849,77 @@
 @php
     $isReviewer = \App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake();
     $viewerMode = ! empty($viewerMode);
+    $allowPrint = $allowPrint ?? true;
+    $printLockMessage = $printLockMessage ?? 'Save the form before printing.';
+    $printReadyId = (int) ($drf->id ?? 0);
+    $printReadyUrl = $printReadyId > 0
+        ? route('dcs.api.office-intake.print-ready', ['type' => 'drf', 'ids' => $printReadyId], false)
+        : '';
 @endphp
+@if($viewerMode)
+<script>
+(function () {
+    var last = 0;
+    function ping() {
+        var now = Date.now();
+        if (now - last < 4000) return;
+        last = now;
+        try { parent.postMessage({ type: 'rms-user-activity' }, location.origin); } catch (e) {}
+    }
+    ['mousemove', 'mousedown', 'keydown', 'scroll', 'click', 'touchstart'].forEach(function (name) {
+        document.addEventListener(name, ping, { passive: true });
+    });
+    ping();
+})();
+</script>
+@endif
+@if(! $allowPrint)
+<style id="ofi-print-block-style">
+    @media print {
+        body * { display: none !important; }
+        body::after {
+            display: block !important;
+            content: "{{ $printLockMessage }}";
+            font: 14pt Arial, sans-serif;
+            color: #000;
+            padding: 1in;
+        }
+    }
+</style>
+<script>
+window.print = function () {};
+@if($printReadyUrl !== '')
+(function () {
+    var url = @json($printReadyUrl);
+    var id = @json((string) $printReadyId);
+    var timer = setInterval(async function () {
+        try {
+            var res = await fetch(url, {
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin'
+            });
+            if (!res.ok) return;
+            var data = await res.json();
+            var ready = (data.ready || []).map(String);
+            if (ready.indexOf(id) === -1) return;
+            clearInterval(timer);
+            location.reload();
+        } catch (e) {}
+    }, 2000);
+})();
+@endif
+</script>
+@endif
 <div class="print-toolbar">
     @if($viewerMode)
         <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">View only — RFIO review</span>
+    @elseif(! $allowPrint)
+        <span style="font-size:12px;font-weight:600;color:#64748b;align-self:center;">{{ $printLockMessage }}</span>
+        <button type="button" class="btn-close" onclick="window.close()">Close</button>
     @else
         <p class="print-toolbar-tip">
             Important: in the print dialog set <strong>Margins → None.</strong>
-            Keep paper <strong>Mexico Legal</strong>, and leave Headers and footers off.
+            Keep paper <strong>Long bond (8.5 × 13 in)</strong>, and leave Headers and footers off.
         </p>
         @if($isReviewer)
             <a href="{{ route('dcs.requests.index', absolute: false) }}" class="btn-close" style="text-decoration:none;display:inline-flex;align-items:center;">Back to Request</a>
@@ -838,12 +960,14 @@
 
         <div class="row">
             <span class="lbl">Originator :</span>
-            <div class="fline w-fill"><div class="fline-val">{{ $originator }}</div><div class="fline-rule"></div></div>
+            <div class="fline w-fill"><div class="fline-val is-originator">{{ $originator }}</div><div class="fline-rule"></div></div>
         </div>
 
-        <div class="row">
+        <div class="doc-title-block" data-doc-title="{{ $docTitle }}">
             <span class="lbl">Document Title :</span>
-            <div class="fline w-fill"><div class="fline-val">{{ $docTitle }}</div><div class="fline-rule"></div></div>
+            <div class="doc-title-lines">
+                <div class="fline w-fill"><div class="fline-val">{{ $docTitle }}</div><div class="fline-rule"></div></div>
+            </div>
         </div>
 
         <div class="check-row">
@@ -927,45 +1051,23 @@
         <div class="footer">
             <span>Effectivity Date: January 2018</span>
             <span>Rev. 0</span>
-            <span>Page: 1 of {{ $printPageTotal }}</span>
+            <span>Page: 1 of 1</span>
         </div>
     </div>
 </div>
 
 @if($distributeOverflow)
 @foreach($attachPages as $pageIndex => $pageOffices)
-@php
-    $attachPageNo = $pageIndex + 2;
-    $rowOffset = $pageIndex * $attachPerPage;
-@endphp
+@php $rowOffset = $pageIndex * $attachPerPage; @endphp
 <div class="sheet sheet-attach">
-    <header class="hdr-band">
-        <div class="hdr-logo-cell">
-            @if(!empty($logoSrc))
-                <img src="{{ $logoSrc }}" alt="" class="hdr-logo">
-            @endif
-        </div>
-        <div class="hdr-text-cell">
-            <div class="hdr-republic">Republic of the Philippines</div>
-            <div class="hdr-name">Camarines Sur Polytechnic Colleges</div>
-            <div class="hdr-location">Nabua, Camarines Sur</div>
-        </div>
-        <div class="hdr-rule">
-            <div class="hdr-rule-line"></div>
-            <span class="hdr-rule-code">CSPC-F-DCC-06</span>
-        </div>
-    </header>
-
     <div class="body">
-        <div class="row attach-doc-title">
+        <div class="doc-title-block attach-doc-title" data-doc-title="{{ $docTitle }}">
             <span class="lbl">Document Title :</span>
-            <div class="fline w-fill"><div class="fline-val">{{ $docTitle }}</div><div class="fline-rule"></div></div>
+            <div class="doc-title-lines">
+                <div class="fline w-fill"><div class="fline-val">{{ $docTitle }}</div><div class="fline-rule"></div></div>
+            </div>
         </div>
         <div class="attach-dist-label">Distribute document to (department/position):</div>
-        <p class="attach-dist-note">
-            Continuation list — all offices below are for <strong>distribution</strong> of this document
-            ({{ count($attachOfficeRows) }} office{{ count($attachOfficeRows) === 1 ? '' : 's' }} total).
-        </p>
         <table class="attach-table">
             <colgroup>
                 <col class="c-no">
@@ -974,7 +1076,7 @@
             <thead>
                 <tr>
                     <th>No.</th>
-                    <th>Name of Offices (Distribution)</th>
+                    <th>Name of Offices</th>
                 </tr>
             </thead>
             <tbody>
@@ -986,13 +1088,6 @@
                 @endforeach
             </tbody>
         </table>
-
-        <div class="footer-rule"></div>
-        <div class="footer">
-            <span>Effectivity Date: January 2018</span>
-            <span>Rev. 0</span>
-            <span>Page: {{ $attachPageNo }} of {{ $printPageTotal }}</span>
-        </div>
     </div>
 </div>
 @endforeach
@@ -1028,7 +1123,80 @@ function ofiFitSigText() {
     });
 }
 
+function ofiTitleLine(text) {
+    var holder = document.createElement('div');
+    holder.textContent = text;
+    return '<div class="fline w-fill"><div class="fline-val">' + holder.innerHTML + '</div><div class="fline-rule"></div></div>';
+}
+
+function ofiPackTwoLines(words, ctx, limit) {
+    var line1 = '';
+    var index = 0;
+    for (; index < words.length; index++) {
+        var next = line1 === '' ? words[index] : (line1 + ' ' + words[index]);
+        if (line1 !== '' && ctx.measureText(next).width > limit) break;
+        line1 = next;
+    }
+    if (line1 === '' && words.length) {
+        line1 = words[0];
+        index = 1;
+    }
+    return [line1, words.slice(index).join(' ')];
+}
+
+function ofiFitDocTitles() {
+    var canvas = document.createElement('canvas');
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    document.querySelectorAll('.doc-title-block[data-doc-title]').forEach(function (block) {
+        var title = (block.getAttribute('data-doc-title') || '').replace(/\s+/g, ' ').trim();
+        var host = block.querySelector('.doc-title-lines');
+        if (!host) return;
+        var width = host.clientWidth;
+        if (width < 40) width = 560;
+        var limit = width - 8;
+        var words = title === '' ? [] : title.split(' ');
+        function packedAt(pt) {
+            ctx.font = (pt * 96 / 72) + 'px Arial';
+            var packed = ofiPackTwoLines(words, ctx, limit);
+            var line1 = packed[0] === '' ? 0 : ctx.measureText(packed[0]).width;
+            var line2 = packed[1] === '' ? 0 : ctx.measureText(packed[1]).width;
+            return { ok: line1 <= limit && line2 <= limit, lines: packed };
+        }
+        var size = 11;
+        var fit = packedAt(11);
+        var lines = fit.lines;
+        if (!fit.ok) {
+            var lo = 7;
+            var hi = 11;
+            size = 7;
+            lines = packedAt(7).lines;
+            for (var step = 0; step < 24; step++) {
+                var mid = (lo + hi) / 2;
+                var trial = packedAt(mid);
+                if (trial.ok) {
+                    size = mid;
+                    lines = trial.lines;
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            size = Math.floor(size * 100) / 100;
+            if (size < 7) size = 7;
+            lines = packedAt(size).lines;
+        }
+        host.innerHTML = ofiTitleLine(lines[0]) + (lines[1] !== '' ? ofiTitleLine(lines[1]) : '');
+        host.querySelectorAll('.fline-val').forEach(function (value) {
+            value.style.setProperty('font-size', size + 'pt', 'important');
+            value.style.setProperty('white-space', 'nowrap', 'important');
+            value.style.setProperty('overflow', 'hidden', 'important');
+        });
+    });
+}
+
 function ofiPrintClean() {
+    ofiFitDocTitles();
     ofiFitSigText();
     var prevTitle = document.title;
     var prevPath = window.location.pathname + window.location.search + window.location.hash;
@@ -1047,9 +1215,20 @@ function ofiPrintClean() {
     setTimeout(restore, 1500);
 }
 
-document.addEventListener('DOMContentLoaded', ofiFitSigText);
-window.addEventListener('resize', ofiFitSigText);
-window.addEventListener('beforeprint', ofiFitSigText);
+document.addEventListener('DOMContentLoaded', function () {
+    ofiFitSigText();
+    ofiFitDocTitles();
+});
+window.addEventListener('resize', function () {
+    ofiFitSigText();
+    ofiFitDocTitles();
+});
+window.addEventListener('beforeprint', function () {
+    ofiFitDocTitles();
+    ofiFitSigText();
+});
+ofiFitDocTitles();
+window.addEventListener('load', ofiFitDocTitles);
 </script>
 </body>
 </html>

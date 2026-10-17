@@ -2645,18 +2645,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                             </button>
 
                             <!-- Mode Selector Dropdown Menu -->
-                            <div x-show="modeOpen" x-cloak
-                                 style="position: absolute; top: calc(100% + 5px); right: 0; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); min-width: 275px; z-index: 1000; padding: 4px 0; overflow: hidden;">
-                                
-                                <!-- Single Mode Option (Default) -->
-                                <button type="button" 
-                                        wire:click="switchToSingleMode" 
-                                        @click="modeOpen = false"
-                                        style="width: 100%; text-align: left; padding: 9px 14px; font-size: 12px; font-weight: 600; color: #1e293b; background: {{ $isSingle ? '#eff6ff' : 'transparent' }}; border: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; transition: background 0.1s ease;"
-                                        onmouseover="this.style.background='#f1f5f9'" 
-                                        onmouseout="this.style.background='{{ $isSingle ? '#eff6ff' : 'transparent' }}'">
-                                    <div style="display: flex; align-items: flex-start; gap: 10px;">
-                                        <span style="color: #2563eb; margin-top: 2px; display: inline-flex;">
+                            <div class="ia-mode-menu" x-show="modeOpen" x-cloak>
+                                <button type="button"
+                                        class="ia-mode-option is-single {{ $isSingle ? 'is-active' : '' }}"
+                                        wire:click="switchToSingleMode"
+                                        @click="modeOpen = false">
+                                    <span class="ia-mode-option-main">
+                                        <span class="ia-mode-option-icon" aria-hidden="true">
                                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                                                 <polyline points="14 2 14 8 20 8"></polyline>
@@ -2664,30 +2659,27 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                                 <line x1="16" y1="17" x2="8" y2="17"></line>
                                             </svg>
                                         </span>
-                                        <div>
-                                            <div style="font-size: 12.5px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                                        <span class="ia-mode-option-copy">
+                                            <span class="ia-mode-option-title">
                                                 <span>Single Mode</span>
                                                 @if($isSingle)
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
                                                         <polyline points="20 6 9 17 4 12"></polyline>
                                                     </svg>
                                                 @endif
-                                            </div>
-                                            <div style="font-size: 11px; color: #64748b; font-weight: 400; margin-top: 1px;">Individual record (Default)</div>
-                                        </div>
-                                    </div>
-                                    <span style="font-size: 10px; color: #2563eb; background: #dbeafe; padding: 2px 6px; border-radius: 4px; font-weight: 700;">.single</span>
+                                            </span>
+                                            <span class="ia-mode-option-desc">Individual record (Default)</span>
+                                        </span>
+                                    </span>
+                                    <span class="ia-mode-option-tag">.single</span>
                                 </button>
 
-                                <!-- Batch Mode Option -->
-                                <button type="button" 
-                                        wire:click="switchToBatchMode" 
-                                        @click="modeOpen = false"
-                                        style="width: 100%; text-align: left; padding: 9px 14px; font-size: 12px; font-weight: 600; color: #1e293b; background: {{ $isBatch ? '#ecfdf5' : 'transparent' }}; border: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid #f1f5f9; transition: background 0.1s ease;"
-                                        onmouseover="this.style.background='#f1f5f9'" 
-                                        onmouseout="this.style.background='{{ $isBatch ? '#ecfdf5' : 'transparent' }}'">
-                                    <div style="display: flex; align-items: flex-start; gap: 10px;">
-                                        <span style="color: #059669; margin-top: 2px; display: inline-flex;">
+                                <button type="button"
+                                        class="ia-mode-option is-batch {{ $isBatch ? 'is-active' : '' }}"
+                                        wire:click="switchToBatchMode"
+                                        @click="modeOpen = false">
+                                    <span class="ia-mode-option-main">
+                                        <span class="ia-mode-option-icon" aria-hidden="true">
                                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
                                                 <line x1="16" y1="2" x2="16" y2="6"></line>
@@ -2695,48 +2687,45 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                                 <line x1="3" y1="10" x2="21" y2="10"></line>
                                             </svg>
                                         </span>
-                                        <div>
-                                            <div style="font-size: 12.5px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                                        <span class="ia-mode-option-copy">
+                                            <span class="ia-mode-option-title">
                                                 <span>Batch Mode</span>
                                                 @if($isBatch)
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
                                                         <polyline points="20 6 9 17 4 12"></polyline>
                                                     </svg>
                                                 @endif
-                                            </div>
-                                            <div style="font-size: 11px; color: #64748b; font-weight: 400; margin-top: 1px;">Combined period & volume breakdown</div>
-                                        </div>
-                                    </div>
-                                    <span style="font-size: 10px; color: #059669; background: #d1fae5; padding: 2px 6px; border-radius: 4px; font-weight: 700;">.batch</span>
+                                            </span>
+                                            <span class="ia-mode-option-desc">Combined period & volume breakdown</span>
+                                        </span>
+                                    </span>
+                                    <span class="ia-mode-option-tag">.batch</span>
                                 </button>
 
-                                <!-- Multi Mode Option -->
-                                <button type="button" 
-                                        wire:click="switchToMultiMode" 
-                                        @click="modeOpen = false"
-                                        style="width: 100%; text-align: left; padding: 9px 14px; font-size: 12px; font-weight: 600; color: #1e293b; background: {{ $isMulti ? '#f5f3ff' : 'transparent' }}; border: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid #f1f5f9; transition: background 0.1s ease;"
-                                        onmouseover="this.style.background='#f1f5f9'" 
-                                        onmouseout="this.style.background='{{ $isMulti ? '#f5f3ff' : 'transparent' }}'">
-                                    <div style="display: flex; align-items: flex-start; gap: 10px;">
-                                        <span style="color: #7c3aed; margin-top: 2px; display: inline-flex;">
+                                <button type="button"
+                                        class="ia-mode-option is-multi {{ $isMulti ? 'is-active' : '' }}"
+                                        wire:click="switchToMultiMode"
+                                        @click="modeOpen = false">
+                                    <span class="ia-mode-option-main">
+                                        <span class="ia-mode-option-icon" aria-hidden="true">
                                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                                                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                                             </svg>
                                         </span>
-                                        <div>
-                                            <div style="font-size: 12.5px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                                        <span class="ia-mode-option-copy">
+                                            <span class="ia-mode-option-title">
                                                 <span>Multi Mode</span>
                                                 @if($isMulti)
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
                                                         <polyline points="20 6 9 17 4 12"></polyline>
                                                     </svg>
                                                 @endif
-                                            </div>
-                                            <div style="font-size: 11px; color: #64748b; font-weight: 400; margin-top: 1px;">Add multiple records under this series</div>
-                                        </div>
-                                    </div>
-                                    <span style="font-size: 10px; color: #7c3aed; background: #ede9fe; padding: 2px 6px; border-radius: 4px; font-weight: 700;">.multi</span>
+                                            </span>
+                                            <span class="ia-mode-option-desc">Add multiple records under this series</span>
+                                        </span>
+                                    </span>
+                                    <span class="ia-mode-option-tag">.multi</span>
                                 </button>
                             </div>
                         </div>

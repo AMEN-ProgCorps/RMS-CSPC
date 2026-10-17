@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Support\DcsUploadGuard;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -13,6 +14,9 @@ use Illuminate\Support\Str;
 
 class DocumentStorageService
 {
+    /** @var array<string, string> */
+    private static array $driveFolderIds = [];
+
     /** Local disk ({@see config/filesystems.php}) is rooted at storage/app/private — cache lives under uploads/. */
     public static function localUploadsPath(string $relativePath): string
     {
@@ -112,14 +116,20 @@ class DocumentStorageService
     {
         $id = (int) $docTypeId;
         if ($id < 1 || ! Schema::hasTable('dcs_doc_types')) {
-            return 'internal_docs';
+            return '';
         }
 
         $type = DB::table('dcs_doc_types')->where('id', $id)->first();
-        if ($type && ! empty($type->parent_id)) {
+        if (! $type) {
+            return '';
+        }
+        if (! empty($type->parent_id)) {
             $type = DB::table('dcs_doc_types')->where('id', $type->parent_id)->first() ?: $type;
         }
         $name = mb_strtolower(trim((string) ($type->doc_type_name ?? '')));
+        if ($name === '') {
+            return '';
+        }
 
         if (str_contains($name, 'internal form')) {
             return 'internal_forms';
@@ -153,7 +163,7 @@ class DocumentStorageService
             'logbook' => 'logbooks',
         ];
 
-        return $aliases[$group] ?? (isset(self::DCC_DOCINFO_GROUPS[$group]) ? $group : 'internal_docs');
+        return $aliases[$group] ?? (isset(self::DCC_DOCINFO_GROUPS[$group]) ? $group : '');
     }
 
     public static function dccFolderLabel(?string $name, string $fallback): string
@@ -215,8 +225,13 @@ class DocumentStorageService
             return "DCS/DCC_GENERATED_REPORTS/{$filename}";
         }
 
-        $group = self::normalizeDccGroupKey((string) ($context['group'] ?? 'internal_docs'));
-        $prefix = self::DCC_DOCINFO_GROUPS[$group] ?? 'INTERNAL';
+        $group = self::normalizeDccGroupKey((string) ($context['group'] ?? ''));
+        $prefix = self::DCC_DOCINFO_GROUPS[$group] ?? '';
+        if ($prefix === '') {
+            throw ValidationException::withMessages([
+                'file' => 'The document type could not be resolved, so the scan was not filed. Choose Internal, External, Internal Forms, Forms, or Logbooks and try again.',
+            ]);
+        }
         $latest = array_key_exists('latest', $context) ? (bool) $context['latest'] : true;
         $leaf = ($latest ? 'LATEST' : 'OBSELETE') . "_{$prefix}_DOCINFO_ECOPY";
 
@@ -234,7 +249,7 @@ class DocumentStorageService
     public static function inferDccContextFromPath(?string $path): array
     {
         $defaults = [
-            'group' => 'internal_docs',
+            'group' => '',
             'latest' => true,
             'cluster' => '',
             'office_name' => '',
@@ -269,6 +284,39 @@ class DocumentStorageService
         }
     }
 
+    /**
+     * Create the local cache folder as the app user can write it.
+     * A root-owned 0700 folder makes Flysystem report "Unable to create a directory".
+     */
+    private static function ensureLocalUploadDirectory(string $relativeDir): void
+    {
+        $relativeDir = trim(str_replace('\\', '/', $relativeDir), '/');
+        if ($relativeDir === '' || str_contains($relativeDir, '..')) {
+            return;
+        }
+
+        $full = storage_path('app/private/'.self::localUploadsPath($relativeDir));
+        if (! is_dir($full) && ! @mkdir($full, 0777, true) && ! is_dir($full)) {
+            logger()->warning("Local DCC directory notice ({$relativeDir}): unable to create {$full}");
+
+            return;
+        }
+
+        $stop = storage_path('app/private/uploads');
+        $cursor = $full;
+        while (is_string($cursor) && str_starts_with($cursor, $stop)) {
+            @chmod($cursor, 0777);
+            if ($cursor === $stop) {
+                break;
+            }
+            $parent = dirname($cursor);
+            if ($parent === $cursor) {
+                break;
+            }
+            $cursor = $parent;
+        }
+    }
+
     public static function ensureDcsDirectory(string $relativeDir): void
     {
         $relativeDir = trim(str_replace('\\', '/', $relativeDir), '/');
@@ -276,17 +324,131 @@ class DocumentStorageService
             return;
         }
 
-        try {
-            Storage::disk('local')->makeDirectory(self::localUploadsPath($relativeDir));
-        } catch (\Throwable $e) {
-            logger()->warning("Local DCC directory notice ({$relativeDir}): " . $e->getMessage());
-        }
+        self::ensureLocalUploadDirectory($relativeDir);
 
         try {
-            Storage::disk('google')->makeDirectory($relativeDir);
+            self::ensureGoogleDirectoryExact($relativeDir);
         } catch (\Throwable $e) {
             logger()->warning("Drive DCC directory notice ({$relativeDir}): " . $e->getMessage());
         }
+    }
+
+    /**
+     * Reuse a Drive folder whose name matches the path segment exactly, including "&".
+     * The Flysystem adapter rewrites "&" to "_" on lookup, so a name search through it never hits DCC_D&R_ECOPY.
+     */
+    private static function ensureGoogleDirectoryExact(string $relativeDir): void
+    {
+        $adapter = self::googleDriveAdapter();
+        if ($adapter === null) {
+            Storage::disk('google')->makeDirectory($relativeDir);
+
+            return;
+        }
+
+        $rootProp = new \ReflectionProperty($adapter, 'root');
+        $rootProp->setAccessible(true);
+        $parentId = trim((string) $rootProp->getValue($adapter));
+        if ($parentId === '') {
+            Storage::disk('google')->makeDirectory($relativeDir);
+
+            return;
+        }
+
+        $service = $adapter->getService();
+        $built = '';
+        foreach (explode('/', $relativeDir) as $segment) {
+            if ($segment === '') {
+                continue;
+            }
+            $built = $built === '' ? $segment : $built.'/'.$segment;
+            $known = self::$driveFolderIds[$built] ?? Cache::get('dcs-drive-folder:'.sha1($built));
+            if (is_string($known) && $known !== '') {
+                self::$driveFolderIds[$built] = $known;
+                $parentId = $known;
+
+                continue;
+            }
+
+            try {
+                $lock = Cache::lock('dcs-drive-folder-lock:'.sha1($built), 20);
+                $lock->block(15);
+            } catch (\Throwable $e) {
+                Storage::disk('google')->makeDirectory($relativeDir);
+
+                return;
+            }
+            try {
+                $known = self::$driveFolderIds[$built] ?? Cache::get('dcs-drive-folder:'.sha1($built));
+                if (is_string($known) && $known !== '') {
+                    self::$driveFolderIds[$built] = $known;
+                    $parentId = $known;
+
+                    continue;
+                }
+
+                $folderId = self::findDriveChildFolderId($service, $parentId, $segment);
+                if ($folderId === null) {
+                    $file = new \Google\Service\Drive\DriveFile();
+                    $file->setName($segment);
+                    $file->setParents([$parentId]);
+                    $file->setMimeType('application/vnd.google-apps.folder');
+                    $created = $service->files->create($file, [
+                        'fields' => 'id',
+                        'supportsAllDrives' => true,
+                    ]);
+                    $folderId = $created->getId();
+                }
+                if (! is_string($folderId) || $folderId === '') {
+                    throw new \RuntimeException('Drive did not return a folder id for '.$built);
+                }
+                self::$driveFolderIds[$built] = $folderId;
+                Cache::put('dcs-drive-folder:'.sha1($built), $folderId, now()->addHours(12));
+                $parentId = $folderId;
+            } finally {
+                $lock->release();
+            }
+        }
+    }
+
+    private static function googleDriveAdapter(): ?\Masbug\Flysystem\GoogleDriveAdapter
+    {
+        try {
+            $adapter = Storage::disk('google')->getAdapter();
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        return $adapter instanceof \Masbug\Flysystem\GoogleDriveAdapter ? $adapter : null;
+    }
+
+    private static function findDriveChildFolderId(object $service, string $parentId, string $name): ?string
+    {
+        $escapedParent = str_replace("'", "\\'", $parentId);
+        $pageToken = null;
+        do {
+            $params = [
+                'q' => "'{$escapedParent}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+                'fields' => 'nextPageToken, files(id, name)',
+                'pageSize' => 200,
+                'supportsAllDrives' => true,
+                'includeItemsFromAllDrives' => true,
+            ];
+            if (is_string($pageToken) && $pageToken !== '') {
+                $params['pageToken'] = $pageToken;
+            }
+            $list = $service->files->listFiles($params);
+            foreach ($list->getFiles() as $file) {
+                if ((string) $file->getName() === $name) {
+                    $id = $file->getId();
+
+                    return is_string($id) && $id !== '' ? $id : null;
+                }
+            }
+            $pageToken = $list->getNextPageToken();
+        } while (is_string($pageToken) && $pageToken !== '');
+
+        return null;
     }
 
     public static function ensureRandomCheckInventoryFolders(?string $cluster, ?string $officeName): void
@@ -393,7 +555,13 @@ class DocumentStorageService
             if ($source['office_name'] !== '') {
                 $context['office_name'] = $source['office_name'];
             }
-            $context['group'] = self::dccGroupKeyFromDocTypeId($row->doc_type_id);
+            $group = self::dccGroupKeyFromDocTypeId($row->doc_type_id);
+            if ($group === '') {
+                logger()->warning('Skipped obsolete move for masterlist '.$row->id.' because its document type could not be resolved.');
+
+                continue;
+            }
+            $context['group'] = $group;
 
             $newPath = self::relocateDocinfoToObsolete($path, $context);
             if (is_string($newPath) && $newPath !== '' && $newPath !== $path) {
@@ -442,6 +610,60 @@ class DocumentStorageService
             'cluster' => $clusterName,
             'office_name' => trim((string) ($row->office_name ?? '')),
         ];
+    }
+
+    /**
+     * Move a saved masterlist scan into the folder for its current source unit.
+     * Logbooks and Forms use {cluster}/{office}. An empty source stays under Unassigned.
+     */
+    public static function relocateMasterlistScanToSource(int $masterlistId): ?string
+    {
+        if ($masterlistId < 1 || ! Schema::hasTable('dcs_masterlist_registration')) {
+            return null;
+        }
+
+        $ml = DB::table('dcs_masterlist_registration')->where('id', $masterlistId)->first();
+        if (! $ml || empty($ml->scanned_masterlist)) {
+            return null;
+        }
+
+        $path = ltrim(str_replace(['\\'], '/', (string) $ml->scanned_masterlist), '/');
+        $group = self::dccGroupKeyFromDocTypeId($ml->doc_type_id ?? null);
+        if ($group === '' && ! empty($ml->request_id) && Schema::hasTable('dcs_document_requests')) {
+            $typeId = DB::table('dcs_document_requests')->where('id', $ml->request_id)->value('doc_type_id');
+            $group = self::dccGroupKeyFromDocTypeId($typeId);
+        }
+        if ($group === '') {
+            return $path;
+        }
+
+        $source = self::sourceClusterOfficeForMasterlist($masterlistId);
+        $status = strtolower(trim((string) ($ml->revision_status ?? 'latest')));
+        $newPath = self::buildDccRelativePath('masterlist', basename($path), [
+            'group' => $group,
+            'latest' => $status !== 'obsolete',
+            'date' => $ml->effectivity_date ?? null,
+            'cluster' => $source['cluster'],
+            'office_name' => $source['office_name'],
+        ]);
+        if ($newPath === $path) {
+            return $path;
+        }
+
+        $moved = self::moveDcsFile($path, $newPath);
+        if ($moved === $path) {
+            return $path;
+        }
+
+        self::rememberDocumentDataPath($path, $moved);
+
+        $payload = ['scanned_masterlist' => $moved];
+        if (Schema::hasColumn('dcs_masterlist_registration', 'updated_at')) {
+            $payload['updated_at'] = now();
+        }
+        DB::table('dcs_masterlist_registration')->where('id', $masterlistId)->update($payload);
+
+        return $moved;
     }
 
     /** @return array{cluster: string, office_name: string} */
@@ -1012,26 +1234,47 @@ class DocumentStorageService
         }
 
         $relativePath = self::buildDccRelativePath($category, $storedFileName, $dccContext);
-        if (Storage::disk('local')->exists(self::localUploadsPath($relativePath)) || self::googleExistsSafe($relativePath)) {
+        if (Storage::disk('local')->exists(self::localUploadsPath($relativePath))) {
             $storedFileName = pathinfo($storedFileName, PATHINFO_FILENAME)
                 . '_' . strtoupper(Str::random(4))
                 . '.' . $extension;
             $relativePath = self::buildDccRelativePath($category, $storedFileName, $dccContext);
         }
 
-        self::ensureDriveFolderStructure($officeFolderName, 'DCS', $fileSize);
-        self::ensureDcsDirectory(trim(dirname($relativePath), '.'));
-
-        $localPath = self::localUploadsPath($relativePath);
-        Storage::disk('local')->put($localPath, $fileContent);
-
-        try {
-            Storage::disk('google')->put($relativePath, $fileContent);
-        } catch (\Throwable $e) {
-            logger()->error("Google Drive DCS upload failed for {$relativePath}: " . $e->getMessage());
+        $relativeDir = trim(str_replace('\\', '/', dirname($relativePath)), '/');
+        if ($relativeDir !== '' && $relativeDir !== '.') {
+            self::ensureLocalUploadDirectory($relativeDir);
         }
 
+        Storage::disk('local')->put(self::localUploadsPath($relativePath), $fileContent);
+        self::queueDriveMirror($officeFolderName, (int) $fileSize, $relativeDir, $relativePath, (string) $fileContent);
+
         return $relativePath;
+    }
+
+    /**
+     * Mirror a scan to Drive after the HTTP response so registration is not
+     * blocked on folder lookups and the upload itself. The local copy is
+     * already written and is what the app reads first.
+     */
+    protected static function queueDriveMirror(
+        string $officeFolderName,
+        int $fileSize,
+        string $relativeDir,
+        string $relativePath,
+        string $fileContent
+    ): void {
+        app()->terminating(function () use ($officeFolderName, $fileSize, $relativeDir, $relativePath, $fileContent) {
+            try {
+                self::ensureDriveFolderStructure($officeFolderName, 'DCS', $fileSize);
+                if ($relativeDir !== '' && $relativeDir !== '.') {
+                    self::ensureGoogleDirectoryExact($relativeDir);
+                }
+                Storage::disk('google')->put($relativePath, $fileContent);
+            } catch (\Throwable $e) {
+                logger()->error("Google Drive DCS upload failed for {$relativePath}: " . $e->getMessage());
+            }
+        });
     }
 
     /**
@@ -1124,6 +1367,17 @@ class DocumentStorageService
             return $relativePath;
         }
 
+        self::rememberDocumentDataPath($relativePath, $newRelative);
+
+        return $newRelative;
+    }
+
+    private static function rememberDocumentDataPath(string $from, string $to): void
+    {
+        if ($from === '' || $to === '' || $from === $to || ! Schema::hasTable('sys_document_data')) {
+            return;
+        }
+
         $hasSavepoint = false;
         try {
             if (DB::transactionLevel() > 0) {
@@ -1132,8 +1386,8 @@ class DocumentStorageService
             }
 
             $payload = [
-                'document_path' => $newRelative,
-                'document_name' => basename($newRelative),
+                'document_path' => $to,
+                'document_name' => basename($to),
             ];
             // sys_document_data uses date_modified (not Laravel updated_at)
             if (\Illuminate\Support\Facades\Schema::hasColumn('sys_document_data', 'date_modified')) {
@@ -1141,7 +1395,7 @@ class DocumentStorageService
             }
 
             DB::table('sys_document_data')
-                ->where('document_path', $relativePath)
+                ->where('document_path', $from)
                 ->update($payload);
 
             if ($hasSavepoint) {
@@ -1149,7 +1403,7 @@ class DocumentStorageService
             }
         } catch (\Throwable $e) {
             // Do not let a metadata miss abort the outer registration transaction (pgsql 25P02).
-            logger()->warning("sys_document_data rename skipped {$relativePath}: " . $e->getMessage());
+            logger()->warning("sys_document_data rename skipped {$from}: " . $e->getMessage());
             if ($hasSavepoint) {
                 try {
                     DB::statement('ROLLBACK TO SAVEPOINT dcs_scan_rename_meta');
@@ -1158,8 +1412,6 @@ class DocumentStorageService
                 }
             }
         }
-
-        return $newRelative;
     }
 
     protected static function googleExistsSafe(string $relativePath): bool
@@ -2178,8 +2430,37 @@ class DocumentStorageService
             $content,
             $user,
             $originalName,
-            self::resolveDcsCategoryFromPath($sourcePath)
+            self::resolveDcsCategoryFromPath($sourcePath),
+            false,
+            self::inferDccContextFromPath($sourcePath)
         );
+    }
+
+    /** True when any registration still stores this scan path. */
+    public static function scanPathIsReferenced(string $path): bool
+    {
+        $path = ltrim(str_replace(['\\', '../', '..\\'], '/', $path), '/');
+        if ($path === '' || str_contains($path, '..')) {
+            return false;
+        }
+
+        foreach (self::DCS_SCAN_SOURCES as $source) {
+            if (! Schema::hasTable($source['table']) || ! Schema::hasColumn($source['table'], $source['column'])) {
+                continue;
+            }
+
+            $found = DB::table($source['table'].' as src')
+                ->where(function ($query) use ($source, $path) {
+                    $query->where('src.'.$source['column'], $path)
+                        ->orWhere('src.'.$source['column'], '/'.$path);
+                })
+                ->exists();
+            if ($found) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static function deleteDcsScan(?string $path): void
@@ -2190,6 +2471,11 @@ class DocumentStorageService
 
         $path = ltrim(str_replace(['../', '..\\'], '', $path), '/');
         if ($path === '' || str_contains($path, '..')) {
+            return;
+        }
+
+        // A later revision can point at the same PDF. Replacing one row must not erase the other.
+        if (self::scanPathIsReferenced($path)) {
             return;
         }
 

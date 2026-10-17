@@ -11,6 +11,8 @@ new #[Layout('layouts.dcs')] #[Title('Request — CSPC DCS')] class extends Comp
     #[Url]
     public string $filter = 'all';
 
+    public int $page = 1;
+
     public function mount(): void
     {
         abort_unless(RegisterQueryHelper::canBrowseAllOfficeIntake(), 403);
@@ -19,16 +21,33 @@ new #[Layout('layouts.dcs')] #[Title('Request — CSPC DCS')] class extends Comp
         }
     }
 
+    public function updatedFilter(): void
+    {
+        $this->page = 1;
+    }
+
+    public function goToPage(int $page): void
+    {
+        $this->page = max(1, $page);
+    }
+
     public function with(): array
     {
-        $rows = OfficeIntakeHelper::listPendingOfficeRequests($this->filter);
-        $allRows = $this->filter === 'all'
-            ? $rows
-            : OfficeIntakeHelper::listPendingOfficeRequests('all');
+        $allRows = OfficeIntakeHelper::listPendingOfficeRequests('all');
+        $filtered = $this->filter === 'all'
+            ? $allRows
+            : $allRows->where('type', $this->filter)->values();
+        $perPage = 20;
+        $total = $filtered->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min(max(1, $this->page), $lastPage);
 
         return [
-            'rows' => $rows,
+            'rows' => $filtered->slice(($page - 1) * $perPage, $perPage)->values(),
             'filter' => $this->filter,
+            'page' => $page,
+            'lastPage' => $lastPage,
+            'filteredTotal' => $total,
             'totalCount' => $allRows->count(),
             'drfCount' => $allRows->where('type', 'drf')->count(),
             'dcnCount' => $allRows->where('type', 'dcn')->count(),
@@ -38,7 +57,7 @@ new #[Layout('layouts.dcs')] #[Title('Request — CSPC DCS')] class extends Comp
     }
 }; ?>
 
-<div class="upd-container main-content ofi-request-page">
+<div class="upd-container main-content ofi-request-page" wire:poll.5s.visible>
     <div class="upd-header">
         <div>
             <div class="upd-breadcrumb">Document Control System / Document Registration / <span>Request</span></div>
@@ -150,5 +169,33 @@ new #[Layout('layouts.dcs')] #[Title('Request — CSPC DCS')] class extends Comp
                 </tbody>
             </table>
         </div>
+        @php
+            $pg = (int) ($page ?? 1);
+            $pgLast = (int) ($lastPage ?? 1);
+            $pgTotal = (int) ($filteredTotal ?? 0);
+            $pgSize = 20;
+            $pgFrom = $pgTotal === 0 ? 0 : (($pg - 1) * $pgSize) + 1;
+            $pgTo = min($pgTotal, $pg * $pgSize);
+            $pgStart = max(1, $pg - 2);
+            $pgEnd = min($pgLast, $pg + 2);
+        @endphp
+        @if($pgTotal > 0)
+        <div class="upd-pagination">
+            <div class="upd-pagination-info">
+                Showing {{ $pgFrom }}–{{ $pgTo }} of {{ $pgTotal }}
+            </div>
+            <div class="upd-pagination-links">
+                @if($pg > 1)
+                    <button type="button" class="upd-pg" wire:click="goToPage({{ $pg - 1 }})">Prev</button>
+                @endif
+                @for($p = $pgStart; $p <= $pgEnd; $p++)
+                    <button type="button" class="upd-pg {{ $p === $pg ? 'upd-pg-active' : '' }}" wire:click="goToPage({{ $p }})" @if($p === $pg) disabled @endif>{{ $p }}</button>
+                @endfor
+                @if($pg < $pgLast)
+                    <button type="button" class="upd-pg" wire:click="goToPage({{ $pg + 1 }})">Next</button>
+                @endif
+            </div>
+        </div>
+        @endif
     </div>
 </div>

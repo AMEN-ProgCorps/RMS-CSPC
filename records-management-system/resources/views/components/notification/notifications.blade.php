@@ -139,7 +139,7 @@ new class extends Component {
         $notification = DB::table($notifTbl)
             ->join($notifContentTbl, "{$notifTbl}.contents", '=', "{$notifContentTbl}.id")
             ->where("{$notifTbl}.id", $notificationId)
-            ->select("{$notifContentTbl}.redirect_url")
+            ->select("{$notifContentTbl}.redirect_url", "{$notifContentTbl}.content")
             ->first();
 
         // 1. Mark notification as read
@@ -224,6 +224,19 @@ new class extends Component {
                 }
 
                 $this->redirect(route('dcs.office.incoming', absolute: false), navigate: true);
+
+                return;
+            }
+
+            $path = ltrim((string) (parse_url((string) $notification->redirect_url, PHP_URL_PATH) ?? ''), '/');
+            $receivedCopy = preg_match('#^dcs/register/(\d+)/edit$#', $path, $receivedMatch) === 1
+                && preg_match('/\breceived\b/i', (string) ($notification->content ?? ''))
+                && str_contains(strtolower((string) ($notification->content ?? '')), 'marked by');
+            if ($receivedCopy) {
+                $this->redirect(
+                    '/dcs/monitoring/distribution-retrieval?doc=' . (int) $receivedMatch[1],
+                    navigate: false
+                );
 
                 return;
             }

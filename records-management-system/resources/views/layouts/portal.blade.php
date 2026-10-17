@@ -109,7 +109,7 @@
                     $prewarmUrls[] = '/dcs/register';
                     $prewarmUrls[] = '/dcs/register/update';
                     $prewarmUrls[] = '/dcs/reports/masterlist';
-                    $prewarmUrls[] = '/dcs/reports/monitoring';
+                    $prewarmUrls[] = '/dcs/monitoring';
                     $prewarmUrls[] = '/dcs/reports/opcr';
                     $prewarmUrls[] = '/dcs/reports/others';
                     $prewarmUrls[] = '/dcs/stamping';

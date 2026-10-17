@@ -676,9 +676,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - System Settings')] class
         try {
             \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("dts/{$officeName}");
             \Illuminate\Support\Facades\Storage::disk('google')->makeDirectory("rdp/{$officeName}");
-            if ($index === 0) {
-                \App\Services\DocumentStorageService::ensureDccSkeleton();
-            }
         } catch (\Throwable $e) {
             logger()->warning("Preload notice for {$officeName}: " . $e->getMessage());
         }

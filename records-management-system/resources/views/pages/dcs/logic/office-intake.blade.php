@@ -52,6 +52,48 @@ class OfficeIntakeHelper
         // Allowed for office creators and RFIO review_intake operators.
     }
 
+    /** Office users print only after RFIO sends the print-and-sign notice. */
+    public static function officeMayPrintIntake(?object $record): bool
+    {
+        if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+            return true;
+        }
+
+        return $record !== null && ! empty($record->rfio_print_notified_at);
+    }
+
+    /**
+     * Ids the current office user may print, for a live unlock on an open form.
+     *
+     * @param  list<int>  $ids
+     * @return array{ready: list<int>}
+     */
+    public static function officeIntakePrintReadyIds(string $type, array $ids): array
+    {
+        $type = strtolower($type);
+        abort_unless(in_array($type, ['drf', 'dcn'], true), 404);
+        self::assertCanAccessIntake();
+
+        $ids = array_slice(array_values(array_unique(array_filter(array_map('intval', $ids)))), 0, 50);
+        if ($ids === []) {
+            return ['ready' => []];
+        }
+
+        $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+        if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'rfio_print_notified_at')) {
+            return ['ready' => []];
+        }
+
+        $query = DB::table($table)->whereIn('id', $ids)->whereNotNull('rfio_print_notified_at');
+        if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
+            $query->where('created_by', auth()->id());
+        }
+
+        return [
+            'ready' => $query->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
+        ];
+    }
+
     public static function assertOwnsDrf(object $drf): void
     {
         if (RegisterQueryHelper::canBrowseAllOfficeIntake()) {
@@ -111,6 +153,11 @@ class OfficeIntakeHelper
         if (Schema::hasColumn('dcs_office_intake_drf', 'registered_request_id')) {
             $cols[] = 'drf.registered_request_id';
         }
+        if (Schema::hasColumn('dcs_office_intake_drf', 'rfio_print_notified_at')) {
+            $cols[] = 'drf.rfio_print_notified_at';
+        }
+
+        self::reconcileClaimedIntakesWithRegistrations();
 
         $query = DB::table('dcs_office_intake_drf as drf');
 
@@ -153,7 +200,11 @@ class OfficeIntakeHelper
             Schema::hasColumn('dcs_office_intake_dcn', 'rfio_registered_at') ? 'dcn.rfio_registered_at' : null,
             Schema::hasColumn('dcs_office_intake_dcn', 'rfio_claimed_at') ? 'dcn.rfio_claimed_at' : null,
             Schema::hasColumn('dcs_office_intake_dcn', 'registered_request_id') ? 'dcn.registered_request_id' : null,
+            Schema::hasColumn('dcs_office_intake_dcn', 'expects_drf') ? 'dcn.expects_drf' : null,
+            Schema::hasColumn('dcs_office_intake_dcn', 'rfio_print_notified_at') ? 'dcn.rfio_print_notified_at' : null,
         ]));
+
+        self::reconcileClaimedIntakesWithRegistrations();
 
         $query = DB::table('dcs_office_intake_dcn as dcn');
 
@@ -193,44 +244,122 @@ class OfficeIntakeHelper
         $items = collect();
 
         if ($typeFilter === '' || $typeFilter === 'all' || $typeFilter === 'drf') {
-            foreach (self::listMyDrf() as $row) {
-                // Leave Request queue once claimed for registration or fully registered.
-                if (! empty($row->is_registered) || ! empty($row->rfio_claimed_at)) {
-                    continue;
-                }
-                $items->push((object) [
-                    'type' => 'drf',
-                    'id' => (int) $row->id,
-                    'title' => trim((string) ($row->doc_title ?? '')) ?: 'Untitled DRF',
-                    'form_date' => $row->drf_date ?? null,
-                    'created_at' => $row->created_at ?? null,
-                    'submitting_office' => $row->submitting_office ?? '—',
-                    'submitter_name' => $row->submitter_name ?? '—',
-                    'received' => ! empty($row->rfio_received_at),
-                ]);
-            }
+            $items = $items->concat(self::pendingIntakeQueue('drf'));
         }
 
         if ($typeFilter === '' || $typeFilter === 'all' || $typeFilter === 'dcn') {
-            foreach (self::listMyDcn() as $row) {
-                if (! empty($row->is_registered) || ! empty($row->rfio_claimed_at)) {
-                    continue;
-                }
-                $items->push((object) [
-                    'type' => 'dcn',
-                    'id' => (int) $row->id,
-                    'title' => trim((string) ($row->document_title ?? '')) ?: 'Untitled DCN',
-                    'form_date' => $row->dcn_date ?? null,
-                    'created_at' => $row->created_at ?? null,
-                    'submitting_office' => $row->submitting_office ?? '—',
-                    'submitter_name' => $row->submitter_name ?? '—',
-                    'received' => ! empty($row->rfio_received_at),
-                ]);
-            }
+            $items = $items->concat(self::pendingIntakeQueue('dcn'));
         }
 
         return $items->sortByDesc(function ($row) {
             return strtotime((string) ($row->created_at ?? '')) ?: 0;
+        })->values();
+    }
+
+    /**
+     * Pending office DRF or DCN rows still waiting in the Request queue.
+     * One query for the rows, one for offices, one for submitters.
+     *
+     * @return \Illuminate\Support\Collection<int, object>
+     */
+    private static function pendingIntakeQueue(string $type)
+    {
+        $isDrf = $type === 'drf';
+        $table = $isDrf ? 'dcs_office_intake_drf' : 'dcs_office_intake_dcn';
+        if (! Schema::hasTable($table)) {
+            return collect();
+        }
+
+        $alias = $isDrf ? 'drf' : 'dcn';
+        $query = DB::table($table.' as '.$alias);
+        if (Schema::hasColumn($table, 'rfio_claimed_at')) {
+            $query->whereNull($alias.'.rfio_claimed_at');
+        }
+        if (Schema::hasColumn($table, 'rfio_registered_at')) {
+            $query->whereNull($alias.'.rfio_registered_at');
+        }
+        if (Schema::hasColumn($table, 'registered_request_id')) {
+            $query->where(function ($q) use ($alias) {
+                $q->whereNull($alias.'.registered_request_id')
+                    ->orWhere($alias.'.registered_request_id', 0);
+            });
+        }
+
+        $titleColumn = $isDrf
+            ? 'doc_title'
+            : (Schema::hasColumn($table, 'document_title') ? 'document_title' : 'doc_title');
+        $dateColumn = $isDrf ? 'drf_date' : 'dcn_date';
+        $select = [
+            $alias.'.id',
+            $alias.'.'.$titleColumn.' as title',
+            $alias.'.'.$dateColumn.' as form_date',
+            $alias.'.created_at',
+            $alias.'.created_by',
+        ];
+        if (Schema::hasColumn($table, 'rfio_received_at')) {
+            $select[] = $alias.'.rfio_received_at';
+        }
+
+        $rows = $query->orderByDesc($alias.'.id')->get($select);
+        if ($rows->isEmpty()) {
+            return collect();
+        }
+
+        $ids = $rows->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $userIds = $rows->pluck('created_by')->map(fn ($id) => (int) $id)->filter()->unique()->values()->all();
+        $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $accDetails = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $linkTable = $isDrf ? 'dcs_office_drf_offices' : 'dcs_office_dcn_offices';
+        $linkFk = $isDrf ? 'office_intake_drf_id' : 'office_intake_dcn_id';
+
+        $officesByParent = [];
+        if (Schema::hasTable($linkTable)) {
+            $officeRows = DB::table($linkTable.' as d')
+                ->leftJoin($officeTable.' as o', 'o.id', '=', 'd.office_id')
+                ->whereIn('d.'.$linkFk, $ids)
+                ->orderBy('o.office_name')
+                ->get(['d.'.$linkFk.' as parent_id', 'o.office_name', 'o.office_code']);
+            foreach ($officeRows as $office) {
+                $label = trim((string) ($office->office_name ?? '')) ?: trim((string) ($office->office_code ?? ''));
+                if ($label === '') {
+                    continue;
+                }
+                $officesByParent[(int) $office->parent_id][$label] = $label;
+            }
+        }
+
+        $people = collect();
+        if ($userIds !== []) {
+            $people = DB::table($accDetails.' as ad')
+                ->leftJoin($officeTable.' as o', 'o.id', '=', 'ad.office_id')
+                ->whereIn('ad.account_id', $userIds)
+                ->get(['ad.account_id', 'ad.first_name', 'ad.last_name', 'o.office_name', 'o.office_code'])
+                ->keyBy(fn ($row) => (int) $row->account_id);
+        }
+
+        $fallbackTitle = $isDrf ? 'Untitled DRF' : 'Untitled DCN';
+
+        return $rows->map(function ($row) use ($type, $officesByParent, $people, $fallbackTitle) {
+            $id = (int) $row->id;
+            $person = $people->get((int) ($row->created_by ?? 0));
+            $office = implode(', ', array_values($officesByParent[$id] ?? []));
+            if ($office === '' && $person) {
+                $office = trim((string) ($person->office_name ?? '')) ?: trim((string) ($person->office_code ?? ''));
+            }
+            $submitter = $person
+                ? trim(trim((string) ($person->first_name ?? '')).' '.trim((string) ($person->last_name ?? '')))
+                : '';
+
+            return (object) [
+                'type' => $type,
+                'id' => $id,
+                'title' => trim((string) ($row->title ?? '')) ?: $fallbackTitle,
+                'form_date' => $row->form_date ?? null,
+                'created_at' => $row->created_at ?? null,
+                'submitting_office' => $office !== '' ? $office : 'Unknown office',
+                'submitter_name' => $submitter !== '' ? $submitter : 'Unknown submitter',
+                'received' => ! empty($row->rfio_received_at ?? null),
+            ];
         })->values();
     }
 
@@ -253,17 +382,46 @@ class OfficeIntakeHelper
         return $payload;
     }
 
+    /**
+     * A DCN, including one that also has a DRF, registers as a revision of the
+     * document the office selected. A DRF with no DCN registers as a new document.
+     *
+     * @return array{registerType: string, intakeType: string, intakeId: int, registerUrl: string}
+     */
+    public static function registrationTarget(string $type, int $id): array
+    {
+        $type = strtolower($type);
+        $intakeType = $type;
+        $intakeId = $id;
+        $registerType = 'new';
+
+        if ($type === 'dcn') {
+            $registerType = 'revised';
+        } elseif ($type === 'drf') {
+            $linkedDcnId = self::findSourceDcnIdForOfficeDrf($id);
+            if ($linkedDcnId) {
+                $registerType = 'revised';
+                $intakeType = 'dcn';
+                $intakeId = $linkedDcnId;
+            }
+        }
+
+        return [
+            'registerType' => $registerType,
+            'intakeType' => $intakeType,
+            'intakeId' => $intakeId,
+            'registerUrl' => route('dcs.register.create', [
+                'type' => $registerType,
+                'intake' => $intakeType,
+                'intake_id' => $intakeId,
+            ], absolute: false),
+        ];
+    }
+
     /** Register URL for office intake Proceed / resume after claim. */
     public static function registerContinueUrl(string $type, int $id): string
     {
-        $type = strtolower($type);
-        $registerType = $type === 'dcn' ? 'revised' : 'new';
-
-        return route('dcs.register.create', [
-            'type' => $registerType,
-            'intake' => $type,
-            'intake_id' => $id,
-        ], absolute: false);
+        return self::registrationTarget($type, $id)['registerUrl'];
     }
 
     /** True when RFIO started registration (Proceed) but has not finished registering. */
@@ -313,6 +471,17 @@ class OfficeIntakeHelper
         $registeredRequestId = (int) ($row->registered_request_id ?? 0);
         if (empty($registeredAt) && $registeredRequestId < 1) {
             return $empty;
+        }
+
+        // A draft is not a finished registration. Keep the office form as Submitted
+        // until the document is actually saved and stored.
+        if ($registeredRequestId > 0 && Schema::hasTable('dcs_document_requests') && Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+            $linkedDraft = DB::table('dcs_document_requests')
+                ->where('id', $registeredRequestId)
+                ->value('is_draft');
+            if ($linkedDraft) {
+                return $empty;
+            }
         }
 
         $docNo = '';
@@ -414,9 +583,8 @@ class OfficeIntakeHelper
         RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
         RegisterQueryHelper::applyExcludeOfficeIntakeRequests($query, 'dr');
         RegisterQueryHelper::applyLatestRevisionStatus($query, 'ml');
-        self::applyDcnDocumentTypeFilter($query);
 
-        $select = [
+        return $query->orderByDesc('ml.revise_no')->orderByDesc('ml.id')->first([
             'ml.id as ml_id',
             'ml.request_id',
             'ml.doc_no',
@@ -426,24 +594,7 @@ class OfficeIntakeHelper
             'dr.sub_type_id',
             'dt.doc_type_name',
             'st.doc_type_name as sub_type_name',
-        ];
-        if (RegisterQueryHelper::supportsAllowsRevisionColumn()) {
-            $select[] = 'ml.allows_revision';
-        }
-
-        $rows = $query->orderByDesc('ml.revise_no')->orderByDesc('ml.id')->limit(20)->get($select);
-        foreach ($rows as $row) {
-            $allows = RegisterQueryHelper::supportsAllowsRevisionColumn()
-                && property_exists($row, 'allows_revision')
-                && $row->allows_revision !== null
-                ? (bool) $row->allows_revision
-                : RegisterQueryHelper::effectiveTypeAllowsRevision($row->doc_type_id ?? null, $row->sub_type_id ?? null);
-            if ($allows) {
-                return $row;
-            }
-        }
-
-        return null;
+        ]);
     }
 
     /**
@@ -459,37 +610,82 @@ class OfficeIntakeHelper
         }
 
         throw \Illuminate\Validation\ValidationException::withMessages([
-            'documentNo' => 'Document No. is not a registered revisable Internal or External document. Forms, Internal Forms, and Logbooks cannot be used on a DCN.',
+            'documentNo' => 'Document No. is not a registered document.',
         ]);
     }
 
     /**
-     * Campus-wide search of latest revisable registered documents for office DCN.
+     * Exact match on document number, current title, and originator.
+     * A close title or originator on that same number is returned as a suggestion.
      *
-     * @return list<array{doc_no: string, doc_title: string, revise_no: int, doc_type: string}>
+     * @return array{found: bool, revise_no?: int, doc_type?: string}
      */
     public static function searchRevisableDocuments(\Illuminate\Http\Request $request): array
     {
         self::assertCanAccessIntake();
 
-        $q = trim((string) $request->input('q', ''));
-        if (mb_strlen($q) < 1) {
-            return [];
+        $docNo = trim((string) $request->input('documentNo', ''));
+        $title = trim((string) $request->input('currentTitle', ''));
+        $originator = trim((string) $request->input('originator', ''));
+        if ($docNo === '' || $title === '' || $originator === '') {
+            return ['found' => false];
+        }
+
+        $exceptId = (int) $request->input('exceptId', 0);
+        $exceptId = $exceptId > 0 ? $exceptId : null;
+        $matched = self::findRevisableRegistrationMatch($docNo, $title, $originator);
+        if ($matched) {
+            return self::revisableMatchPayload($matched, true, $exceptId);
+        }
+
+        return [
+            'found' => false,
+            'suggestions' => self::nearRevisableMatches($docNo, $title, $originator, $exceptId),
+        ];
+    }
+
+    public static function findRevisableRegistrationMatch(string $docNo, string $title, string $originator): ?object
+    {
+        $docNo = trim($docNo);
+        $title = trim($title);
+        $originator = trim($originator);
+        if ($docNo === '' || $title === '' || $originator === '') {
+            return null;
         }
 
         $query = DB::table('dcs_masterlist_registration as ml')
             ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
             ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
-            ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id');
-        RegisterQueryHelper::applyLooseColumnSearch($query, $q, ['ml.doc_no', 'ml.doc_title']);
+            ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
+            ->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)])
+            ->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [mb_strtolower($title)]);
+        if (Schema::hasTable('dcs_originators')) {
+            $query->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id');
+        }
+        $originSql = Schema::hasTable('dcs_originators')
+            ? "LOWER(TRIM(COALESCE(og.originator_name, '')))"
+            : "''";
+        $originDisplay = Schema::hasTable('dcs_originators')
+            ? "TRIM(COALESCE(og.originator_name, ''))"
+            : "''";
+        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+            $originSql = Schema::hasTable('dcs_originators')
+                ? "LOWER(TRIM(COALESCE(NULLIF(og.originator_name, ''), ml.originator_name, '')))"
+                : "LOWER(TRIM(COALESCE(ml.originator_name, '')))";
+            $originDisplay = Schema::hasTable('dcs_originators')
+                ? "TRIM(COALESCE(NULLIF(og.originator_name, ''), ml.originator_name, ''))"
+                : "TRIM(COALESCE(ml.originator_name, ''))";
+        }
+        $query->whereRaw($originSql . ' = ?', [mb_strtolower($originator)]);
         RegisterQueryHelper::applyNotDeleted($query, 'dr');
         RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
         RegisterQueryHelper::applyExcludeOfficeIntakeRequests($query, 'dr');
         RegisterQueryHelper::applyLatestRevisionStatus($query, 'ml');
-        self::applyDcnDocumentTypeFilter($query);
+        self::excludeObsoleteRevisions($query);
 
         $select = [
             'ml.id as ml_id',
+            'ml.request_id',
             'ml.doc_no',
             'ml.doc_title',
             'ml.revise_no',
@@ -497,86 +693,255 @@ class OfficeIntakeHelper
             'dr.sub_type_id',
             'dt.doc_type_name',
             'st.doc_type_name as sub_type_name',
+            DB::raw($originDisplay . ' as originator_label'),
         ];
         if (RegisterQueryHelper::supportsAllowsRevisionColumn()) {
             $select[] = 'ml.allows_revision';
         }
 
-        $rows = $query
-            ->orderByDesc('ml.revise_no')
-            ->orderByDesc('ml.id')
-            ->limit(200)
-            ->get($select);
+        return $query->orderByDesc('ml.revise_no')->orderByDesc('ml.id')->first($select);
+    }
 
-        $out = [];
-        foreach ($rows as $row) {
-            $allows = RegisterQueryHelper::supportsAllowsRevisionColumn()
-                && property_exists($row, 'allows_revision')
-                && $row->allows_revision !== null
-                ? (bool) $row->allows_revision
-                : RegisterQueryHelper::effectiveTypeAllowsRevision($row->doc_type_id ?? null, $row->sub_type_id ?? null);
-            if (! $allows) {
-                continue;
-            }
-
-            $typeLabel = trim((string) ($row->sub_type_name ?? '')) !== ''
-                ? trim((string) $row->sub_type_name)
-                : trim((string) ($row->doc_type_name ?? 'Document'));
-
-            $out[] = [
-                'ml_id' => (int) ($row->ml_id ?? 0),
-                'doc_no' => trim((string) ($row->doc_no ?? '')),
-                'doc_title' => trim((string) ($row->doc_title ?? '')),
-                'revise_no' => (int) ($row->revise_no ?? 0),
-                'doc_type' => $typeLabel !== '' ? $typeLabel : 'Document',
-            ];
+    /** Office DCN revises the latest row only. */
+    private static function excludeObsoleteRevisions($query): void
+    {
+        if (! RegisterQueryHelper::supportsRevisionStatus()) {
+            return;
         }
 
-        $out = self::keepLatestDocumentPerNumber($out);
-
-        usort($out, function ($a, $b) use ($q) {
-            $score = fn ($row) => RegisterQueryHelper::looseSearchScore(
-                $q,
-                trim(($row['doc_no'] ?? '') . ' ' . ($row['doc_title'] ?? '') . ' ' . ($row['doc_type'] ?? ''))
-            );
-
-            return $score($b) <=> $score($a);
-        });
-
-        return array_slice($out, 0, 15);
+        $query->whereRaw("LOWER(COALESCE(NULLIF(TRIM(ml.revision_status::text), ''), 'latest')) <> 'obsolete'");
     }
 
     /**
-     * One row per document number: the highest revision, then the newest registration.
+     * Same document number, with a title or originator close to what was typed.
      *
-     * @param  list<array{ml_id?: int, doc_no: string, doc_title: string, revise_no: int, doc_type: string}>  $rows
-     * @return list<array{doc_no: string, doc_title: string, revise_no: int, doc_type: string}>
+     * @return list<array<string, mixed>>
      */
-    private static function keepLatestDocumentPerNumber(array $rows): array
+    private static function nearRevisableMatches(string $docNo, string $title, string $originator, ?int $exceptId = null): array
     {
-        $best = [];
-        foreach ($rows as $row) {
-            $key = mb_strtolower(trim((string) ($row['doc_no'] ?? '')));
-            if ($key === '') {
+        $docNo = trim($docNo);
+        if ($docNo === '') {
+            return [];
+        }
+
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
+            ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
+            ->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)]);
+        if (Schema::hasTable('dcs_originators')) {
+            $query->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id');
+        }
+        $originDisplay = Schema::hasTable('dcs_originators')
+            ? "TRIM(COALESCE(og.originator_name, ''))"
+            : "''";
+        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+            $originDisplay = Schema::hasTable('dcs_originators')
+                ? "TRIM(COALESCE(NULLIF(og.originator_name, ''), ml.originator_name, ''))"
+                : "TRIM(COALESCE(ml.originator_name, ''))";
+        }
+        RegisterQueryHelper::applyNotDeleted($query, 'dr');
+        RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
+        RegisterQueryHelper::applyExcludeOfficeIntakeRequests($query, 'dr');
+        RegisterQueryHelper::applyLatestRevisionStatus($query, 'ml');
+        self::excludeObsoleteRevisions($query);
+
+        $select = [
+            'ml.id as ml_id',
+            'ml.request_id',
+            'ml.doc_no',
+            'ml.doc_title',
+            'ml.revise_no',
+            'dr.doc_type_id',
+            'dr.sub_type_id',
+            'dt.doc_type_name',
+            'st.doc_type_name as sub_type_name',
+            DB::raw($originDisplay . ' as originator_label'),
+        ];
+        if (RegisterQueryHelper::supportsAllowsRevisionColumn()) {
+            $select[] = 'ml.allows_revision';
+        }
+
+        $latestByDocument = [];
+        foreach ($query->orderByDesc('ml.revise_no')->orderByDesc('ml.id')->limit(40)->get($select) as $row) {
+            $storedTitle = trim((string) ($row->doc_title ?? ''));
+            $storedOrigin = trim((string) ($row->originator_label ?? ''));
+            $titleExact = mb_strtolower($storedTitle) === mb_strtolower(trim($title));
+            $originExact = mb_strtolower($storedOrigin) === mb_strtolower(trim($originator));
+            if ($titleExact && $originExact) {
                 continue;
             }
-            $current = $best[$key] ?? null;
-            if ($current === null
-                || (int) ($row['revise_no'] ?? 0) > (int) ($current['revise_no'] ?? 0)
-                || (
-                    (int) ($row['revise_no'] ?? 0) === (int) ($current['revise_no'] ?? 0)
-                    && (int) ($row['ml_id'] ?? 0) > (int) ($current['ml_id'] ?? 0)
-                )) {
-                $best[$key] = $row;
+            $originWords = self::completedNameWords($originator);
+            if ($originWords === [] || ! self::nameWordsMatch($originWords, $storedOrigin)) {
+                continue;
+            }
+            $key = mb_strtolower(trim((string) ($row->doc_no ?? ''))).'|'.mb_strtolower($storedTitle).'|'.mb_strtolower($storedOrigin);
+            $reviseNo = (int) ($row->revise_no ?? 0);
+            $rowId = (int) ($row->ml_id ?? 0);
+            $current = $latestByDocument[$key] ?? null;
+            if ($current === null || $reviseNo > $current['revise_no'] || ($reviseNo === $current['revise_no'] && $rowId > $current['id'])) {
+                $latestByDocument[$key] = ['revise_no' => $reviseNo, 'id' => $rowId, 'row' => $row];
             }
         }
 
-        return array_map(function (array $row) {
-            unset($row['ml_id']);
+        $suggestions = [];
+        foreach ($latestByDocument as $picked) {
+            $suggestions[] = self::revisableMatchPayload($picked['row'], false, $exceptId);
+            if (count($suggestions) >= 8) {
+                break;
+            }
+        }
 
-            return $row;
-        }, array_values($best));
+        return $suggestions;
     }
+
+    private static function textNear(string $typed, string $stored): bool
+    {
+        $typed = mb_strtolower(trim($typed));
+        $stored = mb_strtolower(trim($stored));
+        if ($typed === '' || $stored === '' || mb_strlen($typed) < 3) {
+            return false;
+        }
+        if ($typed === $stored || str_contains($stored, $typed) || str_contains($typed, $stored)) {
+            return true;
+        }
+        similar_text($typed, $stored, $percent);
+
+        return $percent >= 72;
+    }
+
+    /**
+     * Whole name words only. "Carlo" counts. "e" and "Carl" do not.
+     *
+     * @return list<string>
+     */
+    private static function completedNameWords(string $typed): array
+    {
+        $parts = preg_split('/[\s.]+/u', mb_strtolower(trim($typed))) ?: [];
+
+        return array_values(array_filter($parts, fn ($word) => mb_strlen($word) >= 2));
+    }
+
+    /** @param  list<string>  $words */
+    private static function nameWordsMatch(array $words, string $stored): bool
+    {
+        if ($words === []) {
+            return false;
+        }
+        $storedWords = self::completedNameWords($stored);
+        foreach ($words as $word) {
+            if (! in_array($word, $storedWords, true)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static function rowAllowsDcnRevision(object $row): bool
+    {
+        return RegisterQueryHelper::supportsAllowsRevisionColumn()
+            && property_exists($row, 'allows_revision')
+            && $row->allows_revision !== null
+            ? (bool) $row->allows_revision
+            : RegisterQueryHelper::effectiveTypeAllowsRevision($row->doc_type_id ?? null, $row->sub_type_id ?? null);
+    }
+
+    /** @return array<string, mixed> */
+    private static function revisableMatchPayload(object $row, bool $found, ?int $exceptId = null): array
+    {
+        $typeLabel = trim((string) ($row->sub_type_name ?? '')) !== ''
+            ? trim((string) $row->sub_type_name)
+            : trim((string) ($row->doc_type_name ?? 'Document'));
+        $payload = [
+            'document_no' => trim((string) ($row->doc_no ?? '')),
+            'current_title' => trim((string) ($row->doc_title ?? '')),
+            'originator' => trim((string) ($row->originator_label ?? '')),
+            'revise_no' => (int) ($row->revise_no ?? 0),
+            'doc_type' => $typeLabel !== '' ? $typeLabel : 'Document',
+            'approvals' => self::approvalsForRegisteredRequest((int) ($row->request_id ?? 0)),
+        ];
+        $open = self::findOpenDuplicateDcn(
+            (string) ($row->doc_no ?? ''),
+            (string) ($row->doc_title ?? ''),
+            '',
+            [trim((string) ($row->originator_label ?? ''))],
+            $exceptId
+        );
+        if ($open) {
+            $payload['open_dcn_id'] = (int) $open->id;
+            $payload['open_request_message'] = self::duplicateDcnMessage($open);
+        }
+        if ($found) {
+            $payload = ['found' => true] + $payload;
+        }
+
+        return $payload;
+    }
+
+    /** @return list<array{position: string, name: string}> */
+    private static function approvalsForRegisteredRequest(int $requestId): array
+    {
+        if ($requestId < 1 || ! Schema::hasTable('dcs_document_change_notice') || ! Schema::hasTable('dcs_dcn_approvals')) {
+            return [];
+        }
+        $dcnId = (int) DB::table('dcs_document_change_notice')->where('request_id', $requestId)->orderByDesc('id')->value('id');
+        if ($dcnId < 1) {
+            return [];
+        }
+
+        return DB::table('dcs_dcn_approvals')
+            ->where('dcn_id', $dcnId)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get(['position', 'name'])
+            ->map(fn ($row) => [
+                'position' => trim((string) ($row->position ?? '')),
+                'name' => trim((string) ($row->name ?? '')),
+            ])
+            ->filter(fn (array $row) => $row['position'] !== '' || $row['name'] !== '')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return array{document_no: string, document_title: string, previous_document_no: string}
+     */
+    public static function resolveOfficeDcnDocument(Request $request): array
+    {
+        $finderNo = trim((string) $request->input('finderDocumentNo', ''));
+        $currentTitle = trim((string) $request->input('finderCurrentTitle', ''));
+        $finderOriginator = trim((string) $request->input('finderOriginator', ''));
+        $newTitle = trim((string) $request->input('documentTitle', ''));
+
+        $matched = self::findRevisableRegistrationMatch($finderNo, $currentTitle, $finderOriginator);
+        if (! $matched) {
+            throw ValidationException::withMessages([
+                'finderDocumentNo' => 'No registered document matched that number, title, and originator.',
+            ]);
+        }
+
+        if ($newTitle === '') {
+            throw ValidationException::withMessages([
+                'documentTitle' => 'New document title is required.',
+            ]);
+        }
+
+        $previous = trim((string) ($matched->doc_no ?? ''));
+        if ($previous === '') {
+            throw ValidationException::withMessages([
+                'finderDocumentNo' => 'No registered document matched that number, title, and originator.',
+            ]);
+        }
+
+        return [
+            'document_no' => $previous,
+            'document_title' => $newTitle,
+            'previous_document_no' => $previous,
+        ];
+    }
+
+
 
     /**
      * Office DRF and DCN still waiting in the Request queue.
@@ -631,13 +996,85 @@ class OfficeIntakeHelper
         $firstRev = $revisions->first();
         $title = trim((string) ($dcn->document_title ?? ''))
             ?: trim((string) ($firstRev->title ?? ''));
+        $docNo = trim((string) ($dcn->previous_document_no ?? ''));
+        if ($docNo === '') {
+            $docNo = trim((string) ($dcn->document_no ?? ''));
+        }
+        $registered = self::latestRegistrationForDocNo($docNo);
+        $kind = 'internal';
+        $label = '';
+        $officeIds = [];
+        if ($registered) {
+            $typeName = trim((string) ($registered->doc_type_name ?? ''));
+            $subName = trim((string) ($registered->sub_type_name ?? ''));
+            $label = $subName !== '' ? $subName : $typeName;
+            if (str_contains(mb_strtolower($typeName.' '.$subName), 'external')) {
+                $kind = 'external';
+            }
+            $officeIds = self::distributionOfficeIdsForRequest((int) ($registered->request_id ?? 0));
+        }
 
         return [
             'drfTitle' => $title,
             'originatorName' => trim((string) ($dcn->originator_name ?? '')),
             'descriptionReason' => '',
             'from_dcn' => $dcnId,
+            'docTypeKind' => $kind,
+            'docTypeLabel' => $label,
+            'lockDocType' => $registered !== null,
+            'distributeOfficeIds' => $officeIds,
         ];
+    }
+
+    public static function latestRegistrationForDocNo(string $docNo): ?object
+    {
+        $docNo = trim($docNo);
+        if ($docNo === '' || ! Schema::hasTable('dcs_masterlist_registration')) {
+            return null;
+        }
+
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
+            ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
+            ->whereRaw('LOWER(TRIM(ml.doc_no)) = ?', [mb_strtolower($docNo)]);
+        RegisterQueryHelper::applyNotDeleted($query, 'dr');
+        RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
+        RegisterQueryHelper::applyExcludeOfficeIntakeRequests($query, 'dr');
+        RegisterQueryHelper::applyLatestRevisionStatus($query, 'ml');
+
+        return $query->orderByDesc('ml.revise_no')->orderByDesc('ml.id')->first([
+            'ml.request_id',
+            'ml.doc_no',
+            'ml.doc_title',
+            'ml.revise_no',
+            'dr.doc_type_id',
+            'dr.sub_type_id',
+            'dt.doc_type_name',
+            'st.doc_type_name as sub_type_name',
+        ]);
+    }
+
+    /** @return list<int> */
+    public static function distributionOfficeIdsForRequest(int $requestId): array
+    {
+        if ($requestId < 1 || ! Schema::hasTable('dcs_document_distribution') || ! Schema::hasTable('dcs_distribution_offices')) {
+            return [];
+        }
+        $distId = (int) (DB::table('dcs_document_distribution')->where('request_id', $requestId)->orderByDesc('id')->value('id') ?: 0);
+        if ($distId < 1) {
+            return [];
+        }
+
+        return DB::table('dcs_distribution_offices')
+            ->where('distribution_id', $distId)
+            ->whereNotNull('office_id')
+            ->orderBy('id')
+            ->pluck('office_id')
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn (int $id) => $id > 0)
+            ->values()
+            ->all();
     }
 
     /**
@@ -703,8 +1140,23 @@ class OfficeIntakeHelper
     /**
      * @throws \Illuminate\Validation\ValidationException
      */
+    public static function officeDcnAllowsLaterDrf(int $dcnId): bool
+    {
+        if ($dcnId < 1 || ! Schema::hasColumn('dcs_office_intake_dcn', 'expects_drf')) {
+            return false;
+        }
+
+        return (bool) DB::table('dcs_office_intake_dcn')->where('id', $dcnId)->value('expects_drf');
+    }
+
     public static function assertOfficeDcnCanCreateDrf(int $dcnId): void
     {
+        if (! self::officeDcnAllowsLaterDrf($dcnId)) {
+            throw ValidationException::withMessages([
+                'from_dcn' => 'This Document Change Notice was created without a Document Request Form. A DRF cannot be added to it.',
+            ]);
+        }
+
         $existingId = self::findLinkedDrfIdForOfficeDcn($dcnId);
         if ($existingId === null) {
             return;
@@ -713,8 +1165,139 @@ class OfficeIntakeHelper
         throw ValidationException::withMessages([
             'from_dcn' => 'This Document Change Notice already has a Document Request Form (DRF #'
                 . $existingId
-                . '). Create another DRF from a different DCN, or open the existing DRF.',
+                . '). Open that DRF.',
         ]);
+    }
+
+    /**
+     * Another office DCN for this registered document that RFIO has not registered yet.
+     *
+     * @param  list<string>  $originators
+     */
+    public static function findOpenDuplicateDcn(
+        string $docNo,
+        string $currentTitle,
+        string $newTitle,
+        array $originators,
+        ?int $exceptId = null
+    ): ?object {
+        if (! Schema::hasTable('dcs_office_intake_dcn')) {
+            return null;
+        }
+
+        self::reconcileClaimedIntakesWithRegistrations();
+
+        $docNo = mb_strtolower(trim($docNo));
+        if ($docNo === '') {
+            return null;
+        }
+
+        $titles = array_values(array_unique(array_filter(array_map(
+            static fn ($value) => mb_strtolower(trim((string) $value)),
+            [$currentTitle, $newTitle]
+        ))));
+        $origins = array_values(array_unique(array_filter(array_map(
+            static fn ($value) => mb_strtolower(trim((string) $value)),
+            $originators
+        ))));
+        if ($titles === [] && $origins === []) {
+            return null;
+        }
+
+        $query = self::openIntakeScope('dcs_office_intake_dcn');
+        if ($exceptId) {
+            $query->where('id', '<>', $exceptId);
+        }
+        $query->where(function ($inner) use ($docNo) {
+            $inner->whereRaw("LOWER(TRIM(COALESCE(previous_document_no, ''))) = ?", [$docNo])
+                ->orWhereRaw("LOWER(TRIM(COALESCE(document_no, ''))) = ?", [$docNo]);
+        });
+
+        foreach ($query->orderBy('id')->get(['id', 'document_no', 'document_title', 'originator_name']) as $row) {
+            $title = mb_strtolower(trim((string) ($row->document_title ?? '')));
+            $origin = mb_strtolower(trim((string) ($row->originator_name ?? '')));
+            $sameTitle = $title !== '' && in_array($title, $titles, true);
+            $sameOrigin = $origin !== '' && in_array($origin, $origins, true);
+            if ($sameTitle || $sameOrigin) {
+                return $row;
+            }
+        }
+
+        return null;
+    }
+
+    public static function duplicateDcnMessage(object $row): string
+    {
+        $no = trim((string) ($row->document_no ?? ''));
+        $title = trim((string) ($row->document_title ?? ''));
+        $label = trim($no.($title !== '' ? ' — '.$title : ''));
+
+        return 'A Document Change Notice for '.($label !== '' ? $label : 'this document')
+            .' is already submitted and still waiting to be registered. Open DCN #'.(int) $row->id.'.';
+    }
+
+    public static function assertNoOpenDuplicateDcn(
+        string $docNo,
+        string $currentTitle,
+        string $newTitle,
+        array $originators,
+        ?int $exceptId = null
+    ): void {
+        $existing = self::findOpenDuplicateDcn($docNo, $currentTitle, $newTitle, $originators, $exceptId);
+        if (! $existing) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'finderDocumentNo' => self::duplicateDcnMessage($existing),
+        ]);
+    }
+
+    public static function assertNoOpenDuplicateDrf(string $title, string $originator, ?int $exceptId = null): void
+    {
+        if (! Schema::hasTable('dcs_office_intake_drf')) {
+            return;
+        }
+
+        self::reconcileClaimedIntakesWithRegistrations();
+
+        $title = mb_strtolower(trim($title));
+        $originator = mb_strtolower(trim($originator));
+        if ($title === '' || $originator === '') {
+            return;
+        }
+
+        $query = self::openIntakeScope('dcs_office_intake_drf')
+            ->whereRaw('LOWER(TRIM(COALESCE(doc_title, \'\'))) = ?', [$title])
+            ->whereRaw('LOWER(TRIM(COALESCE(originator_name, \'\'))) = ?', [$originator]);
+        if ($exceptId) {
+            $query->where('id', '<>', $exceptId);
+        }
+
+        $existing = $query->orderBy('id')->first(['id', 'doc_title']);
+        if (! $existing) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'drfTitle' => 'A Document Request Form for "'.trim((string) ($existing->doc_title ?? '')).'"'
+                .' by this originator is already submitted and still waiting to be registered. Open DRF #'.(int) $existing->id.'.',
+        ]);
+    }
+
+    private static function openIntakeScope(string $table)
+    {
+        $query = DB::table($table);
+        if (Schema::hasColumn($table, 'rfio_registered_at')) {
+            $query->whereNull('rfio_registered_at');
+        }
+        if (Schema::hasColumn($table, 'registered_request_id')) {
+            $query->where(function ($inner) {
+                $inner->whereNull('registered_request_id')->orWhere('registered_request_id', 0);
+            });
+        }
+
+        return $query;
     }
 
     /** @return array{id: int|null, code: string, name: string, label: string} */
@@ -770,8 +1353,8 @@ class OfficeIntakeHelper
 
         $data = $request->validate([
             'drfDate' => 'required|date',
-            'drfTitle' => 'required|string|max:255',
-            'originatorName' => 'required|string|max:255',
+            'drfTitle' => 'required|string',
+            'originatorName' => 'required|string',
             'docTypeKind' => 'required|in:internal,external',
             'descriptionReason' => 'required|string|max:5000',
             'distributeToOffice' => 'required|array|min:1',
@@ -795,6 +1378,11 @@ class OfficeIntakeHelper
         } else {
             $sourceDcnId = 0;
         }
+
+        self::assertNoOpenDuplicateDrf(
+            (string) ($data['drfTitle'] ?? ''),
+            (string) ($data['originatorName'] ?? '')
+        );
 
         $officeIds = [];
         $current = RegisterQueryHelper::currentOfficeId();
@@ -862,20 +1450,141 @@ class OfficeIntakeHelper
             ['drf_id' => $id, 'title' => $data['drfTitle']]
         );
 
-        // Always notify Document Controllers / RFIO review queue.
-        // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIO/RFOIU.
-        DcsNotificationService::notifyOfficeDrfSubmitted(
-            RegisterQueryHelper::rfioNotificationOfficeCode(),
-            RegisterQueryHelper::currentUserDisplayName(),
-            '',
-            $data['drfTitle'],
-            $id
-        );
+        // A DRF that belongs to a DCN is one combined notice. A DRF on its own stays a DRF notice.
+        $notifyOffice = RegisterQueryHelper::rfioNotificationOfficeCode();
+        $submitter = RegisterQueryHelper::currentUserDisplayName();
+        if ($sourceDcnId > 0) {
+            $sourceDcn = self::findOfficeDcn($sourceDcnId);
+            DcsNotificationService::notifyOfficeDcnWithDrfSubmitted(
+                $notifyOffice,
+                $submitter,
+                (string) ($sourceDcn->document_no ?? ''),
+                $data['drfTitle'],
+                $sourceDcnId
+            );
+        } else {
+            DcsNotificationService::notifyOfficeDrfSubmitted(
+                $notifyOffice,
+                $submitter,
+                '',
+                $data['drfTitle'],
+                $id
+            );
+        }
 
         return redirect()
             ->route('dcs.office.drf.show', $id)
             ->with('success', 'Document Request Form saved. This document cannot be edited.')
             ->with('locked', true);
+    }
+
+    public static function previewDrf(Request $request)
+    {
+        self::assertCanAccessIntake();
+        $ids = array_values(array_filter(array_map('intval', (array) $request->input('distributeToOffice', []))));
+        $drf = (object) [
+            'id' => 0,
+            'doc_title' => trim((string) $request->input('drfTitle', '')),
+            'drf_date' => $request->input('drfDate') ?: null,
+            'originator_name' => trim((string) $request->input('originatorName', '')),
+            'doc_type_kind' => $request->input('docTypeKind'),
+            'description_reason' => trim((string) $request->input('descriptionReason', '')),
+            'prepared_by_name' => trim((string) $request->input('preparedByName', '')),
+            'prepared_by_designation' => trim((string) $request->input('preparedByDesignation', '')),
+            'reviewed_by_name' => trim((string) $request->input('reviewedByName', '')),
+            'reviewed_by_designation' => trim((string) $request->input('reviewedByDesignation', '')),
+            'approved_by_name' => trim((string) $request->input('approvedByName', '')),
+            'approved_by_designation' => trim((string) $request->input('approvedByDesignation', '')),
+            'preview_distribute_offices' => self::officesForPreview($ids),
+        ];
+        $logoSrc = self::printLogoSrc();
+        $sourceOffices = collect();
+        $viewerMode = false;
+        $allowPrint = false;
+
+        return response()->view('pages.dcs.office.drf-print', compact('drf', 'logoSrc', 'sourceOffices', 'viewerMode', 'allowPrint'));
+    }
+
+    public static function previewDcn(Request $request)
+    {
+        self::assertCanAccessIntake();
+        $names = (array) $request->input('reviewedByName', []);
+        $dates = (array) $request->input('reviewedByOn', []);
+        $reviewers = [];
+        $count = max(count($names), count($dates));
+        for ($i = 0; $i < $count; $i++) {
+            $name = trim((string) ($names[$i] ?? ''));
+            $date = trim((string) ($dates[$i] ?? ''));
+            if ($name === '' && $date === '') {
+                continue;
+            }
+            $reviewers[] = [
+                'name' => $name,
+                'date' => $date !== '' ? $date : null,
+                'label' => self::formatReviewedByLabel($name, $date) ?? '',
+            ];
+        }
+        $officeId = (int) $request->input('departmentOfficeId', 0);
+        $office = $officeId > 0 ? (self::officesForPreview([$officeId])[0] ?? null) : null;
+        $storedNo = trim((string) $request->input('documentNo', ''));
+        if ($storedNo === '') {
+            $storedNo = trim((string) $request->input('finderDocumentNo', ''));
+        }
+        $dcn = (object) [
+            'id' => 0,
+            'document_no' => $storedNo,
+            'document_title' => trim((string) $request->input('documentTitle', '')),
+            'change_from' => trim((string) $request->input('changeFrom', '')),
+            'change_to' => trim((string) $request->input('changeTo', '')),
+            'brief_purpose' => trim((string) $request->input('dcnJustification', '')),
+            'originator_name' => trim((string) $request->input('originatorName', '')),
+            'department_on' => $request->input('departmentDate') ?: null,
+            'dcn_no' => '',
+            'preview_reviewers' => $reviewers,
+            'preview_department_code' => $office['code'] ?? '',
+            'preview_department' => $office['name'] ?? '',
+        ];
+        $logoSrc = self::printLogoSrc();
+        $revisions = collect();
+        $sourceOffices = collect();
+        $viewerMode = false;
+        $allowPrint = false;
+
+        return response()->view('pages.dcs.office.dcn-print', compact('dcn', 'logoSrc', 'revisions', 'sourceOffices', 'viewerMode', 'allowPrint'));
+    }
+
+    /** @param  list<int>  $ids
+     *  @return list<array{office_id: int, code: string, name: string}>
+     */
+    private static function officesForPreview(array $ids): array
+    {
+        $ids = array_values(array_filter(array_map('intval', $ids)));
+        if ($ids === []) {
+            return [];
+        }
+        $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $byId = DB::table($officeTable)->whereIn('id', $ids)->get(['id', 'office_code', 'office_name'])->keyBy('id');
+        $offices = [];
+        foreach ($ids as $officeId) {
+            $row = $byId[$officeId] ?? null;
+            if (! $row) {
+                continue;
+            }
+            $offices[] = [
+                'office_id' => $officeId,
+                'code' => trim((string) ($row->office_code ?? '')),
+                'name' => trim((string) ($row->office_name ?? '')),
+            ];
+        }
+
+        return $offices;
+    }
+
+    private static function printLogoSrc(): string
+    {
+        $logoPath = public_path('images/logo.png');
+
+        return file_exists($logoPath) ? ('data:image/png;base64,' . base64_encode((string) file_get_contents($logoPath))) : '';
     }
 
     public static function storeDcn(Request $request): RedirectResponse
@@ -889,12 +1598,17 @@ class OfficeIntakeHelper
         }
 
         $data = $request->validate([
-            'documentNo' => 'required|string|max:150',
-            'documentTitle' => 'nullable|string|max:255',
+            'finderDocumentNo' => 'required|string|max:150',
+            'finderCurrentTitle' => 'required|string',
+            'finderOriginator' => 'required|string',
+            'documentNoMode' => 'nullable|in:keep,new',
+            'newDocumentNo' => 'nullable|string|max:150',
+            'documentNo' => 'nullable|string|max:150',
+            'documentTitle' => 'required|string',
             'changeFrom' => 'required|string|max:5000',
             'changeTo' => 'required|string|max:5000',
             'dcnJustification' => 'required|string|max:5000',
-            'originatorName' => 'required|string|max:255',
+            'originatorName' => 'required|string',
             'departmentDate' => 'required|date',
             'reviewedByName' => 'required|array|min:1|max:9',
             'reviewedByName.*' => 'required|string|max:255',
@@ -910,17 +1624,19 @@ class OfficeIntakeHelper
 
         self::assertApprovalRowsComplete($request);
 
-        $docNo = trim((string) ($data['documentNo'] ?? ''));
-        $matched = self::assertRegisteredRevisableDocNo($docNo);
-        $docTitle = trim((string) ($data['documentTitle'] ?? ''));
-        if ($docTitle === '') {
-            $docTitle = trim((string) ($matched->doc_title ?? ''));
-        }
-        if ($docTitle === '') {
-            throw ValidationException::withMessages([
-                'documentTitle' => 'Document title is required.',
-            ]);
-        }
+        $resolved = self::resolveOfficeDcnDocument($request);
+        $docNo = $resolved['document_no'];
+        $docTitle = $resolved['document_title'];
+        $previousDocNo = $resolved['previous_document_no'];
+        self::assertNoOpenDuplicateDcn(
+            $previousDocNo,
+            trim((string) $request->input('finderCurrentTitle', '')),
+            $docTitle,
+            [
+                trim((string) $request->input('finderOriginator', '')),
+                trim((string) ($data['originatorName'] ?? '')),
+            ]
+        );
         $reviewers = self::reviewersPayloadFromRequest($data);
         $approvals = self::approvalsPayloadFromRequest($data);
 
@@ -928,7 +1644,8 @@ class OfficeIntakeHelper
         $now = now();
 
         try {
-            $id = DB::transaction(function () use ($data, $docNo, $docTitle, $reviewers, $approvals, $userId, $now) {
+            $expectsDrf = $request->boolean('alsoCreateDrf');
+            $id = DB::transaction(function () use ($data, $docNo, $docTitle, $previousDocNo, $reviewers, $approvals, $userId, $now, $expectsDrf) {
                 $row = [
                     'dcn_no' => null,
                     'dcn_date' => now()->toDateString(),
@@ -943,6 +1660,12 @@ class OfficeIntakeHelper
                     'originator_name' => trim((string) ($data['originatorName'] ?? '')) ?: null,
                     'department_on' => $data['departmentDate'] ?? null,
                 ];
+                if (Schema::hasColumn('dcs_office_intake_dcn', 'previous_document_no')) {
+                    $row['previous_document_no'] = $previousDocNo !== '' ? $previousDocNo : null;
+                }
+                if (Schema::hasColumn('dcs_office_intake_dcn', 'expects_drf')) {
+                    $row['expects_drf'] = $expectsDrf;
+                }
 
                 $dcnId = DB::table('dcs_office_intake_dcn')->insertGetId($row);
 
@@ -979,15 +1702,16 @@ class OfficeIntakeHelper
             ['dcn_id' => $id, 'doc_no' => $docNo, 'title' => $docTitle]
         );
 
-        // Always notify Document Controllers / RFIO review queue.
-        // Limited RFOIU staff also use office intake — do not skip when submitter office is RFIO/RFOIU.
-        DcsNotificationService::notifyOfficeDcnSubmitted(
-            RegisterQueryHelper::rfioNotificationOfficeCode(),
-            RegisterQueryHelper::currentUserDisplayName(),
-            '',
-            $docNo,
-            $id
-        );
+        // A DCN that will include a DRF waits until that DRF is saved, then sends one combined notice.
+        if (! $request->boolean('alsoCreateDrf')) {
+            DcsNotificationService::notifyOfficeDcnSubmitted(
+                RegisterQueryHelper::rfioNotificationOfficeCode(),
+                RegisterQueryHelper::currentUserDisplayName(),
+                '',
+                $docNo,
+                $id
+            );
+        }
 
         if ($request->boolean('alsoCreateDrf')) {
             return redirect()
@@ -1015,8 +1739,8 @@ class OfficeIntakeHelper
 
         $data = $request->validate([
             'drfDate' => 'required|date',
-            'drfTitle' => 'required|string|max:255',
-            'originatorName' => 'required|string|max:255',
+            'drfTitle' => 'required|string',
+            'originatorName' => 'required|string',
             'docTypeKind' => 'required|in:internal,external',
             'descriptionReason' => 'required|string|max:5000',
             'distributeToOffice' => 'required|array|min:1',
@@ -1029,6 +1753,12 @@ class OfficeIntakeHelper
             'approvedByDesignation' => 'required|string|max:255',
             'confirmDataCorrect' => 'accepted',
         ]);
+
+        self::assertNoOpenDuplicateDrf(
+            (string) ($data['drfTitle'] ?? ''),
+            (string) ($data['originatorName'] ?? ''),
+            $id
+        );
 
         $now = now();
         DB::transaction(function () use ($data, $id, $now) {
@@ -1107,12 +1837,17 @@ class OfficeIntakeHelper
         }
 
         $data = $request->validate([
-            'documentNo' => 'required|string|max:150',
-            'documentTitle' => 'nullable|string|max:255',
+            'finderDocumentNo' => 'required|string|max:150',
+            'finderCurrentTitle' => 'required|string',
+            'finderOriginator' => 'required|string',
+            'documentNoMode' => 'nullable|in:keep,new',
+            'newDocumentNo' => 'nullable|string|max:150',
+            'documentNo' => 'nullable|string|max:150',
+            'documentTitle' => 'required|string',
             'changeFrom' => 'required|string|max:5000',
             'changeTo' => 'required|string|max:5000',
             'dcnJustification' => 'required|string|max:5000',
-            'originatorName' => 'required|string|max:255',
+            'originatorName' => 'required|string',
             'departmentDate' => 'required|date',
             'reviewedByName' => 'required|array|min:1|max:9',
             'reviewedByName.*' => 'required|string|max:255',
@@ -1127,22 +1862,25 @@ class OfficeIntakeHelper
 
         self::assertApprovalRowsComplete($request);
 
-        $docNo = trim((string) ($data['documentNo'] ?? ''));
-        $matched = self::assertRegisteredRevisableDocNo($docNo);
-        $docTitle = trim((string) ($data['documentTitle'] ?? ''));
-        if ($docTitle === '') {
-            $docTitle = trim((string) ($matched->doc_title ?? ''));
-        }
-        if ($docTitle === '') {
-            throw ValidationException::withMessages([
-                'documentTitle' => 'Document title is required.',
-            ]);
-        }
+        $resolved = self::resolveOfficeDcnDocument($request);
+        $docNo = $resolved['document_no'];
+        $docTitle = $resolved['document_title'];
+        $previousDocNo = $resolved['previous_document_no'];
+        self::assertNoOpenDuplicateDcn(
+            $previousDocNo,
+            trim((string) $request->input('finderCurrentTitle', '')),
+            $docTitle,
+            [
+                trim((string) $request->input('finderOriginator', '')),
+                trim((string) ($data['originatorName'] ?? '')),
+            ],
+            $id
+        );
         $reviewers = self::reviewersPayloadFromRequest($data);
         $approvals = self::approvalsPayloadFromRequest($data);
         $now = now();
 
-        DB::transaction(function () use ($data, $id, $docNo, $docTitle, $reviewers, $approvals, $now) {
+        DB::transaction(function () use ($data, $id, $docNo, $docTitle, $previousDocNo, $reviewers, $approvals, $now) {
             $row = [
                 'updated_at' => $now,
             ];
@@ -1156,6 +1894,9 @@ class OfficeIntakeHelper
                 $row['change_to'] = trim((string) ($data['changeTo'] ?? '')) ?: null;
                 $row['originator_name'] = trim((string) ($data['originatorName'] ?? '')) ?: null;
                 $row['department_on'] = $data['departmentDate'] ?? null;
+            }
+            if (Schema::hasColumn('dcs_office_intake_dcn', 'previous_document_no')) {
+                $row['previous_document_no'] = $previousDocNo !== '' ? $previousDocNo : null;
             }
             if (Schema::hasColumn('dcs_office_intake_dcn', 'edit_unlocked_at')) {
                 $row['edit_unlocked_at'] = null;
@@ -1245,6 +1986,10 @@ class OfficeIntakeHelper
      */
     public static function loadDcnReviewers(int $dcnId, ?object $dcn = null): array
     {
+        if ($dcn && isset($dcn->preview_reviewers) && is_array($dcn->preview_reviewers)) {
+            return $dcn->preview_reviewers;
+        }
+
         if (! Schema::hasTable('dcs_office_dcn_reviewers')) {
             return [];
         }
@@ -1510,6 +2255,21 @@ class OfficeIntakeHelper
      */
     public static function parseDepartmentDate(object $dcn): array
     {
+        if ($dcn && (! empty($dcn->preview_department_code) || ! empty($dcn->preview_department))) {
+            $code = trim((string) ($dcn->preview_department_code ?? ''));
+            $name = trim((string) ($dcn->preview_department ?? ''));
+            $dateIso = trim((string) ($dcn->department_on ?? ''));
+            $dateLabel = $dateIso !== '' ? \Carbon\Carbon::parse($dateIso)->format('F d, Y') : '';
+
+            return [
+                'department' => $name !== '' ? $name : $code,
+                'department_code' => $code,
+                'department_label' => $name !== '' ? $name : $code,
+                'date_label' => $dateLabel,
+                'date_iso' => $dateIso,
+            ];
+        }
+
         $officeTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
         $office = null;
         if (Schema::hasTable('dcs_office_dcn_offices')) {
@@ -1615,7 +2375,6 @@ class OfficeIntakeHelper
         }
 
         if (! empty($record->rfio_registered_at)) {
-            // Repair older rows that still share request_id with the controlled registration.
             if ((int) ($record->request_id ?? 0) > 0) {
                 self::detachIntakeFromControlledRequest($type, $id);
             }
@@ -1623,15 +2382,7 @@ class OfficeIntakeHelper
             return true;
         }
 
-        if ((int) ($record->request_id ?? 0) > 0) {
-            // Legacy link without rfio_registered_at — detach and treat as registered.
-            self::detachIntakeFromControlledRequest($type, $id, true);
-
-            return true;
-        }
-
-        // Treat title-matched controlled documents as registered (closes orphaned RFIO review items).
-        return self::findMatchingControlledRequestId($type, $record) > 0;
+        return (int) ($record->registered_request_id ?? 0) > 0;
     }
 
     /**
@@ -1784,28 +2535,66 @@ class OfficeIntakeHelper
         $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
         abort_unless($record, 404);
         abort_if(self::isIntakeRegistered($type, $id), 422, 'This office intake is already registered.');
+        abort_if(empty($record->rfio_received_at), 422, 'Receive the signed form before registration.');
+        if ($type === 'dcn') {
+            $linkedDrfId = self::findLinkedDrfIdForOfficeDcn($id);
+            if ($linkedDrfId) {
+                $linkedDrf = self::findOfficeDrf($linkedDrfId);
+                abort_if(! $linkedDrf || empty($linkedDrf->rfio_received_at), 422, 'Receive the linked Document Request Form before registration.');
+            }
+        } else {
+            $linkedDcnId = self::findSourceDcnIdForOfficeDrf($id);
+            if ($linkedDcnId) {
+                $linkedDcn = self::findOfficeDcn($linkedDcnId);
+                abort_if(! $linkedDcn || empty($linkedDcn->rfio_received_at), 422, 'Receive the linked Document Change Notice before registration.');
+            }
+        }
 
-        $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
-        if (Schema::hasTable($table) && Schema::hasColumn($table, 'rfio_claimed_at') && empty($record->rfio_claimed_at)) {
-            DB::table($table)->where('id', $id)->update([
-                'rfio_claimed_at' => now(),
-                'updated_at' => now(),
-            ]);
+        $target = self::registrationTarget($type, $id);
+        self::claimOfficeIntake($type, $id);
+        if ($target['intakeType'] !== $type || (int) $target['intakeId'] !== $id) {
+            self::claimOfficeIntake($target['intakeType'], (int) $target['intakeId']);
+        }
+        if ($type === 'dcn') {
+            $linkedDrfId = self::findLinkedDrfIdForOfficeDcn($id);
+            if ($linkedDrfId) {
+                self::claimOfficeIntake('drf', $linkedDrfId);
+            }
         }
 
         session([
             'dcs_office_intake_pending' => [
-                'type' => $type,
-                'id' => $id,
+                'type' => $target['intakeType'],
+                'id' => $target['intakeId'],
             ],
         ]);
+        cookie()->queue(cookie(
+            'dcs_office_intake_pending',
+            $target['intakeType'].':'.$target['intakeId'],
+            120
+        ));
 
         return [
             'ok' => true,
-            'type' => $type,
-            'id' => $id,
-            'registerUrl' => self::registerContinueUrl($type, $id),
+            'type' => $target['intakeType'],
+            'id' => $target['intakeId'],
+            'registerType' => $target['registerType'],
+            'registerUrl' => $target['registerUrl'],
         ];
+    }
+
+    private static function claimOfficeIntake(string $type, int $id): void
+    {
+        $type = strtolower($type);
+        $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+        if ($id < 1 || ! Schema::hasTable($table) || ! Schema::hasColumn($table, 'rfio_claimed_at')) {
+            return;
+        }
+
+        DB::table($table)->where('id', $id)->whereNull('rfio_claimed_at')->update([
+            'rfio_claimed_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     /** @return array{type: string, id: int}|null */
@@ -1815,6 +2604,11 @@ class OfficeIntakeHelper
         $id = (int) ($request?->input('office_intake_id') ?? 0);
         if (in_array($type, ['drf', 'dcn'], true) && $id > 0) {
             return ['type' => $type, 'id' => $id];
+        }
+
+        $cookie = trim((string) ($request?->cookie('dcs_office_intake_pending') ?? ''));
+        if (preg_match('/^(drf|dcn):(\d+)$/', $cookie, $cookieMatch) === 1) {
+            return ['type' => $cookieMatch[1], 'id' => (int) $cookieMatch[2]];
         }
 
         $pending = session('dcs_office_intake_pending');
@@ -1827,6 +2621,342 @@ class OfficeIntakeHelper
         }
 
         return null;
+    }
+
+    /**
+     * The office intake this save is actually registering.
+     * A DRF/DCN source unit on a document the admin created is not enough —
+     * the form must be the one posted from Proceed to Registration, which is
+     * the row in My DRF / My DCN.
+     *
+     * @return array{type: string, id: int}|null
+     */
+    public static function explicitRegisterIntake(?\Illuminate\Http\Request $request = null): ?array
+    {
+        $type = strtolower(trim((string) ($request?->input('office_intake_type') ?? '')));
+        $id = (int) ($request?->input('office_intake_id') ?? 0);
+        if (! in_array($type, ['drf', 'dcn'], true) || $id < 1) {
+            return null;
+        }
+
+        $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
+        if (! $record || (int) ($record->created_by ?? 0) < 1) {
+            return null;
+        }
+
+        return ['type' => $type, 'id' => $id];
+    }
+
+    /**
+     * A claimed office form stays "Submitted" when the registration save did not
+     * carry the intake id. Link it once a controlled copy of that document
+     * exists from the moment RFIO started registration.
+     */
+    public static function reconcileClaimedIntakesWithRegistrations(): void
+    {
+        static $done = false;
+        if ($done || ! Schema::hasTable('dcs_masterlist_registration')) {
+            return;
+        }
+        $done = true;
+
+        if (Schema::hasTable('dcs_office_intake_dcn')) {
+            foreach (self::claimedUnregisteredRows('dcs_office_intake_dcn') as $row) {
+                $requestId = self::registrationRequestIdAfterClaim($row, [
+                    (string) ($row->document_no ?? ''),
+                    (string) ($row->previous_document_no ?? ''),
+                ], null);
+                if ($requestId < 1) {
+                    continue;
+                }
+                [$docNo, $docTitle] = self::masterlistIdentity($requestId);
+                self::markIntakeRegistered('dcn', (int) $row->id, $requestId, $docNo, $docTitle, true);
+                $linkedDrfId = self::findLinkedDrfIdForOfficeDcn((int) $row->id);
+                if ($linkedDrfId) {
+                    self::markIntakeRegistered('drf', $linkedDrfId, $requestId, $docNo, $docTitle, true);
+                }
+            }
+        }
+
+        if (Schema::hasTable('dcs_office_intake_drf')) {
+            foreach (self::claimedUnregisteredRows('dcs_office_intake_drf') as $row) {
+                $linkedDcnId = (int) ($row->source_office_dcn_id ?? 0);
+                $numbers = [];
+                if ($linkedDcnId > 0) {
+                    $dcn = self::findOfficeDcn($linkedDcnId);
+                    if ($dcn) {
+                        $numbers = [
+                            (string) ($dcn->document_no ?? ''),
+                            (string) ($dcn->previous_document_no ?? ''),
+                        ];
+                    }
+                }
+                $requestId = self::registrationRequestIdAfterClaim(
+                    $row,
+                    $numbers,
+                    (string) ($row->doc_title ?? '')
+                );
+                if ($requestId < 1) {
+                    continue;
+                }
+                [$docNo, $docTitle] = self::masterlistIdentity($requestId);
+                self::markIntakeRegistered('drf', (int) $row->id, $requestId, $docNo, $docTitle, true);
+                if ($linkedDcnId > 0) {
+                    self::markIntakeRegistered('dcn', $linkedDcnId, $requestId, $docNo, $docTitle, true);
+                }
+            }
+        }
+    }
+
+    /** @return list<int> */
+    private static function intakeRegistrationRequestIds(): array
+    {
+        $ids = [];
+        foreach (['dcs_office_intake_dcn', 'dcs_office_intake_drf'] as $table) {
+            if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'registered_request_id')) {
+                continue;
+            }
+            $found = DB::table($table)
+                ->whereNotNull('registered_request_id')
+                ->where('registered_request_id', '>', 0)
+                ->pluck('registered_request_id');
+            foreach ($found as $id) {
+                $ids[] = (int) $id;
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    private static function claimedUnregisteredRows(string $table)
+    {
+        $query = DB::table($table)->whereNotNull('rfio_claimed_at');
+        if (Schema::hasColumn($table, 'rfio_registered_at')) {
+            $query->whereNull('rfio_registered_at');
+        }
+        if (Schema::hasColumn($table, 'registered_request_id')) {
+            $query->where(function ($inner) {
+                $inner->whereNull('registered_request_id')->orWhere('registered_request_id', 0);
+            });
+        }
+
+        return $query->get();
+    }
+
+    /** @param  list<string>  $docNos */
+    private static function registrationRequestIdAfterClaim(object $row, array $docNos, ?string $title): int
+    {
+        $claimedAt = $row->rfio_claimed_at ?? null;
+        if (! $claimedAt) {
+            return 0;
+        }
+
+        $docNos = array_values(array_unique(array_filter(array_map(
+            static fn ($value) => mb_strtolower(trim((string) $value)),
+            $docNos
+        ))));
+        $title = mb_strtolower(trim((string) $title));
+
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->where('ml.created_at', '>=', $claimedAt);
+        RegisterQueryHelper::applyExcludeDrafts($query, 'dr');
+        RegisterQueryHelper::applyNotDeleted($query, 'dr');
+
+        if ($docNos !== []) {
+            $hasRevisedFrom = Schema::hasColumn('dcs_masterlist_registration', 'revised_from_doc_no');
+            $query->where(function ($inner) use ($docNos, $hasRevisedFrom) {
+                foreach ($docNos as $no) {
+                    $inner->orWhereRaw('LOWER(TRIM(ml.doc_no)) = ?', [$no]);
+                    if ($hasRevisedFrom) {
+                        $inner->orWhereRaw("LOWER(TRIM(COALESCE(ml.revised_from_doc_no, ''))) = ?", [$no]);
+                    }
+                }
+            });
+            $takenIds = self::intakeRegistrationRequestIds();
+            if ($takenIds !== []) {
+                $query->whereNotIn('ml.request_id', $takenIds);
+            }
+        } elseif ($title !== '') {
+            $query->whereRaw('LOWER(TRIM(ml.doc_title)) = ?', [$title]);
+        } else {
+            return 0;
+        }
+
+        return (int) ($query->orderBy('ml.id')->value('ml.request_id') ?? 0);
+    }
+
+    /** @return array{0: string, 1: ?string} */
+    private static function masterlistIdentity(int $requestId): array
+    {
+        $ml = DB::table('dcs_masterlist_registration')
+            ->where('request_id', $requestId)
+            ->orderByDesc('id')
+            ->first(['doc_no', 'doc_title']);
+        $title = trim((string) ($ml->doc_title ?? ''));
+
+        return [
+            trim((string) ($ml->doc_no ?? '')),
+            $title !== '' ? $title : null,
+        ];
+    }
+
+    /**
+     * Document numbers and titles the office put on this DCN/DRF.
+     * A DRF created from a DCN uses that DCN's document as well.
+     *
+     * @return array{numbers: list<string>, titles: list<string>}
+     */
+    private static function intakeIdentity(string $type, object $record): array
+    {
+        $type = strtolower($type);
+        $numbers = [];
+        $titles = [];
+        $push = static function (array &$bucket, mixed $value): void {
+            $value = mb_strtolower(trim((string) $value));
+            if ($value !== '') {
+                $bucket[] = $value;
+            }
+        };
+
+        if ($type === 'dcn') {
+            $push($numbers, $record->document_no ?? '');
+            $push($numbers, $record->previous_document_no ?? '');
+            $push($titles, $record->document_title ?? '');
+        } else {
+            $push($titles, $record->doc_title ?? '');
+            $dcnId = (int) ($record->source_office_dcn_id ?? 0);
+            if ($dcnId > 0) {
+                $dcn = self::findOfficeDcn($dcnId);
+                if ($dcn) {
+                    $linked = self::intakeIdentity('dcn', $dcn);
+                    $numbers = array_merge($numbers, $linked['numbers']);
+                    $titles = array_merge($titles, $linked['titles']);
+                }
+            }
+        }
+
+        return [
+            'numbers' => array_values(array_unique($numbers)),
+            'titles' => array_values(array_unique($titles)),
+        ];
+    }
+
+    /**
+     * The saved registration is this office's DCN/DRF only when its document
+     * number (or the document it revises) or its title is the one they submitted.
+     */
+    public static function registrationMatchesIntake(
+        string $type,
+        object $record,
+        string $docNo,
+        ?string $docTitle = null,
+        ?string $revisedFromDocNo = null
+    ): bool {
+        $identity = self::intakeIdentity($type, $record);
+        $needles = [];
+        foreach ([$docNo, $revisedFromDocNo] as $value) {
+            $value = mb_strtolower(trim((string) $value));
+            if ($value !== '') {
+                $needles[] = $value;
+            }
+        }
+        foreach ($needles as $needle) {
+            if (in_array($needle, $identity['numbers'], true)) {
+                return true;
+            }
+        }
+
+        $savedTitle = mb_strtolower(trim((string) $docTitle));
+
+        return $savedTitle !== '' && in_array($savedTitle, $identity['titles'], true);
+    }
+
+    /**
+     * Close the pending office DCN/DRF after registration only when this document
+     * is the one that office created. A different document must not notify them.
+     *
+     * @return list<string> submitting offices that were notified
+     */
+    public static function closePendingIntakeForRegistration(
+        string $type,
+        int $id,
+        int $requestId,
+        string $docNo,
+        ?string $docTitle = null,
+        ?string $revisedFromDocNo = null
+    ): array {
+        $type = strtolower($type);
+        $record = $type === 'dcn' ? self::findOfficeDcn($id) : ($type === 'drf' ? self::findOfficeDrf($id) : null);
+        if (! $record || $id < 1 || $requestId < 1) {
+            self::clearPendingRegisterIntake();
+
+            return [];
+        }
+
+        $pairType = null;
+        $pairId = null;
+        if ($type === 'dcn') {
+            $pairType = 'drf';
+            $pairId = self::findLinkedDrfIdForOfficeDcn($id);
+        } else {
+            $pairType = 'dcn';
+            $pairId = self::findSourceDcnIdForOfficeDrf($id);
+        }
+
+        if (! self::registrationMatchesIntake($type, $record, $docNo, $docTitle, $revisedFromDocNo)) {
+            self::releaseUnregisteredClaim($type, $id);
+            if ($pairType && $pairId) {
+                self::releaseUnregisteredClaim($pairType, (int) $pairId);
+            }
+            self::clearPendingRegisterIntake();
+
+            return [];
+        }
+
+        $codes = self::intakeSubmitterOfficeCodes($record);
+        self::markIntakeRegistered($type, $id, $requestId, $docNo, $docTitle, true);
+        if ($pairType && $pairId) {
+            $pair = $pairType === 'dcn' ? self::findOfficeDcn((int) $pairId) : self::findOfficeDrf((int) $pairId);
+            if ($pair) {
+                foreach (self::intakeSubmitterOfficeCodes($pair) as $code) {
+                    $codes[] = $code;
+                }
+            }
+            self::markIntakeRegistered($pairType, (int) $pairId, $requestId, $docNo, $docTitle, true);
+        }
+
+        return collect($codes)
+            ->map(fn ($code) => strtoupper(trim((string) $code)))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    public static function clearPendingRegisterIntake(): void
+    {
+        session()->forget('dcs_office_intake_pending');
+        cookie()->queue(cookie()->forget('dcs_office_intake_pending'));
+    }
+
+    /** Return a claimed intake to the RFIO queue when this registration is not its document. */
+    private static function releaseUnregisteredClaim(string $type, int $id): void
+    {
+        $type = strtolower($type);
+        if (! in_array($type, ['drf', 'dcn'], true) || $id < 1 || self::isIntakeRegistered($type, $id)) {
+            return;
+        }
+
+        $table = $type === 'dcn' ? 'dcs_office_intake_dcn' : 'dcs_office_intake_drf';
+        if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'rfio_claimed_at')) {
+            return;
+        }
+
+        DB::table($table)->where('id', $id)->whereNull('rfio_registered_at')->update([
+            'rfio_claimed_at' => null,
+            'updated_at' => now(),
+        ]);
     }
 
     /**
@@ -1881,6 +3011,7 @@ class OfficeIntakeHelper
 
         DcsNotificationService::dismissOfficeIntakeNotifications($type, $intakeId);
         session()->forget('dcs_office_intake_pending');
+        cookie()->queue(cookie()->forget('dcs_office_intake_pending'));
 
         if (! $notifyOffice) {
             return;
@@ -2352,6 +3483,10 @@ class OfficeIntakeHelper
     /** @return array<int, array{office_id: int, code: string, name: string}> */
     public static function drfDistributeOffices(object $drf): array
     {
+        if (isset($drf->preview_distribute_offices) && is_array($drf->preview_distribute_offices)) {
+            return $drf->preview_distribute_offices;
+        }
+
         $ids = self::distributeOfficeIds((int) ($drf->id ?? 0));
         if ($ids === []) {
             return [];
@@ -2393,7 +3528,6 @@ class OfficeIntakeHelper
         }
 
         self::assertOwnsDcn($dcn);
-        self::syncRegisteredIntakeLink('dcn', $id);
         $dcn = self::findOfficeDcn($id) ?: $dcn;
 
         $revisions = self::dcnRevisions($id);
@@ -2437,7 +3571,6 @@ class OfficeIntakeHelper
         }
 
         self::assertOwnsDrf($drf);
-        self::syncRegisteredIntakeLink('drf', $id);
         $drf = self::findOfficeDrf($id) ?: $drf;
 
         $received = self::intakeReceivedState($drf);
@@ -2501,14 +3634,9 @@ class OfficeIntakeHelper
         array $editState = [],
         array $printState = []
     ): array {
-        $registerType = $type === 'dcn' ? 'revised' : 'new';
-        $registerUrl = ($canRegister && ! $registered)
-            ? route('dcs.register.create', [
-                'type' => $registerType,
-                'intake' => $type,
-                'intake_id' => $id,
-            ])
-            : null;
+        $target = self::registrationTarget($type, $id);
+        $registerType = $target['registerType'];
+        $registerUrl = ($canRegister && ! $registered) ? $target['registerUrl'] : null;
 
         return [
             'canConfirmReceived' => $canManage && ! $registered,
@@ -2570,13 +3698,7 @@ class OfficeIntakeHelper
             'type' => $type,
             'id' => $id,
             'canRegister' => $canRegister,
-            'registerUrl' => $canRegister
-                ? route('dcs.register.create', [
-                    'type' => $type === 'dcn' ? 'revised' : 'new',
-                    'intake' => $type,
-                    'intake_id' => $id,
-                ])
-                : null,
+            'registerUrl' => $canRegister ? self::registrationTarget($type, $id)['registerUrl'] : null,
         ]);
     }
 
@@ -2615,13 +3737,7 @@ class OfficeIntakeHelper
             'id' => $id,
             'canRegister' => $canRegister,
             'canUnlockEdit' => true,
-            'registerUrl' => $canRegister
-                ? route('dcs.register.create', [
-                    'type' => $type === 'dcn' ? 'revised' : 'new',
-                    'intake' => $type,
-                    'intake_id' => $id,
-                ])
-                : null,
+            'registerUrl' => $canRegister ? self::registrationTarget($type, $id)['registerUrl'] : null,
         ]);
     }
 
@@ -2701,7 +3817,12 @@ class OfficeIntakeHelper
             ? \Carbon\Carbon::parse($dcn->dcn_date)->format('Y-m-d')
             : null;
 
-        return [
+        $previousNo = trim((string) ($dcn->previous_document_no ?? ''));
+        if ($previousNo === '') {
+            $previousNo = $docNo;
+        }
+
+        $prefill = [
             'intake' => 'dcn',
             'intakeId' => $id,
             'versionType' => 'revised',
@@ -2715,10 +3836,54 @@ class OfficeIntakeHelper
             'originatorName' => trim((string) ($dcn->originator_name ?? '')),
             'masterlistDocTitle' => $docTitle,
             'masterlistDocNo' => $docNo,
+            'reviseFromDocNo' => $previousNo,
             'changeFrom' => $changeFrom,
             'changeTo' => $changeTo,
             'sourceOffices' => $sourceOffices,
         ];
+
+        $linkedDrfId = self::findLinkedDrfIdForOfficeDcn($id);
+        if ($linkedDrfId) {
+            $linkedDrf = self::findOfficeDrf($linkedDrfId);
+            if ($linkedDrf) {
+                $drfPrefill = self::registerPrefillForDrf($linkedDrf, $linkedDrfId);
+                $prefill['checklistIds'] = array_values(array_unique(array_merge(
+                    [1],
+                    $prefill['checklistIds']
+                )));
+                $prefill['linkedDrfId'] = $linkedDrfId;
+                $prefill['drfTitle'] = $drfPrefill['drfTitle'] ?? '';
+                $prefill['drfDate'] = $drfPrefill['drfDate'] ?? null;
+                $prefill['descriptionReason'] = $drfPrefill['descriptionReason'] ?? '';
+                $prefill['distributeOffices'] = $drfPrefill['distributeOffices'] ?? [];
+                $prefill['lockDistributeOffices'] = $drfPrefill['lockDistributeOffices'] ?? false;
+                if (! empty($drfPrefill['originatorName'])) {
+                    $prefill['originatorName'] = $drfPrefill['originatorName'];
+                }
+                if (! empty($drfPrefill['docTypeKind'])) {
+                    $prefill['docTypeKind'] = $drfPrefill['docTypeKind'];
+                }
+                if (! empty($drfPrefill['docTypeId'])) {
+                    $prefill['docTypeId'] = $drfPrefill['docTypeId'];
+                }
+            }
+        }
+
+        $registered = self::latestRegistrationForDocNo($previousNo);
+        if ($registered) {
+            $typeId = (int) ($registered->doc_type_id ?? 0);
+            $subId = (int) ($registered->sub_type_id ?? 0);
+            if ($typeId > 0) {
+                $prefill['docTypeId'] = $typeId;
+            }
+            $prefill['subTypeId'] = $subId > 0 ? $subId : null;
+            $prefill['revisionRequestId'] = (int) ($registered->request_id ?? 0);
+            $prefill['revisionReviseNo'] = (int) ($registered->revise_no ?? 0);
+            $prefill['revisionDocTitle'] = trim((string) ($registered->doc_title ?? ''));
+            $prefill['revisionDocNo'] = trim((string) ($registered->doc_no ?? $previousNo));
+        }
+
+        return $prefill;
     }
 
     /** Parent doc-type groups shown in office document inventory. */
@@ -2847,8 +4012,6 @@ class OfficeIntakeHelper
             RegisterQueryHelper::applyExcludeOfficeIntakeRequests($q, 'dr');
             RegisterQueryHelper::applyExcludeDrafts($q, 'dr');
         });
-
-        RegisterQueryHelper::applyLatestRevisionStatus($query, 'ml');
 
         return $query;
     }
@@ -3043,26 +4206,69 @@ class OfficeIntakeHelper
                 $q->whereNull('doff_rcpt.office_received_at');
             }
         });
+
+        // Received masterlist is the current copy this office holds, not earlier revisions.
+        if ($receiptFilter === 'received') {
+            RegisterQueryHelper::applyLatestRevisionStatus($query, 'ml');
+        }
+
+        // A copy this office has already received stays on the masterlist only.
+        if ($receiptFilter === 'pending') {
+            $query->whereNotExists(function ($q) use ($officeId) {
+                $q->select(DB::raw(1))
+                    ->from('dcs_document_distribution as dist_got')
+                    ->join('dcs_distribution_offices as doff_got', 'doff_got.distribution_id', '=', 'dist_got.id')
+                    ->whereColumn('dist_got.request_id', 'ml.request_id')
+                    ->where('doff_got.office_id', $officeId)
+                    ->whereNotNull('doff_got.office_received_at');
+            });
+        }
     }
 
-    /** One row per document number — highest revision only. */
+    /**
+     * One present copy per document this office holds.
+     * Same number with a different title stays separate. Obsolete and superseded copies do not replace the current one.
+     */
     protected static function keepLatestDistributedDocuments($records)
     {
         $best = [];
         foreach ($records as $ml) {
             $docNo = strtolower(trim((string) ($ml->doc_no ?? '')));
-            $key = $docNo !== '' ? $docNo : 'id:' . (int) ($ml->id ?? 0);
-            $rev = (int) ($ml->revise_no ?? 0);
-            if (! isset($best[$key]) || $rev > (int) ($best[$key]->revise_no ?? 0)) {
-                $best[$key] = $ml;
+            $title = strtolower(trim((string) ($ml->doc_title ?? '')));
+            $key = $docNo !== '' ? $docNo.'||'.$title : 'id:'.(int) ($ml->id ?? 0);
+            $status = strtolower(trim((string) ($ml->revision_status ?? 'latest')));
+            if ($status === '') {
+                $status = 'latest';
+            }
+            $candidate = [
+                'row' => $ml,
+                'current' => $status === 'latest' ? 1 : 0,
+                'rev' => (int) ($ml->revise_no ?? 0),
+                'id' => (int) ($ml->id ?? 0),
+            ];
+            if (! isset($best[$key]) || self::distributedCopyIsCurrent($candidate, $best[$key])) {
+                $best[$key] = $candidate;
             }
         }
 
-        return collect(array_values($best))->sortBy(function ($ml) {
+        return collect(array_values(array_map(fn (array $item) => $item['row'], $best)))->sortBy(function ($ml) {
             $docNo = trim((string) ($ml->doc_no ?? ''));
 
             return sprintf('%d-%s-%010d', $docNo === '' ? 1 : 0, $docNo, (int) ($ml->id ?? 0));
         }, SORT_NATURAL | SORT_FLAG_CASE)->values();
+    }
+
+    /** @param  array{current: int, rev: int, id: int}  $candidate */
+    protected static function distributedCopyIsCurrent(array $candidate, array $current): bool
+    {
+        if ($candidate['current'] !== $current['current']) {
+            return $candidate['current'] > $current['current'];
+        }
+        if ($candidate['rev'] !== $current['rev']) {
+            return $candidate['rev'] > $current['rev'];
+        }
+
+        return $candidate['id'] > $current['id'];
     }
 
     /**
@@ -3116,6 +4322,9 @@ class OfficeIntakeHelper
         }
         if (Schema::hasColumn('dcs_masterlist_registration', 'request_id')) {
             $select[] = 'ml.request_id';
+        }
+        if (RegisterQueryHelper::supportsRevisionStatus()) {
+            $select[] = 'ml.revision_status';
         }
 
         $records = $query

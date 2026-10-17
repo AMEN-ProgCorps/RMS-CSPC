@@ -1,86 +1,86 @@
-{{-- Shared Document No. search for office DCN create/edit --}}
+{{-- Confidential document finder: exact number + current title + originator. No result list. --}}
 @php
-    $initialDocNo = trim((string) ($initialDocNo ?? ''));
-    $initialDocTitle = trim((string) ($initialDocTitle ?? ''));
-    $initialReviseNo = $initialReviseNo ?? null;
-    $forceConfirmed = (bool) ($forceConfirmed ?? false);
-    $hasInitialSelection = $initialDocNo !== '' && (
-        $forceConfirmed || old('documentNoConfirmed') === '1'
-    );
+    $finderNo = trim((string) old('finderDocumentNo', $initialFinderNo ?? $initialDocNo ?? ''));
+    $finderTitle = trim((string) old('finderCurrentTitle', $initialFinderTitle ?? ''));
+    $finderOriginator = trim((string) old('finderOriginator', $initialFinderOriginator ?? ''));
+    $confirmed = old('documentNoConfirmed') === '1';
+    $reviseNo = old('finderReviseNo', $initialReviseNo ?? '');
+    $docType = old('finderDocType', $initialDocType ?? '');
+    $storedNo = trim((string) old('documentNo', $confirmed ? $finderNo : ($initialDocNo ?? '')));
 @endphp
-<div class="ofi-dcn-doc-fields">
-    <div class="reg-field">
-        <label for="dcnDocumentTitle">Document Title <span class="ofi-req">*</span></label>
-        <input type="text" id="dcnDocumentTitle" name="documentTitle"
-            value="{{ $initialDocTitle }}"
-            required maxlength="255"
-            placeholder="Filled from the registered document (editable)"
-            autocomplete="off">
+<section class="reg-card ofi-dcn-finder-card">
+    <div class="reg-card-header">
+        <span>Find the document to revise</span>
     </div>
-    <div class="reg-field ofi-docno-field">
-        <label for="dcnDocumentNo">Document no. <span class="ofi-req">*</span></label>
-        <div class="ofi-docno-search-wrap">
-            <input type="text" id="dcnDocumentNo" name="documentNo"
-                value="{{ $initialDocNo }}"
-                required maxlength="150"
-                placeholder="Search a registered Internal or External Document No."
-                autocomplete="off"
-                aria-autocomplete="list"
-                aria-controls="dcnDocNoResults"
-                aria-expanded="false">
-            <div id="dcnDocNoResults" class="reg-reldocs-dropdown ofi-docno-results" style="display:none;" role="listbox"></div>
-        </div>
-        <input type="hidden" id="dcnDocNoConfirmed" name="documentNoConfirmed" value="{{ $hasInitialSelection ? '1' : '' }}">
-        <div id="dcnDocNoChip" class="ofi-docno-selected" data-revise="{{ $initialReviseNo !== null ? $initialReviseNo : '' }}" @if(! $hasInitialSelection) hidden @endif>
-            <div class="ofi-docno-selected-head">
-                <span class="ofi-docno-selected-kicker">Selected document</span>
-                <button type="button" class="ofi-docno-selected-clear" id="dcnDocNoClear">Clear</button>
+    <div class="reg-card-body">
+        <p class="ofi-hint ofi-dcn-finder-lead">Type the document number, title, and originator printed on the controlled copy. Only the latest revision can be revised.</p>
+        <div class="ofi-dcn-finder-grid">
+            <div class="reg-field">
+                <label for="dcnFinderDocumentNo">Registered document no. <span class="ofi-req">*</span></label>
+                <input type="text" id="dcnFinderDocumentNo" name="finderDocumentNo"
+                    value="{{ $finderNo }}"
+                    required maxlength="150"
+                    placeholder="Type the full document number from your copy"
+                    autocomplete="off">
             </div>
-            <div class="ofi-docno-selected-no-row">
-                <strong id="dcnDocNoChipNo">{{ $hasInitialSelection ? $initialDocNo : '' }}</strong>
-                <span class="ofi-docno-selected-rev" id="dcnDocNoChipRev" @if($initialReviseNo === null) hidden @endif>@if($initialReviseNo !== null)Rev {{ $initialReviseNo }}@endif</span>
+            <div class="reg-field">
+                <label for="dcnFinderCurrentTitle">Current document title <span class="ofi-req">*</span></label>
+                <input type="text" id="dcnFinderCurrentTitle" name="finderCurrentTitle"
+                    value="{{ $finderTitle }}"
+                    required
+                    placeholder="Type the title printed on the current document"
+                    autocomplete="off">
             </div>
-            <p class="ofi-docno-selected-title" id="dcnDocNoChipTitle">{{ $hasInitialSelection ? $initialDocTitle : '' }}</p>
-        </div>
-        <p class="ofi-hint">Search and confirm an existing registered <strong>Internal</strong> or <strong>External</strong> Document No. that allows revision. Forms, Internal Forms, and Logbooks are not listed here.</p>
-    </div>
-</div>
-
-<div id="dcnDocNoUseModal" class="ofi-docno-use-overlay" hidden aria-hidden="true">
-    <div class="ofi-docno-use-modal" role="dialog" aria-modal="true" aria-labelledby="dcnDocNoUseTitle">
-        <div class="ofi-docno-use-header">
-            <div>
-                <span class="ofi-docno-use-kicker">Confirm document</span>
-                <h3 id="dcnDocNoUseTitle">Use this registered document?</h3>
+            <div class="reg-field">
+                <label for="dcnFinderOriginator">Registered originator <span class="ofi-req">*</span></label>
+                <input type="text" id="dcnFinderOriginator" name="finderOriginator"
+                    value="{{ $finderOriginator }}"
+                    required
+                    placeholder="Type the originator on the current document"
+                    autocomplete="off">
             </div>
-            <button type="button" class="ofi-docno-use-close" id="dcnDocNoUseClose" aria-label="Close">&times;</button>
         </div>
-        <div class="ofi-docno-use-body">
-            <p class="ofi-docno-use-lead">This Document Change Notice will revise the selected registration.</p>
-            <dl class="ofi-docno-use-meta">
+        <div class="ofi-dcn-finder-actions">
+            <button type="button" class="reg-btn reg-btn-save" id="dcnDocNoFind">Find document</button>
+            <p id="dcnDocNoFindStatus" class="ofi-hint" role="status" @if(! $confirmed) hidden @endif>
+                @if($confirmed)
+                    Document found{{ $docType !== '' ? ' · ' . $docType : '' }}{{ $reviseNo !== '' && $reviseNo !== null ? ' · Rev ' . $reviseNo : '' }}.
+                @endif
+            </p>
+        </div>
+        <div id="dcnDocNoSuggestions" class="ofi-suggest" hidden></div>
+        <div id="dcnSelectedDocument" class="ofi-dcn-selected" @if(! $confirmed) hidden @endif>
+            <div class="ofi-dcn-selected-head">
+                <span>Selected document</span>
+                <button type="button" class="ofi-dcn-reselect" id="dcnDocNoReselect">Select a different document</button>
+            </div>
+            <p id="dcnSelectedDuplicate" class="ofi-alert err" hidden></p>
+            <dl class="ofi-dcn-selected-meta">
                 <div>
-                    <dt>Document No.</dt>
-                    <dd id="dcnDocNoUseNo">—</dd>
+                    <dt>Document no.</dt>
+                    <dd id="dcnSelectedNo">{{ $storedNo !== '' ? $storedNo : $finderNo }}</dd>
                 </div>
                 <div>
                     <dt>Title</dt>
-                    <dd id="dcnDocNoUseTitleText">—</dd>
+                    <dd id="dcnSelectedTitle">{{ $finderTitle }}</dd>
                 </div>
                 <div>
-                    <dt>Revision</dt>
-                    <dd id="dcnDocNoUseRev">—</dd>
+                    <dt>Originator</dt>
+                    <dd id="dcnSelectedOriginator">{{ $finderOriginator }}</dd>
                 </div>
                 <div>
                     <dt>Type</dt>
-                    <dd id="dcnDocNoUseType">—</dd>
+                    <dd id="dcnSelectedType">{{ $docType !== '' ? $docType : '—' }}</dd>
+                </div>
+                <div>
+                    <dt>Revision</dt>
+                    <dd id="dcnSelectedRev">{{ $reviseNo !== '' && $reviseNo !== null ? 'Rev '.$reviseNo : 'Latest' }}</dd>
                 </div>
             </dl>
         </div>
-        <div class="ofi-docno-use-footer">
-            <button type="button" class="reg-btn reg-btn-cancel" id="dcnDocNoUseCancel">Cancel</button>
-            <button type="button" class="reg-btn reg-btn-save" id="dcnDocNoUseConfirm">
-                <i class="fa-solid fa-check"></i> Use this document
-            </button>
-        </div>
+        <input type="hidden" id="dcnDocumentNo" name="documentNo" value="{{ $storedNo }}">
+        <input type="hidden" id="dcnDocNoConfirmed" name="documentNoConfirmed" value="{{ $confirmed ? '1' : '' }}">
+        <input type="hidden" id="dcnFinderReviseNo" name="finderReviseNo" value="{{ $reviseNo }}">
+        <input type="hidden" id="dcnFinderDocType" name="finderDocType" value="{{ $docType }}">
     </div>
-</div>
+</section>

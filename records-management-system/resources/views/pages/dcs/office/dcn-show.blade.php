@@ -46,7 +46,10 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
             'editReason' => trim((string) ($dcn->edit_unlock_reason ?? '')),
             'isRegistered' => OfficeIntakeHelper::isIntakeRegistered('dcn', $this->id),
             'linkedDrfId' => OfficeIntakeHelper::findLinkedDrfIdForOfficeDcn($this->id),
-            'canCreateDrf' => ! OfficeIntakeHelper::officeDcnHasLinkedDrf($this->id),
+            'canCreateDrf' => OfficeIntakeHelper::officeDcnAllowsLaterDrf($this->id)
+                && ! OfficeIntakeHelper::officeDcnHasLinkedDrf($this->id),
+            'canPrint' => OfficeIntakeHelper::officeMayPrintIntake($dcn),
+            'printHint' => 'Print stays locked until RFIO confirms this form and notifies you to print and sign.',
         ];
     }
 }; ?>
@@ -74,9 +77,19 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                         </a>
                     @endif
                 @endunless
-                <a href="{{ route('dcs.office.dcn.print', $dcn->id, absolute: false) }}" target="_blank" class="reg-btn reg-btn-save">
-                    <i class="fa-solid fa-print"></i> Print form
-                </a>
+                @if($canPrint ?? false)
+                    <a href="{{ route('dcs.office.dcn.print', $dcn->id, absolute: false) }}" target="_blank" class="reg-btn reg-btn-save">
+                        <i class="fa-solid fa-print"></i> Print form
+                    </a>
+                @else
+                    <span id="ofiPrintControl" class="reg-btn reg-btn-save ofi-print-locked" title="{{ $printHint }}"
+                        data-locked="1"
+                        data-intake-id="{{ $dcn->id }}"
+                        data-status-url="{{ route('dcs.api.office-intake.print-ready', ['type' => 'dcn', 'ids' => $dcn->id], false) }}"
+                        data-print-url="{{ route('dcs.office.dcn.print', $dcn->id, false) }}">
+                        <i class="fa-solid fa-print"></i> Print form
+                    </span>
+                @endif
             </div>
         </div>
 
@@ -89,6 +102,13 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                 <strong>RFIO asked for corrections:</strong> {{ $editReason }}
             </div>
         @endif
+
+        @unless($canPrint ?? false)
+            <div class="ofi-alert" id="ofiPrintHint">
+                <i class="fa-solid fa-print"></i>
+                {{ $printHint }}
+            </div>
+        @endunless
 
         <div class="ofi-lock-banner {{ ($isRegistered ?? false) ? 'is-registered' : (($canEdit ?? false) ? 'is-edit' : '') }}">
             @if($isRegistered ?? false)
@@ -145,7 +165,7 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
                     <div class="ofi-dcn-box-section">
                         <div class="reg-field">
                             <label>Originator</label>
-                            <div class="ofi-show-value">{{ $dcn->originator_name ?: '—' }}</div>
+                            <div class="ofi-show-value"><x-dcs.originator-lines :name="$dcn->originator_name" /></div>
                         </div>
                         <div class="reg-grid-2-1">
                             <div class="reg-field">
@@ -203,3 +223,4 @@ new #[Layout('layouts.dcs')] #[Title('View DCN — CSPC DCS')] class extends Com
         </section>
     </div>
 </div>
+@include('pages.dcs.office.partials.print-unlock-watch')

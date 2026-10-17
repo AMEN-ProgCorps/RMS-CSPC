@@ -23,6 +23,7 @@ class EnforceDcsIntakeAllowlist
         'dcs.office.drf.show',
         'dcs.office.drf.edit',
         'dcs.office.drf.print',
+        'dcs.office.drf.preview',
         'dcs.office.drf.store',
         'dcs.office.drf.update',
         'dcs.office.dcn.index',
@@ -30,9 +31,11 @@ class EnforceDcsIntakeAllowlist
         'dcs.office.dcn.show',
         'dcs.office.dcn.edit',
         'dcs.office.dcn.print',
+        'dcs.office.dcn.preview',
         'dcs.office.dcn.store',
         'dcs.office.dcn.update',
         'dcs.api.office.revisable-documents',
+        'dcs.api.office-intake.print-ready',
     ];
 
     public function handle(Request $request, Closure $next): Response

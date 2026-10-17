@@ -82,13 +82,18 @@ body {
 }
 
 .db-status-latest {
-    background: #dcfce7;
-    color: #15803d;
+    background: var(--dcs-status-latest-bg);
+    color: var(--dcs-status-latest);
 }
 
 .db-status-obsolete {
-    background: #fee2e2;
-    color: #b91c1c;
+    background: var(--dcs-status-obsolete-bg);
+    color: var(--dcs-status-obsolete);
+}
+
+.db-status-superseded {
+    background: var(--dcs-status-superseded-bg);
+    color: var(--dcs-status-superseded);
 }
 
 /* ── CONTROLS ── */
@@ -670,7 +675,8 @@ td.sticky-col-4 {
 /* ── Status badge ── */
 .db-status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
 .db-status-active { background: var(--db-green-light); color: var(--db-green); }
-.db-status-obsolete { background: var(--db-red-light); color: var(--db-red); }
+.db-status-obsolete { background: var(--dcs-status-obsolete-bg); color: var(--dcs-status-obsolete); }
+.db-status-superseded { background: var(--dcs-status-superseded-bg); color: var(--dcs-status-superseded); }
 .db-status-deleted,
 .db-status-archived {
     background: var(--db-red-light);

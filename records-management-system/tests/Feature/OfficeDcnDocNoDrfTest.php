@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
@@ -235,11 +236,25 @@ class OfficeDcnDocNoDrfTest extends TestCase
         if (Schema::hasColumn('dcs_masterlist_registration', 'allows_revision')) {
             $ml['allows_revision'] = true;
         }
+        $originatorName = 'Registered Originator';
+        if (Schema::hasTable('dcs_originators') && Schema::hasColumn('dcs_masterlist_registration', 'originator_id')) {
+            $originRow = ['originator_name' => $originatorName];
+            if (Schema::hasColumn('dcs_originators', 'created_at')) {
+                $originRow['created_at'] = $now;
+                $originRow['updated_at'] = $now;
+            }
+            $originatorId = (int) DB::table('dcs_originators')->insertGetId($originRow);
+            $ml['originator_id'] = $originatorId;
+        }
+        if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
+            $ml['originator_name'] = $originatorName;
+        }
         DB::table('dcs_masterlist_registration')->insert($ml);
 
         return [
             'doc_no' => $docNo,
             'doc_title' => $docTitle,
+            'originator' => $originatorName,
             'request_id' => $requestId,
         ];
     }
@@ -248,6 +263,10 @@ class OfficeDcnDocNoDrfTest extends TestCase
     private function validDcnPayload(string $docNo, string $docTitle, bool $alsoCreateDrf = false): array
     {
         $payload = [
+            'finderDocumentNo' => $docNo,
+            'finderCurrentTitle' => $docTitle,
+            'finderOriginator' => 'Registered Originator',
+            'documentNoMode' => 'keep',
             'documentNo' => $docNo,
             'documentTitle' => $docTitle,
             'changeFrom' => 'Old wording',
@@ -277,10 +296,10 @@ class OfficeDcnDocNoDrfTest extends TestCase
             ));
 
         $response->assertRedirect(route('dcs.office.dcn.create'));
-        $response->assertSessionHasErrors('documentNo');
+        $response->assertSessionHasErrors('finderDocumentNo');
         $this->assertStringContainsString(
-            'is not a registered',
-            strtolower((string) session('errors')->first('documentNo'))
+            'no registered revisable',
+            strtolower((string) session('errors')->first('finderDocumentNo'))
         );
     }
 
@@ -317,16 +336,26 @@ class OfficeDcnDocNoDrfTest extends TestCase
     {
         $doc = $this->insertRevisableRegistration(uniqid());
 
+        $partial = $this->actingAs(User::find($this->limitedUserId))
+            ->getJson('/dcs/api/office/revisable-documents?documentNo=' . urlencode(substr($doc['doc_no'], 0, 8))
+                . '&currentTitle=' . urlencode($doc['doc_title'])
+                . '&originator=' . urlencode($doc['originator']));
+
+        $partial->assertOk();
+        $partial->assertJson(['found' => false]);
+
         $response = $this->actingAs(User::find($this->limitedUserId))
-            ->getJson('/dcs/api/office/revisable-documents?q=' . urlencode(substr($doc['doc_no'], 0, 8)));
+            ->getJson('/dcs/api/office/revisable-documents?documentNo=' . urlencode($doc['doc_no'])
+                . '&currentTitle=' . urlencode($doc['doc_title'])
+                . '&originator=' . urlencode($doc['originator']));
 
         $response->assertOk();
-        $rows = $response->json();
-        $this->assertIsArray($rows);
-        $this->assertTrue(
-            collect($rows)->contains(fn ($row) => ($row['doc_no'] ?? '') === $doc['doc_no']),
-            'Expected campus-wide revisable document in search results'
-        );
+        $response->assertJson([
+            'found' => true,
+            'revise_no' => 0,
+        ]);
+        $this->assertArrayNotHasKey('doc_title', $response->json());
+        $this->assertArrayNotHasKey('doc_no', $response->json());
     }
 
     public function test_also_create_drf_redirects_to_prefilled_drf_create(): void
@@ -504,5 +533,116 @@ class OfficeDcnDocNoDrfTest extends TestCase
         ]);
         $this->assertFalse(Schema::hasColumn('dcs_document_change_notice', 'is_office_intake'));
         $this->assertFalse(Schema::hasColumn('dcs_document_change_notice', 'registered_request_id'));
+    }
+
+    public function test_unrelated_registration_does_not_notify_the_intake_office(): void
+    {
+        if (! Schema::hasTable('dcs_office_intake_dcn') || ! Schema::hasTable('dcs_office_intake_drf')) {
+            $this->markTestSkipped('Office intake tables are not migrated.');
+        }
+
+        $docNo = 'CSPC-LB-NOTIFY-' . $this->limitedRoleId;
+        $title = 'Outgoing Reports Notify ' . $this->limitedRoleId;
+        $now = now();
+        $dcnId = DB::table('dcs_office_intake_dcn')->insertGetId([
+            'document_no' => $docNo,
+            'previous_document_no' => $docNo,
+            'document_title' => $title,
+            'created_by' => $this->limitedUserId,
+            'rfio_claimed_at' => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        $drfId = DB::table('dcs_office_intake_drf')->insertGetId([
+            'doc_title' => $title,
+            'source_office_dcn_id' => $dcnId,
+            'created_by' => $this->limitedUserId,
+            'rfio_claimed_at' => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        $otherRequestId = (int) (DB::table('dcs_document_requests')->max('id') ?: 0) + 50;
+        $codes = \App\Helpers\OfficeIntakeHelper::closePendingIntakeForRegistration(
+            'dcn',
+            $dcnId,
+            $otherRequestId,
+            'CSPC-F-OTHER-' . $this->limitedRoleId,
+            'Sample Recyur ' . $this->limitedRoleId,
+            null
+        );
+
+        $this->assertSame([], $codes);
+        $this->assertDatabaseHas('dcs_office_intake_dcn', [
+            'id' => $dcnId,
+            'registered_request_id' => null,
+            'rfio_claimed_at' => null,
+        ]);
+        $this->assertDatabaseHas('dcs_office_intake_drf', [
+            'id' => $drfId,
+            'registered_request_id' => null,
+            'rfio_claimed_at' => null,
+        ]);
+
+        $notifContent = Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $this->assertFalse(
+            DB::table($notifContent)->where('content', 'like', '%Sample Recyur ' . $this->limitedRoleId . '%')->exists()
+        );
+
+        $matched = \App\Helpers\OfficeIntakeHelper::closePendingIntakeForRegistration(
+            'dcn',
+            $dcnId,
+            $otherRequestId,
+            'CSPC-F-NEW-' . $this->limitedRoleId,
+            $title,
+            $docNo
+        );
+        $this->assertNotSame([], $matched);
+        $this->assertContains('VPAA', $matched);
+        $this->assertDatabaseHas('dcs_office_intake_dcn', [
+            'id' => $dcnId,
+            'registered_request_id' => $otherRequestId,
+        ]);
+        $this->assertDatabaseHas('dcs_office_intake_drf', [
+            'id' => $drfId,
+            'registered_request_id' => $otherRequestId,
+        ]);
+        $this->assertTrue(
+            DB::table($notifContent)
+                ->where('content', 'like', '%Document Change Notice "' . $title . '"%')
+                ->exists()
+        );
+    }
+
+    public function test_source_unit_on_an_admin_document_is_not_an_office_intake(): void
+    {
+        $plain = Request::create('/dcs/register', 'POST', [
+            'drfSourceUnit' => [$this->vpaaOfficeId],
+            'dcnSourceUnit' => [$this->vpaaOfficeId],
+            'masterlistOfficeIds' => [$this->vpaaOfficeId],
+        ]);
+        $plain->cookies->set('dcs_office_intake_pending', 'dcn:1');
+        $this->assertNull(\App\Helpers\OfficeIntakeHelper::explicitRegisterIntake($plain));
+
+        if (! Schema::hasTable('dcs_office_intake_dcn')) {
+            return;
+        }
+
+        $dcnId = DB::table('dcs_office_intake_dcn')->insertGetId([
+            'document_no' => 'CSPC-LB-EXPLICIT-' . $this->limitedRoleId,
+            'document_title' => 'Explicit Intake ' . $this->limitedRoleId,
+            'created_by' => $this->limitedUserId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $fromIntake = Request::create('/dcs/register', 'POST', [
+            'office_intake_type' => 'dcn',
+            'office_intake_id' => $dcnId,
+            'dcnSourceUnit' => [$this->vpaaOfficeId],
+        ]);
+        $this->assertSame(
+            ['type' => 'dcn', 'id' => $dcnId],
+            \App\Helpers\OfficeIntakeHelper::explicitRegisterIntake($fromIntake)
+        );
     }
 }

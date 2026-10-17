@@ -35,7 +35,7 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                     <p>Review DCN submissions from offices. Open a form to view the official print template.</p>
                 @else
                     <h1>My Document Change Notices</h1>
-                    <p>Create a DCN, print it, then submit the printed form to RFIO. Saved forms cannot be edited.</p>
+                    <p>Create a DCN and save it. Print stays locked until RFIO confirms the form and notifies you to print and sign.</p>
                 @endif
             </div>
             @unless($isReviewer ?? false)
@@ -85,17 +85,21 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
                             </td>
                             <td class="ofi-nowrap">{{ $row->dcn_date ? \Carbon\Carbon::parse($row->dcn_date)->format('M d, Y') : '—' }}</td>
                             <td class="ofi-nowrap">{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->timezone('Asia/Manila')->format('M d, Y g:i A') : '—' }}</td>
-                            <td>{{ $row->originator_name ?: '—' }}</td>
+                            <td><x-dcs.originator-lines :name="$row->originator_name" /></td>
                             <td class="ofi-actions">
                                 <a href="{{ route('dcs.office.dcn.show', $row->id, absolute: false) }}" title="View"><i class="fa-solid fa-eye"></i></a>
                                 @unless($isReviewer ?? false)
                                     @if(! empty($row->linked_drf_id))
                                         <a href="{{ route('dcs.office.drf.show', $row->linked_drf_id, absolute: false) }}" title="View linked DRF"><i class="fa-solid fa-file-lines"></i></a>
-                                    @else
+                                    @elseif(! empty($row->expects_drf))
                                         <a href="{{ route('dcs.office.drf.create', ['from_dcn' => $row->id], absolute: false) }}" title="Create DRF"><i class="fa-solid fa-file-circle-plus"></i></a>
                                     @endif
                                 @endunless
-                                <a href="{{ route('dcs.office.dcn.print', $row->id, absolute: false) }}" target="_blank" title="{{ ($isReviewer ?? false) ? 'Open print form' : 'Print' }}"><i class="fa-solid fa-print"></i></a>
+                                @if(($isReviewer ?? false) || ! empty($row->rfio_print_notified_at))
+                                    <a href="{{ route('dcs.office.dcn.print', $row->id, absolute: false) }}" target="_blank" title="{{ ($isReviewer ?? false) ? 'Open print form' : 'Print' }}"><i class="fa-solid fa-print"></i></a>
+                                @else
+                                    <span class="ofi-print-locked" data-print-locked data-intake-type="dcn" data-intake-id="{{ $row->id }}" data-print-url="{{ route('dcs.office.dcn.print', $row->id, false) }}" title="Print stays locked until RFIO notifies you to print and sign."><i class="fa-solid fa-print"></i></span>
+                                @endif
                             </td>
                         </tr>
                     @empty
@@ -110,3 +114,4 @@ new #[Layout('layouts.dcs')] #[Title('My DCN — CSPC DCS')] class extends Compo
         </div>
     </div>
 </div>
+@include('pages.dcs.office.partials.print-unlock-list')

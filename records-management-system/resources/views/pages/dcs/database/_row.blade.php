@@ -8,7 +8,7 @@
     ])
 </td>
 <td>{{ $r['effectivity'] }}</td>
-<td>{{ $r['originator'] }}</td>
+<td class="rpt-originator"><x-dcs.originator-lines :name="$r['originator'] ?? ''" /></td>
 <td style="text-align:center">{{ $r['pages'] }}</td>
 <td style="text-align:center"><span class="db-status db-status-{{ strtolower($r['status'] ?? 'latest') }}">{{ $r['status'] }}</span></td>
 <td style="text-align:center">

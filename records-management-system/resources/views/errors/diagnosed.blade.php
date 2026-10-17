@@ -20,6 +20,27 @@
             504 => '#9a3412',
         ];
         $color = $colors[$error->status] ?? ($error->status >= 500 ? '#dc2626' : '#1d4ed8');
+
+        $loginPath = '/';
+        $currentPath = '/'.ltrim(request()->path(), '/');
+        $currentPath = rtrim($currentPath, '/') ?: '/';
+        $referer = (string) request()->headers->get('referer', '');
+        $refererPath = parse_url($referer, PHP_URL_PATH);
+        $refererPath = is_string($refererPath) ? (rtrim($refererPath, '/') ?: '/') : '';
+        $refererHost = parse_url($referer, PHP_URL_HOST);
+        $sameHost = $referer !== '' && $refererHost === request()->getHost();
+        $path = request()->path();
+        $home = match (true) {
+            str_starts_with($path, 'dcs') => url('/dcs'),
+            str_starts_with($path, 'dts') => url('/dts'),
+            str_starts_with($path, 'rdp') => url('/rdp'),
+            str_starts_with($path, 'admin') => url('/admin/console'),
+            str_starts_with($path, 'profile') => url('/profile'),
+            default => '',
+        };
+        $backUrl = ($sameHost && $refererPath !== '' && $refererPath !== $loginPath && $refererPath !== $currentPath)
+            ? $referer
+            : $home;
     @endphp
     <title>{{ $error->title }}</title>
     <style>
@@ -69,7 +90,33 @@
         @if($error->reference)
             <p class="ref">Reference {{ $error->reference }}</p>
         @endif
-        <a href="{{ url('/') }}">Back to the system</a>
+        <a href="{{ $backUrl !== '' ? $backUrl : '#' }}" id="rmsErrorBack" data-fallback="{{ $backUrl }}">Back to the system</a>
     </main>
+    <script>
+        (function () {
+            var link = document.getElementById('rmsErrorBack');
+            if (!link) return;
+            link.addEventListener('click', function (event) {
+                var fallback = link.getAttribute('data-fallback') || '';
+                var referrer = document.referrer || '';
+                var referrerPath = '';
+                try {
+                    referrerPath = referrer ? new URL(referrer).pathname.replace(/\/$/, '') || '/' : '';
+                } catch (e) {
+                    referrerPath = '';
+                }
+                var cameFromLogin = referrerPath === '/' || referrerPath === '';
+                var sameSite = referrer.indexOf(location.origin) === 0;
+                if (sameSite && !cameFromLogin && referrerPath !== location.pathname.replace(/\/$/, '')) {
+                    event.preventDefault();
+                    history.back();
+                    return;
+                }
+                if (!fallback) {
+                    event.preventDefault();
+                }
+            });
+        })();
+    </script>
 </body>
 </html>

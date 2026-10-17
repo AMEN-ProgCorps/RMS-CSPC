@@ -35,7 +35,7 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                     <p>Review DRF submissions from offices. Open a form to view the official print template.</p>
                 @else
                     <h1>My Document Request Forms</h1>
-                    <p>Create a DRF, print it, then submit the printed form to RFIO. Saved forms cannot be edited.</p>
+                    <p>Create a DRF and save it. Print stays locked until RFIO confirms the form and notifies you to print and sign.</p>
                 @endif
             </div>
             @unless($isReviewer ?? false)
@@ -72,7 +72,7 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                     @forelse($rows as $row)
                         <tr>
                             <td>{{ $row->doc_title ?: '—' }}</td>
-                            <td class="ofi-nowrap">{{ $row->originator_name ?: '—' }}</td>
+                            <td class="ofi-nowrap"><x-dcs.originator-lines :name="$row->originator_name" /></td>
                             @if($isReviewer ?? false)
                                 <td>{{ $row->submitting_office ?? '—' }}</td>
                                 <td>{{ $row->submitter_name ?? '—' }}</td>
@@ -88,7 +88,11 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
                             <td class="ofi-nowrap">{{ $row->created_at ? \Carbon\Carbon::parse($row->created_at)->timezone('Asia/Manila')->format('M d, Y g:i A') : '—' }}</td>
                             <td class="ofi-actions">
                                 <a href="{{ route('dcs.office.drf.show', $row->id, absolute: false) }}" title="View"><i class="fa-solid fa-eye"></i></a>
-                                <a href="{{ route('dcs.office.drf.print', $row->id, absolute: false) }}" target="_blank" title="{{ ($isReviewer ?? false) ? 'Open print form' : 'Print' }}"><i class="fa-solid fa-print"></i></a>
+                                @if(($isReviewer ?? false) || ! empty($row->rfio_print_notified_at))
+                                    <a href="{{ route('dcs.office.drf.print', $row->id, absolute: false) }}" target="_blank" title="{{ ($isReviewer ?? false) ? 'Open print form' : 'Print' }}"><i class="fa-solid fa-print"></i></a>
+                                @else
+                                    <span class="ofi-print-locked" data-print-locked data-intake-type="drf" data-intake-id="{{ $row->id }}" data-print-url="{{ route('dcs.office.drf.print', $row->id, false) }}" title="Print stays locked until RFIO notifies you to print and sign."><i class="fa-solid fa-print"></i></span>
+                                @endif
                             </td>
                         </tr>
                     @empty
@@ -103,3 +107,4 @@ new #[Layout('layouts.dcs')] #[Title('My DRF — CSPC DCS')] class extends Compo
         </div>
     </div>
 </div>
+@include('pages.dcs.office.partials.print-unlock-list')

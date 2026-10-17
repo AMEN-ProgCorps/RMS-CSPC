@@ -110,7 +110,10 @@ new class extends Component {
         refreshing: false,
 
         onUserActivity() {
-            this.lastActive = Date.now();
+            const now = Date.now();
+            this.lastActive = now;
+            window.__rmsLastActive = now;
+            document.cookie = 'rms_client_active=' + now + '; path=/; max-age=' + Math.ceil(this.timeoutMs / 1000) + '; SameSite=Lax';
             if (this.warn) {
                 this.warn = false;
                 $wire.stay();
@@ -172,6 +175,13 @@ new class extends Component {
         // Camera / barcode-scanner usage is real activity even when the user
         // never touches the mouse or keyboard — without this, a camera-only
         // scanning session would hit the inactivity logout mid-use.
+        window.__rmsLastActive = Date.now();
+        document.cookie = 'rms_client_active=' + window.__rmsLastActive + '; path=/; max-age=' + Math.ceil(timeoutMs / 1000) + '; SameSite=Lax';
+        window.addEventListener('message', (event) => {
+            if (event.origin !== window.location.origin) return;
+            if (!event.data || event.data.type !== 'rms-user-activity') return;
+            onUserActivity();
+        });
         window.addEventListener('scanner-activity', () => onUserActivity());
         const applyRefreshToken = (e) => applySystemRefreshToken(e && e.detail !== undefined ? e.detail : e);
         document.addEventListener('system-refresh-token-changed', applyRefreshToken);

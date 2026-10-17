@@ -38,6 +38,7 @@ class DistributionRetrievalMonitorHelper
 
         $rows = self::loadRows();
         $families = self::buildFamilies($rows);
+        $families = self::omitFullyClosed($families);
         $families = self::filterSearch($families, $search);
         $summary = self::summarize($families);
         $families = self::filterStatus($families, $status);
@@ -333,6 +334,45 @@ class DistributionRetrievalMonitorHelper
      * @param  list<array<string, mixed>>  $families
      * @return list<array<string, mixed>>
      */
+    /**
+     * A copy leaves the monitor only after every office has received it and returned it.
+     * Received copies that are not yet retrieved stay, so both states remain visible.
+     *
+     * @param  list<array<string, mixed>>  $families
+     * @return list<array<string, mixed>>
+     */
+    private static function omitFullyClosed(array $families): array
+    {
+        $kept = [];
+        foreach ($families as $family) {
+            $revisions = [];
+            foreach ($family['revisions'] as $revision) {
+                $offices = $revision['offices'] ?? [];
+                if ($offices === []) {
+                    continue;
+                }
+                $open = false;
+                foreach ($offices as $office) {
+                    if (empty($office['received']) || empty($office['retrieved'])) {
+                        $open = true;
+                        break;
+                    }
+                }
+                if ($open) {
+                    $revisions[] = $revision;
+                }
+            }
+            if ($revisions === []) {
+                continue;
+            }
+            $family['revisions'] = $revisions;
+            $family['latest_rev'] = (int) ($revisions[0]['revise_no'] ?? $family['latest_rev'] ?? 0);
+            $kept[] = $family;
+        }
+
+        return $kept;
+    }
+
     private static function filterSearch(array $families, string $search): array
     {
         $search = trim($search);
@@ -404,6 +444,7 @@ class DistributionRetrievalMonitorHelper
             'awaiting' => in_array($status, ['awaiting', 'awaiting_previous_out'], true),
             'received' => in_array($status, ['received', 'received_previous_out'], true),
             'retrieved' => $status === 'retrieved',
+            'not_retrieved' => $status !== 'retrieved',
             'previous_out' => in_array($status, ['still_out', 'received_previous_out', 'awaiting_previous_out'], true),
             default => true,
         };

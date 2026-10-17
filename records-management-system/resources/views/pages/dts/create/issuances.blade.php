@@ -35,6 +35,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
 
     public function selectFreeFlowOffice(string $officeCode): void
     {
+        if ($officeCode === $this->userOfficeCode || in_array($officeCode, ['ORIGIN', '[H]', '[HUB]'])) {
+            return;
+        }
+
         if ($officeCode === 'ALL') {
             $this->free_flow_receiving_offices = ['ALL'];
             $this->cf_selected_offices = ['ALL'];
@@ -103,6 +107,10 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
 
     public function selectCustomFlowHubOffice(string $officeCode): void
     {
+        if ($officeCode === $this->userOfficeCode || in_array($officeCode, ['ORIGIN', '[H]', '[HUB]'])) {
+            return;
+        }
+
         if ($officeCode === 'ALL') {
             $this->customFlowHubOffices = ['ALL'];
         } else {
@@ -396,11 +404,16 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     ->pluck('offices_hub')
                     ->toArray();
 
+                $predefinedHubOffices = array_values(array_filter(
+                    $predefinedHubOffices, 
+                    fn($code) => $code !== $this->userOfficeCode && !in_array($code, ['ORIGIN', '[H]', '[HUB]'])
+                ));
+
                 if (!empty($predefinedHubOffices)) {
                     $this->free_flow_receiving_offices = $predefinedHubOffices;
                     // Auto-sync into Copy Furnished according to one-way rule
                     foreach ($predefinedHubOffices as $hOff) {
-                        if (!in_array($hOff, $this->cf_selected_offices)) {
+                        if ($hOff !== $this->userOfficeCode && !in_array($hOff, $this->cf_selected_offices)) {
                             $this->cf_selected_offices[] = $hOff;
                         }
                     }
@@ -714,12 +727,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     if (in_array('ALL', $officesToSave)) {
                         $allOffices = DB::table('sys_office')
                             ->where('is_active', true)
-                            ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
+                            ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]', $this->userOfficeCode])
+                            ->orderByRaw("COALESCE(cluster, 'ZZZZ') ASC")
+                            ->orderBy('office_name', 'asc')
                             ->pluck('office_code')
                             ->toArray();
                         $officesToSave = $allOffices;
                     }
                     foreach ($officesToSave as $hOff) {
+                        if ($hOff === $this->userOfficeCode || in_array($hOff, ['ORIGIN', '[H]', '[HUB]'])) {
+                            continue;
+                        }
                         DB::table('dts_hub_flow_datas')->insert([
                             'flow_owner' => $flowId,
                             'offices_hub' => $hOff,
@@ -891,6 +909,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             $allSystemOffices = DB::table('sys_office')
                 ->where('is_active', true)
                 ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
+                ->orderByRaw("COALESCE(cluster, 'ZZZZ') ASC")
+                ->orderBy('office_name', 'asc')
                 ->pluck('office_code')
                 ->toArray();
 
@@ -992,15 +1012,28 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 foreach ($this->free_flow_receiving_offices as $hOffice) {
                     if ($hOffice === 'ALL') {
                         foreach ($allSystemOffices as $oCode) {
-                            if ($oCode !== $originOfficeCode) {
+                            if ($oCode !== $originOfficeCode && !in_array($oCode, ['ORIGIN', '[H]', '[HUB]'])) {
                                 $finalHubOffices[] = $oCode;
                             }
                         }
                     } else {
-                        $finalHubOffices[] = $hOffice;
+                        if ($hOffice !== $originOfficeCode && !in_array($hOffice, ['ORIGIN', '[H]', '[HUB]'])) {
+                            $finalHubOffices[] = $hOffice;
+                        }
                     }
                 }
                 $finalHubOffices = array_values(array_unique(array_filter($finalHubOffices)));
+                if (count($finalHubOffices) > 0) {
+                    $orderedHubOffices = DB::table('sys_office')
+                        ->whereIn('office_code', $finalHubOffices)
+                        ->orderByRaw("COALESCE(cluster, 'ZZZZ') ASC")
+                        ->orderBy('office_name', 'asc')
+                        ->pluck('office_code')
+                        ->toArray();
+                    if (!empty($orderedHubOffices)) {
+                        $finalHubOffices = $orderedHubOffices;
+                    }
+                }
             }
 
             // Resolve Copy Furnished offices
@@ -1009,12 +1042,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                 foreach ($this->cf_selected_offices as $cfOffice) {
                     if ($cfOffice === 'ALL') {
                         foreach ($allSystemOffices as $oCode) {
-                            if ($oCode !== $originOfficeCode) {
+                            if ($oCode !== $originOfficeCode && !in_array($oCode, ['ORIGIN', '[H]', '[HUB]'])) {
                                 $finalCfOffices[] = $oCode;
                             }
                         }
                     } else {
-                        $finalCfOffices[] = $cfOffice;
+                        if ($cfOffice !== $originOfficeCode && !in_array($cfOffice, ['ORIGIN', '[H]', '[HUB]'])) {
+                            $finalCfOffices[] = $cfOffice;
+                        }
                     }
                 }
                 $finalCfOffices = array_values(array_unique(array_filter($finalCfOffices)));

@@ -34,16 +34,28 @@ new #[Layout('layouts.portal')] #[Title('RMS CSPC Login')] class extends Compone
                     Welcome to the centralized portal for the Records Management System (RMS) at Camarines Sur Polytechnic Colleges (CSPC). Developed under the leadership of the Records and Freedom of Information Unit (RFIU) in collaboration with the Information and Communications Technology Unit (ICTU), this modernized web application platform enhances institutional transparency, document traceability, and operational accountability across all campus administrative offices.
                 </p>
 
-                <!-- Developers Section -->
+                <!-- Developers & Collaborators Section -->
                 <div class="developers-plain-section">
-                    <div class="developers-plain-tag">Developers</div>
-                    <ul class="developers-plain-names">
-                        <li>John Albert T. Lagriada</li>
-                        <li>Jan Russel S. Luce&ntilde;a</li>
-                        <li>Shanice R. Magbanua</li>
-                        <li>Jeroboam T. Oliveros</li>
-                        <li>Kurt Gabrielle B. Zabala</li>
-                    </ul>
+                    <div class="developers-credits-group">
+                        <div class="developers-plain-tag">Developers</div>
+                        <ul class="developers-plain-names">
+                            <li>John Albert T. Lagriada</li>
+                            <li>Jan Russel S. Luce&ntilde;a</li>
+                            <li>Shanice R. Magbanua</li>
+                            <li>Jeroboam T. Oliveros</li>
+                            <li>Kurt Gabrielle B. Zabala</li>
+                        </ul>
+                    </div>
+                    <div class="developers-credits-group">
+                        <div class="developers-plain-tag">Collaborators</div>
+                        <ul class="developers-plain-names">
+                            <li>Joemle M. Agravante</li>
+                            <li>Ni&ntilde;o A. Bermundo</li>
+                            <li>Jim Kenneth L. Bolalin</li>
+                            <li>Elijah Joss R. Dela Fuente</li>
+                            <li>Alliah Tradio</li>
+                        </ul>
+                    </div>
                 </div>
             </div>
 

@@ -12,6 +12,7 @@ new class extends Component {
     public string $lastScannedCode = '';
     public ?array $activeTransaction = null;
     public string $actionNeeded = '';
+    public string $forwardToOfficeCode = '';
     public string $notes = '';
     public string $successMessage = '';
     public string $errorMessage = '';
@@ -23,10 +24,11 @@ new class extends Component {
     {
         try {
             if (\Illuminate\Support\Facades\Schema::hasTable('dts_action_options')) {
-                $this->actionOptions = DB::table('dts_action_options')
-                    ->orderBy('option_name', 'asc')
-                    ->pluck('option_name')
-                    ->toArray();
+                $query = DB::table('dts_action_options')->orderBy('option_name', 'asc');
+                if (!\App\Services\DtsRoutingService::canForwardToOtherOffice()) {
+                    $query->where('option_name', '!=', 'To be Forwarded to');
+                }
+                $this->actionOptions = $query->pluck('option_name')->toArray();
             }
         } catch (\Throwable $e) {
             $this->actionOptions = [];
@@ -38,6 +40,13 @@ new class extends Component {
 
         $this->actionNeeded = $this->actionOptions[0] ?? 'For Approval';
         $this->recentScans = session()->get('dts_recent_scans', []);
+    }
+
+    public function getAvailableTargetOfficesProperty()
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+        return \App\Services\DtsRoutingService::getAvailableTargetOffices($userOfficeCode);
     }
 
     #[On('open-scanner-modal')]
@@ -392,6 +401,30 @@ new class extends Component {
                 } 
                 // Case 2: Forward received transaction
                 else {
+                    if ($this->actionNeeded === 'To be Forwarded to') {
+                        if (empty($this->forwardToOfficeCode)) {
+                            $this->errorMessage = 'Please select a destination office to forward to.';
+                            return;
+                        }
+
+                        try {
+                            $result = \App\Services\DtsRoutingService::forwardToOtherOffice(
+                                $transId,
+                                $this->forwardToOfficeCode,
+                                $this->notes,
+                                auth()->id()
+                            );
+                            $this->successMessage = "Transaction '{$result['control_number']}' forwarded to {$result['target_office_name']}!";
+                            $this->logScan($this->activeTransaction['qr_code'], 'Forwarded to ' . $result['target_office_name'], 'success');
+                            $this->activeTransaction = null;
+                            $this->scannedCode = '';
+                            $this->forwardToOfficeCode = '';
+                        } catch (\Throwable $e) {
+                            $this->errorMessage = 'Failed to forward transaction: ' . $e->getMessage();
+                        }
+                        return;
+                    }
+
                     $isRevisionAction = in_array($this->actionNeeded, ['For Revision', 'Returned for Revision']);
 
                     if ($isRevisionAction) {
@@ -1209,7 +1242,7 @@ new class extends Component {
                                         <div class="scanner-action-form-row" style="display: flex; gap: 10px; flex-wrap: wrap;">
                                             <div style="flex: 1; min-width: 160px;">
                                                 <label style="font-size: 11px; font-weight: 700; color: #475569; display: block; margin-bottom: 4px; text-transform: uppercase;">Action Needed For Forwarding</label>
-                                                <select wire:model="actionNeeded" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; background: #ffffff; box-sizing: border-box;">
+                                                <select wire:model.live="actionNeeded" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; background: #ffffff; box-sizing: border-box;">
                                                     @foreach($actionOptions as $opt)
                                                         <option value="{{ $opt }}">{{ $opt }}</option>
                                                     @endforeach
@@ -1220,6 +1253,23 @@ new class extends Component {
                                                 <input type="text" wire:model="notes" placeholder="Enter forwarding remarks..." style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; box-sizing: border-box;">
                                             </div>
                                         </div>
+
+                                        @if($actionNeeded === 'To be Forwarded to')
+                                            <div style="margin-top: 10px; background: #eff6ff; padding: 12px; border-radius: 8px; border: 1.5px solid #3b82f6;">
+                                                <label style="font-size: 11px; font-weight: 700; color: #1e40af; display: block; margin-bottom: 4px; text-transform: uppercase;">
+                                                    <i class="fa-solid fa-building-circle-arrow-right"></i> Destination Office
+                                                </label>
+                                                <select wire:model="forwardToOfficeCode" style="width: 100%; padding: 8px 12px; border: 1px solid #93c5fd; border-radius: 8px; font-size: 13px; background: #ffffff; box-sizing: border-box;">
+                                                    <option value="">-- Select Office to Forward To --</option>
+                                                    @foreach($this->availableTargetOffices as $office)
+                                                        <option value="{{ $office->office_code }}">{{ $office->office_name }} ({{ $office->office_code }})</option>
+                                                    @endforeach
+                                                </select>
+                                                <div style="font-size: 11px; color: #3b82f6; margin-top: 4px;">
+                                                    This will dynamically route the transaction to this office and insert it directly into the active routing sequence flow.
+                                                </div>
+                                            </div>
+                                        @endif
                                     @endif
 
                                     <div style="display: flex; justify-content: flex-end; margin-top: 6px;">
@@ -1231,7 +1281,7 @@ new class extends Component {
                                         >
                                             @if($activeTransaction['is_received_here'])
                                                 <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
-                                                <span>Forward Transaction</span>
+                                                <span>{{ $actionNeeded === 'To be Forwarded to' ? 'Forward to Office' : 'Forward Transaction' }}</span>
                                             @else
                                                 <svg width="15" height="15" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v3.586L7.707 9.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 10.586V7z" clip-rule="evenodd"/></svg>
                                                 <span>Receive Transaction</span>

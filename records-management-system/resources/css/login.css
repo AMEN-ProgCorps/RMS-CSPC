@@ -124,9 +124,17 @@ body {
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
 }
 
-/* Developers Section (Clean Direct Text - No Box) */
+/* Developers & Collaborators Section (Clean Direct Text - No Box) */
 .developers-plain-section {
     margin-top: 32px;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 48px;
+    flex-wrap: wrap;
+}
+
+.developers-credits-group {
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -489,6 +497,11 @@ body {
 
     .developers-plain-section {
         margin-top: 20px;
+        gap: 24px;
+    }
+
+    .developers-credits-group {
+        gap: 8px;
     }
 
     .developers-plain-tag {

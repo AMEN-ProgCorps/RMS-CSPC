@@ -16,6 +16,7 @@ class PersonalSetting extends Model
         'user',
         'auto_open_chat',
         'notification_sound_alert',
+        'enable_popout_notifications',
         'enable_top_tabs',
         'theme',
         'modal_close_key',
@@ -27,16 +28,19 @@ class PersonalSetting extends Model
         'follow_scroll_enabled',
         'follow_scroll_side',
         'follow_scroll_vertical',
+        'muted_notification_types',
     ];
 
     protected $casts = [
         'auto_open_chat' => 'boolean',
         'notification_sound_alert' => 'boolean',
+        'enable_popout_notifications' => 'boolean',
         'enable_top_tabs' => 'boolean',
         'dcs_db_visible_groups' => 'array',
         'follow_scroll_enabled' => 'boolean',
         'follow_scroll_side' => 'boolean',
         'follow_scroll_vertical' => 'boolean',
+        'muted_notification_types' => 'array',
     ];
 
     /**

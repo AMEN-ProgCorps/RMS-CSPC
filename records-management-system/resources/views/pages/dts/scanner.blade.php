@@ -27,6 +27,9 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
     /** @var string Action needed when forwarding */
     public string $actionNeeded = 'For Action';
 
+    /** @var string Dynamic target office code for To be Forwarded to */
+    public string $forwardToOfficeCode = '';
+
     /** @var string Forwarding notes or revision reason */
     public string $notes = '';
 
@@ -68,10 +71,11 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
         try {
             if (\Illuminate\Support\Facades\Schema::hasTable('dts_action_options')) {
-                $this->actionOptions = DB::table('dts_action_options')
-                    ->orderBy('option_name', 'asc')
-                    ->pluck('option_name')
-                    ->toArray();
+                $query = DB::table('dts_action_options')->orderBy('option_name', 'asc');
+                if (!\App\Services\DtsRoutingService::canForwardToOtherOffice()) {
+                    $query->where('option_name', '!=', 'To be Forwarded to');
+                }
+                $this->actionOptions = $query->pluck('option_name')->toArray();
             }
         } catch (\Throwable $e) {
             $this->actionOptions = [];
@@ -83,6 +87,13 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
         $this->actionNeeded = $this->actionOptions[0] ?? 'For Action';
         $this->sessionScans = session()->get('dts_scanner_session_logs', []);
+    }
+
+    public function getAvailableTargetOfficesProperty()
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+        return \App\Services\DtsRoutingService::getAvailableTargetOffices($userOfficeCode);
     }
 
     public function clearAlerts(): void
@@ -664,6 +675,30 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
 
         if ($this->activeTransaction['current_office_code'] !== $userOfficeCode) {
             $this->errorMessage = 'That QR code is no longer within your office transaction list.';
+            return;
+        }
+
+        if ($this->actionNeeded === 'To be Forwarded to') {
+            if (empty($this->forwardToOfficeCode)) {
+                $this->errorMessage = 'Please select a destination office to forward to.';
+                return;
+            }
+
+            try {
+                $result = \App\Services\DtsRoutingService::forwardToOtherOffice(
+                    $this->activeTransaction['id'],
+                    $this->forwardToOfficeCode,
+                    $this->notes,
+                    auth()->id()
+                );
+                $this->successMessage = "Transaction '{$result['control_number']}' forwarded to {$result['target_office_name']}!";
+                $this->logSessionScan($this->activeTransaction['qr_code'], 'Forwarded to ' . $result['target_office_name'], 'success');
+                $this->activeTransaction = null;
+                $this->scannedCode = '';
+                $this->forwardToOfficeCode = '';
+            } catch (\Throwable $e) {
+                $this->errorMessage = 'Failed to forward transaction: ' . $e->getMessage();
+            }
             return;
         }
 
@@ -1316,7 +1351,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                                     <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px;">
                                         Action Needed
                                     </label>
-                                    <select wire:model="actionNeeded" style="width: 100%; height: 38px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; color: #1e293b; background: #ffffff;">
+                                    <select wire:model.live="actionNeeded" style="width: 100%; height: 38px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; color: #1e293b; background: #ffffff;">
                                         @foreach($actionOptions as $opt)
                                             <option value="{{ $opt }}">{{ $opt }}</option>
                                         @endforeach
@@ -1331,10 +1366,27 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                                 </div>
                             </div>
 
+                            @if($actionNeeded === 'To be Forwarded to')
+                                <div style="margin-bottom: 12px; background: #eff6ff; padding: 12px; border-radius: 8px; border: 1.5px solid #3b82f6;">
+                                    <label style="display: block; font-size: 12px; font-weight: 700; color: #1e40af; margin-bottom: 6px;">
+                                        <i class="fa-solid fa-building-circle-arrow-right"></i> Destination Office:
+                                    </label>
+                                    <select wire:model="forwardToOfficeCode" style="width: 100%; height: 38px; background: #ffffff; color: #1e293b; border: 1px solid #93c5fd; border-radius: 8px; padding: 0 10px; font-size: 13px; font-weight: 600; outline: none;">
+                                        <option value="">-- Select Office to Forward To --</option>
+                                        @foreach($this->availableTargetOffices as $office)
+                                            <option value="{{ $office->office_code }}">{{ $office->office_name }} ({{ $office->office_code }})</option>
+                                        @endforeach
+                                    </select>
+                                    <div style="font-size: 11px; color: #3b82f6; margin-top: 4px;">
+                                        This will dynamically route the transaction to this office and insert it directly into the active routing sequence flow.
+                                    </div>
+                                </div>
+                            @endif
+
                             <div style="display: flex; gap: 10px;">
                                 <button type="button" wire:click="executeForward" 
                                         style="flex: 2; height: 44px; background: #16a34a; color: #ffffff; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 10px rgba(22, 163, 74, 0.25);">
-                                    <i class="fa-solid fa-paper-plane"></i> FORWARD TO {{ strtoupper($activeTransaction['next_office']) }}
+                                    <i class="fa-solid fa-paper-plane"></i> {{ $actionNeeded === 'To be Forwarded to' ? 'FORWARD TO OFFICE' : 'FORWARD TO ' . strtoupper($activeTransaction['next_office'] ?? 'NEXT OFFICE') }}
                                 </button>
                                 <button type="button" wire:click="executeReturnRevision" 
                                         style="flex: 1; height: 44px; background: #dc2626; color: #ffffff; border: none; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">

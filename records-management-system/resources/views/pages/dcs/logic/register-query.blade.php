@@ -1173,11 +1173,12 @@ class RegisterQueryHelper
     }
 
     /** Unread system notices that still appear in the bell (after the same filters). */
-    public static function countVisibleUnreadNotifications(int $userId, string $officeCode, array $allowedSubsystems): int
+    public static function countVisibleUnreadNotifications(int $userId, string $officeCode, array $allowedSubsystems, bool $excludeMuted = false): int
     {
         $notifTbl = Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
         $notifContentTbl = Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
         $notifDivTbl = Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+        $subsystemsTbl = Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
 
         $query = self::bellNotificationsBaseQuery($userId, $officeCode, $allowedSubsystems)
             ->where(function ($q) use ($notifDivTbl) {
@@ -1186,11 +1187,117 @@ class RegisterQueryHelper
             })
             ->select(
                 $notifTbl . '.id',
+                $subsystemsTbl . '.subsystem_name',
                 $notifContentTbl . '.redirect_url',
-                $notifContentTbl . '.content'
+                $notifContentTbl . '.content',
+                $notifTbl . '.created_at'
             );
 
-        return self::filterBellNotifications($query->get())->count();
+        $list = self::filterBellNotifications($query->get());
+        if ($excludeMuted) {
+            $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap($userId);
+            if (!empty($mutedMap)) {
+                $list = $list->reject(fn ($item) => \App\Helpers\NotificationFilterHelper::isMuted(
+                    (string) ($item->content ?? ''),
+                    (string) ($item->subsystem_name ?? ''),
+                    $mutedMap,
+                    $item->created_at ?? null
+                ));
+            }
+        }
+
+        return $list->count();
+    }
+
+    /**
+     * Unread system notices grouped by subsystem name.
+     *
+     * @param  array<int, string>  $allowedSubsystems
+     * @return array<string, int>
+     */
+    public static function countVisibleUnreadNotificationsBySubsystem(int $userId, string $officeCode, array $allowedSubsystems): array
+    {
+        $notifTbl = Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifContentTbl = Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $notifDivTbl = Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+        $subsystemsTbl = Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+
+        $query = self::bellNotificationsBaseQuery($userId, $officeCode, $allowedSubsystems)
+            ->where(function ($q) use ($notifDivTbl) {
+                $q->whereNull($notifDivTbl . '.status')
+                    ->orWhere($notifDivTbl . '.status', 'unread');
+            })
+            ->select(
+                $notifTbl . '.id',
+                $subsystemsTbl . '.subsystem_name',
+                $notifContentTbl . '.redirect_url',
+                $notifContentTbl . '.content',
+                $notifTbl . '.created_at'
+            );
+
+        $list = self::filterBellNotifications($query->get());
+        $counts = [];
+        foreach ($list as $item) {
+            $name = trim((string) ($item->subsystem_name ?? ''));
+            if ($name !== '') {
+                $counts[$name] = ($counts[$name] ?? 0) + 1;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Latest unread system notice formatted for the popout notification overlay.
+     *
+     * @param  array<int, string>  $allowedSubsystems
+     * @return array<string, mixed>|null
+     */
+    public static function latestVisibleUnreadNotification(int $userId, string $officeCode, array $allowedSubsystems, bool $excludeMuted = true): ?array
+    {
+        $notifTbl = Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
+        $notifContentTbl = Schema::hasTable('sys_notif_content') ? 'sys_notif_content' : 'notif_content';
+        $notifDivTbl = Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
+        $subsystemsTbl = Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+
+        $query = self::bellNotificationsBaseQuery($userId, $officeCode, $allowedSubsystems)
+            ->where(function ($q) use ($notifDivTbl) {
+                $q->whereNull($notifDivTbl . '.status')
+                    ->orWhere($notifDivTbl . '.status', 'unread');
+            })
+            ->orderBy($notifTbl . '.created_at', 'desc')
+            ->select(
+                $notifTbl . '.id',
+                $subsystemsTbl . '.subsystem_name',
+                $notifContentTbl . '.redirect_url',
+                $notifContentTbl . '.content',
+                $notifTbl . '.created_at'
+            );
+
+        $filtered = self::filterBellNotifications($query->take(20)->get());
+        if ($excludeMuted) {
+            $mutedMap = \App\Helpers\NotificationFilterHelper::getUserMutedMap($userId);
+            if (!empty($mutedMap)) {
+                $filtered = $filtered->reject(fn ($item) => \App\Helpers\NotificationFilterHelper::isMuted(
+                    (string) ($item->content ?? ''),
+                    (string) ($item->subsystem_name ?? ''),
+                    $mutedMap,
+                    $item->created_at ?? null
+                ));
+            }
+        }
+        $latest = $filtered->first();
+        if (!$latest) {
+            return null;
+        }
+
+        return [
+            'id' => (int) $latest->id,
+            'subsystem_name' => (string) ($latest->subsystem_name ?? 'RMS Notification'),
+            'content' => (string) ($latest->content ?? ''),
+            'redirect_url' => $latest->redirect_url ? (string) $latest->redirect_url : null,
+            'time' => \Carbon\Carbon::parse($latest->created_at)->diffForHumans(),
+        ];
     }
 
     /**

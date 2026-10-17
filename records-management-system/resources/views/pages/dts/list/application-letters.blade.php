@@ -222,7 +222,18 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
     public string $classification = '';
     public string $actionNeeded = '';
     public string $activeAction = 'forwarded';
+    public string $forwardToOfficeCode = '';
     public string $activeNotes = '';
+
+    public function getActionOptionsProperty(): array
+    {
+        $canForwardOtherOffice = \App\Services\DtsRoutingService::canForwardToOtherOffice();
+        $query = DB::table('dts_action_options')->orderBy('option_name', 'asc');
+        if (!$canForwardOtherOffice) {
+            $query->where('option_name', '!=', 'To be Forwarded to');
+        }
+        return $query->pluck('option_name')->toArray();
+    }
     public bool $editingControl = false;
     public bool $editingFileCode = false;
     public bool $editingParticulars = false;
@@ -965,7 +976,8 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
             $this->particulars = $this->selectedTransaction->subject ?: '';
             $this->classification = $this->selectedTransaction->classification ?: '';
             $this->actionNeeded = $this->selectedTransaction->action_needed ?: '';
-            $this->activeAction = DB::table('dts_action_options')->orderBy('option_name', 'asc')->value('option_name') ?: 'For Approval';
+            $this->activeAction = $this->actionOptions[0] ?? 'For Approval';
+            $this->forwardToOfficeCode = '';
 
             $this->requestorName = $this->selectedTransaction->requestor_name ?? '';
             $this->requestorPosition = $this->selectedTransaction->requestor_label ?? '';
@@ -1235,6 +1247,27 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
 
         $userOfficeCode = auth()->user()?->details?->office?->office_code;
         if ($this->selectedTransaction->current_office !== $userOfficeCode) {
+            return;
+        }
+
+        if ($this->activeAction === 'To be Forwarded to') {
+            if (empty($this->forwardToOfficeCode)) {
+                session()->flash('error', 'Please select a destination office to forward to.');
+                return;
+            }
+
+            try {
+                $result = \App\Services\DtsRoutingService::forwardToOtherOffice(
+                    $this->selectedTransactionId,
+                    $this->forwardToOfficeCode,
+                    $this->activeNotes,
+                    auth()->id()
+                );
+                session()->flash('success', "Transaction '{$result['control_number']}' has been forwarded to {$result['target_office_name']}!");
+                $this->closeTransaction();
+            } catch (\Throwable $e) {
+                session()->flash('error', 'Failed to forward transaction: ' . $e->getMessage());
+            }
             return;
         }
 
@@ -1768,9 +1801,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                             <input type="text" class="receive-field-input" value="{{ $selectedTransaction->originated_office_name ?? 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
                         </div>
 
-                        <!-- Document Type field (formerly Flow) -->
+                        <!-- Document Name field (formerly Flow) -->
                         <div class="receive-field-row" style="align-items: center;">
-                            <span class="receive-field-label">Document Type:</span>
+                            <span class="receive-field-label">Document Name:</span>
                             @if ($editingAll)
                                 @php
                                     $availableFlows = DB::table('dts_transaction_flow')
@@ -1783,12 +1816,26 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                 <select class="receive-field-input" wire:model.live="transactionFlow" style="height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; background: #fff;">
                                     @foreach ($availableFlows as $f)
                                         @php
-                                            $fDisplay = $f->referenced_flow ?: $f->flow_name;
-                                            if (!empty($fDisplay) && preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $fDisplay, $matches)) {
-                                                $rName = DB::table('dts_transaction_flow')->where('id', $matches[1])->value('flow_name');
-                                                if (!empty($rName)) {
-                                                    $fDisplay = $rName;
+                                            $fDisplay = null;
+                                            if (!empty($f->referenced_flow)) {
+                                                if (preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $f->referenced_flow, $matches)) {
+                                                    $rName = DB::table('dts_transaction_flow')->where('id', $matches[1])->value('flow_name');
+                                                    if (!empty($rName) && !str_starts_with($rName, 'Flow for ') && !str_starts_with($rName, 'REF-')) {
+                                                        $fDisplay = $rName;
+                                                    }
+                                                } elseif (!str_starts_with($f->referenced_flow, 'REF-') && !str_starts_with($f->referenced_flow, 'FLOW-') && !str_starts_with($f->referenced_flow, 'Flow for ')) {
+                                                    $fDisplay = $f->referenced_flow;
                                                 }
+                                            }
+                                            if (empty($fDisplay) && !empty($f->flow_name)) {
+                                                if (!str_starts_with($f->flow_name, 'Flow for ') && !str_starts_with($f->flow_name, 'REF-') && !str_starts_with($f->flow_name, 'FLOW-')) {
+                                                    $fDisplay = $f->flow_name;
+                                                }
+                                            }
+                                            if (empty($fDisplay) || str_starts_with($fDisplay, 'REF-') || str_starts_with($fDisplay, 'FLOW-') || str_starts_with($fDisplay, 'Flow for ')) {
+                                                $fDisplay = !empty($selectedTransaction->classification)
+                                                    ? ucfirst($selectedTransaction->classification)
+                                                    : ucfirst($selectedTransaction->trans_type ?? 'Application Letters');
                                             }
                                         @endphp
                                         <option value="{{ $f->flow_code }}">{{ $fDisplay }}</option>
@@ -1797,15 +1844,45 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                             @else
                                 @php
                                     $flowRow = DB::table('dts_transaction_flow')->where('flow_code', $transactionFlow)->first();
-                                    $flowName = $flowRow?->referenced_flow ?: ($flowRow?->flow_name ?: $transactionFlow);
-                                    if (!empty($flowName) && preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $flowName, $matches)) {
-                                        $rName = DB::table('dts_transaction_flow')->where('id', $matches[1])->value('flow_name');
-                                        if (!empty($rName)) {
-                                            $flowName = $rName;
+                                    $flowName = null;
+
+                                    // 1. Try resolving referenced_flow by ID or clean text
+                                    if ($flowRow && !empty($flowRow->referenced_flow)) {
+                                        if (preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $flowRow->referenced_flow, $matches)) {
+                                            $rName = DB::table('dts_transaction_flow')->where('id', $matches[1])->value('flow_name');
+                                            if (!empty($rName) && !str_starts_with($rName, 'Flow for ') && !str_starts_with($rName, 'REF-')) {
+                                                $flowName = $rName;
+                                            }
+                                        } elseif (!str_starts_with($flowRow->referenced_flow, 'REF-') && !str_starts_with($flowRow->referenced_flow, 'FLOW-') && !str_starts_with($flowRow->referenced_flow, 'Flow for ')) {
+                                            $flowName = $flowRow->referenced_flow;
                                         }
                                     }
-                                    if (!empty($flowName) && str_starts_with($flowName, 'Flow for ')) {
-                                        $flowName = ucfirst($selectedTransaction->trans_type ?? 'Internal');
+
+                                    // 2. Try flow_name if not auto-generated
+                                    if (empty($flowName) && $flowRow && !empty($flowRow->flow_name)) {
+                                        if (!str_starts_with($flowRow->flow_name, 'Flow for ') && !str_starts_with($flowRow->flow_name, 'REF-') && !str_starts_with($flowRow->flow_name, 'FLOW-')) {
+                                            $flowName = $flowRow->flow_name;
+                                        }
+                                    }
+
+                                    // 3. Try attached document name if available
+                                    if (empty($flowName)) {
+                                        $attName = $this->attachedDocName ?? ($attachedDocName ?? '');
+                                        if (!empty($attName)) {
+                                            $flowName = $attName;
+                                        } elseif (!empty($selectedTransaction->doc_dir)) {
+                                            $docData = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')->where('document_path', $selectedTransaction->doc_dir)->first();
+                                            if (!empty($docData?->document_name)) {
+                                                $flowName = $docData->document_name;
+                                            }
+                                        }
+                                    }
+
+                                    // 4. Fallback to classification or transaction type
+                                    if (empty($flowName) || str_starts_with($flowName, 'REF-') || str_starts_with($flowName, 'FLOW-') || str_starts_with($flowName, 'Flow for ')) {
+                                        $flowName = !empty($selectedTransaction->classification)
+                                            ? ucfirst($selectedTransaction->classification)
+                                            : ucfirst($selectedTransaction->trans_type ?? 'Application Letters');
                                     }
                                 @endphp
                                 <input type="text" class="receive-field-input" value="{{ $flowName }}" readonly style="background-color: #f8fafc; color: #64748b;">
@@ -2233,11 +2310,21 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                                                 <td>{{ $step->total_time_completed ?: '-' }}</td>
                                                 <td>
                                                     @if ($step->is_active_step && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
-                                                        <select wire:model="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
-                                                            @foreach(DB::table('dts_action_options')->orderBy('option_name', 'asc')->pluck('option_name') as $opt)
+                                                        <select wire:model.live="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
+                                                            @foreach($this->actionOptions as $opt)
                                                                 <option value="{{ $opt }}">{{ $opt }}</option>
                                                             @endforeach
                                                         </select>
+                                                        @if ($activeAction === 'To be Forwarded to')
+                                                            <div style="margin-top: 6px;">
+                                                                <select wire:model="forwardToOfficeCode" style="width: 100%; padding: 4px 8px; border: 1.5px solid #3b82f6; border-radius: 6px; font-size: 12px; font-weight: 600; background: #eff6ff; color: #1e40af;">
+                                                                    <option value="">-- Select Office --</option>
+                                                                    @foreach(\App\Services\DtsRoutingService::getAvailableTargetOffices(auth()->user()?->details?->office?->office_code) as $availOff)
+                                                                        <option value="{{ $availOff->office_code }}">{{ $availOff->office_code }} - {{ $availOff->office_name }}</option>
+                                                                    @endforeach
+                                                                </select>
+                                                            </div>
+                                                        @endif
                                                     @else
                                                         {{ ($selectedTransaction->status === 'completed' || !is_null($step->date_out)) ? ($step->action_needed ?: 'Finished') : ($step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending')) }}
                                                     @endif
@@ -2310,14 +2397,23 @@ new #[Layout('layouts.dts')] #[Title('DTS - Application Letters')] class extends
                             $isUserOffice = ($effectiveCurrentOffice === auth()->user()?->details?->office?->office_code);
                         @endphp
                         @if ($isUserOffice && $selectedTransaction->status !== 'completed')
-                            @if ($this->isLastStep())
+                            @if ($this->isLastStep() && $activeAction !== 'To be Forwarded to')
                                 @if ($allowManualComplete)
                                     <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                             <polyline points="20 6 9 17 4 12"/>
                                         </svg>
                                         Complete Transaction
+                                    </button>
                                 @endif
+                            @else
+                                <button type="button" class="receive-action-btn" wire:click="completeTransaction" style="background-color: #2563eb;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                                    </svg>
+                                    {{ $activeAction === 'To be Forwarded to' ? 'Forward to Office' : 'Forward Transaction' }}
+                                </button>
                             @endif
                         @endif
 

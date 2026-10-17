@@ -73,17 +73,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
 
         // Hide child transactions from top-level list so they are collapsed under their parent
         if (empty($this->searchQuery)) {
-            $query->where(function($q) {
-                $q->whereRaw("dtd.control_number NOT LIKE '%-1'")
-                  ->whereRaw("dtd.control_number NOT LIKE '%-2'")
-                  ->whereRaw("dtd.control_number NOT LIKE '%-3'")
-                  ->whereRaw("dtd.control_number NOT LIKE '%-4'")
-                  ->whereRaw("dtd.control_number NOT LIKE '%-5'")
-                  ->whereRaw("dtd.control_number NOT LIKE '%-6'")
-                  ->whereRaw("dtd.control_number NOT LIKE '%-7'")
-                  ->whereRaw("dtd.control_number NOT LIKE '%-8'")
-                  ->whereRaw("dtd.control_number NOT LIKE '%-9'");
-            });
+            $query->whereRaw("dtd.control_number !~ '-[0-9]+$'");
         }
 
         if (!empty($this->searchQuery)) {
@@ -285,9 +275,13 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
             $t->timeline_path = $steps;
 
             // Load child transactions if any exist for this root control number
+            $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+            $clusterTable = \Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster';
+
             $childBranches = DB::table('dts_transactions as dt')
                 ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office', 'current_office.office_code', '=', 'dt.current_office')
+                ->leftJoin($officeTable . ' as current_office', 'current_office.office_code', '=', 'dt.current_office')
+                ->leftJoin($clusterTable . ' as clust', 'clust.cluster_code', '=', 'current_office.cluster')
                 ->where('dtd.control_number', 'like', $t->control_number . '-%')
                 ->where('dtd.is_active', 1)
                 ->whereNotIn('dt.status', ['cancelled'])
@@ -301,18 +295,32 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                     'dtd.control_number',
                     'dtd.subject',
                     'dtd.date_created',
-                    'current_office.office_name as current_office_name'
+                    'current_office.office_name as current_office_name',
+                    'current_office.cluster as current_office_cluster',
+                    'clust.cluster_name as current_cluster_name'
                 )
-                ->orderBy('dtd.control_number', 'asc')
                 ->get();
 
-            $childBranches->transform(function ($child) {
+            // Find hub step ranking in parent flow
+            $hubStep = $t->timeline_path->first(function ($s) {
+                return ($s->office_code === '[HUB]' || !empty($s->is_hub));
+            });
+            $hubRank = $hubStep ? $hubStep->sequence_ranking : 2;
+
+            $childBranches->transform(function ($child) use ($hubRank) {
                 $childLogs = DB::table((\Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs') . ' as log')
                     ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'office.office_code', '=', 'log.office_code')
                     ->where('log.transaction_id', $child->transaction_id)
                     ->select('log.*', 'office.office_name')
                     ->orderBy('log.id', 'asc')
                     ->get();
+
+                $destLog = $childLogs->where('office_code', $child->current_office)->last();
+
+                $childIsCompleted = strtolower($child->status ?? '') === 'completed';
+                $childIsForwarded = !empty($destLog?->date_out);
+                $childPassed = ($child->sequence ?? 0) > $hubRank;
+                $child->is_completed_or_forwarded = ($childIsCompleted || $childIsForwarded || $childPassed);
 
                 $childSteps = $childLogs->map(function ($cLog, $cIdx) use ($child) {
                     $cStep = new \stdClass();
@@ -330,7 +338,54 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                 return $child;
             });
 
+            // Priority sort: pending action (0) ABOVE, completed & forwarded (1) LOWEST.
+            // Secondary sort: Cluster, Office Name, Control Number.
+            $childBranches = $childBranches->sort(function ($a, $b) {
+                $pA = $a->is_completed_or_forwarded ? 1 : 0;
+                $pB = $b->is_completed_or_forwarded ? 1 : 0;
+                if ($pA !== $pB) {
+                    return $pA <=> $pB;
+                }
+
+                $clusterA = $a->current_cluster_name ?: ($a->current_office_cluster ?: 'ZZZZ');
+                $clusterB = $b->current_cluster_name ?: ($b->current_office_cluster ?: 'ZZZZ');
+                $cComp = strcasecmp($clusterA, $clusterB);
+                if ($cComp !== 0) {
+                    return $cComp;
+                }
+
+                $nameA = $a->current_office_name ?: $a->current_office;
+                $nameB = $b->current_office_name ?: $b->current_office;
+                $nComp = strcasecmp($nameA, $nameB);
+                if ($nComp !== 0) {
+                    return $nComp;
+                }
+
+                return strcasecmp($a->control_number, $b->control_number);
+            })->values();
+
             $t->child_branches = $childBranches;
+
+            // Hub counts for timeline step
+            $hubCompletedCount = $childBranches->where('is_completed_or_forwarded', true)->count();
+            $hubTotalCount = $childBranches->count();
+
+            if ($hubTotalCount === 0) {
+                $cfRecord = DB::table('dts_copy_filled_transaction')->where('control_num', $t->control_number)->first();
+                $hubOffices = $cfRecord ? DB::table('dts_copy_filled_to_office')->where('control_id', $cfRecord->assign_offices_id)->pluck('office_code')->toArray() : [];
+                $hubTotalCount = count($hubOffices);
+            }
+
+            foreach ($t->timeline_path as $pStep) {
+                if ($pStep->office_code === '[HUB]' || !empty($pStep->is_hub)) {
+                    $pStep->is_hub = true;
+                    $pStep->hub_forwarded_count = $hubCompletedCount;
+                    $pStep->hub_total = $hubTotalCount;
+                    if ($hubTotalCount > 0 && $hubCompletedCount >= $hubTotalCount) {
+                        $pStep->date_out = now();
+                    }
+                }
+            }
 
             return $t;
         });
@@ -425,13 +480,13 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                 <td style="padding: 14px 16px; color: #1e293b; max-width: 280px;">
                                     <div style="font-weight: 600;">{{ Str::limit($t->subject ?: 'No subject', 45) }}</div>
                                 </td>
-                                <td style="padding: 10px 12px; min-width: 220px; max-width: 320px;">
+                                <td style="padding: 10px 12px; min-width: 250px; max-width: 360px;">
                                     @if(strtolower($t->status ?? '') === 'completed')
                                         <span style="font-weight: 600; color: #16a34a; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
                                             <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
                                         </span>
                                     @else
-                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; padding: 4px 10px 32px 10px; overflow-x: auto;">
                                              @forelse ($t->timeline_path as $index => $step)
                                             @php
                                                 $isHub = !empty($step->is_hub);
@@ -465,12 +520,15 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
 
                                                 $lineColor = $isForwarded ? '#10b981' : ($isHub && $step->hub_received_count > 0 ? '#93c5fd' : '#cbd5e1');
 
+                                                $isHubStep = ($isHub || $step->office_code === '[HUB]');
+                                                $isOnHubArea = $isHubStep && ($isCurrentOffice || $step->sequence_ranking == $t->sequence || $t->current_office === '[HUB]' || (!is_null($step->date_in) && is_null($step->date_out)));
+
                                                 $tooltipTitle = $isHub 
                                                     ? ("Step " . ($index + 1) . ": " . ($step->office_name ?? '[HUB]') . " — " . ($step->hub_received_count ?? 0) . " of " . ($step->hub_total ?? 0) . " Received (" . ($isForwarded ? 'Forwarded' : ($isReceived ? 'Holding/Active' : 'Pending')) . ")")
                                                     : ("Step " . ($index + 1) . ": " . ($step->office_name ?? $step->office_code) . " (" . ($isReceived ? ($isForwarded ? 'Forwarded' : 'Received/Holder') : 'Pending') . ")");
                                             @endphp
 
-                                            <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                            <div class="dts-timeline-node-wrapper" style="width: 26px; min-width: 26px; height: 26px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
                                                 <div class="dts-timeline-node-dot" style="width: 26px; height: 26px; border-radius: 50%; background: {{ $dotColor }}; color: #ffffff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; cursor: pointer; {{ $isCurrentOffice ? 'box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : ($isInTransitToThisOffice ? 'box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.35);' : '') }}" title="{{ $tooltipTitle }}">
                                                     @if ($isHub)
                                                         @if ($isForwarded && $step->hub_forwarded_count >= ($step->hub_total ?: 1))
@@ -485,9 +543,9 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                                     @endif
                                                 </div>
 
-                                                <span style="margin-top: 4px; font-size: 10px; font-weight: 700; color: {{ $labelColor }}; font-family: 'Inter', sans-serif; white-space: nowrap;">
-                                                    @if($isHub)
-                                                        ⚡ [HUB]@if(!empty($step->hub_total))<span style="font-size: 8.5px; opacity: 0.85; margin-left: 1px;">({{ $step->hub_received_count }}/{{ $step->hub_total }})</span>@endif
+                                                <span style="position: absolute; top: 30px; left: 50%; transform: translateX(-50%); font-size: 9.5px; font-weight: 700; color: {{ $labelColor }}; font-family: 'Inter', sans-serif; max-width: 65px; width: max-content; text-align: center; line-height: 1.15; overflow-wrap: break-word; pointer-events: none;">
+                                                    @if($isHubStep)
+                                                        [HUB]@if($isOnHubArea && isset($step->hub_total) && $step->hub_total > 0)({{ $step->hub_forwarded_count ?? 0 }}/{{ $step->hub_total }})@endif
                                                     @else
                                                         {{ $step->office_code }}
                                                     @endif
@@ -495,7 +553,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                             </div>
 
                                             @if (!$loop->last)
-                                                <div style="flex: 1; height: 4px; background: {{ $lineColor }}; min-width: 16px; margin: 0 -2px 14px -2px; border-radius: 2px; z-index: 1; transition: all 0.3s ease;"></div>
+                                                <div style="flex: 1; height: 4px; background: {{ $lineColor }}; min-width: 38px; margin: 0 -2px; border-radius: 2px; z-index: 1; transition: all 0.3s ease;"></div>
                                             @endif
                                         @empty
                                             <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
@@ -540,7 +598,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                                     <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
                                                 </span>
                                             @else
-                                                <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                                <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative; padding: 2px 6px 18px 6px;">
                                                     @forelse ($child->timeline_path as $cStepIdx => $cStep)
                                                         @php
                                                             $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
@@ -549,7 +607,7 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                                             $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
                                                             $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
                                                         @endphp
-                                                        <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                        <div class="dts-timeline-node-wrapper" style="width: 22px; min-width: 22px; height: 22px; position: relative; display: inline-flex; align-items: center; justify-content: center; margin: 0;">
                                                             <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
                                                                 @if ($cIsReceived)
                                                                     <i class="fa-solid fa-check" style="font-size: 9px;"></i>
@@ -557,12 +615,12 @@ new #[Layout('layouts.dts')] #[Title('My Transactions - Document Tracking System
                                                                     {{ $cStepIdx + 1 }}
                                                                 @endif
                                                             </div>
-                                                            <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif;">
+                                                            <span style="position: absolute; top: 25px; left: 50%; transform: translateX(-50%); font-size: 9px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif; white-space: nowrap; pointer-events: none;">
                                                                 {{ $cStep->office_code }}
                                                             </span>
                                                         </div>
                                                         @if (!$loop->last)
-                                                            <div style="flex: 1; height: 3px; background: {{ $cLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                            <div style="flex: 1; height: 3px; background: {{ $cLineColor }}; min-width: 14px; margin: 0 -2px; border-radius: 2px; z-index: 1;"></div>
                                                         @endif
                                                     @empty
                                                         <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>

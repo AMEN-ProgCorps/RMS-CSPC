@@ -376,7 +376,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $allActive = \DB::table('sys_office')
             ->where('is_active', true)
             ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
-            ->orderBy('office_name')
+            ->orderByRaw("COALESCE(cluster, 'ZZZZ') ASC")
+            ->orderBy('office_name', 'asc')
             ->pluck('office_code')
             ->toArray();
 
@@ -581,7 +582,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - DTS Transaction Flows')]
         $allActive = \DB::table('sys_office')
             ->where('is_active', true)
             ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
-            ->orderBy('office_name')
+            ->orderByRaw("COALESCE(cluster, 'ZZZZ') ASC")
+            ->orderBy('office_name', 'asc')
             ->pluck('office_code')
             ->toArray();
 

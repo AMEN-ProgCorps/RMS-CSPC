@@ -194,17 +194,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             });
 
             if (empty($this->searchQuery)) {
-                $query->where(function($q) {
-                    $q->whereRaw("dtd.control_number NOT LIKE '%-1'")
-                      ->whereRaw("dtd.control_number NOT LIKE '%-2'")
-                      ->whereRaw("dtd.control_number NOT LIKE '%-3'")
-                      ->whereRaw("dtd.control_number NOT LIKE '%-4'")
-                      ->whereRaw("dtd.control_number NOT LIKE '%-5'")
-                      ->whereRaw("dtd.control_number NOT LIKE '%-6'")
-                      ->whereRaw("dtd.control_number NOT LIKE '%-7'")
-                      ->whereRaw("dtd.control_number NOT LIKE '%-8'")
-                      ->whereRaw("dtd.control_number NOT LIKE '%-9'");
-                });
+                $query->whereRaw("dtd.control_number !~ '-[0-9]+$'");
             }
         } elseif ($isForwarded) {
             $query->where('dt.current_office', '!=', $userOfficeCode)
@@ -604,10 +594,14 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             $t->timeline_path = $steps;
 
             // Load child transactions if any exist for this root control number
+            $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+            $clusterTable = \Illuminate\Support\Facades\Schema::hasTable('sys_cluster') ? 'sys_cluster' : 'cluster';
+
             $childBranches = DB::table('dts_transactions as dt')
                 ->join('dts_transaction_details as dtd', 'dtd.id', '=', 'dt.transaction_id')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as current_office', 'current_office.office_code', '=', 'dt.current_office')
-                ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+                ->leftJoin($officeTable . ' as current_office', 'current_office.office_code', '=', 'dt.current_office')
+                ->leftJoin($officeTable . ' as originated_office', 'originated_office.office_code', '=', 'dtd.originated_from')
+                ->leftJoin($clusterTable . ' as clust', 'clust.cluster_code', '=', 'current_office.cluster')
                 ->where('dtd.control_number', 'like', $t->control_number . '-%')
                 ->where('dtd.is_active', 1)
                 ->whereNotIn('dt.status', ['cancelled'])
@@ -622,8 +616,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                     'dtd.subject',
                     'dtd.date_created',
                     'originated_office.office_name as originated_office_name',
-                    'current_office.office_name as current_office_name'
+                    'current_office.office_name as current_office_name',
+                    'current_office.cluster as current_office_cluster',
+                    'clust.cluster_name as current_cluster_name'
                 )
+                ->orderByRaw("COALESCE(current_office.cluster, 'ZZZZ') ASC")
+                ->orderBy('current_office.office_name', 'asc')
                 ->orderBy('dtd.control_number', 'asc')
                 ->get();
 
@@ -2307,7 +2305,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <div>{{ $t->control_number }}</div>
                                         @if($isMyTxPage && $hasBranches)
                                             <button type="button" wire:click="toggleExpandHub('{{ $t->control_number }}')" style="margin-top: 6px; display: inline-flex; align-items: center; gap: 5px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s ease;">
-                                                <i class="fa-solid fa-bolt" style="color: #2563eb;"></i> {{ count($t->child_branches) + 1 }} Hub Units
+                                                <i class="fa-solid fa-bolt" style="color: #2563eb;"></i> {{ count($t->child_branches) }} Hub Units
                                                 <i class="fa-solid {{ $isExpanded ? 'fa-chevron-up' : 'fa-chevron-down' }}" style="font-size: 9px; margin-left: 2px;"></i>
                                             </button>
                                         @endif
@@ -2454,215 +2452,114 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         </td>
                                     </tr>
 
-                                    {{-- Expanded Hub Sub-Rows --}}
+                                    {{-- Expanded Hub Sub-Rows Container --}}
                                     @if($isMyTxPage && $hasBranches && $isExpanded)
-                                        {{-- Primary Branch Sub-Row --}}
-                                        <tr style="background: #f8fafc; border-bottom: 1px dashed #e2e8f0;">
-                                            <td style="padding: 10px 14px 10px 24px; font-size: 12px; font-weight: 700; color: #1e40af; white-space: nowrap;">
-                                                {{ $t->control_number }}
-                                            </td>
-                                            <td style="white-space: nowrap;">
-                                                <span style="font-family: monospace; font-size: 10.5px; background: #eff6ff; color: #1e40af; padding: 2px 6px; border-radius: 4px; border: 1px solid #bfdbfe; font-weight: 700;">
-                                                    <i class="fa-solid fa-qrcode" style="margin-right: 2px;"></i>{{ $t->qr_code }}
-                                                </span>
-                                            </td>
-                                            @if ($isMyTxPage)
-                                                <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
-                                                <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                            @elseif ($isIncomingPage)
-                                                <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
-                                                <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                            @elseif ($isReceivedPage)
-                                                <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->received_at_fmt }}</td>
-                                                <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                            @elseif ($isForwardedPage)
-                                                <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->released_at_fmt }}</td>
-                                                <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                            @else
-                                                <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
-                                                <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                            @endif
-                                            <td style="max-width: 260px; white-space: normal; word-break: break-word; font-size: 12px;">
-                                                <div style="font-weight: 600; color: #0f172a;">
-                                                    @if(mb_strlen($t->subject ?? '') > 100)
-                                                        {{ mb_substr($t->subject, 0, 100) }}...
-                                                        <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
-                                                    @else
-                                                        {{ $t->subject }}
-                                                    @endif
-                                                </div>
-                                                <div style="font-size: 11px; color: #0284c7; font-weight: 600; margin-top: 2px;">
-                                                    🏢 Unit: {{ $t->current_office_name ?: $t->current_office }}
-                                                </div>
-                                            </td>
-                                             @if ($isMyTxPage)
-                                                <td style="padding: 6px 12px; min-width: 220px; max-width: 320px;">
-                                                    @if(strtolower($t->status ?? '') === 'completed')
-                                                        <span style="font-weight: 600; color: #16a34a; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
-                                                            <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
-                                                        </span>
-                                                    @else
-                                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
-                                                            @forelse (($t->primary_branch_timeline ?? $t->timeline_path) as $pStepIdx => $pStep)
-                                                                @php
-                                                                    $pIsReceived = !is_null($pStep->date_in) || $t->status === 'completed';
-                                                                    $pIsForwarded = !is_null($pStep->date_out) || $t->status === 'completed';
-                                                                    $pIsCurrent = $pStep->office_code === $t->current_office && is_null($pStep->date_out) && $t->status !== 'completed';
-                                                                    $pDotColor = $pIsReceived ? '#10b981' : '#dc2626';
-                                                                    $pLineColor = $pIsForwarded ? '#10b981' : '#cbd5e1';
-                                                                @endphp
-                                                                <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
-                                                                    <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $pDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $pIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $pStep->office_name ?: $pStep->office_code }}">
-                                                                        @if ($pIsReceived)
-                                                                            <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                                                        @else
-                                                                            {{ $pStepIdx + 1 }}
-                                                                        @endif
-                                                                    </div>
-                                                                    <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $pDotColor }}; font-family: 'Inter', sans-serif;">
-                                                                        {{ $pStep->office_code }}
-                                                                    </span>
-                                                                </div>
-                                                                @if (!$loop->last)
-                                                                    <div style="flex: 1; height: 3px; background: {{ $pLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
-                                                                @endif
-                                                            @empty
-                                                                <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
-                                                            @endforelse
+                                        <tr class="hub-branches-container-row" style="background: #f8fafc;">
+                                            <td colspan="{{ $isIncomingPage ? 8 : 9 }}" style="padding: 4px 16px 14px 28px; border-top: none; border-bottom: 2px solid #cbd5e1;">
+                                                <div style="background: #ffffff; border: 1.5px solid #bfdbfe; border-radius: 8px; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05); overflow: hidden;">
+                                                    <div style="padding: 8px 14px; background: #eff6ff; border-bottom: 1px solid #bfdbfe; display: flex; align-items: center; justify-content: space-between;">
+                                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                                            <span style="font-size: 11.5px; font-weight: 700; color: #1e40af; display: inline-flex; align-items: center; gap: 5px;">
+                                                                <i class="fa-solid fa-layer-group" style="color: #2563eb;"></i> Hubbed Unit Transactions ({{ count($t->child_branches) }})
+                                                            </span>
+                                                            <span style="font-size: 11px; color: #64748b; font-weight: 500;">
+                                                                &bull; Sorted by Cluster &amp; Office Name
+                                                            </span>
                                                         </div>
-                                                    @endif
-                                                </td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
-                                                <td style="padding: 10px 14px;">
-                                                    <span class="rms-badge badge-{{ $t->status === 'completed' ? 'success' : ($t->status === 'cancelled' ? 'danger' : 'warning') }}">
-                                                        {{ ucfirst($t->status) }}
-                                                    </span>
-                                                </td>
-                                            @elseif ($isIncomingPage)
-                                                <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->incoming_elapsed_days . ' day(s)') }}</td>
-                                            @elseif ($isReceivedPage)
-                                                <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
-                                                <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->received_elapsed_days . ' day(s)') }}</td>
-                                            @elseif ($isForwardedPage)
-                                                <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
-                                                <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->released_elapsed_days . ' day(s)') }}</td>
-                                            @else
-                                                <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
-                                                <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
-                                            @endif
-                                            <td style="text-align: center; white-space: nowrap;">
-                                                <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
+                                                        <div style="font-size: 11px; color: #1e40af; font-weight: 600;">
+                                                            Parent: <span style="font-family: monospace;">{{ $t->control_number }}</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div style="{{ count($t->child_branches) >= 10 ? 'max-height: 460px; overflow-y: auto;' : '' }}">
+                                                        <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; background: #ffffff;">
+                                                            <thead>
+                                                                <tr style="background: #f1f5f9; border-bottom: 1px solid #cbd5e1; font-size: 10.5px; text-transform: uppercase; color: #475569; font-weight: 700; letter-spacing: 0.03em;">
+                                                                    <th style="padding: 8px 10px; width: 145px; white-space: nowrap;">Control No.</th>
+                                                                    <th style="padding: 8px 10px; width: 150px; white-space: nowrap;">QR Code</th>
+                                                                    <th style="padding: 8px 10px; width: 200px; max-width: 220px;">Receiving Office</th>
+                                                                    <th style="padding: 8px 10px; min-width: 150px; max-width: 240px;">Subject</th>
+                                                                    <th style="padding: 8px 10px; width: 170px;">Timeline</th>
+                                                                    <th style="padding: 8px 8px; text-align: center; width: 65px; white-space: nowrap;">Elapsed</th>
+                                                                    <th style="padding: 8px 8px; text-align: center; width: 75px; white-space: nowrap;">Status</th>
+                                                                    <th style="padding: 8px 10px; text-align: center; width: 65px; white-space: nowrap;">Action</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                @foreach($t->child_branches as $cIdx => $child)
+                                                                    <tr style="border-bottom: 1px solid #f1f5f9; {{ $loop->even ? 'background: #fbfcfe;' : 'background: #ffffff;' }}">
+                                                                        <td style="padding: 8px 10px; font-weight: 700; color: #2563eb; width: 145px; white-space: nowrap;">
+                                                                            {{ $child->control_number }}
+                                                                        </td>
+                                                                        <td style="padding: 8px 10px; width: 150px; white-space: nowrap;">
+                                                                            <span style="font-family: monospace; font-size: 10.5px; background: #eff6ff; color: #1e40af; padding: 2px 6px; border-radius: 4px; border: 1px solid #bfdbfe; font-weight: 700;">
+                                                                                <i class="fa-solid fa-qrcode" style="margin-right: 2px;"></i>{{ $child->qr_code }}
+                                                                            </span>
+                                                                        </td>
+                                                                        <td style="padding: 8px 10px; width: 200px; max-width: 220px; font-weight: 600; color: #0f172a; white-space: normal; word-break: break-word; font-size: 11.5px; line-height: 1.3;">
+                                                                            <div>{{ $child->current_office_name ?: $child->current_office }}</div>
+                                                                            @if(!empty($child->current_office_name) && $child->current_office_name !== $child->current_office)
+                                                                                <div style="font-size: 10px; color: #64748b; font-weight: 600; margin-top: 2px;">({{ $child->current_office }})</div>
+                                                                            @endif
+                                                                        </td>
+                                                                        <td style="padding: 8px 10px; min-width: 150px; max-width: 240px; white-space: normal; word-break: break-word; color: #334155; font-size: 11.5px; line-height: 1.3;">
+                                                                            {{ $child->subject }}
+                                                                        </td>
+                                                                        <td style="padding: 6px 10px; width: 170px;">
+                                                                            @if(strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed')
+                                                                                <span style="font-weight: 600; color: #16a34a; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                                                    <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
+                                                                                </span>
+                                                                            @else
+                                                                                <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                                                                    @forelse ($child->timeline_path as $cStepIdx => $cStep)
+                                                                                        @php
+                                                                                            $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
+                                                                                            $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
+                                                                                            $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
+                                                                                            $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
+                                                                                            $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
+                                                                                        @endphp
+                                                                                        <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                                                            <div class="dts-timeline-node-dot" style="width: 20px; height: 20px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
+                                                                                                @if ($cIsReceived)
+                                                                                                    <i class="fa-solid fa-check" style="font-size: 8px;"></i>
+                                                                                                @else
+                                                                                                    {{ $cStepIdx + 1 }}
+                                                                                                @endif
+                                                                                            </div>
+                                                                                            <span style="margin-top: 2px; font-size: 8.5px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif;">
+                                                                                                {{ $cStep->office_code }}
+                                                                                            </span>
+                                                                                        </div>
+                                                                                        @if (!$loop->last)
+                                                                                            <div style="flex: 1; height: 2.5px; background: {{ $cLineColor }}; min-width: 12px; margin: 0 -2px 8px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                                                        @endif
+                                                                                    @empty
+                                                                                        <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                                                                    @endforelse
+                                                                                </div>
+                                                                            @endif
+                                                                        </td>
+                                                                        <td style="padding: 8px 12px; font-weight: 600; white-space: nowrap; text-align: center; font-size: 11.5px; color: #475569;">
+                                                                            {{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->total_elapsed_days . ' day(s)') }}
+                                                                        </td>
+                                                                        <td style="padding: 8px 12px; text-align: center; white-space: nowrap;">
+                                                                            <span class="rms-badge badge-{{ $child->status === 'completed' ? 'success' : 'warning' }}" style="font-size: 10.5px; padding: 2px 7px;">
+                                                                                {{ ucfirst($child->status) }}
+                                                                            </span>
+                                                                        </td>
+                                                                        <td style="padding: 8px 12px; text-align: center; white-space: nowrap;">
+                                                                            <button type="button" wire:click="openTransaction('{{ $child->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600; font-size: 11.5px;">View</button>
+                                                                        </td>
+                                                                    </tr>
+                                                                @endforeach
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
                                             </td>
                                         </tr>
-
-                                        {{-- Child Branches Sub-Rows --}}
-                                        @foreach($t->child_branches as $cIdx => $child)
-                                            <tr style="background: #f8fafc; border-bottom: 1px dashed #e2e8f0;">
-                                                <td style="padding: 10px 14px 10px 24px; font-size: 12px; font-weight: 700; color: #2563eb; white-space: nowrap;">
-                                                    {{ $child->control_number }}
-                                                </td>
-                                                <td style="white-space: nowrap;">
-                                                    <span style="font-family: monospace; font-size: 10.5px; background: #eff6ff; color: #1e40af; padding: 2px 6px; border-radius: 4px; border: 1px solid #bfdbfe; font-weight: 700;">
-                                                        <i class="fa-solid fa-qrcode" style="margin-right: 2px;"></i>{{ $child->qr_code }}
-                                                    </span>
-                                                </td>
-                                                @if ($isMyTxPage)
-                                                    <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $child->created_at_fmt }}</td>
-                                                    <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                                @elseif ($isIncomingPage)
-                                                    <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $child->created_at_fmt }}</td>
-                                                    <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                                @elseif ($isReceivedPage)
-                                                    <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $child->created_at_fmt }}</td>
-                                                    <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                                @elseif ($isForwardedPage)
-                                                    <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $child->created_at_fmt }}</td>
-                                                    <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                                @else
-                                                    <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $child->created_at_fmt }}</td>
-                                                    <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                                @endif
-                                                <td style="max-width: 260px; white-space: normal; word-break: break-word; font-size: 12px;">
-                                                    <div style="font-weight: 600; color: #0f172a;">
-                                                        @if(mb_strlen($child->subject ?? '') > 100)
-                                                            {{ mb_substr($child->subject, 0, 100) }}...
-                                                            <button type="button" wire:click.stop="openTransaction('{{ $child->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
-                                                        @else
-                                                            {{ $child->subject }}
-                                                        @endif
-                                                    </div>
-                                                    <div style="font-size: 11px; color: #0284c7; font-weight: 600; margin-top: 2px;">
-                                                        🏢 Unit: {{ $child->current_office_name ?: $child->current_office }}
-                                                    </div>
-                                                </td>
-                                                @if ($isMyTxPage)
-                                                    <td style="padding: 6px 12px; min-width: 220px; max-width: 320px;">
-                                                        @if(strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed')
-                                                            <span style="font-weight: 600; color: #16a34a; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
-                                                                <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
-                                                            </span>
-                                                        @else
-                                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
-                                                                @forelse ($child->timeline_path as $cStepIdx => $cStep)
-                                                                    @php
-                                                                        $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
-                                                                        $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
-                                                                        $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
-                                                                        $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
-                                                                        $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
-                                                                    @endphp
-                                                                    <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
-                                                                        <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
-                                                                            @if ($cIsReceived)
-                                                                                <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                                                            @else
-                                                                                {{ $cStepIdx + 1 }}
-                                                                            @endif
-                                                                        </div>
-                                                                        <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif;">
-                                                                            {{ $cStep->office_code }}
-                                                                        </span>
-                                                                    </div>
-                                                                    @if (!$loop->last)
-                                                                        <div style="flex: 1; height: 3px; background: {{ $cLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
-                                                                    @endif
-                                                                @empty
-                                                                    <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
-                                                                @endforelse
-                                                            </div>
-                                                        @endif
-                                                    </td>
-                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
-                                                    <td style="padding: 10px 14px;">
-                                                        <span class="rms-badge badge-{{ $child->status === 'completed' ? 'success' : 'warning' }}">
-                                                            {{ ucfirst($child->status) }}
-                                                        </span>
-                                                    </td>
-                                                @elseif ($isIncomingPage)
-                                                    <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->incoming_elapsed_days . ' day(s)') }}</td>
-                                                @elseif ($isReceivedPage)
-                                                    <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
-                                                    <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->received_elapsed_days . ' day(s)') }}</td>
-                                                @elseif ($isForwardedPage)
-                                                    <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
-                                                    <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->released_elapsed_days . ' day(s)') }}</td>
-                                                @else
-                                                    <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
-                                                    <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                    <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
-                                                @endif
-                                                <td style="text-align: center; white-space: nowrap;">
-                                                    <button type="button" wire:click="openTransaction('{{ $child->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
-                                                </td>
-                                            </tr>
-                                        @endforeach
                                     @endif
 
                                     @elseif ($isIncomingPage)
@@ -2781,7 +2678,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     <div>{{ $t->control_number }}</div>
                                     @if($isMyTxPage && $hasBranches)
                                         <button type="button" wire:click="toggleExpandHub('{{ $t->control_number }}')" style="margin-top: 6px; display: inline-flex; align-items: center; gap: 5px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s ease;">
-                                            <i class="fa-solid fa-bolt" style="color: #2563eb;"></i> {{ count($t->child_branches) + 1 }} Hub Units
+                                            <i class="fa-solid fa-bolt" style="color: #2563eb;"></i> {{ count($t->child_branches) }} Hub Units
                                             <i class="fa-solid {{ $isExpanded ? 'fa-chevron-up' : 'fa-chevron-down' }}" style="font-size: 9px; margin-left: 2px;"></i>
                                         </button>
                                     @endif
@@ -2920,7 +2817,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                         <div style="display: inline-flex; align-items: center; justify-content: center; gap: 8px;">
                                             <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
                                             @if($isMyTxPage && $hasBranches)
-                                                <button type="button" wire:click="toggleExpandHub('{{ $t->control_number }}')" style="border: 1px solid {{ $isExpanded ? '#93c5fd' : '#bfdbfe' }}; background: {{ $isExpanded ? '#dbeafe' : '#eff6ff' }}; color: #1d4ed8; border-radius: 6px; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s ease; padding: 0;" title="{{ $isExpanded ? 'Collapse Branches' : 'Expand ' . (count($t->child_branches) + 1) . ' Hub Branches' }}">
+                                                <button type="button" wire:click="toggleExpandHub('{{ $t->control_number }}')" style="border: 1px solid {{ $isExpanded ? '#93c5fd' : '#bfdbfe' }}; background: {{ $isExpanded ? '#dbeafe' : '#eff6ff' }}; color: #1d4ed8; border-radius: 6px; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s ease; padding: 0;" title="{{ $isExpanded ? 'Collapse Branches' : 'Expand ' . count($t->child_branches) . ' Hub Branches' }}">
                                                     <i class="fa-solid {{ $isExpanded ? 'fa-chevron-up' : 'fa-chevron-down' }}" style="font-size: 11px;"></i>
                                                 </button>
                                             @endif
@@ -2928,215 +2825,114 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                     </td>
                                 </tr>
 
-                                {{-- Expanded Hub Sub-Rows --}}
+                                {{-- Expanded Hub Sub-Rows Container --}}
                                 @if($isMyTxPage && $hasBranches && $isExpanded)
-                                    {{-- Primary Branch Sub-Row --}}
-                                    <tr style="background: #f8fafc; border-bottom: 1px dashed #e2e8f0;">
-                                        <td style="padding: 10px 14px 10px 24px; font-size: 12px; font-weight: 700; color: #1e40af; white-space: nowrap;">
-                                            {{ $t->control_number }}
-                                        </td>
-                                        <td style="white-space: nowrap;">
-                                            <span style="font-family: monospace; font-size: 10.5px; background: #eff6ff; color: #1e40af; padding: 2px 6px; border-radius: 4px; border: 1px solid #bfdbfe; font-weight: 700;">
-                                                <i class="fa-solid fa-qrcode" style="margin-right: 2px;"></i>{{ $t->qr_code }}
-                                            </span>
-                                        </td>
-                                        @if ($isMyTxPage)
-                                            <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
-                                            <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                        @elseif ($isIncomingPage)
-                                            <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
-                                            <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                        @elseif ($isReceivedPage)
-                                            <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->received_at_fmt }}</td>
-                                            <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                        @elseif ($isForwardedPage)
-                                            <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->released_at_fmt }}</td>
-                                            <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                        @else
-                                            <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $t->created_at_fmt }}</td>
-                                            <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                        @endif
-                                        <td style="max-width: 260px; white-space: normal; word-break: break-word; font-size: 12px;">
-                                            <div style="font-weight: 600; color: #0f172a;">
-                                                @if(mb_strlen($t->subject ?? '') > 100)
-                                                    {{ mb_substr($t->subject, 0, 100) }}...
-                                                    <button type="button" wire:click.stop="openTransaction('{{ $t->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
-                                                @else
-                                                    {{ $t->subject }}
-                                                @endif
-                                            </div>
-                                            <div style="font-size: 11px; color: #0284c7; font-weight: 600; margin-top: 2px;">
-                                                🏢 Unit: {{ $t->current_office_name ?: $t->current_office }}
-                                            </div>
-                                        </td>
-                                        @if ($isMyTxPage)
-                                            <td style="padding: 6px 12px; min-width: 220px; max-width: 320px;">
-                                                @if(strtolower($t->status ?? '') === 'completed')
-                                                    <span style="font-weight: 600; color: #16a34a; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
-                                                        <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
-                                                    </span>
-                                                @else
-                                                    <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
-                                                        @forelse (($t->primary_branch_timeline ?? $t->timeline_path) as $pStepIdx => $pStep)
-                                                            @php
-                                                                $pIsReceived = !is_null($pStep->date_in) || $t->status === 'completed';
-                                                                $pIsForwarded = !is_null($pStep->date_out) || $t->status === 'completed';
-                                                                $pIsCurrent = $pStep->office_code === $t->current_office && is_null($pStep->date_out) && $t->status !== 'completed';
-                                                                $pDotColor = $pIsReceived ? '#10b981' : '#dc2626';
-                                                                $pLineColor = $pIsForwarded ? '#10b981' : '#cbd5e1';
-                                                            @endphp
-                                                            <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
-                                                                <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $pDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $pIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $pStep->office_name ?: $pStep->office_code }}">
-                                                                    @if ($pIsReceived)
-                                                                        <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                                                    @else
-                                                                        {{ $pStepIdx + 1 }}
-                                                                    @endif
-                                                                </div>
-                                                                <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $pDotColor }}; font-family: 'Inter', sans-serif;">
-                                                                    {{ $pStep->office_code }}
-                                                                </span>
-                                                            </div>
-                                                            @if (!$loop->last)
-                                                                <div style="flex: 1; height: 3px; background: {{ $pLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
-                                                            @endif
-                                                        @empty
-                                                            <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
-                                                        @endforelse
+                                    <tr class="hub-branches-container-row" style="background: #f8fafc;">
+                                        <td colspan="{{ $isIncomingPage ? 8 : 9 }}" style="padding: 4px 16px 14px 28px; border-top: none; border-bottom: 2px solid #cbd5e1;">
+                                            <div style="background: #ffffff; border: 1.5px solid #bfdbfe; border-radius: 8px; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05); overflow: hidden;">
+                                                <div style="padding: 8px 14px; background: #eff6ff; border-bottom: 1px solid #bfdbfe; display: flex; align-items: center; justify-content: space-between;">
+                                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                                        <span style="font-size: 11.5px; font-weight: 700; color: #1e40af; display: inline-flex; align-items: center; gap: 5px;">
+                                                            <i class="fa-solid fa-layer-group" style="color: #2563eb;"></i> Hubbed Unit Transactions ({{ count($t->child_branches) }})
+                                                        </span>
+                                                        <span style="font-size: 11px; color: #64748b; font-weight: 500;">
+                                                            &bull; Sorted by Cluster &amp; Office Name
+                                                        </span>
                                                     </div>
-                                                @endif
-                                            </td>
-                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
-                                            <td style="padding: 10px 14px;">
-                                                <span class="rms-badge badge-{{ $t->status === 'completed' ? 'success' : ($t->status === 'cancelled' ? 'danger' : 'warning') }}">
-                                                    {{ ucfirst($t->status) }}
-                                                </span>
-                                            </td>
-                                        @elseif ($isIncomingPage)
-                                            <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->incoming_elapsed_days . ' day(s)') }}</td>
-                                        @elseif ($isReceivedPage)
-                                            <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
-                                            <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->received_elapsed_days . ' day(s)') }}</td>
-                                        @elseif ($isForwardedPage)
-                                            <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
-                                            <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->released_elapsed_days . ' day(s)') }}</td>
-                                        @else
-                                            <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
-                                            <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                            <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ strtolower($t->status ?? '') === 'completed' ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
-                                        @endif
-                                        <td style="text-align: center; white-space: nowrap;">
-                                            <button type="button" wire:click="openTransaction('{{ $t->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
+                                                    <div style="font-size: 11px; color: #1e40af; font-weight: 600;">
+                                                        Parent: <span style="font-family: monospace;">{{ $t->control_number }}</span>
+                                                    </div>
+                                                </div>
+
+                                                <div style="{{ count($t->child_branches) >= 10 ? 'max-height: 460px; overflow-y: auto;' : '' }}">
+                                                    <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; background: #ffffff;">
+                                                        <thead>
+                                                            <tr style="background: #f1f5f9; border-bottom: 1px solid #cbd5e1; font-size: 10.5px; text-transform: uppercase; color: #475569; font-weight: 700; letter-spacing: 0.03em;">
+                                                                <th style="padding: 8px 10px; width: 145px; white-space: nowrap;">Control No.</th>
+                                                                <th style="padding: 8px 10px; width: 150px; white-space: nowrap;">QR Code</th>
+                                                                <th style="padding: 8px 10px; width: 200px; max-width: 220px;">Receiving Office</th>
+                                                                <th style="padding: 8px 10px; min-width: 150px; max-width: 240px;">Subject</th>
+                                                                <th style="padding: 8px 10px; width: 170px;">Timeline</th>
+                                                                <th style="padding: 8px 8px; text-align: center; width: 65px; white-space: nowrap;">Elapsed</th>
+                                                                <th style="padding: 8px 8px; text-align: center; width: 75px; white-space: nowrap;">Status</th>
+                                                                <th style="padding: 8px 10px; text-align: center; width: 65px; white-space: nowrap;">Action</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            @foreach($t->child_branches as $cIdx => $child)
+                                                                <tr style="border-bottom: 1px solid #f1f5f9; {{ $loop->even ? 'background: #fbfcfe;' : 'background: #ffffff;' }}">
+                                                                    <td style="padding: 8px 10px; font-weight: 700; color: #2563eb; width: 145px; white-space: nowrap;">
+                                                                        {{ $child->control_number }}
+                                                                    </td>
+                                                                    <td style="padding: 8px 10px; width: 150px; white-space: nowrap;">
+                                                                        <span style="font-family: monospace; font-size: 10.5px; background: #eff6ff; color: #1e40af; padding: 2px 6px; border-radius: 4px; border: 1px solid #bfdbfe; font-weight: 700;">
+                                                                            <i class="fa-solid fa-qrcode" style="margin-right: 2px;"></i>{{ $child->qr_code }}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td style="padding: 8px 10px; width: 200px; max-width: 220px; font-weight: 600; color: #0f172a; white-space: normal; word-break: break-word; font-size: 11.5px; line-height: 1.3;">
+                                                                        <div>{{ $child->current_office_name ?: $child->current_office }}</div>
+                                                                        @if(!empty($child->current_office_name) && $child->current_office_name !== $child->current_office)
+                                                                            <div style="font-size: 10px; color: #64748b; font-weight: 600; margin-top: 2px;">({{ $child->current_office }})</div>
+                                                                        @endif
+                                                                    </td>
+                                                                    <td style="padding: 8px 10px; min-width: 150px; max-width: 240px; white-space: normal; word-break: break-word; color: #334155; font-size: 11.5px; line-height: 1.3;">
+                                                                        {{ $child->subject }}
+                                                                    </td>
+                                                                    <td style="padding: 6px 10px; width: 170px;">
+                                                                        @if(strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed')
+                                                                            <span style="font-weight: 600; color: #16a34a; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+                                                                                <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
+                                                                            </span>
+                                                                        @else
+                                                                            <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
+                                                                                @forelse ($child->timeline_path as $cStepIdx => $cStep)
+                                                                                    @php
+                                                                                        $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
+                                                                                        $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
+                                                                                        $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
+                                                                                        $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
+                                                                                        $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
+                                                                                    @endphp
+                                                                                    <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
+                                                                                        <div class="dts-timeline-node-dot" style="width: 20px; height: 20px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 9.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
+                                                                                            @if ($cIsReceived)
+                                                                                                <i class="fa-solid fa-check" style="font-size: 8px;"></i>
+                                                                                            @else
+                                                                                                {{ $cStepIdx + 1 }}
+                                                                                            @endif
+                                                                                        </div>
+                                                                                        <span style="margin-top: 2px; font-size: 8.5px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif;">
+                                                                                            {{ $cStep->office_code }}
+                                                                                        </span>
+                                                                                    </div>
+                                                                                    @if (!$loop->last)
+                                                                                        <div style="flex: 1; height: 2.5px; background: {{ $cLineColor }}; min-width: 12px; margin: 0 -2px 8px -2px; border-radius: 2px; z-index: 1;"></div>
+                                                                                    @endif
+                                                                                @empty
+                                                                                    <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
+                                                                                @endforelse
+                                                                            </div>
+                                                                        @endif
+                                                                    </td>
+                                                                    <td style="padding: 8px 8px; font-weight: 600; white-space: nowrap; text-align: center; width: 65px; font-size: 11.5px; color: #475569;">
+                                                                        {{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->total_elapsed_days . ' day(s)') }}
+                                                                    </td>
+                                                                    <td style="padding: 8px 8px; text-align: center; width: 75px; white-space: nowrap;">
+                                                                        <span class="rms-badge badge-{{ $child->status === 'completed' ? 'success' : 'warning' }}" style="font-size: 10.5px; padding: 2px 7px;">
+                                                                            {{ ucfirst($child->status) }}
+                                                                        </span>
+                                                                    </td>
+                                                                    <td style="padding: 8px 10px; text-align: center; width: 65px; white-space: nowrap;">
+                                                                        <button type="button" wire:click="openTransaction('{{ $child->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600; font-size: 11.5px;">View</button>
+                                                                    </td>
+                                                                </tr>
+                                                            @endforeach
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
                                         </td>
                                     </tr>
-
-                                    {{-- Child Branches Sub-Rows --}}
-                                    @foreach($t->child_branches as $cIdx => $child)
-                                        <tr style="background: #f8fafc; border-bottom: 1px dashed #e2e8f0;">
-                                            <td style="padding: 10px 14px 10px 24px; font-size: 12px; font-weight: 700; color: #2563eb; white-space: nowrap;">
-                                                {{ $child->control_number }}
-                                            </td>
-                                            <td style="white-space: nowrap;">
-                                                <span style="font-family: monospace; font-size: 10.5px; background: #eff6ff; color: #1e40af; padding: 2px 6px; border-radius: 4px; border: 1px solid #bfdbfe; font-weight: 700;">
-                                                    <i class="fa-solid fa-qrcode" style="margin-right: 2px;"></i>{{ $child->qr_code }}
-                                                </span>
-                                            </td>
-                                            @if ($isMyTxPage)
-                                                <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $child->created_at_fmt }}</td>
-                                                <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                            @elseif ($isIncomingPage)
-                                                <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $child->created_at_fmt }}</td>
-                                                <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                            @elseif ($isReceivedPage)
-                                                <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $child->created_at_fmt }}</td>
-                                                <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                            @elseif ($isForwardedPage)
-                                                <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $child->created_at_fmt }}</td>
-                                                <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                            @else
-                                                <td style="padding: 10px 14px; color: #475569; font-size: 12px; white-space: nowrap;">{{ $child->created_at_fmt }}</td>
-                                                <td style="padding: 10px 14px; color: #ef4444; font-weight: 500; font-size: 12px; white-space: nowrap;">{{ $t->originated_office_name ?? $t->originated_from }}</td>
-                                            @endif
-                                            <td style="max-width: 260px; white-space: normal; word-break: break-word; font-size: 12px;">
-                                                <div style="font-weight: 600; color: #0f172a;">
-                                                    @if(mb_strlen($child->subject ?? '') > 100)
-                                                        {{ mb_substr($child->subject, 0, 100) }}...
-                                                        <button type="button" wire:click.stop="openTransaction('{{ $child->transaction_id }}')" class="dts-show-more-link" style="background: none; border: none; padding: 0; margin-left: 2px; color: #2563eb; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; font-family: inherit; display: inline; vertical-align: baseline;">see more</button>
-                                                    @else
-                                                        {{ $child->subject }}
-                                                    @endif
-                                                </div>
-                                                <div style="font-size: 11px; color: #0284c7; font-weight: 600; margin-top: 2px;">
-                                                    🏢 Unit: {{ $child->current_office_name ?: $child->current_office }}
-                                                </div>
-                                            </td>
-                                             @if ($isMyTxPage)
-                                                <td style="padding: 6px 12px; min-width: 220px; max-width: 320px;">
-                                                    @if(strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed')
-                                                        <span style="font-weight: 600; color: #16a34a; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
-                                                            <i class="fa-solid fa-circle-check" style="color: #16a34a;"></i> Timeline completed
-                                                        </span>
-                                                    @else
-                                                        <div style="display: flex; align-items: center; justify-content: flex-start; gap: 0; position: relative;">
-                                                            @forelse ($child->timeline_path as $cStepIdx => $cStep)
-                                                                @php
-                                                                    $cIsReceived = !is_null($cStep->date_in) || $child->status === 'completed';
-                                                                    $cIsForwarded = !is_null($cStep->date_out) || $child->status === 'completed';
-                                                                    $cIsCurrent = $cStep->office_code === $child->current_office && is_null($cStep->date_out) && $child->status !== 'completed';
-                                                                    $cDotColor = $cIsReceived ? '#10b981' : '#dc2626';
-                                                                    $cLineColor = $cIsForwarded ? '#10b981' : '#cbd5e1';
-                                                                @endphp
-                                                                <div class="dts-timeline-node-wrapper" style="position: relative; display: inline-flex; flex-direction: column; align-items: center; margin: 0;">
-                                                                    <div class="dts-timeline-node-dot" style="width: 22px; height: 22px; border-radius: 50%; background: {{ $cDotColor }}; color: #ffffff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; z-index: 2; {{ $cIsCurrent ? 'box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3); border: 2px solid #ffffff;' : '' }}" title="{{ $cStep->office_name ?: $cStep->office_code }}">
-                                                                        @if ($cIsReceived)
-                                                                            <i class="fa-solid fa-check" style="font-size: 9px;"></i>
-                                                                        @else
-                                                                            {{ $cStepIdx + 1 }}
-                                                                        @endif
-                                                                    </div>
-                                                                    <span style="margin-top: 2px; font-size: 9px; font-weight: 700; color: {{ $cDotColor }}; font-family: 'Inter', sans-serif;">
-                                                                        {{ $cStep->office_code }}
-                                                                    </span>
-                                                                </div>
-                                                                @if (!$loop->last)
-                                                                    <div style="flex: 1; height: 3px; background: {{ $cLineColor }}; min-width: 14px; margin: 0 -2px 10px -2px; border-radius: 2px; z-index: 1;"></div>
-                                                                @endif
-                                                            @empty
-                                                                <span style="color: #94a3b8; font-size: 11px; font-style: italic;">No path data</span>
-                                                            @endforelse
-                                                        </div>
-                                                    @endif
-                                                </td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
-                                                <td style="padding: 10px 14px;">
-                                                    <span class="rms-badge badge-{{ $child->status === 'completed' ? 'success' : 'warning' }}">
-                                                        {{ ucfirst($child->status) }}
-                                                    </span>
-                                                </td>
-                                            @elseif ($isIncomingPage)
-                                                <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->incoming_elapsed_days . ' day(s)') }}</td>
-                                            @elseif ($isReceivedPage)
-                                                <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
-                                                <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->received_elapsed_days . ' day(s)') }}</td>
-                                            @elseif ($isForwardedPage)
-                                                <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
-                                                <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->released_elapsed_days . ' day(s)') }}</td>
-                                            @else
-                                                <td style="padding: 10px 14px; color: #3b82f6; font-weight: 600; font-size: 12px;">{{ $t->next_office_name }}</td>
-                                                <td style="padding: 10px 14px; color: #16a34a; font-weight: 600; font-size: 12px;">{{ $t->action_needed ?? 'For action' }}</td>
-                                                <td style="font-weight: 600; white-space: nowrap; text-align: center; font-size: 12px;">{{ (strtolower($child->status ?? '') === 'completed' || strtolower($t->status ?? '') === 'completed') ? '' : ($t->total_elapsed_days . ' day(s)') }}</td>
-                                            @endif
-                                            <td style="text-align: center; white-space: nowrap;">
-                                                <button type="button" wire:click="openTransaction('{{ $child->transaction_id }}')" class="rms-select" style="border: none; background: transparent; cursor: pointer; color: #043899; font-weight: 600;">View</button>
-                                            </td>
-                                        </tr>
-                                    @endforeach
                                 @endif
 
                                 @elseif ($isIncomingPage)

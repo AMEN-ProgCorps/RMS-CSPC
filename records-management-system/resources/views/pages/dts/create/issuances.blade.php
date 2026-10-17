@@ -728,6 +728,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                         $allOffices = DB::table('sys_office')
                             ->where('is_active', true)
                             ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]', $this->userOfficeCode])
+                            ->orderByRaw("COALESCE(cluster, 'ZZZZ') ASC")
+                            ->orderBy('office_name', 'asc')
                             ->pluck('office_code')
                             ->toArray();
                         $officesToSave = $allOffices;
@@ -907,6 +909,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             $allSystemOffices = DB::table('sys_office')
                 ->where('is_active', true)
                 ->whereNotIn('office_code', ['ORIGIN', '[H]', '[HUB]'])
+                ->orderByRaw("COALESCE(cluster, 'ZZZZ') ASC")
+                ->orderBy('office_name', 'asc')
                 ->pluck('office_code')
                 ->toArray();
 
@@ -1019,6 +1023,17 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     }
                 }
                 $finalHubOffices = array_values(array_unique(array_filter($finalHubOffices)));
+                if (count($finalHubOffices) > 0) {
+                    $orderedHubOffices = DB::table('sys_office')
+                        ->whereIn('office_code', $finalHubOffices)
+                        ->orderByRaw("COALESCE(cluster, 'ZZZZ') ASC")
+                        ->orderBy('office_name', 'asc')
+                        ->pluck('office_code')
+                        ->toArray();
+                    if (!empty($orderedHubOffices)) {
+                        $finalHubOffices = $orderedHubOffices;
+                    }
+                }
             }
 
             // Resolve Copy Furnished offices

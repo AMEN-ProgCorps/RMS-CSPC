@@ -1,9 +1,9 @@
 @php
 if (! isset($scrollTo)) {
-    $scrollTo = 'body';
+    $scrollTo = '#article-container';
 }
 $scrollIntoViewJsSnippet = ($scrollTo !== false)
-    ? "document.querySelector('{$scrollTo}').scrollIntoView({ behavior: 'smooth', block: 'start' })"
+    ? "if (typeof window.scrollPageToTop === 'function') { window.scrollPageToTop(this); } else { const _sc = document.querySelector('{$scrollTo}') || document.getElementById('article-container') || document.querySelector('.article-container'); if (_sc) { _sc.scrollTo({ top: 0, behavior: 'smooth' }); } window.scrollTo({ top: 0, behavior: 'smooth' }); }"
     : '';
 @endphp
 

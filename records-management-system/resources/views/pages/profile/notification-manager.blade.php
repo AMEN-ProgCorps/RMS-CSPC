@@ -1249,7 +1249,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
                     @if ($this->getPage() <= 1)
                         <button type="button" class="notif-page-btn" disabled aria-label="Previous page">&laquo;</button>
                     @else
-                        <button type="button" class="notif-page-btn" wire:click="previousPage" wire:loading.attr="disabled" aria-label="Previous page">&laquo;</button>
+                        <button type="button" class="notif-page-btn" wire:click="previousPage" x-on:click="scrollPageToTop($el)" wire:loading.attr="disabled" aria-label="Previous page">&laquo;</button>
                     @endif
 
                     {{-- Page Numbers --}}
@@ -1260,7 +1260,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
                     @endphp
 
                     @if ($startPage > 1)
-                        <button type="button" class="notif-page-btn" wire:click="gotoPage(1)">1</button>
+                        <button type="button" class="notif-page-btn" wire:click="gotoPage(1)" x-on:click="scrollPageToTop($el)">1</button>
                         @if ($startPage > 2)
                             <span class="notif-page-dots">...</span>
                         @endif
@@ -1270,7 +1270,7 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
                         @if ($p === $currPage)
                             <button type="button" class="notif-page-btn active">{{ $p }}</button>
                         @else
-                            <button type="button" class="notif-page-btn" wire:click="gotoPage({{ $p }})" wire:loading.attr="disabled">{{ $p }}</button>
+                            <button type="button" class="notif-page-btn" wire:click="gotoPage({{ $p }})" x-on:click="scrollPageToTop($el)" wire:loading.attr="disabled">{{ $p }}</button>
                         @endif
                     @endfor
 
@@ -1278,14 +1278,14 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Notification Manager
                         @if ($endPage < $lastPage - 1)
                             <span class="notif-page-dots">...</span>
                         @endif
-                        <button type="button" class="notif-page-btn" wire:click="gotoPage({{ $lastPage }})">{{ $lastPage }}</button>
+                        <button type="button" class="notif-page-btn" wire:click="gotoPage({{ $lastPage }})" x-on:click="scrollPageToTop($el)">{{ $lastPage }}</button>
                     @endif
 
                     {{-- Next Page Button --}}
                     @if ($currPage >= $lastPage)
                         <button type="button" class="notif-page-btn" disabled aria-label="Next page">&raquo;</button>
                     @else
-                        <button type="button" class="notif-page-btn" wire:click="nextPage" wire:loading.attr="disabled" aria-label="Next page">&raquo;</button>
+                        <button type="button" class="notif-page-btn" wire:click="nextPage" x-on:click="scrollPageToTop($el)" wire:loading.attr="disabled" aria-label="Next page">&raquo;</button>
                     @endif
                 </div>
             </div>

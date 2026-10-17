@@ -1563,3 +1563,82 @@ window.setupIconModeInteractions = setupIconModeInteractions;
         }
     });
 })();
+
+/**
+ * Auto-scroll to top of page/table on pagination navigation.
+ * Ensures the user sees the latest data on the new page immediately.
+ */
+function scrollPageToTop(triggerEl = null) {
+    const candidates = [
+        document.getElementById('article-container'),
+        document.querySelector('.article-container'),
+        document.querySelector('.main-content'),
+        document.querySelector('main'),
+        document.querySelector('.content-wrapper'),
+        document.querySelector('.container-fluid'),
+        document.documentElement,
+        document.body
+    ];
+
+    candidates.forEach(el => {
+        if (el && typeof el.scrollTo === 'function') {
+            try {
+                el.scrollTo({ top: 0, behavior: 'smooth' });
+            } catch (e) {
+                el.scrollTop = 0;
+            }
+        }
+    });
+
+    try {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (e) {
+        window.scrollTop = 0;
+    }
+
+    if (triggerEl && typeof triggerEl.closest === 'function') {
+        const topElement = triggerEl.closest('.profile-card, .logs-controls-card, .table-container, .card, .container, .dts-card, table');
+        if (topElement) {
+            try {
+                topElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } catch (e) {}
+        }
+    }
+}
+
+window.scrollPageToTop = scrollPageToTop;
+
+if (typeof document !== 'undefined') {
+    // Hook into Livewire 3 commit lifecycle for any pagination action
+    document.addEventListener('livewire:init', () => {
+        if (window.Livewire && typeof window.Livewire.hook === 'function') {
+            window.Livewire.hook('commit', ({ commit }) => {
+                const isPagination = commit.calls && commit.calls.some(call =>
+                    ['nextPage', 'previousPage', 'gotoPage', 'setPage', 'resetPage'].includes(call.method)
+                );
+
+                if (isPagination) {
+                    scrollPageToTop();
+                    setTimeout(() => scrollPageToTop(), 100);
+                    setTimeout(() => scrollPageToTop(), 350);
+                }
+            });
+        }
+    });
+
+    // Global delegated click listener for any pagination buttons across all pages
+    document.addEventListener('click', (e) => {
+        const btn = e.target && typeof e.target.closest === 'function' ? e.target.closest(
+            'button[wire\\:click*="Page"], button[wire\\:click*="page"], ' +
+            'a[wire\\:click*="Page"], a[wire\\:click*="page"], ' +
+            '.pagination-btn, .rms-page-btn, .dts-page-btn, .notif-page-btn, .ars-btn, .page-link, ' +
+            '.pagination button, .pagination a, [aria-label*="Page"], [aria-label*="page"]'
+        ) : null;
+
+        if (btn) {
+            scrollPageToTop(btn);
+            setTimeout(() => scrollPageToTop(btn), 150);
+            setTimeout(() => scrollPageToTop(btn), 400);
+        }
+    }, true);
+}

@@ -41,9 +41,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
     public string $classification = '';
     public string $actionNeeded = '';
     public string $activeAction = 'forwarded';
+    public string $forwardToOfficeCode = '';
     public string $activeNotes = '';
     public string $resubmitTarget = 'start'; // 'start' (Option A: Restart chain) or 'requestor' (Option B: Fast-Track to Requestor)
     public bool $editingAll = false;
+
+    public function getActionOptionsProperty(): array
+    {
+        $canForwardOtherOffice = \App\Services\DtsRoutingService::canForwardToOtherOffice();
+        $query = DB::table('dts_action_options')->orderBy('option_name', 'asc');
+        if (!$canForwardOtherOffice) {
+            $query->where('option_name', '!=', 'To be Forwarded to');
+        }
+        return $query->pluck('option_name')->toArray();
+    }
+
+    public function getAvailableTargetOfficesProperty()
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+        return \App\Services\DtsRoutingService::getAvailableTargetOffices($userOfficeCode);
+    }
     public bool $showFullConfiguredPath = false;
     public bool $showMoreDetails = false;
     public bool $showPassword = false;
@@ -1035,7 +1053,8 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             $this->particulars = $this->selectedTransaction->subject ?: '';
             $this->classification = $this->selectedTransaction->classification ?: '';
             $this->actionNeeded = $this->selectedTransaction->action_needed ?: '';
-            $this->activeAction = DB::table('dts_action_options')->orderBy('option_name', 'asc')->value('option_name') ?: 'For Approval';
+            $this->activeAction = $this->actionOptions[0] ?? 'For Approval';
+            $this->forwardToOfficeCode = '';
             
             $this->requestorName = $this->selectedTransaction->requestor_name ?: '';
             $this->requestorPosition = $this->selectedTransaction->requestor_label ?: '';
@@ -1487,6 +1506,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
             ->first();
 
         if (!$flow) {
+            return;
+        }
+
+        if ($this->activeAction === 'To be Forwarded to') {
+            if (empty($this->forwardToOfficeCode)) {
+                session()->flash('error', 'Please select a destination office to forward to.');
+                return;
+            }
+
+            try {
+                $result = \App\Services\DtsRoutingService::forwardToOtherOffice(
+                    $this->selectedTransactionId,
+                    $this->forwardToOfficeCode,
+                    $this->activeNotes,
+                    auth()->id()
+                );
+                session()->flash('success', "Transaction '{$result['control_number']}' has been forwarded to {$result['target_office_name']}!");
+                $this->closeTransaction();
+            } catch (\Throwable $e) {
+                session()->flash('error', 'Failed to forward transaction: ' . $e->getMessage());
+            }
             return;
         }
 
@@ -4144,11 +4184,21 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                  <td>{{ ($step->total_time_completed ?? null) ?: '-' }}</td>
                                                  <td>
                                                      @if ($step->is_active_step && $canProcess && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
-                                                         <select wire:model="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
-                                                             @foreach(DB::table('dts_action_options')->orderBy('option_name', 'asc')->pluck('option_name') as $opt)
+                                                         <select wire:model.live="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
+                                                             @foreach($this->actionOptions as $opt)
                                                                  <option value="{{ $opt }}">{{ $opt }}</option>
                                                              @endforeach
                                                          </select>
+                                                         @if ($activeAction === 'To be Forwarded to')
+                                                             <div style="margin-top: 6px;">
+                                                                 <select wire:model="forwardToOfficeCode" style="width: 100%; padding: 4px 8px; border: 1.5px solid #3b82f6; border-radius: 6px; font-size: 12px; font-weight: 600; background: #eff6ff; color: #1e40af;">
+                                                                     <option value="">-- Select Office --</option>
+                                                                     @foreach(\App\Services\DtsRoutingService::getAvailableTargetOffices(auth()->user()?->details?->office?->office_code) as $availOff)
+                                                                         <option value="{{ $availOff->office_code }}">{{ $availOff->office_code }} - {{ $availOff->office_name }}</option>
+                                                                     @endforeach
+                                                                 </select>
+                                                             </div>
+                                                         @endif
                                                      @else
                                                          @if ($isStepRevision)
                                                              <span style="background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
@@ -4261,12 +4311,27 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                             $isReceivedState = $this->isTransactionReceived();
                         @endphp
                         @if ($selectedTransaction->current_office === auth()->user()?->details?->office?->office_code && $canProcess && $selectedTransaction->status !== 'completed')
-                            @if ($isReceivedState && $this->isLastStep())
+                            @if ($isReceivedState && ($this->isLastStep() && $activeAction !== 'To be Forwarded to'))
                                 <button type="button" class="receive-action-btn" wire:click="triggerCompletionConfirm" style="background-color: #16a34a;">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                         <polyline points="20 6 9 17 4 12"/>
                                     </svg>
                                     Complete Transaction
+                                </button>
+                            @elseif ($isReceivedState)
+                                <button type="button" class="receive-action-btn" wire:click="completeTransaction" style="background-color: #2563eb;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                                    </svg>
+                                    {{ $activeAction === 'To be Forwarded to' ? 'Forward to Office' : 'Forward Transaction' }}
+                                </button>
+                            @elseif (!$isReceivedState)
+                                <button type="button" class="receive-action-btn" wire:click="receiveTransaction" style="background-color: #059669;">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                    Receive Document
                                 </button>
                             @endif
                         @endif

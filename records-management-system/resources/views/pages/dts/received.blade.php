@@ -31,6 +31,7 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
     public string $forwardTransId = '';
     public array $forwardTransData = [];
     public string $actionNeeded = '';
+    public string $forwardToOfficeCode = '';
     public string $notes = '';
 
     public function mount(): void
@@ -40,7 +41,24 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
             abort(403, 'Unauthorized access to DTS.');
         }
 
-        $this->actionNeeded = DB::table('dts_action_options')->orderBy('option_name', 'asc')->value('option_name') ?: 'For Approval';
+        $this->actionNeeded = $this->actionOptions[0] ?? 'For Approval';
+    }
+
+    public function getActionOptionsProperty(): array
+    {
+        $canForwardOtherOffice = \App\Services\DtsRoutingService::canForwardToOtherOffice();
+        $query = DB::table('dts_action_options')->orderBy('option_name', 'asc');
+        if (!$canForwardOtherOffice) {
+            $query->where('option_name', '!=', 'To be Forwarded to');
+        }
+        return $query->pluck('option_name')->toArray();
+    }
+
+    public function getAvailableTargetOfficesProperty()
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+        return \App\Services\DtsRoutingService::getAvailableTargetOffices($userOfficeCode);
     }
 
     public function toggleLayout(): void
@@ -138,6 +156,8 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
 
         $this->forwardTransId = $transactionId;
         $this->forwardTransData = $tData;
+        $this->forwardToOfficeCode = '';
+        $this->actionNeeded = $this->actionOptions[0] ?? 'For Approval';
         $this->showForwardModal = true;
     }
 
@@ -146,12 +166,35 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
         $this->showForwardModal = false;
         $this->forwardTransId = '';
         $this->forwardTransData = [];
+        $this->forwardToOfficeCode = '';
     }
 
     public function confirmForward(): void
     {
         $this->clearMessages();
         if (empty($this->forwardTransId) || empty($this->forwardTransData)) {
+            return;
+        }
+
+        if ($this->actionNeeded === 'To be Forwarded to') {
+            if (empty($this->forwardToOfficeCode)) {
+                $this->errorMessage = 'Please select a destination office to forward to.';
+                return;
+            }
+
+            try {
+                $result = \App\Services\DtsRoutingService::forwardToOtherOffice(
+                    $this->forwardTransId,
+                    $this->forwardToOfficeCode,
+                    $this->notes,
+                    auth()->id()
+                );
+                $this->successMessage = "Transaction '{$result['control_number']}' has been forwarded to {$result['target_office_name']}!";
+                $this->closeForwardModal();
+                $this->refreshTransactionsList();
+            } catch (\Throwable $e) {
+                $this->errorMessage = 'Failed to forward transaction: ' . $e->getMessage();
+            }
             return;
         }
 
@@ -652,14 +695,31 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                     <div style="margin-top: 4px;"><strong>Next Destination:</strong> <span style="color: #2563eb; font-weight: 700;">{{ $forwardTransData['next_office_name'] ?? 'N/A' }}</span></div>
                 </div>
 
-                @if(!($forwardTransData['is_last_step'] ?? false))
+                @if(!($forwardTransData['is_last_step'] ?? false) || \App\Services\DtsRoutingService::canForwardToOtherOffice())
                     <div style="margin-bottom: 14px;">
                         <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 4px;">Action Needed:</label>
-                        <select wire:model="actionNeeded" style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 0.875rem;">
-                            @foreach(DB::table('dts_action_options')->orderBy('option_name', 'asc')->pluck('option_name') as $opt)
+                        <select wire:model.live="actionNeeded" style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 0.875rem;">
+                            @foreach($this->actionOptions as $opt)
                                 <option value="{{ $opt }}">{{ $opt }}</option>
                             @endforeach
                         </select>
+                    </div>
+                @endif
+
+                @if($actionNeeded === 'To be Forwarded to')
+                    <div style="margin-bottom: 14px; background: #eff6ff; padding: 12px; border-radius: 8px; border: 1.5px solid #3b82f6;">
+                        <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #1e40af; margin-bottom: 6px;">
+                            <i class="fa-solid fa-building-circle-arrow-right"></i> Destination Office:
+                        </label>
+                        <select wire:model="forwardToOfficeCode" style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #93c5fd; font-size: 0.875rem; background: #ffffff;">
+                            <option value="">-- Select Office to Forward To --</option>
+                            @foreach($this->availableTargetOffices as $office)
+                                <option value="{{ $office->office_code }}">{{ $office->office_name }} ({{ $office->office_code }})</option>
+                            @endforeach
+                        </select>
+                        <div style="font-size: 11px; color: #3b82f6; margin-top: 5px;">
+                            This will route the transaction to this office and insert it directly into the active routing sequence flow.
+                        </div>
                     </div>
                 @endif
 
@@ -673,7 +733,7 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                         Cancel
                     </button>
                     <button wire:click="confirmForward" class="btn-forward-action">
-                        {{ ($forwardTransData['is_last_step'] ?? false) ? '✓ Complete Transaction' : '📤 Confirm Forward' }}
+                        {{ $actionNeeded === 'To be Forwarded to' ? '📤 Forward to Office' : (($forwardTransData['is_last_step'] ?? false) ? '✓ Complete Transaction' : '📤 Confirm Forward') }}
                     </button>
                 </div>
             </div>

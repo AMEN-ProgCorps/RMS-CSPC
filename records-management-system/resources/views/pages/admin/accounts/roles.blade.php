@@ -87,6 +87,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canDtsUseApplication = false;
     public bool $canDtsUseIssuance = false;
     public bool $canDtsUserReceived = false;
+    public bool $canDtsForwardOtherOffice = false;
     public bool $canDtsModifyTransaction = false;
     public bool $canDtsModifyControlNo = false;
 
@@ -191,6 +192,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canDtsUseApplication = false;
         $this->canDtsUseIssuance = false;
         $this->canDtsUserReceived = false;
+        $this->canDtsForwardOtherOffice = false;
         $this->canDtsModifyTransaction = false;
         $this->canAccessDcsAdmin = false;
         $this->rdpViewAllFiles = false;
@@ -264,6 +266,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canDtsUseApplication = (bool) $perms->can_dts_use_application;
                 $this->canDtsUseIssuance = (bool) $perms->can_dts_use_issuance;
                 $this->canDtsUserReceived = (bool) $perms->can_dts_user_received;
+                $this->canDtsForwardOtherOffice = (bool) ($perms->can_dts_forward_to_other_office ?? false);
                 $this->canDtsModifyTransaction = (bool) $perms->can_dts_modify_transaction;
                 $this->canDtsModifyControlNo = (bool) ($perms->can_dts_modify_control_no ?? false);
 
@@ -508,6 +511,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_dts_use_application = $this->canDtsUseApplication;
         $perms->can_dts_use_issuance = $this->canDtsUseIssuance;
         $perms->can_dts_user_received = $this->canDtsUserReceived;
+        $perms->can_dts_forward_to_other_office = $this->canDtsForwardOtherOffice;
         $perms->can_dts_modify_transaction = $this->canDtsModifyTransaction;
         $perms->can_dts_modify_control_no = $this->canDtsModifyControlNo;
 
@@ -722,6 +726,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canDtsUseApplication = true;
         $this->canDtsUseIssuance = true;
         $this->canDtsUserReceived = true;
+        $this->canDtsForwardOtherOffice = true;
         $this->canDtsModifyTransaction = true;
     }
 
@@ -752,6 +757,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             'canDtsUseApplication',
             'canDtsUseIssuance',
             'canDtsUserReceived',
+            'canDtsForwardOtherOffice',
             'canDtsModifyTransaction',
         ];
 
@@ -1190,6 +1196,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </div>
                                         <label class="switch">
                                             <input type="checkbox" wire:model="canDtsUserReceived">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Forward Transaction to Other office -->
+                                    <div class="permission-toggle-row">
+                                        <div class="permission-toggle-info">
+                                            <span class="permission-toggle-title">Forward Transaction to Other office</span>
+                                            <span class="permission-toggle-desc">Clearance to dynamically route and insert an ad-hoc office into the active transaction sequence flow using "To be Forwarded to".</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsForwardOtherOffice">
                                             <span class="slider"></span>
                                         </label>
                                     </div>

@@ -23,6 +23,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
     /** @var string Target forward action option */
     public string $actionNeeded = '';
+    public string $forwardToOfficeCode = '';
 
     /** @var string Custom notes for the forwarding step */
     public string $notes = '';
@@ -44,8 +45,25 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
             abort(403, 'Unauthorized. You do not have permission to receive or forward transactions.');
         }
 
-        $this->actionNeeded = DB::table('dts_action_options')->orderBy('option_name', 'asc')->value('option_name') ?: 'For Approval';
+        $this->actionNeeded = $this->actionOptions[0] ?? 'For Approval';
         $this->recentScans = session()->get('dts_recent_scans', []);
+    }
+
+    public function getActionOptionsProperty(): array
+    {
+        $canForwardOtherOffice = \App\Services\DtsRoutingService::canForwardToOtherOffice();
+        $query = DB::table('dts_action_options')->orderBy('option_name', 'asc');
+        if (!$canForwardOtherOffice) {
+            $query->where('option_name', '!=', 'To be Forwarded to');
+        }
+        return $query->pluck('option_name')->toArray();
+    }
+
+    public function getAvailableTargetOfficesProperty()
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+        return \App\Services\DtsRoutingService::getAvailableTargetOffices($userOfficeCode);
     }
 
     /**
@@ -337,6 +355,29 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
 
         if ($this->activeTransaction['current_office'] !== $userOfficeCode) {
             $this->errorMessage = 'That QR code is no longer within your office transaction list.';
+            return;
+        }
+
+        if ($this->actionNeeded === 'To be Forwarded to') {
+            if (empty($this->forwardToOfficeCode)) {
+                $this->errorMessage = 'Please select a destination office to forward to.';
+                return;
+            }
+
+            try {
+                $result = \App\Services\DtsRoutingService::forwardToOtherOffice(
+                    $this->activeTransaction['transaction_id'],
+                    $this->forwardToOfficeCode,
+                    $this->notes,
+                    auth()->id()
+                );
+                $this->successMessage = "Transaction '{$result['control_number']}' has been forwarded to {$result['target_office_name']}!";
+                $this->activeTransaction = null;
+                $this->scannedCode = '';
+                $this->forwardToOfficeCode = '';
+            } catch (\Throwable $e) {
+                $this->errorMessage = 'Failed to forward transaction: ' . $e->getMessage();
+            }
             return;
         }
 
@@ -666,19 +707,40 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Receive Transac
                             @else
                                 <div>
                                     <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px;">Action Needed:</label>
-                                    <select wire:model="actionNeeded" style="width: 100%; background: #f8fafc; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 10px; font-size: 13px; outline: none; cursor: pointer;">
-                                        @foreach(DB::table('dts_action_options')->orderBy('option_name', 'asc')->pluck('option_name') as $opt)
+                                    <select wire:model.live="actionNeeded" style="width: 100%; background: #f8fafc; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 10px; font-size: 13px; outline: none; cursor: pointer;">
+                                        @foreach($this->actionOptions as $opt)
                                             <option value="{{ $opt }}">{{ $opt }}</option>
                                         @endforeach
                                     </select>
                                 </div>
+
+                                @if($actionNeeded === 'To be Forwarded to')
+                                    <div style="background: #eff6ff; padding: 12px; border-radius: 8px; border: 1.5px solid #3b82f6;">
+                                        <label style="display: block; font-size: 12px; font-weight: 700; color: #1e40af; margin-bottom: 6px;">
+                                            <i class="fa-solid fa-building-circle-arrow-right"></i> Destination Office:
+                                        </label>
+                                        <select wire:model="forwardToOfficeCode" style="width: 100%; background: #ffffff; color: #1e293b; border: 1px solid #93c5fd; border-radius: 6px; padding: 8px 10px; font-size: 13px; outline: none;">
+                                            <option value="">-- Select Office to Forward To --</option>
+                                            @foreach($this->availableTargetOffices as $office)
+                                                <option value="{{ $office->office_code }}">{{ $office->office_name }} ({{ $office->office_code }})</option>
+                                            @endforeach
+                                        </select>
+                                        <div style="font-size: 11px; color: #3b82f6; margin-top: 4px;">
+                                            This will route the transaction to this office and insert it directly into the active routing sequence flow.
+                                        </div>
+                                    </div>
+                                @endif
 
                                 <div>
                                     <label style="display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px;">Notes (Optional):</label>
                                     <input type="text" wire:model="notes" placeholder="Type notes for the next stop..." style="width: 100%; background: #f8fafc; color: #1e293b; border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 10px; font-size: 13px; outline: none;" />
                                 </div>
 
-                                @if (!empty($activeTransaction['is_last_step']))
+                                @if ($actionNeeded === 'To be Forwarded to')
+                                    <button type="button" wire:click="proceedTransaction" style="width: 100%; padding: 12px; background: #2563eb; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; box-shadow: 0 4px 6px -1px rgba(37,99,235,0.25);">
+                                        <i class="fa-solid fa-paper-plane"></i> Forward to Office
+                                    </button>
+                                @elseif (!empty($activeTransaction['is_last_step']))
                                     <button type="button" wire:click="proceedTransaction" style="width: 100%; padding: 12px; background: #16a34a; color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 14px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 8px; box-shadow: 0 4px 6px -1px rgba(22,163,74,0.25);">
                                         <i class="fa-solid fa-circle-check"></i> Complete Sequence (Finish Final Step)
                                     </button>

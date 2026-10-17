@@ -2081,9 +2081,9 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                             <input type="text" class="receive-field-input" value="{{ $selectedTransaction->originated_office_name ?? 'N/A' }}" readonly style="background-color: #f8fafc; color: #64748b;">
                         </div>
 
-                        <!-- Document Type field (formerly Flow) -->
+                        <!-- Document Name field (formerly Flow) -->
                         <div class="receive-field-row" style="align-items: center;">
-                            <span class="receive-field-label">Document Type:</span>
+                            <span class="receive-field-label">Document Name:</span>
                             @if ($editingAll)
                                 @php
                                     $availableFlows = DB::table('dts_transaction_flow')
@@ -2096,12 +2096,26 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                                 <select class="receive-field-input" wire:model.live="transactionFlow" style="height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid #cbd5e1; outline: none; background: #fff;">
                                     @foreach ($availableFlows as $f)
                                         @php
-                                            $fDisplay = $f->referenced_flow ?: $f->flow_name;
-                                            if (!empty($fDisplay) && preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $fDisplay, $matches)) {
-                                                $rName = DB::table('dts_transaction_flow')->where('id', $matches[1])->value('flow_name');
-                                                if (!empty($rName)) {
-                                                    $fDisplay = $rName;
+                                            $fDisplay = null;
+                                            if (!empty($f->referenced_flow)) {
+                                                if (preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $f->referenced_flow, $matches)) {
+                                                    $rName = DB::table('dts_transaction_flow')->where('id', $matches[1])->value('flow_name');
+                                                    if (!empty($rName) && !str_starts_with($rName, 'Flow for ') && !str_starts_with($rName, 'REF-')) {
+                                                        $fDisplay = $rName;
+                                                    }
+                                                } elseif (!str_starts_with($f->referenced_flow, 'REF-') && !str_starts_with($f->referenced_flow, 'FLOW-') && !str_starts_with($f->referenced_flow, 'Flow for ')) {
+                                                    $fDisplay = $f->referenced_flow;
                                                 }
+                                            }
+                                            if (empty($fDisplay) && !empty($f->flow_name)) {
+                                                if (!str_starts_with($f->flow_name, 'Flow for ') && !str_starts_with($f->flow_name, 'REF-') && !str_starts_with($f->flow_name, 'FLOW-')) {
+                                                    $fDisplay = $f->flow_name;
+                                                }
+                                            }
+                                            if (empty($fDisplay) || str_starts_with($fDisplay, 'REF-') || str_starts_with($fDisplay, 'FLOW-') || str_starts_with($fDisplay, 'Flow for ')) {
+                                                $fDisplay = !empty($selectedTransaction->classification)
+                                                    ? ucfirst($selectedTransaction->classification)
+                                                    : ucfirst($selectedTransaction->trans_type ?? 'Issuances');
                                             }
                                         @endphp
                                         <option value="{{ $f->flow_code }}">{{ $fDisplay }}</option>
@@ -2110,15 +2124,45 @@ new #[Layout('layouts.dts')] #[Title('DTS - Issuances')] class extends Component
                             @else
                                 @php
                                     $flowRow = DB::table('dts_transaction_flow')->where('flow_code', $transactionFlow)->first();
-                                    $flowName = $flowRow?->referenced_flow ?: ($flowRow?->flow_name ?: $transactionFlow);
-                                    if (!empty($flowName) && preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $flowName, $matches)) {
-                                        $rName = DB::table('dts_transaction_flow')->where('id', $matches[1])->value('flow_name');
-                                        if (!empty($rName)) {
-                                            $flowName = $rName;
+                                    $flowName = null;
+
+                                    // 1. Try resolving referenced_flow by ID or clean text
+                                    if ($flowRow && !empty($flowRow->referenced_flow)) {
+                                        if (preg_match('/^REF-(?:CUSTOM|PREDEFINED)-(\d+)$/', $flowRow->referenced_flow, $matches)) {
+                                            $rName = DB::table('dts_transaction_flow')->where('id', $matches[1])->value('flow_name');
+                                            if (!empty($rName) && !str_starts_with($rName, 'Flow for ') && !str_starts_with($rName, 'REF-')) {
+                                                $flowName = $rName;
+                                            }
+                                        } elseif (!str_starts_with($flowRow->referenced_flow, 'REF-') && !str_starts_with($flowRow->referenced_flow, 'FLOW-') && !str_starts_with($flowRow->referenced_flow, 'Flow for ')) {
+                                            $flowName = $flowRow->referenced_flow;
                                         }
                                     }
-                                    if (!empty($flowName) && str_starts_with($flowName, 'Flow for ')) {
-                                        $flowName = ucfirst($selectedTransaction->trans_type ?? 'Internal');
+
+                                    // 2. Try flow_name if not auto-generated
+                                    if (empty($flowName) && $flowRow && !empty($flowRow->flow_name)) {
+                                        if (!str_starts_with($flowRow->flow_name, 'Flow for ') && !str_starts_with($flowRow->flow_name, 'REF-') && !str_starts_with($flowRow->flow_name, 'FLOW-')) {
+                                            $flowName = $flowRow->flow_name;
+                                        }
+                                    }
+
+                                    // 3. Try attached document name if available
+                                    if (empty($flowName)) {
+                                        $attName = $this->attachedDocName ?? ($attachedDocName ?? '');
+                                        if (!empty($attName)) {
+                                            $flowName = $attName;
+                                        } elseif (!empty($selectedTransaction->doc_dir)) {
+                                            $docData = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_document_data') ? 'sys_document_data' : 'document_data')->where('document_path', $selectedTransaction->doc_dir)->first();
+                                            if (!empty($docData?->document_name)) {
+                                                $flowName = $docData->document_name;
+                                            }
+                                        }
+                                    }
+
+                                    // 4. Fallback to classification or transaction type
+                                    if (empty($flowName) || str_starts_with($flowName, 'REF-') || str_starts_with($flowName, 'FLOW-') || str_starts_with($flowName, 'Flow for ')) {
+                                        $flowName = !empty($selectedTransaction->classification)
+                                            ? ucfirst($selectedTransaction->classification)
+                                            : ucfirst($selectedTransaction->trans_type ?? 'Issuances');
                                     }
                                 @endphp
                                 <input type="text" class="receive-field-input" value="{{ $flowName }}" readonly style="background-color: #f8fafc; color: #64748b;">

@@ -148,6 +148,26 @@
         location.assign(target);
     }
 
+    function errorColor(status) {
+        var colors = {
+            401: '#1d4ed8',
+            403: '#be123c',
+            404: '#0f766e',
+            405: '#4338ca',
+            408: '#c2410c',
+            413: '#a16207',
+            419: '#b45309',
+            422: '#a16207',
+            429: '#c2410c',
+            500: '#dc2626',
+            502: '#9f1239',
+            503: '#b91c1c',
+            504: '#9a3412'
+        };
+        if (colors[status]) return colors[status];
+        return status >= 500 ? '#dc2626' : '#1d4ed8';
+    }
+
     function showErrorScreen(detail, force) {
         if (!force && !userIsWaiting()) return;
         detail = detail || {};
@@ -157,18 +177,19 @@
         var message = detail.message || 'Your internet connection is too slow. Check your connection and try again.';
         var file = detail.file || '';
         var line = detail.line || 0;
+        var color = errorColor(status);
         var existing = document.getElementById('rmsSlowInternet');
         if (!existing) {
             existing = document.createElement('div');
             existing.id = 'rmsSlowInternet';
-            existing.style.cssText = 'position:fixed;inset:0;z-index:100000;display:grid;place-items:center;background:rgba(154,52,18,0.08);font-family:Inter,system-ui,sans-serif;';
+            existing.style.cssText = 'position:fixed;inset:0;z-index:100000;display:grid;place-items:center;font-family:Inter,system-ui,sans-serif;';
             existing.innerHTML =
-                '<main style="width:min(520px,calc(100% - 32px));background:#fff;border:1px solid #fdba74;border-top:4px solid #c2410c;border-radius:12px;padding:24px;color:#0f172a;">' +
-                    '<p id="rmsErrorStatus" style="margin:0;color:#c2410c;font-size:0.8rem;font-weight:700;letter-spacing:0.04em;"></p>' +
+                '<main id="rmsErrorCard" style="width:min(520px,calc(100% - 32px));background:#fff;border-radius:12px;padding:24px;color:#0f172a;">' +
+                    '<p id="rmsErrorStatus" style="margin:0;font-size:0.8rem;font-weight:700;letter-spacing:0.04em;"></p>' +
                     '<strong id="rmsErrorTitle" style="display:block;margin-top:6px;font-size:1.15rem;"></strong>' +
                     '<p id="rmsErrorMessage" style="margin:8px 0 0;color:#475569;line-height:1.5;"></p>' +
                     '<p id="rmsErrorFile" style="margin-top:14px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;color:#334155;font-size:0.85rem;line-height:1.45;word-break:break-word;"></p>' +
-                    '<a href="#" id="rmsSlowInternetBack" style="display:inline-block;margin-top:16px;color:#c2410c;font-weight:600;text-decoration:none;">Back to the system</a>' +
+                    '<a href="#" id="rmsSlowInternetBack" style="display:inline-block;margin-top:16px;font-weight:600;text-decoration:none;">Back to the system</a>' +
                 '</main>';
             document.body.appendChild(existing);
             var back = document.getElementById('rmsSlowInternetBack');
@@ -181,12 +202,22 @@
         }
         existing.hidden = false;
         existing.style.display = 'grid';
+        existing.style.background = 'color-mix(in srgb, ' + color + ' 8%, #f8fafc)';
+        var card = document.getElementById('rmsErrorCard');
+        if (card) {
+            card.style.border = '1px solid color-mix(in srgb, ' + color + ' 35%, #e2e8f0)';
+            card.style.borderTop = '4px solid ' + color;
+        }
         var statusEl = document.getElementById('rmsErrorStatus');
         var titleEl = document.getElementById('rmsErrorTitle');
         var messageEl = document.getElementById('rmsErrorMessage');
         var fileEl = document.getElementById('rmsErrorFile');
         var backEl = document.getElementById('rmsSlowInternetBack');
-        if (statusEl) statusEl.textContent = status ? ('Error ' + status) : 'Error';
+        if (statusEl) {
+            statusEl.textContent = status ? ('Error ' + status) : 'Error';
+            statusEl.style.color = color;
+        }
+        if (backEl) backEl.style.color = color;
         if (titleEl) titleEl.textContent = title;
         if (messageEl) messageEl.textContent = message;
         if (fileEl) {

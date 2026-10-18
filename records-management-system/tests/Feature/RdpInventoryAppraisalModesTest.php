@@ -68,15 +68,15 @@ class RdpInventoryAppraisalModesTest extends TestCase
         $subPeriods = $component->get('batch_sub_periods');
         $this->assertCount(4, $subPeriods);
 
-        // Verify sub periods match the yearly breakdown for 1998 to 2001
-        $this->assertEquals('1998-01-01', $subPeriods[0]['start_date']);
-        $this->assertEquals('1998-12-31', $subPeriods[0]['end_date']);
-        $this->assertEquals('1999-01-01', $subPeriods[1]['start_date']);
-        $this->assertEquals('1999-12-31', $subPeriods[1]['end_date']);
-        $this->assertEquals('2000-01-01', $subPeriods[2]['start_date']);
-        $this->assertEquals('2000-12-31', $subPeriods[2]['end_date']);
-        $this->assertEquals('2001-01-01', $subPeriods[3]['start_date']);
-        $this->assertEquals('2001-12-31', $subPeriods[3]['end_date']);
+        // Verify sub periods match the yearly breakdown for 1998 to 2001 (sorted descending / latest-first)
+        $this->assertEquals('2001-01-01', $subPeriods[0]['start_date']);
+        $this->assertEquals('2001-12-31', $subPeriods[0]['end_date']);
+        $this->assertEquals('2000-01-01', $subPeriods[1]['start_date']);
+        $this->assertEquals('2000-12-31', $subPeriods[1]['end_date']);
+        $this->assertEquals('1999-01-01', $subPeriods[2]['start_date']);
+        $this->assertEquals('1999-12-31', $subPeriods[2]['end_date']);
+        $this->assertEquals('1998-01-01', $subPeriods[3]['start_date']);
+        $this->assertEquals('1998-12-31', $subPeriods[3]['end_date']);
     }
 
     public function test_month_and_year_only_without_day_generates_breakdown(): void
@@ -96,15 +96,15 @@ class RdpInventoryAppraisalModesTest extends TestCase
         $this->assertEquals('2023-01-01', $component->get('batch_start_date'));
         $this->assertEquals('2025-12-31', $component->get('batch_end_date'));
 
-        // Verify breakdown was generated immediately
+        // Verify breakdown was generated immediately (sorted descending / latest-first)
         $subPeriods = $component->get('batch_sub_periods');
         $this->assertCount(3, $subPeriods);
-        $this->assertEquals('2023-01-01', $subPeriods[0]['start_date']);
-        $this->assertEquals('2023-12-31', $subPeriods[0]['end_date']);
+        $this->assertEquals('2025-01-01', $subPeriods[0]['start_date']);
+        $this->assertEquals('2025-12-31', $subPeriods[0]['end_date']);
         $this->assertEquals('2024-01-01', $subPeriods[1]['start_date']);
         $this->assertEquals('2024-12-31', $subPeriods[1]['end_date']);
-        $this->assertEquals('2025-01-01', $subPeriods[2]['start_date']);
-        $this->assertEquals('2025-12-31', $subPeriods[2]['end_date']);
+        $this->assertEquals('2023-01-01', $subPeriods[2]['start_date']);
+        $this->assertEquals('2023-12-31', $subPeriods[2]['end_date']);
     }
 
     public function test_year_only_without_month_or_day_generates_breakdown(): void
@@ -124,15 +124,15 @@ class RdpInventoryAppraisalModesTest extends TestCase
         $this->assertEquals('2023-01-01', $component->get('batch_start_date'));
         $this->assertEquals('2025-12-31', $component->get('batch_end_date'));
 
-        // Verify breakdown was generated immediately
+        // Verify breakdown was generated immediately (sorted descending / latest-first)
         $subPeriods = $component->get('batch_sub_periods');
         $this->assertCount(3, $subPeriods);
-        $this->assertEquals('2023-01-01', $subPeriods[0]['start_date']);
-        $this->assertEquals('2023-12-31', $subPeriods[0]['end_date']);
+        $this->assertEquals('2025-01-01', $subPeriods[0]['start_date']);
+        $this->assertEquals('2025-12-31', $subPeriods[0]['end_date']);
         $this->assertEquals('2024-01-01', $subPeriods[1]['start_date']);
         $this->assertEquals('2024-12-31', $subPeriods[1]['end_date']);
-        $this->assertEquals('2025-01-01', $subPeriods[2]['start_date']);
-        $this->assertEquals('2025-12-31', $subPeriods[2]['end_date']);
+        $this->assertEquals('2023-01-01', $subPeriods[2]['start_date']);
+        $this->assertEquals('2023-12-31', $subPeriods[2]['end_date']);
     }
 
     public function test_add_and_edit_sub_period_recalculates_master_dates(): void
@@ -155,17 +155,17 @@ class RdpInventoryAppraisalModesTest extends TestCase
         // Add a new period range
         $component->call('addBatchSubPeriod');
 
-        // Verify row 4 is generated for next year (2027)
+        // Verify row is generated for next year (2027) at index 0 (descending order)
         $subPeriods = $component->get('batch_sub_periods');
         $this->assertCount(4, $subPeriods);
-        $this->assertEquals('2027-01-01', $subPeriods[3]['start_date']);
-        $this->assertEquals('2027-12-31', $subPeriods[3]['end_date']);
-        $this->assertEquals('1', $subPeriods[3]['start_day']);
-        $this->assertEquals('1', $subPeriods[3]['start_month']);
-        $this->assertEquals('2027', $subPeriods[3]['start_year']);
-        $this->assertEquals('31', $subPeriods[3]['end_day']);
-        $this->assertEquals('12', $subPeriods[3]['end_month']);
-        $this->assertEquals('2027', $subPeriods[3]['end_year']);
+        $this->assertEquals('2027-01-01', $subPeriods[0]['start_date']);
+        $this->assertEquals('2027-12-31', $subPeriods[0]['end_date']);
+        $this->assertEquals('1', $subPeriods[0]['start_day']);
+        $this->assertEquals('1', $subPeriods[0]['start_month']);
+        $this->assertEquals('2027', $subPeriods[0]['start_year']);
+        $this->assertEquals('31', $subPeriods[0]['end_day']);
+        $this->assertEquals('12', $subPeriods[0]['end_month']);
+        $this->assertEquals('2027', $subPeriods[0]['end_year']);
 
         // Verify master batch date range auto-updated and expanded!
         $this->assertEquals('2027-12-31', $component->get('batch_end_date'));
@@ -173,25 +173,25 @@ class RdpInventoryAppraisalModesTest extends TestCase
         $this->assertEquals('12', $component->get('batch_end_month'));
         $this->assertEquals('31', $component->get('batch_end_day'));
 
-        // Test editing a sub-period's date via updatedBatchSubPeriods hook
-        $component->set('batch_sub_periods.0.start_month', '1');
-        $this->assertEquals('2024-01-01', $component->get('batch_sub_periods.0.start_date'));
+        // Test editing the earliest sub-period's date (index 3 is 2024) via updatedBatchSubPeriods hook
+        $component->set('batch_sub_periods.3.start_month', '1');
+        $this->assertEquals('2024-01-01', $component->get('batch_sub_periods.3.start_date'));
         $this->assertEquals('2024-01-01', $component->get('batch_start_date'));
 
-        // Test editing calendar start_date directly
-        $component->set('batch_sub_periods.0.start_date', '2023-06-15');
+        // Test editing calendar start_date directly on earliest sub-period
+        $component->set('batch_sub_periods.3.start_date', '2023-06-15');
         $this->assertEquals('2023-06-15', $component->get('batch_start_date'));
         $this->assertEquals('2023', $component->get('batch_start_year'));
         $this->assertEquals('6', $component->get('batch_start_month'));
         $this->assertEquals('15', $component->get('batch_start_day'));
 
-        // Test editing calendar end_date directly
-        $component->set('batch_sub_periods.3.end_date', '2028-05-20');
+        // Test editing calendar end_date directly on newest sub-period (index 0)
+        $component->set('batch_sub_periods.0.end_date', '2028-05-20');
         $this->assertEquals('2028-05-20', $component->get('batch_end_date'));
         $this->assertEquals('2028', $component->get('batch_end_year'));
 
-        // Test removing row 4 recalculates master end date back
-        $component->call('removeBatchSubPeriod', 3);
+        // Test removing row recalculates master end date back
+        $component->call('removeBatchSubPeriod', 0);
         $this->assertCount(3, $component->get('batch_sub_periods'));
         $this->assertEquals('2026-12-30', $component->get('batch_end_date'));
         $this->assertEquals('2026', $component->get('batch_end_year'));
@@ -257,6 +257,7 @@ class RdpInventoryAppraisalModesTest extends TestCase
         $component->set('batch_end_month', '12');
         $component->set('batch_end_year', '2024');
 
+        $component->set('records_location', 'CABINET 1, SHELF 2');
         $component->set('batch_sub_periods.0.volume', '10 Boxes 2 Papers');
         $component->set('batch_sub_periods.1.volume', '2 Folder 10 Papers');
         $component->set('batch_sub_periods.2.volume', '30 Papers');
@@ -284,11 +285,11 @@ class RdpInventoryAppraisalModesTest extends TestCase
             ->get();
 
         $this->assertCount(3, $periods);
-        $this->assertEquals('2022-01-01', $periods[0]->date_covered);
+        $this->assertEquals('2024-01-01', $periods[0]->date_covered);
         $this->assertEquals('10 Boxes 2 Papers', $periods[0]->volume);
         $this->assertEquals('2023-01-01', $periods[1]->date_covered);
         $this->assertEquals('2 Folder 10 Papers', $periods[1]->volume);
-        $this->assertEquals('2024-01-01', $periods[2]->date_covered);
+        $this->assertEquals('2022-01-01', $periods[2]->date_covered);
         $this->assertEquals('30 Papers', $periods[2]->volume);
 
         // Cleanup

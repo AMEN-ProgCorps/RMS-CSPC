@@ -174,6 +174,11 @@
                     'url' => route('rdp.received-documents.dcs'),
                     'active' => request()->routeIs('rdp.received-documents.dcs'),
                 ],
+                [
+                    'label' => 'Record Requests',
+                    'url' => route('rdp.received-documents.record-requests'),
+                    'active' => request()->routeIs('rdp.received-documents.record-requests'),
+                ],
             ];
         }
         // 2. Add Records Section

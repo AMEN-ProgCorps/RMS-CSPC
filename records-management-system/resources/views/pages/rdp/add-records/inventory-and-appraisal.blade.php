@@ -78,6 +78,69 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public string $storage_period = '';
     public string $disposition_provision = '';
 
+    // Office Collective (Optional Spread Record Creation)
+    public array $collectiveOffices = [];
+    public bool $showCollectiveModal = false;
+    public string $collectiveSearch = '';
+    public array $tempCollectiveOffices = [];
+
+    public function openCollectiveModal(): void
+    {
+        $this->tempCollectiveOffices = $this->collectiveOffices;
+        $this->collectiveSearch = '';
+        $this->showCollectiveModal = true;
+    }
+
+    public function closeCollectiveModal(): void
+    {
+        $this->showCollectiveModal = false;
+        $this->collectiveSearch = '';
+    }
+
+    public function toggleCollectiveOffice(string $code): void
+    {
+        if (in_array($code, $this->tempCollectiveOffices, true)) {
+            $this->tempCollectiveOffices = array_values(array_diff($this->tempCollectiveOffices, [$code]));
+        } else {
+            $this->tempCollectiveOffices[] = $code;
+        }
+    }
+
+    public function selectAllCollectiveOffices(): void
+    {
+        $user = Auth::user();
+        $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        $officesTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $allCodes = DB::table($officesTable)->where('is_active', true)->pluck('office_code')->toArray();
+        $this->tempCollectiveOffices = array_values(array_filter($allCodes, fn($c) => !empty($c) && $c !== $userOffice));
+    }
+
+    public function clearAllTempCollectiveOffices(): void
+    {
+        $this->tempCollectiveOffices = [];
+    }
+
+    public function applyCollectiveModal(): void
+    {
+        $user = Auth::user();
+        $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        $this->collectiveOffices = array_values(array_filter(array_unique($this->tempCollectiveOffices), fn($c) => !empty($c) && $c !== $userOffice));
+        $this->showCollectiveModal = false;
+    }
+
+    public function removeCollectiveOffice(int $index): void
+    {
+        if (isset($this->collectiveOffices[$index])) {
+            unset($this->collectiveOffices[$index]);
+            $this->collectiveOffices = array_values($this->collectiveOffices);
+        }
+    }
+
+    public function clearCollectiveOffices(): void
+    {
+        $this->collectiveOffices = [];
+    }
+
     public bool $isAppraising = false;
 
     public function updatedVolumeAmount($val): void
@@ -476,26 +539,23 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function addBatchSubPeriod(): void
     {
+        $maxEndDate = null;
         if (!empty($this->batch_sub_periods)) {
-            $last = end($this->batch_sub_periods);
-            try {
-                $lastEnd = Carbon::parse($last['end_date']);
-                if ($lastEnd->month == 12 && $lastEnd->day >= 20) {
-                    $nextYear = $lastEnd->year + 1;
-                    $sStr = Carbon::create($nextYear, 1, 1)->format('Y-m-d');
-                    $eStr = Carbon::create($nextYear, 12, 31)->format('Y-m-d');
-                } else {
-                    $nextStart = $lastEnd->copy()->addDay();
-                    $sStr = $nextStart->format('Y-m-d');
-                    $eStr = $nextStart->copy()->endOfYear()->format('Y-m-d');
+            foreach ($this->batch_sub_periods as $sub) {
+                if (!empty($sub['end_date'])) {
+                    if ($maxEndDate === null || $sub['end_date'] > $maxEndDate) {
+                        $maxEndDate = $sub['end_date'];
+                    }
                 }
-            } catch (\Throwable $e) {
-                $sStr = Carbon::now()->format('Y-m-d');
-                $eStr = Carbon::now()->endOfYear()->format('Y-m-d');
             }
-        } elseif (!empty($this->batch_end_date)) {
+        }
+        if (!$maxEndDate && !empty($this->batch_end_date)) {
+            $maxEndDate = $this->batch_end_date;
+        }
+
+        if ($maxEndDate) {
             try {
-                $lastEnd = Carbon::parse($this->batch_end_date);
+                $lastEnd = Carbon::parse($maxEndDate);
                 if ($lastEnd->month == 12 && $lastEnd->day >= 20) {
                     $nextYear = $lastEnd->year + 1;
                     $sStr = Carbon::create($nextYear, 1, 1)->format('Y-m-d');
@@ -1188,6 +1248,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         if (empty($this->utility_values)) {
             $this->utility_values = [1];
         }
+
+        $user = Auth::user();
+        $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
 
         $this->prefill_intake_id = request()->query('prefill_intake_id') ? (int)request()->query('prefill_intake_id') : null;
         $this->prefill_source = request()->query('prefill_source');
@@ -2150,6 +2213,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             $user = Auth::user();
             $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+            $validCollective = array_values(array_filter(array_unique($this->collectiveOffices), fn($code) => !empty($code) && $code !== $userOfficeCode));
+            $isSpread = !empty($validCollective);
+            $requestGroupId = $isSpread ? ('SPREAD-' . date('Ymd') . '-' . strtoupper(Str::random(6))) : null;
+
             $rawVol = trim($this->volume);
             $rawAmt = trim((string)$this->volume_amount);
             if (!empty($rawVol) && preg_match('/\d/', $rawVol)) {
@@ -2304,6 +2371,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             }
 
             foreach ($itemsToProcess as $rIdx => $rData) {
+                // If spreading, also register collective offices as duplicate holders
+                $recordDuplicates = $rData['duplicate_offices'] ?? [];
+                if ($isSpread) {
+                    $recordDuplicates = array_values(array_unique(array_merge($recordDuplicates, $validCollective)));
+                }
+
                 $insertRow = [
                     'record_series_id'       => $this->record_series_id,
                     'description'            => $rData['description'],
@@ -2318,6 +2391,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     'office_own'             => $userOfficeCode,
                     'upload_doc_id_handler'  => ($rIdx === 0) ? $documentIdHandler : null,
                     'is_draft'               => false,
+                    'is_active'              => true,
+                    'is_request'             => false,
+                    'request_group_id'       => $requestGroupId,
+                    'request_status'         => null,
+                    'request_origin_office'  => null,
+                    'request_target_office'  => null,
                     'created_at'             => now(),
                     'updated_at'             => now(),
                 ];
@@ -2349,7 +2428,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     ]);
                 }
 
-                foreach (($rData['duplicate_offices'] ?? []) as $dupOffice) {
+                foreach ($recordDuplicates as $dupOffice) {
                     DB::table('rdp_duplication_section')->insert([
                         'dup_id_manager' => $recordId,
                         'office_code'    => $dupOffice,
@@ -2395,6 +2474,105 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     }
                     DB::table('rdp_period_covered')->insert($pRow);
                 }
+
+                // If spreading to collective offices, insert a pending request record for each collective office
+                if ($isSpread) {
+                    foreach ($validCollective as $colOffice) {
+                        $colInsertRow = [
+                            'record_series_id'       => $this->record_series_id,
+                            'description'            => $rData['description'],
+                            'period_id'              => $periodId,
+                            'volume'                 => $rData['volume'],
+                            'records_location'       => $rData['records_location'],
+                            'restriction'            => $rData['restriction'],
+                            'records_medium'         => $rData['records_medium'],
+                            'time_value'             => $rData['time_value'],
+                            'frequence_use'          => $rData['frequence_use'],
+                            'user_own'               => $user?->id,
+                            'office_own'             => $colOffice,
+                            'upload_doc_id_handler'  => ($rIdx === 0) ? $documentIdHandler : null,
+                            'is_draft'               => false,
+                            'is_active'              => false,
+                            'is_request'             => true,
+                            'request_group_id'       => $requestGroupId,
+                            'request_status'         => 'pending',
+                            'request_origin_office'  => $userOfficeCode,
+                            'request_target_office'  => $colOffice,
+                            'created_at'             => now(),
+                            'updated_at'             => now(),
+                        ];
+                        if ($hasBatchCol) {
+                            $colInsertRow['ispartof_batch'] = ($this->entryMode === 'batch');
+                        }
+                        if ($hasBatchIdCol && $batchId !== null) {
+                            $colInsertRow['batch_id'] = $batchId;
+                        }
+
+                        $colRecordId = DB::table('rdp_record')->insertGetId($colInsertRow);
+
+                        DB::table('rdp_record')->where('id', $colRecordId)->update([
+                            'utility_value'  => $colRecordId,
+                            'duplication_id' => $colRecordId,
+                        ]);
+
+                        foreach ($rData['utility_values'] as $uId) {
+                            DB::table('rdp_utility_manager')->insert([
+                                'record_holder'  => $colRecordId,
+                                'utility_medium' => $uId,
+                                'is_active'      => true,
+                                'created_at'     => now(),
+                                'updated_at'     => now(),
+                            ]);
+                        }
+
+                        foreach ($recordDuplicates as $dupOffice) {
+                            DB::table('rdp_duplication_section')->insert([
+                                'dup_id_manager' => $colRecordId,
+                                'office_code'    => $dupOffice,
+                                'created_at'     => now(),
+                                'updated_at'     => now(),
+                            ]);
+                        }
+
+                        if (!empty($rData['sub_periods'])) {
+                            foreach ($rData['sub_periods'] as $sub) {
+                                if (empty($sub['start_date']) && empty($sub['end_date'])) continue;
+                                $colPRow = [
+                                    'period_owner' => $colRecordId,
+                                    'date_covered' => $sub['start_date'] ?? $rData['date_covered'],
+                                    'created_at'   => now(),
+                                    'modified_at'  => now(),
+                                ];
+                                if ($hasEndCol && !empty($sub['end_date'])) {
+                                    $colPRow['date_covered_end'] = $sub['end_date'];
+                                }
+                                if ($hasVolCol && !empty($sub['volume'])) {
+                                    $colPRow['volume'] = trim($sub['volume']);
+                                }
+                                if ($hasDescCol) {
+                                    $subDesc = !empty(trim((string)($sub['description'] ?? '')))
+                                        ? trim($sub['description'])
+                                        : $this->formatSubPeriodDefaultDescription($sub['start_date'] ?? '', $sub['end_date'] ?? '', $rData['description']);
+                                    if (!empty($subDesc)) {
+                                        $colPRow['description'] = $subDesc;
+                                    }
+                                }
+                                DB::table('rdp_period_covered')->insert($colPRow);
+                            }
+                        } elseif (!empty($rData['date_covered'])) {
+                            $colPRow = [
+                                'period_owner' => $colRecordId,
+                                'date_covered' => $rData['date_covered'],
+                                'created_at'   => now(),
+                                'modified_at'  => now(),
+                            ];
+                            if ($hasEndCol && !empty($rData['date_covered_end'])) {
+                                $colPRow['date_covered_end'] = $rData['date_covered_end'];
+                            }
+                            DB::table('rdp_period_covered')->insert($colPRow);
+                        }
+                    }
+                }
             }
 
             if ($this->prefill_intake_id && $firstRecordId) {
@@ -2407,12 +2585,30 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             DB::commit();
 
+            if ($isSpread) {
+                $seriesTitle = !empty($this->selectedSeriesTitle) ? $this->selectedSeriesTitle : 'Inventory Record';
+                foreach ($validCollective as $colOffice) {
+                    \App\Services\RdpNotificationService::notifyRecordRequestSubmitted(
+                        $colOffice,
+                        $userOfficeCode ?? 'Unknown Office',
+                        $seriesTitle
+                    );
+                }
+            }
+
             $count = count($itemsToProcess);
-            $this->successMessage = ($this->entryMode === 'multi' && $count > 1) 
-                ? "Multi-entry of {$count} records created successfully under this series!" 
-                : ($this->entryMode === 'batch' 
-                    ? "Batch record with duration breakdown created successfully!"
-                    : "Inventory and Appraisal Record created successfully!");
+            if ($isSpread) {
+                $officeCount = count($validCollective);
+                $this->successMessage = ($this->entryMode === 'multi' && $count > 1) 
+                    ? "Multi-entry of {$count} records created for {$userOfficeCode} and spread to {$officeCount} collective office(s)!" 
+                    : "Record created successfully for {$userOfficeCode} and spread to {$officeCount} collective office(s)!";
+            } else {
+                $this->successMessage = ($this->entryMode === 'multi' && $count > 1) 
+                    ? "Multi-entry of {$count} records created successfully under this series!" 
+                    : ($this->entryMode === 'batch' 
+                        ? "Batch record with duration breakdown created successfully!"
+                        : "Inventory and Appraisal Record created successfully!");
+            }
             $this->resetFormFields();
 
         } catch (\Exception $e) {
@@ -2464,6 +2660,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->duplicate_offices = [];
         $this->duplicate_search = '';
         $this->showDuplicateDropdown = false;
+        $this->collectiveOffices = [];
+        $this->showCollectiveModal = false;
+        $this->collectiveSearch = '';
+        $this->tempCollectiveOffices = [];
         $this->dispatch('scroll-to-top');
     }
 
@@ -2581,6 +2781,32 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 </div>
                 @if(!$isAppraising)
                     <div class="ia-mode-actions">
+                        @php
+                            $validCollectiveOffices = array_values(array_filter($collectiveOffices ?? [], fn($c) => $c !== ($userOfficeCode ?? null)));
+                            $collectiveCount = count($validCollectiveOffices);
+                        @endphp
+                        <!-- Office Collective Trigger Button -->
+                        <button type="button" 
+                                wire:click="openCollectiveModal" 
+                                class="ia-btn ia-btn-collective {{ $collectiveCount > 0 ? 'is-active' : '' }}" 
+                                title="{{ $collectiveCount > 0 ? 'Office Collective: ' . $collectiveCount . ' selected' : 'Add offices to Office Collective' }}">
+                            <!-- Office Building Icon -->
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"></path>
+                                <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"></path>
+                                <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"></path>
+                                <path d="M10 6h4"></path>
+                                <path d="M10 10h4"></path>
+                                <path d="M10 14h4"></path>
+                                <path d="M10 18h4"></path>
+                            </svg>
+                            @if($collectiveCount > 0)
+                                <span>Office Collective [ {{ $collectiveCount }} ]</span>
+                            @else
+                                <span>+ Add Office to Collective</span>
+                            @endif
+                        </button>
+
                         {{-- Entry Mode Split Dropdown Button --}}
                         <div x-data="{ modeOpen: false }" @click.outside="modeOpen = false" style="position: relative; display: inline-flex; vertical-align: middle; z-index: 50;">
                             @php
@@ -3558,7 +3784,11 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             </button>
             <button type="button" wire:click="createRecord" onclick="rdpScrollToTop()" class="ia-btn ia-btn-primary ia-btn-lg">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-                {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'CREATE ' . count($batchItems) . ' RECORDS' : 'CREATE RECORD' }}
+                @if(count($collectiveOffices) > 0)
+                    {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'CREATE ' . count($batchItems) . ' RECORDS & SPREAD TO ' . count($collectiveOffices) . ' ' . \Illuminate\Support\Str::plural('OFFICE', count($collectiveOffices)) : 'CREATE RECORD & SPREAD TO ' . count($collectiveOffices) . ' ' . \Illuminate\Support\Str::plural('OFFICE', count($collectiveOffices)) }}
+                @else
+                    {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'CREATE ' . count($batchItems) . ' RECORDS' : 'CREATE RECORD' }}
+                @endif
             </button>
         </div>
     </div>
@@ -3640,6 +3870,102 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 <div class="ia-modal-footer">
                     <button type="button" wire:click="closeSeriesModal" class="ia-btn ia-btn-secondary">Cancel</button>
                     <button type="button" wire:click="saveNewRecordSeries" class="ia-btn ia-btn-primary">Apply Series</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- ═══════ Office Collective Modal ═══════ -->
+    @if($showCollectiveModal)
+        <div class="ia-modal-overlay" style="z-index: 10000;">
+            <div class="ia-modal-card" style="width: 620px; max-width: 95vw; border-radius: 14px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.25);">
+                <div class="ia-modal-header" style="padding: 18px 22px; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h3 class="ia-modal-title" style="margin: 0 0 4px 0; font-size: 17px; font-weight: 700;">Office Collective</h3>
+                        <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 500;">
+                            Select offices to receive a duplicate copy of this record as an incoming Record Request
+                        </p>
+                    </div>
+                    <button type="button" wire:click="closeCollectiveModal" class="ia-modal-close" style="font-size: 22px; cursor: pointer;">&times;</button>
+                </div>
+                
+                <div class="ia-modal-body" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; max-height: 65vh; overflow-y: auto;">
+                    <!-- Search & Selection Actions -->
+                    <div style="display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+                        <div style="position: relative; flex: 1; min-width: 220px;">
+                            <input type="text" 
+                                   class="ia-input" 
+                                   wire:model.live.debounce.150ms="collectiveSearch" 
+                                   placeholder="Search office by code or name..."
+                                   style="width: 100%; font-size: 13px; padding-left: 12px;">
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <button type="button" wire:click="selectAllCollectiveOffices" class="ia-btn ia-btn-secondary" style="font-size: 11px; height: 32px; padding: 0 10px;">Select All</button>
+                            <button type="button" wire:click="clearAllTempCollectiveOffices" class="ia-btn ia-btn-secondary" style="font-size: 11px; height: 32px; padding: 0 10px;">Clear</button>
+                        </div>
+                    </div>
+
+                    @php
+                        $userOffice = Auth::user()?->details?->office?->office_code ?? Auth::user()?->details?->office_code ?? null;
+                        $searchLower = strtolower(trim($collectiveSearch));
+                        $availableOffices = collect($officesList)->filter(function($off) use ($userOffice, $searchLower) {
+                            if ($off->office_code === $userOffice) return false;
+                            if (empty($searchLower)) return true;
+                            return str_contains(strtolower($off->office_code), $searchLower) || str_contains(strtolower($off->office_name), $searchLower);
+                        });
+                    @endphp
+
+                    <!-- Selected Count Badge -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; font-size: 12.5px; color: #1e40af; font-weight: 600;">
+                        <span>Selected in Collective: <strong>{{ count($tempCollectiveOffices) }}</strong> {{ \Illuminate\Support\Str::plural('office', count($tempCollectiveOffices)) }}</span>
+                        @if(count($tempCollectiveOffices) > 0)
+                            <span style="font-size: 11.5px; color: #2563eb; font-weight: 700;">Ready to spread</span>
+                        @endif
+                    </div>
+
+                    <!-- Offices List -->
+                    <div style="display: flex; flex-direction: column; gap: 6px; border: 1px solid #e2e8f0; border-radius: 8px; max-height: 280px; overflow-y: auto; padding: 6px;">
+                        @forelse($availableOffices as $off)
+                            @php
+                                $isSelected = in_array($off->office_code, $tempCollectiveOffices, true);
+                            @endphp
+                            <div wire:click="toggleCollectiveOffice('{{ $off->office_code }}')"
+                                 class="ia-collective-item {{ $isSelected ? 'is-selected' : '' }}">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <input type="checkbox" 
+                                           {{ $isSelected ? 'checked' : '' }} 
+                                           style="cursor: pointer; pointer-events: none; width: 16px; height: 16px; accent-color: #2563eb;">
+                                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                        <span class="ia-collective-code-badge">
+                                            {{ $off->office_code }}
+                                        </span>
+                                        <span class="ia-collective-name">
+                                            {{ $off->office_name }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <span style="font-size: 11.5px; font-weight: 700; color: {{ $isSelected ? '#2563eb' : '#94a3b8' }};">
+                                    {{ $isSelected ? '✓ Selected' : '+ Select' }}
+                                </span>
+                            </div>
+                        @empty
+                            <div style="text-align: center; padding: 24px; font-size: 12.5px; color: #64748b;">
+                                No matching active offices found.
+                            </div>
+                        @endforelse
+                    </div>
+                </div>
+
+                <div class="ia-modal-footer" style="padding: 14px 22px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border-bottom-left-radius: 14px; border-bottom-right-radius: 14px;">
+                    <span style="font-size: 12px; color: #64748b; font-weight: 500;">
+                        {{ count($tempCollectiveOffices) }} {{ \Illuminate\Support\Str::plural('office', count($tempCollectiveOffices)) }} chosen
+                    </span>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" wire:click="closeCollectiveModal" class="ia-btn ia-btn-secondary" style="height: 36px; padding: 0 14px; font-size: 12.5px;">Cancel</button>
+                        <button type="button" wire:click="applyCollectiveModal" class="ia-btn ia-btn-primary" style="height: 36px; padding: 0 16px; font-size: 12.5px; background: #2563eb; border-color: #2563eb;">
+                            Apply to Collective
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

@@ -25,6 +25,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         setSyllabiStep(step) { this.syllabiStep = Number(step) === 2 ? 2 : 1; window.syllabiCurrentStep = this.syllabiStep; },
         closeReview() {
             if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
+            window.__openAppraisalAfterSave = false;
+            const appraisalFlag = document.getElementById('openAppraisal');
+            if (appraisalFlag) appraisalFlag.value = '0';
             this.reviewOpen = false;
             const el = document.getElementById('dcsRegisterRoot');
             if (el) el.style.overflow = '';
@@ -50,6 +53,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <input type="hidden" id="insertShiftDocNo" name="insert_shift_doc_no" value="">
         <input type="hidden" id="insertShiftRenameLetters" name="insert_shift_rename_letters" value="0">
         <input type="hidden" id="saveAsDraft" name="save_as_draft" value="0">
+        <input type="hidden" id="openAppraisal" name="open_appraisal" value="0">
         <input type="hidden" id="officeIntakeType" name="office_intake_type" value="{{ in_array(request()->query('intake'), ['drf', 'dcn'], true) ? request()->query('intake') : '' }}">
         <input type="hidden" id="officeIntakeId" name="office_intake_id" value="{{ ctype_digit((string) request()->query('intake_id')) ? request()->query('intake_id') : '' }}">
 
@@ -792,7 +796,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                     <i class="fa-regular fa-floppy-disk"></i> Save Draft
                 </button>
-                <button type="button" id="btnSaveDocument" class="reg-btn reg-btn-save" onclick="confirmSave()">
+                <button type="button" id="btnSaveAndAppraise" class="reg-btn reg-btn-generate" onclick="window.__openAppraisalAfterSave=true; confirmSave()">
+                    <i class="fa-solid fa-clipboard-check"></i> Save and Appraise
+                </button>
+                <button type="button" id="btnSaveDocument" class="reg-btn reg-btn-save" onclick="window.__openAppraisalAfterSave=false; confirmSave()">
                     <i class="fa-solid fa-floppy-disk"></i> Save Document
                 </button>
             </div>
@@ -1252,7 +1259,9 @@ function restoreOfficeToRetrievalPending(officeId, officeName, copies) {
     }
     updateTotal('totalRetrievalCopies', 'retrievalBody');
     const retSection = document.getElementById('section-4');
-    if (retSection) retSection.style.display = 'block';
+    if (retSection && typeof isRevisedMode === 'function' && isRevisedMode() && !(typeof isRecurringMode === 'function' && isRecurringMode())) {
+        retSection.style.display = 'block';
+    }
 }
 
 function maybeRestoreDistOfficeToRetrieval(tr) {
@@ -1578,6 +1587,10 @@ document.addEventListener("DOMContentLoaded", async function () {
             lockRecurRegistrationIdentity();
             return;
         }
+        if (window.__reviseIdentityLocked) {
+            lockReviseRegistrationIdentity();
+            return;
+        }
         const urlType = new URLSearchParams(location.search).get('type');
         if (urlType !== 'new' && urlType !== 'revised' && urlType !== 'recurring') return;
 
@@ -1742,6 +1755,7 @@ async function applyInventoryRevisePrefillFromUrl() {
     }
     window.__inventoryRevisePrefillApplied = true;
     window.__inventoryRevisePrefill = true;
+    window.__reviseIdentityLocked = true;
 
     try {
         const dt = document.getElementById('docType');
@@ -1785,6 +1799,7 @@ async function applyInventoryRevisePrefillFromUrl() {
             }
             await new Promise((resolve) => setTimeout(resolve, 80));
         }
+        lockReviseRegistrationIdentity();
         if (!row) {
             return;
         }
@@ -1799,6 +1814,7 @@ async function applyInventoryRevisePrefillFromUrl() {
         if (typeof applyRevisionDocumentPick === 'function') {
             await applyRevisionDocumentPick(row, doc);
         }
+        lockReviseRegistrationIdentity();
     } catch (err) {
         console.warn('Inventory revise prefill failed:', err);
         window.__inventoryRevisePrefillApplied = false;
@@ -1883,6 +1899,39 @@ async function applyInventoryRecurPrefillFromUrl() {
     } finally {
         if (typeof setSupersedeLoading === 'function') setSupersedeLoading(false);
     }
+}
+
+function lockReviseRegistrationIdentity() {
+    window.__reviseIdentityLocked = true;
+    const versionEl = document.getElementById('versionType');
+    if (versionEl) {
+        const reviseOpt = [...versionEl.options].find((opt) => /revis/i.test(opt.textContent || ''));
+        if (reviseOpt && versionEl.value !== reviseOpt.value) {
+            versionEl.value = reviseOpt.value;
+            versionEl.dataset.lastValid = reviseOpt.value;
+            if (typeof handleVersionChange === 'function') handleVersionChange();
+        }
+    }
+    const form = document.getElementById('masterForm');
+    ['versionType', 'docType', 'subType'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (id === 'subType' && (el.closest('#subTypeField')?.hidden || el.options.length < 2)) return;
+        el.disabled = true;
+        el.setAttribute('disabled', 'disabled');
+        el.classList.add('reg-identity-locked');
+        const name = el.getAttribute('name');
+        if (!name || !form) return;
+        let hidden = form.querySelector('input[type="hidden"][data-lock-for="' + id + '"]');
+        if (!hidden) {
+            hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = name;
+            hidden.dataset.lockFor = id;
+            form.appendChild(hidden);
+        }
+        hidden.value = el.value || '';
+    });
 }
 
 function lockRecurRegistrationIdentity() {
@@ -2742,8 +2791,8 @@ function applyRevisedDocumentContext(data, options = {}) {
         updateTotal('totalRetrievalCopies', 'retrievalBody');
     }
 
-    // Prefill only applies in revised mode — open Retrieval when offices were seeded.
-    if (isRevisedMode() && !tableIsEmpty('retrievalBody')) {
+    // Prefill only applies in Revise mode — open Retrieval when offices were seeded.
+    if (isRevisedMode() && !isRecurringMode() && !tableIsEmpty('retrievalBody')) {
         const retCb = document.querySelector('#dynamicCheckboxes input[name="checklists[]"][value="4"]');
         if (retCb) {
             retCb.checked = true;
@@ -6559,8 +6608,8 @@ window.toggleSection = function (checklistId, show) {
         return;
     }
 
-    // Retrieval (checklist 4) is only for revised documents
-    if (checklistId === 4 && !isRevisedMode()) {
+    // Retrieval (checklist 4) is only for a Revise registration, not New or Recur.
+    if (checklistId === 4 && (isRecurringMode() || !isRevisedMode())) {
         clearRetrievalSection();
         return;
     }
@@ -7846,6 +7895,8 @@ window.submitForm = function () {
     }
     const draftFlag = document.getElementById('saveAsDraft');
     if (draftFlag) draftFlag.value = '0';
+    const appraisalFlag = document.getElementById('openAppraisal');
+    if (appraisalFlag) appraisalFlag.value = window.__openAppraisalAfterSave ? '1' : '0';
     window.__regFormSubmitting = true;
     try {
         const intakeParams = new URLSearchParams(location.search);

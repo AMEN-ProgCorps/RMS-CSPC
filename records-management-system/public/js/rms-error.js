@@ -63,6 +63,11 @@
         if (reference && message.indexOf(reference) === -1) {
             message += ' Reference ' + reference + '.';
         }
+        var file = body && body.file ? String(body.file) : '';
+        var line = body && body.line ? Number(body.line) : 0;
+        if (file && message.indexOf(file) === -1) {
+            message += ' File ' + file + (line ? ' on line ' + line : '') + '.';
+        }
 
         return {
             status: code,
@@ -70,10 +75,53 @@
             title: title,
             message: message,
             reference: reference,
+            file: file || null,
+            line: line || null,
+            return_url: pageHere(),
             redirect: body && body.redirect ? body.redirect : null,
             skipDefault: code !== 422
         };
     };
+
+    function pageHere() {
+        return location.pathname + location.search;
+    }
+
+    function rememberPage() {
+        var here = pageHere();
+        try {
+            var last = sessionStorage.getItem('rmsLastGoodPage') || '';
+            if (last && last !== here) {
+                sessionStorage.setItem('rmsPreviousPage', last);
+            }
+            sessionStorage.setItem('rmsLastGoodPage', here);
+        } catch (e) {}
+    }
+
+    function previousPage() {
+        var here = pageHere();
+        var saved = [];
+        try {
+            saved.push(sessionStorage.getItem('rmsLastGoodPage') || '');
+            saved.push(sessionStorage.getItem('rmsPreviousPage') || '');
+        } catch (e) {}
+        try {
+            if (document.referrer && document.referrer.indexOf(location.origin) === 0) {
+                var from = new URL(document.referrer);
+                saved.push(from.pathname + from.search);
+            }
+        } catch (e) {}
+        for (var i = 0; i < saved.length; i++) {
+            var url = saved[i];
+            if (url && url.charAt(0) === '/' && url.indexOf('//') !== 0 && url !== '/' && url !== here) {
+                return url;
+            }
+        }
+        return '';
+    }
+
+    rememberPage();
+    document.addEventListener('livewire:navigated', rememberPage);
 
     var slowTimer = null;
     var inflight = 0;
@@ -92,63 +140,78 @@
         return document.visibilityState !== 'hidden' && (Date.now() - userActionAt) < USER_WAIT_MS;
     }
 
-    function subsystemHome() {
-        var path = location.pathname;
-        if (path.indexOf('/dcs') === 0) return '/dcs';
-        if (path.indexOf('/dts') === 0) return '/dts';
-        if (path.indexOf('/rdp') === 0) return '/rdp';
-        if (path.indexOf('/admin') === 0) return '/admin/console';
-        if (path.indexOf('/profile') === 0) return '/profile';
-        return '';
+    function returnToPage(target) {
+        if (!target) {
+            if (history.length > 1) history.back();
+            return;
+        }
+        location.assign(target);
+    }
+
+    function showErrorScreen(detail, force) {
+        if (!force && !userIsWaiting()) return;
+        detail = detail || {};
+        var backTarget = previousPage();
+        var status = detail.status || 408;
+        var title = detail.title || 'Slow internet';
+        var message = detail.message || 'Your internet connection is too slow. Check your connection and try again.';
+        var file = detail.file || '';
+        var line = detail.line || 0;
+        var existing = document.getElementById('rmsSlowInternet');
+        if (!existing) {
+            existing = document.createElement('div');
+            existing.id = 'rmsSlowInternet';
+            existing.style.cssText = 'position:fixed;inset:0;z-index:100000;display:grid;place-items:center;background:rgba(154,52,18,0.08);font-family:Inter,system-ui,sans-serif;';
+            existing.innerHTML =
+                '<main style="width:min(520px,calc(100% - 32px));background:#fff;border:1px solid #fdba74;border-top:4px solid #c2410c;border-radius:12px;padding:24px;color:#0f172a;">' +
+                    '<p id="rmsErrorStatus" style="margin:0;color:#c2410c;font-size:0.8rem;font-weight:700;letter-spacing:0.04em;"></p>' +
+                    '<strong id="rmsErrorTitle" style="display:block;margin-top:6px;font-size:1.15rem;"></strong>' +
+                    '<p id="rmsErrorMessage" style="margin:8px 0 0;color:#475569;line-height:1.5;"></p>' +
+                    '<p id="rmsErrorFile" style="margin-top:14px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;color:#334155;font-size:0.85rem;line-height:1.45;word-break:break-word;"></p>' +
+                    '<a href="#" id="rmsSlowInternetBack" style="display:inline-block;margin-top:16px;color:#c2410c;font-weight:600;text-decoration:none;">Back to the system</a>' +
+                '</main>';
+            document.body.appendChild(existing);
+            var back = document.getElementById('rmsSlowInternetBack');
+            if (back) {
+                back.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    returnToPage(back.getAttribute('data-return') || '');
+                });
+            }
+        }
+        existing.hidden = false;
+        existing.style.display = 'grid';
+        var statusEl = document.getElementById('rmsErrorStatus');
+        var titleEl = document.getElementById('rmsErrorTitle');
+        var messageEl = document.getElementById('rmsErrorMessage');
+        var fileEl = document.getElementById('rmsErrorFile');
+        var backEl = document.getElementById('rmsSlowInternetBack');
+        if (statusEl) statusEl.textContent = status ? ('Error ' + status) : 'Error';
+        if (titleEl) titleEl.textContent = title;
+        if (messageEl) messageEl.textContent = message;
+        if (fileEl) {
+            fileEl.hidden = !file;
+            fileEl.textContent = file ? ('File: ' + file + (line ? ' on line ' + line : '')) : '';
+        }
+        if (backEl) {
+            backEl.setAttribute('href', backTarget || '#');
+            backEl.setAttribute('data-return', backTarget);
+        }
+        existing.dataset.kind = (status === 408 || status === 504 || title === 'Slow internet') ? 'slow' : 'error';
     }
 
     function showSlowInternet(force) {
-        if (!force && !userIsWaiting()) return;
-        var existing = document.getElementById('rmsSlowInternet');
-        if (existing) {
-            existing.hidden = false;
-            existing.style.display = 'grid';
-            return;
-        }
-        var wrap = document.createElement('div');
-        wrap.id = 'rmsSlowInternet';
-        wrap.style.cssText = 'position:fixed;inset:0;z-index:100000;display:grid;place-items:center;background:rgba(154,52,18,0.08);font-family:Inter,system-ui,sans-serif;';
-        wrap.innerHTML =
-            '<main style="width:min(520px,calc(100% - 32px));background:#fff;border:1px solid #fdba74;border-top:4px solid #c2410c;border-radius:12px;padding:24px;color:#0f172a;">' +
-                '<p style="margin:0;color:#c2410c;font-size:0.8rem;font-weight:700;letter-spacing:0.04em;">Error 408</p>' +
-                '<strong style="display:block;margin-top:6px;font-size:1.15rem;">Slow internet</strong>' +
-                '<p style="margin:8px 0 0;color:#475569;line-height:1.5;">Your internet connection is too slow. Check your connection and try again.</p>' +
-                '<a href="#" id="rmsSlowInternetBack" style="display:inline-block;margin-top:16px;color:#c2410c;font-weight:600;text-decoration:none;">Back to the system</a>' +
-            '</main>';
-        document.body.appendChild(wrap);
-        var back = document.getElementById('rmsSlowInternetBack');
-        if (!back) return;
-        back.addEventListener('click', function (event) {
-            event.preventDefault();
-            var referrer = document.referrer || '';
-            var referrerPath = '';
-            try {
-                referrerPath = referrer ? new URL(referrer).pathname.replace(/\/$/, '') || '/' : '';
-            } catch (e) {
-                referrerPath = '';
-            }
-            var sameSite = referrer.indexOf(location.origin) === 0;
-            var here = location.pathname.replace(/\/$/, '') || '/';
-            if (sameSite && referrerPath !== '/' && referrerPath !== here) {
-                history.back();
-                return;
-            }
-            var home = subsystemHome();
-            if (home && here !== home.replace(/\/$/, '')) {
-                location.href = home;
-                return;
-            }
-            wrap.hidden = true;
-        });
+        showErrorScreen({
+            status: 408,
+            title: 'Slow internet',
+            message: 'Your internet connection is too slow. Check your connection and try again.',
+            return_url: pageHere()
+        }, force);
     }
 
     function hideSlowInternet() {
         var existing = document.getElementById('rmsSlowInternet');
+        if (existing && existing.dataset.kind === 'error') return;
         if (existing) {
             existing.hidden = true;
             existing.style.display = 'none';
@@ -230,5 +293,26 @@
                 document.dispatchEvent(new CustomEvent('rms:error', { detail: diagnosed }));
             });
         });
+    });
+
+    document.addEventListener('rms:error', function (event) {
+        var detail = event.detail || {};
+        var status = Number(detail.status) || 0;
+        if (status === 401 || status === 419 || status === 422) return;
+        showErrorScreen(detail, true);
+    });
+
+    window.addEventListener('error', function (event) {
+        var filename = event && event.filename ? String(event.filename) : '';
+        if (!filename || filename.indexOf(location.origin) !== 0) return;
+        showErrorScreen({
+            status: 0,
+            error_kind: 'client',
+            title: 'Client error',
+            message: (event.message || 'This page hit a script error.'),
+            file: filename.replace(location.origin, ''),
+            line: event.lineno || null,
+            return_url: pageHere()
+        }, true);
     });
 })();

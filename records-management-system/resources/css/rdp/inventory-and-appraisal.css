@@ -276,7 +276,7 @@ select.ia-input {
     outline: none;
     text-transform: uppercase;
     transition: var(--ia-transition);
-    background: var(--ia-slate-50);
+    background: #ffffff;
     color: var(--ia-slate-900);
     box-sizing: border-box;
 }
@@ -291,9 +291,21 @@ textarea.ia-input {
     outline: none;
     text-transform: none !important;
     transition: var(--ia-transition);
-    background: var(--ia-slate-50);
+    background: #ffffff;
     color: var(--ia-slate-900);
     box-sizing: border-box;
+}
+.ia-input:disabled,
+select.ia-input:disabled,
+textarea.ia-input:disabled,
+textarea.ia-input[readonly],
+input.ia-input[readonly],
+.ia-input-disabled {
+    background: var(--ia-slate-50);
+    color: var(--ia-slate-500);
+    opacity: 1;
+    -webkit-text-fill-color: var(--ia-slate-500);
+    cursor: not-allowed;
 }
 .ia-input::placeholder {
     color: var(--ia-slate-300);
@@ -1906,4 +1918,28 @@ textarea.ia-input {
     border-color: #334155;
     color: #f8fafc;
     color-scheme: dark;
+}
+
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) input,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) select,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) textarea,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) button,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) label {
+    pointer-events: none;
+}
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) input,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) select,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) textarea {
+    background: #f8fafc !important;
+    color: #64748b !important;
+    cursor: not-allowed;
+}
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) .ia-label-required::after {
+    content: none;
+}
+[data-theme="dark"] .ia-dcs-office-lock .ia-form-row:not(.ia-location-row) input,
+[data-theme="dark"] .ia-dcs-office-lock .ia-form-row:not(.ia-location-row) select,
+[data-theme="dark"] .ia-dcs-office-lock .ia-form-row:not(.ia-location-row) textarea {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
 }

@@ -581,77 +581,20 @@ Route::middleware(['auth'])
                 ], 422);
             }
 
-            $existing = \Illuminate\Support\Facades\DB::table('rdp_received_documents')
-                ->where('source_subsystem', $validated['source_subsystem'])
-                ->where('document_code', $validated['document_code'])
-                ->first();
-
-            $landingUrl = $validated['source_subsystem'] === 'DCS'
-                ? route('rdp.received-documents.dcs')
-                : route('rdp.received-documents.dts');
-
-            if ($existing) {
-                return response()->json([
-                    'success'      => true,
-                    'already_sent' => true,
-                    'message'      => "Document '{$validated['document_code']}' is already in RDP intake.",
-                    'id'           => $existing->id,
-                    'status'       => $existing->status,
-                    'landing_url'  => $landingUrl,
-                    'appraise_url' => route('rdp.add-records.inventory-and-appraisal', [
-                        'prefill_intake_id' => $existing->id,
-                        'prefill_source'    => $existing->source_subsystem,
-                        'prefill_code'      => $existing->document_code,
-                        'prefill_title'     => $existing->document_title,
-                        'prefill_desc'      => $existing->description,
-                        'prefill_date'      => $existing->date_received,
-                        'prefill_doc_id'    => $existing->document_id_handler,
-                    ]),
-                ]);
-            }
-
-            $id = \Illuminate\Support\Facades\DB::table('rdp_received_documents')->insertGetId([
-                'source_subsystem'    => $validated['source_subsystem'],
-                'document_code'       => $validated['document_code'],
-                'document_title'      => $validated['document_title'],
-                'description'         => $validated['description'] ?? null,
-                'origin_office'       => $validated['origin_office'] ?? null,
-                'target_office'       => $validated['target_office'] ?? null,
-                'date_received'       => $validated['date_received'] ?? now()->toDateString(),
-                'file_path'           => $validated['file_path'] ?? null,
-                'file_name'           => $validated['file_name'] ?? null,
-                'document_id_handler' => $validated['document_id_handler'] ?? null,
-                'status'              => 'pending',
-                'sent_by_user'        => auth()->id(),
-                'metadata'            => isset($validated['metadata']) ? json_encode($validated['metadata']) : null,
-                'created_at'          => now(),
-                'updated_at'          => now(),
-            ]);
-
-            return response()->json([
-                'success'      => true,
-                'already_sent' => false,
-                'message'      => "Document '{$validated['document_code']}' successfully sent to RDP!",
-                'id'           => $id,
-                'status'       => 'pending',
-                'landing_url'  => $landingUrl,
-                'appraise_url' => route('rdp.add-records.inventory-and-appraisal', [
-                    'prefill_intake_id' => $id,
-                    'prefill_source'    => $validated['source_subsystem'],
-                    'prefill_code'      => $validated['document_code'],
-                    'prefill_title'     => $validated['document_title'],
-                    'prefill_desc'      => $validated['description'] ?? null,
-                    'prefill_date'      => $validated['date_received'] ?? now()->toDateString(),
-                    'prefill_doc_id'    => $validated['document_id_handler'] ?? null,
-                ]),
-            ]);
+            return response()->json(\App\Services\RdpIntakeService::accept($validated));
         })->name('rdp.api.intake');
 
         // Check Document Status in RDP
-        Route::get('/status/{code}', function (string $code) {
-            $doc = \Illuminate\Support\Facades\DB::table('rdp_received_documents')
-                ->where('document_code', $code)
-                ->first();
+        Route::get('/status/{code}', function (\Illuminate\Http\Request $request, string $code) {
+            $statusQuery = \Illuminate\Support\Facades\DB::table('rdp_received_documents')
+                ->where('document_code', $code);
+            if ($request->filled('source_subsystem')) {
+                $statusQuery->where('source_subsystem', $request->query('source_subsystem'));
+            }
+            if ($request->filled('target_office')) {
+                $statusQuery->whereRaw('LOWER(target_office) = ?', [strtolower((string) $request->query('target_office'))]);
+            }
+            $doc = $statusQuery->orderByDesc('id')->first();
 
             if (!$doc) {
                 return response()->json([
@@ -666,6 +609,7 @@ Route::middleware(['auth'])
                 'source_subsystem'    => $doc->source_subsystem,
                 'document_code'       => $doc->document_code,
                 'document_title'      => $doc->document_title,
+                'target_office'       => $doc->target_office,
                 'status'              => $doc->status,
                 'appraised_record_id' => $doc->appraised_record_id,
                 'date_received'       => $doc->date_received,

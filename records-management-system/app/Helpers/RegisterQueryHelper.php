@@ -1142,6 +1142,13 @@ class RegisterQueryHelper
 
                 return ! OfficeIntakeHelper::isIntakeRegistered($intake['type'], $intake['id']);
             })
+            ->filter(function ($row) {
+                if (! OfficeIntakeHelper::isIncomingNoticeUrl($row->redirect_url ?? null)) {
+                    return true;
+                }
+
+                return OfficeIntakeHelper::incomingNoticeStillOpen($row->redirect_url ?? null);
+            })
             ->values();
     }
 

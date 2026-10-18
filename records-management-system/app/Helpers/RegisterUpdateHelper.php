@@ -86,6 +86,12 @@ class RegisterUpdateHelper
 
         // Drafts saved without a sub-type may set it on edit; otherwise keep locked value.
         $isDraftRecord = RegisterQueryHelper::supportsDrafts() && ! empty($docRequest->is_draft);
+        if ($saveAsDraft && ! $isDraftRecord) {
+            return back()->with(
+                'error',
+                'This document is already registered. Save Draft does not apply, and it stays in the database.'
+            );
+        }
         $resolvedSubTypeId = $docRequest->sub_type_id ? (int) $docRequest->sub_type_id : null;
         if ($isDraftRecord && $resolvedSubTypeId === null) {
             $postedSubType = $request->input('sub_type_id');
@@ -856,6 +862,11 @@ class RegisterUpdateHelper
                 if ($leaveTo) {
                     return redirect()->to($leaveTo)->with('success', $successMessage);
                 }
+            }
+
+            $appraisalRedirect = \App\Services\RdpIntakeService::redirectToAdminAppraisal($request, (int) $id, $successMessage);
+            if (! $saveAsDraft && $appraisalRedirect) {
+                return $appraisalRedirect;
             }
 
             // Published save clears unlock — send non-HEAD users back to Update (not the editor).

@@ -4173,6 +4173,96 @@ class OfficeIntakeHelper
         return (int) $query->count();
     }
 
+    public static function officeIncomingAttentionTotal(?int $officeId = null): int
+    {
+        $pending = self::officeDocumentTotal($officeId, 'pending');
+        $perms = auth()->user()?->permissions;
+        if (! $perms || (! $perms->is_sadm && ! $perms->can_access_rdp)) {
+            return $pending;
+        }
+
+        $held = self::officeDocumentTotal($officeId, 'received_for_appraisal');
+        $onMasterlist = self::officeDocumentTotal($officeId, 'received');
+
+        return $pending + max(0, $held - $onMasterlist);
+    }
+
+    public static function isIncomingNoticeUrl(?string $url): bool
+    {
+        if ($url === null || trim($url) === '') {
+            return false;
+        }
+
+        $path = (string) (parse_url($url, PHP_URL_PATH) ?? $url);
+
+        return str_contains($path, '/dcs/office/incoming');
+    }
+
+    public static function incomingDocumentCodeFromUrl(?string $url): ?string
+    {
+        if (! self::isIncomingNoticeUrl($url)) {
+            return null;
+        }
+
+        $query = parse_url($url, PHP_URL_QUERY);
+        $params = [];
+        if (is_string($query) && $query !== '') {
+            parse_str($query, $params);
+        }
+
+        $doc = trim((string) ($params['doc'] ?? ''));
+
+        return $doc !== '' ? $doc : null;
+    }
+
+    public static function incomingNoticeStillOpen(?string $url): bool
+    {
+        if (! self::isIncomingNoticeUrl($url)) {
+            return false;
+        }
+
+        $doc = self::incomingDocumentCodeFromUrl($url);
+        if ($doc === null) {
+            return self::officeIncomingAttentionTotal() > 0;
+        }
+
+        $officeId = (int) (RegisterQueryHelper::currentOfficeId() ?? 0);
+        if ($officeId < 1) {
+            return false;
+        }
+
+        $unreceived = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_distribution as dist', 'dist.request_id', '=', 'ml.request_id')
+            ->join('dcs_distribution_offices as doff', 'doff.distribution_id', '=', 'dist.id')
+            ->where('doff.office_id', $officeId)
+            ->whereNull('doff.office_received_at')
+            ->whereRaw('LOWER(ml.doc_no) = ?', [strtolower($doc)])
+            ->exists();
+        if ($unreceived) {
+            return true;
+        }
+
+        $perms = auth()->user()?->permissions;
+        if (! $perms || (! $perms->is_sadm && ! $perms->can_access_rdp)) {
+            return false;
+        }
+        if (! Schema::hasTable('rdp_received_documents')) {
+            return false;
+        }
+
+        $officeCode = RegisterQueryHelper::currentOfficeCode();
+        if (! $officeCode) {
+            return false;
+        }
+
+        return DB::table('rdp_received_documents')
+            ->where('source_subsystem', 'DCS')
+            ->where('status', 'pending')
+            ->whereRaw('LOWER(document_code) = ?', [strtolower($doc)])
+            ->whereRaw('LOWER(target_office) = ?', [strtolower($officeCode)])
+            ->exists();
+    }
+
     /**
      * Groups for office document inventory.
      * When $onlyWithDocuments is false, every parent type is returned (count may be 0).
@@ -4215,6 +4305,11 @@ class OfficeIntakeHelper
      */
     protected static function applyOfficeReceiptFilter($query, int $officeId, string $receiptFilter): void
     {
+        $keepAwaitingAppraisal = $receiptFilter === 'received_for_appraisal';
+        if ($keepAwaitingAppraisal) {
+            $receiptFilter = 'received';
+        }
+
         if ($receiptFilter === 'all' || $officeId < 1) {
             return;
         }
@@ -4240,12 +4335,18 @@ class OfficeIntakeHelper
         });
 
         // Received masterlist is the current copy this office holds, not earlier revisions.
+        // A copy with a pending DCS appraisal stays on Incoming until that office creates the record.
         if ($receiptFilter === 'received') {
             RegisterQueryHelper::applyLatestRevisionStatus($query, 'ml');
+            if (! $keepAwaitingAppraisal) {
+                self::excludePendingAppraisal($query, $officeId);
+            }
         }
 
         // A copy this office has already received stays on the masterlist only.
+        // Save and Appraise stays off Incoming until the admin forwards the appraisal.
         if ($receiptFilter === 'pending') {
+            self::excludeUnforwardedAppraisal($query);
             $query->whereNotExists(function ($q) use ($officeId) {
                 $q->select(DB::raw(1))
                     ->from('dcs_document_distribution as dist_got')
@@ -4255,6 +4356,61 @@ class OfficeIntakeHelper
                     ->whereNotNull('doff_got.office_received_at');
             });
         }
+    }
+
+    /**
+     * A Save and Appraise registration stays out of Incoming until the admin forwards it.
+     * A plain save has no appraisal opt-in, so the office only marks it received.
+     */
+    protected static function excludeUnforwardedAppraisal($query): void
+    {
+        if (! Schema::hasColumn('dcs_document_requests', 'appraisal_opt_in')) {
+            return;
+        }
+
+        $query->whereNotExists(function ($q) {
+            $q->select(DB::raw(1))
+                ->from('dcs_document_requests as dr_appr')
+                ->whereColumn('dr_appr.id', 'ml.request_id')
+                ->where('dr_appr.appraisal_opt_in', true);
+            if (Schema::hasTable('rdp_received_documents')) {
+                $q->whereNotExists(function ($inner) {
+                    $inner->select(DB::raw(1))
+                        ->from('rdp_received_documents as rdp_appr')
+                        ->where('rdp_appr.source_subsystem', 'DCS')
+                        ->whereRaw("COALESCE(rdp_appr.metadata->>'dcs_request_id', '') = dr_appr.id::text");
+                });
+            }
+        });
+    }
+
+    /**
+     * Keep a received copy off the office masterlist while its DCS appraisal is still pending.
+     */
+    protected static function excludePendingAppraisal($query, int $officeId): void
+    {
+        $perms = auth()->user()?->permissions;
+        if (! $perms || (! $perms->is_sadm && ! $perms->can_access_rdp)) {
+            return;
+        }
+        if ($officeId < 1 || ! Schema::hasTable('rdp_received_documents')) {
+            return;
+        }
+
+        $officeTbl = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $officeCode = DB::table($officeTbl)->where('id', $officeId)->value('office_code');
+        if (! is_string($officeCode) || trim($officeCode) === '') {
+            return;
+        }
+
+        $query->whereNotExists(function ($q) use ($officeCode) {
+            $q->select(DB::raw(1))
+                ->from('rdp_received_documents as rdp_hold')
+                ->where('rdp_hold.source_subsystem', 'DCS')
+                ->where('rdp_hold.status', 'pending')
+                ->whereRaw('LOWER(rdp_hold.target_office) = ?', [strtolower(trim($officeCode))])
+                ->whereColumn('rdp_hold.document_code', 'ml.doc_no');
+        });
     }
 
     /**
@@ -4511,7 +4667,25 @@ class OfficeIntakeHelper
 
         $receiverName = RegisterQueryHelper::currentUserDisplayName();
         $officeCode = RegisterQueryHelper::currentOfficeCode();
+        $appraisalWaiting = false;
         if ($officeCode) {
+            $perms = auth()->user()?->permissions;
+            $canAppraise = $perms && ($perms->is_sadm || $perms->can_access_rdp);
+            $appraisalWaiting = $canAppraise && $docNo !== '' && Schema::hasTable('rdp_received_documents')
+                && DB::table('rdp_received_documents')
+                    ->where('source_subsystem', 'DCS')
+                    ->where('status', 'pending')
+                    ->whereRaw('LOWER(document_code) = ?', [strtolower($docNo)])
+                    ->whereRaw('LOWER(target_office) = ?', [strtolower($officeCode)])
+                    ->exists();
+            if ($appraisalWaiting) {
+                DcsNotificationService::notifyAppraisalStillWaiting(
+                    $officeCode,
+                    $docNo,
+                    $title !== '' ? $title : null
+                );
+            }
+
             DcsNotificationService::notifyOfficeDocumentReceived(
                 $officeCode,
                 $receiverName,
@@ -4530,7 +4704,13 @@ class OfficeIntakeHelper
             $revNo
         );
 
-        return ['ok' => true, 'already' => false, 'message' => 'Document marked as received.'];
+        return [
+            'ok' => true,
+            'already' => false,
+            'message' => ! empty($appraisalWaiting)
+                ? 'Document marked as received. It stays on Incoming until you finish Appraisal.'
+                : 'Document marked as received.',
+        ];
     }
 
     /**

@@ -1448,7 +1448,7 @@ class RegisterPersistHelper
                 }
             }
 
-            $requestId = DB::table('dcs_document_requests')->insertGetId(array_filter([
+            $requestRow = [
                 'version_id' => $request->version_id,
                 'doc_type_id' => $request->doc_type_id,
                 'sub_type_id' => $request->sub_type_id ?: null,
@@ -1457,7 +1457,11 @@ class RegisterPersistHelper
                 'created_by' => $userId,
                 'created_at' => $now,
                 'updated_at' => $now,
-            ], fn ($v) => $v !== null));
+            ];
+            if (Schema::hasColumn('dcs_document_requests', 'appraisal_opt_in')) {
+                $requestRow['appraisal_opt_in'] = ! $saveAsDraft && (string) $request->input('open_appraisal') === '1';
+            }
+            $requestId = DB::table('dcs_document_requests')->insertGetId(array_filter($requestRow, fn ($v) => $v !== null));
 
             $docTypeId = $request->doc_type_id;
             $checkedChecklists = self::withRequiredMasterlistChecklist(
@@ -1936,7 +1940,8 @@ class RegisterPersistHelper
                 OfficeIntakeHelper::reconcileClaimedIntakesWithRegistrations();
             }
 
-            if (! $saveAsDraft && $docNo !== '') {
+            $holdForAppraisal = (string) $request->input('open_appraisal') === '1';
+            if (! $saveAsDraft && $docNo !== '' && ! $holdForAppraisal) {
                 $registrarName = RegisterQueryHelper::currentUserDisplayName();
                 $revNo = isset($savedMl->revise_no) ? (int) $savedMl->revise_no : null;
                 $actorOffice = RegisterQueryHelper::currentOfficeCode();
@@ -2004,6 +2009,11 @@ class RegisterPersistHelper
                 if ($leaveTo) {
                     return redirect()->to($leaveTo)->with('success', $successMessage);
                 }
+            }
+
+            $appraisalRedirect = \App\Services\RdpIntakeService::redirectToAdminAppraisal($request, (int) $requestId, $successMessage);
+            if (! $saveAsDraft && $appraisalRedirect) {
+                return $appraisalRedirect;
             }
 
             return redirect()->route('dcs.register.edit', $requestId)
@@ -3062,6 +3072,7 @@ class RegisterPersistHelper
                     ->orWhere('ml.revision_status', '');
             });
         RegisterQueryHelper::applyNotDeleted($activeTipQuery, 'dr');
+        RegisterQueryHelper::applyExcludeDrafts($activeTipQuery, 'dr');
         if ($subTypeId) {
             $activeTipQuery->where('dr.sub_type_id', $subTypeId);
         } else {
@@ -3139,7 +3150,7 @@ class RegisterPersistHelper
 
         $tipId = (int) $activeTip->id;
 
-        DB::table('dcs_masterlist_registration')
+        $obsoleteOthers = DB::table('dcs_masterlist_registration')
             ->whereIn('doc_no', $familyNos)
             ->whereIn('request_id', $requestIds)
             ->where(function ($q) {
@@ -3147,8 +3158,13 @@ class RegisterPersistHelper
                     ->orWhereNull('revision_status')
                     ->orWhere('revision_status', '');
             })
-            ->where('id', '!=', $tipId)
-            ->update(['revision_status' => 'obsolete', 'updated_at' => now()]);
+            ->where('id', '!=', $tipId);
+        if (Schema::hasColumn('dcs_document_requests', 'is_draft')) {
+            $obsoleteOthers->whereNotIn('request_id', function ($q) {
+                $q->select('id')->from('dcs_document_requests')->where('is_draft', true);
+            });
+        }
+        $obsoleteOthers->update(['revision_status' => 'obsolete', 'updated_at' => now()]);
 
         DB::table('dcs_masterlist_registration')
             ->where('id', $tipId)

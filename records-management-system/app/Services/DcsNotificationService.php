@@ -154,7 +154,25 @@ class DcsNotificationService
             $message = 'Your office has a new controlled document to receive.';
         }
 
-        static::createNotification($officeCode, $message, '/dcs/office/incoming');
+        $url = '/dcs/office/incoming';
+        if ($docNo !== '') {
+            $url .= '?doc=' . rawurlencode($docNo);
+        }
+
+        static::createNotification($officeCode, $message, $url);
+    }
+
+    public static function notifyAppraisalStillWaiting(string $officeCode, string $docNo, ?string $docTitle = null): void
+    {
+        $docNo = trim($docNo);
+        $title = trim((string) $docTitle);
+        $label = $title !== '' && $docNo !== ''
+            ? "\"{$title}\" ({$docNo})"
+            : ($title !== '' ? "\"{$title}\"" : $docNo);
+        $message = "Appraisal is still waiting for {$label}. It stays on Incoming until you create the record.";
+        $url = '/dcs/office/incoming' . ($docNo !== '' ? '?doc=' . rawurlencode($docNo) : '');
+
+        static::createNotification($officeCode, $message, $url);
     }
 
     public static function notifyOfficeDocumentReceived(

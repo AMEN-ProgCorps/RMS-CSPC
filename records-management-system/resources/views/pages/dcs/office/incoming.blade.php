@@ -6,7 +6,9 @@
 
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
+use App\Services\RdpIntakeService;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Volt\Component;
@@ -44,11 +46,16 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
         }
     }
 
+    #[On('office-incoming-refresh')]
+    public function refreshIncoming(): void
+    {
+    }
+
     public function markReceived(int $requestId): void
     {
         OfficeIntakeHelper::assertCanAccessIntake();
         $result = OfficeIntakeHelper::markOfficeDocumentReceived($requestId);
-        $pending = OfficeIntakeHelper::officeDocumentTotal(null, 'pending');
+        $pending = OfficeIntakeHelper::officeIncomingAttentionTotal();
 
         $this->dispatch('office-incoming-count', count: $pending);
         $this->dispatch('dcs-toast', message: $result['message'], type: $result['ok'] ? 'success' : 'error');
@@ -70,9 +77,35 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
             : OfficeIntakeHelper::documentGroupLabel($active);
 
         $rows = OfficeIntakeHelper::listOfficeDocuments($active, null, 'pending');
-        $activeCount = $active === 'all'
-            ? $total
-            : (int) (collect($groups)->firstWhere('key', $active)['count'] ?? count($rows));
+        $canAppraise = (bool) (auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp);
+        $receivedRows = $canAppraise
+            ? OfficeIntakeHelper::listOfficeDocuments($active, null, 'received_for_appraisal')
+            : [];
+        $appraisalUrls = $canAppraise
+            ? RdpIntakeService::pendingUrlsForOffice(
+                RegisterQueryHelper::currentOfficeCode(),
+                array_column($receivedRows, 'doc_no')
+            )
+            : [];
+        $seen = [];
+        foreach ($rows as $row) {
+            $seen[(int) ($row['request_id'] ?? 0)] = true;
+        }
+        foreach ($receivedRows as $row) {
+            $requestId = (int) ($row['request_id'] ?? 0);
+            $url = $appraisalUrls[$row['doc_no'] ?? ''] ?? null;
+            if ($requestId < 1 || isset($seen[$requestId]) || $url === null) {
+                continue;
+            }
+            $row['appraisal_url'] = $url;
+            $row['can_receive'] = false;
+            $rows[] = $row;
+            $seen[$requestId] = true;
+        }
+        if ($active === 'all') {
+            $total = count($rows);
+        }
+        $activeCount = count($rows);
 
         return [
             'groups' => $groups,
@@ -96,7 +129,12 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
                 <p>
                     Controlled documents distributed to
                     <strong>{{ $officeName }}</strong>
-                    that are waiting to be marked received. After receipt, they move to
+                    that are waiting to be marked received.
+                    @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp)
+                        After receipt, Appraisal stays here until the record is created, then the document moves to the
+                    @else
+                        After receipt, they move to the
+                    @endif
                     <a href="{{ route('dcs.office.documents', ['type' => 'all'], absolute: false) }}">Masterlist</a>.
                 </p>
             </div>
@@ -110,6 +148,9 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
         @endif
         @if(session('info'))
             <div class="ofi-alert">{{ session('info') }}</div>
+        @endif
+        @if(collect($rows)->contains(fn ($row) => !empty($row['appraisal_url'])))
+            <div class="ofi-alert">These documents stay on Incoming, and the notice stays, until you finish Appraisal.</div>
         @endif
 
         @unless(auth()->user()?->enableTopTabs() ?? true)
@@ -180,7 +221,9 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
                                     <td>{{ $row['effectivity_date'] ?? '—' }}</td>
                                     <td>{{ ($row['pages'] ?? '') !== '' ? $row['pages'] : '—' }}</td>
                                     <td class="ofi-receive-cell">
-                                        @if(!empty($row['can_receive']) && (int) ($row['request_id'] ?? 0) > 0)
+                                        @if(!empty($row['appraisal_url']) && empty($row['can_receive']))
+                                            <a href="{{ $row['appraisal_url'] }}" class="ofi-btn ofi-btn-sm primary">Appraisal</a>
+                                        @elseif(!empty($row['can_receive']) && (int) ($row['request_id'] ?? 0) > 0)
                                             <button
                                                 type="button"
                                                 class="ofi-btn ofi-btn-sm primary"

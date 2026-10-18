@@ -50,7 +50,7 @@
         @if($isLimitedDcs && $canOfficeIntake)
             @php
                 $officeDocGroups = \App\Helpers\OfficeIntakeHelper::officeDocumentGroups(null, false, 'received');
-                $incomingCount = \App\Helpers\OfficeIntakeHelper::officeDocumentTotal(null, 'pending');
+                $incomingCount = \App\Helpers\OfficeIntakeHelper::officeIncomingAttentionTotal();
                 $activeDocType = request()->query('type', 'all');
             @endphp
             <li class="nav-item {{ request()->routeIs('dcs.office.incoming') ? 'active' : '' }}">

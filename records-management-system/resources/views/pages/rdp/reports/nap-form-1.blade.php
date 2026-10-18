@@ -1655,9 +1655,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         // Pre-load DCS revision / obsolete records to detect "Revised" footprint
         $dcsObsoleteDocs = [];
         if (\Illuminate\Support\Facades\Schema::hasTable('dcs_masterlist_registration')) {
-            $dcsObsoleteDocs = DB::table('dcs_masterlist_registration')
-                ->where('revision_status', 'obsolete')
-                ->pluck('doc_no')
+            $dcsObsoleteDocs = DB::table('dcs_masterlist_registration as ml')
+                ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+                ->where('ml.revision_status', 'obsolete')
+                ->where(function ($q) {
+                    $q->where('dr.is_draft', false)->orWhereNull('dr.is_draft');
+                })
+                ->pluck('ml.doc_no')
                 ->map(fn($v) => mb_strtolower(trim((string)$v)))
                 ->filter()
                 ->unique()

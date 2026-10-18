@@ -37,7 +37,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 @if($docRequest)
 @php
     $reviseNo = (int) (($masterlist->revise_no ?? 0));
-    $allowsRetrieval = $reviseNo > 0;
+    $versionName = strtolower((string) \Illuminate\Support\Facades\DB::table('dcs_version_type')->where('id', $docRequest->version_id ?? 0)->value('version_name'));
+    $allowsRetrieval = str_contains($versionName, 'revis');
     $canEditDocument = (bool) ($can_edit ?? false);
     $readOnly = (bool) ($read_only ?? ! $canEditDocument);
     $isDraftDoc = ! empty($docRequest->is_draft);
@@ -83,6 +84,9 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
         setSyllabiStep(step) { this.syllabiStep = Number(step) === 2 ? 2 : 1; window.syllabiCurrentStep = this.syllabiStep; },
         closeReview() {
             if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
+            window.__openAppraisalAfterSave = false;
+            const appraisalFlag = document.getElementById('openAppraisal');
+            if (appraisalFlag) appraisalFlag.value = '0';
             this.reviewOpen = false;
             const el = document.getElementById('dcsEditRoot');
             if (el) el.style.overflow = '';
@@ -123,6 +127,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
             <input type="hidden" id="insertShiftDocNo" name="insert_shift_doc_no" value="">
             <input type="hidden" id="insertShiftRenameLetters" name="insert_shift_rename_letters" value="0">
             <input type="hidden" id="saveAsDraft" name="save_as_draft" value="0">
+            <input type="hidden" id="openAppraisal" name="open_appraisal" value="0">
             <input type="hidden" name="has_existing_masterlist_scan" value="{{ !empty($masterlist?->scanned_masterlist) ? '1' : '0' }}">
             @csrf
             @method('PUT')
@@ -313,7 +318,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     </div>
                     <div class="reg-field">
                         <div id="supersedeDocResults" class="reg-reldocs-dropdown" style="display:none;"></div>
-                        <p id="supersedeDocPicked" class="reg-number-hint" @if(!$recurSource) hidden @endif>@if($recurSource){{ $recurSource['doc_no'] }} — {{ $recurSource['doc_title'] }} (Rev {{ $recurSource['revise_no'] }}, {{ $recurSource['status'] }}) was superseded.@endif</p>
+                        <p id="supersedeDocPicked" class="reg-number-hint" @if(!$recurSource) hidden @endif>@if($recurSource){{ $recurSource['doc_no'] }} — {{ $recurSource['doc_title'] }} (Rev {{ $recurSource['revise_no'] }}, {{ $recurSource['status'] }}) {{ strtolower((string) ($recurSource['status'] ?? '')) === 'latest' ? 'stays the current copy until this recurring document is saved.' : 'was superseded.' }}@endif</p>
                         <button type="button" id="supersedeReselect" hidden><i class="fa-solid fa-arrow-right-arrow-left"></i> Change document</button>
                     </div>
                     <div class="reg-field reg-revision-table" id="supersedeHistoryField" @if($recurPreviousDocuments->isEmpty()) hidden @endif>
@@ -800,7 +805,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                 </div>
             </section>
 
-            <!-- ═══ SECTION 4 — RETRIEVAL (only for revise_no > 0) ═══ -->
+            <!-- ═══ SECTION 4 — RETRIEVAL (only when the version type is Revise) ═══ -->
             <section class="reg-card" id="section-4" style="display: {{ ($allowsRetrieval && ($retrieval || $retrievalOffices->isNotEmpty() || ($retrievedOfficesHidden ?? collect())->isNotEmpty())) ? 'block' : 'none' }};">
                 <div class="reg-card-header">
                     <span>Document Retrieval</span>
@@ -1032,6 +1037,14 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     </a>
                 </div>
                 <div class="reg-actions-right">
+                    @php
+                        $appraisalOptIn = \Illuminate\Support\Facades\Schema::hasColumn('dcs_document_requests', 'appraisal_opt_in')
+                            && (bool) \Illuminate\Support\Facades\DB::table('dcs_document_requests')->where('id', (int) ($requestId ?? 0))->value('appraisal_opt_in');
+                        $appraisalOpen = empty($isDraftDoc)
+                            && $appraisalOptIn
+                            && isset($distributionOffices) && $distributionOffices->isNotEmpty()
+                            && ! \App\Services\RdpIntakeService::requestAlreadyForwarded((int) ($requestId ?? 0));
+                    @endphp
                     @unless($readOnly)
                     <p id="regNoChangesHint" class="reg-no-changes-hint" hidden>
                         <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
@@ -1042,10 +1055,17 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                         <i class="fa-solid fa-file-lines"></i> Generate
                     </button>
                     @unless($readOnly)
+                    @if(!empty($isDraftDoc))
                     <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                         <i class="fa-regular fa-floppy-disk"></i> Save Draft
                     </button>
-                    <button type="button" id="btnUpdateDocument" class="reg-btn reg-btn-save" onclick="confirmSave()">
+                    @endif
+                    @if($appraisalOpen)
+                    <a href="{{ route('rdp.add-records.inventory-and-appraisal', ['dcs_request_id' => $requestId]) }}" class="reg-btn reg-btn-generate">
+                        <i class="fa-solid fa-clipboard-check"></i> Appraisal
+                    </a>
+                    @endif
+                    <button type="button" id="btnUpdateDocument" class="reg-btn reg-btn-save" onclick="window.__openAppraisalAfterSave=false; confirmSave()">
                         <i class="fa-solid fa-floppy-disk"></i> Update Document
                     </button>
                     @endunless
@@ -1513,7 +1533,9 @@ function restoreOfficeToRetrievalPending(officeId, officeName, copies) {
     }
     updateTotal('retrievalTotal', 'retrievalBody');
     const retSection = document.getElementById('section-4');
-    if (retSection) retSection.style.display = 'block';
+    if (retSection && (typeof allowsDocumentRetrieval !== 'function' || allowsDocumentRetrieval())) {
+        retSection.style.display = 'block';
+    }
 }
 
 function maybeRestoreDistOfficeToRetrieval(tr) {
@@ -2064,16 +2086,19 @@ document.addEventListener("DOMContentLoaded", async function () {
         }
 
         function fieldKey(el) {
+            const name = el.name || '';
+            if (name.endsWith('[]')) return '';
+            const id = el.id || '';
             if (el.type === 'checkbox') {
-                return 'cb|' + (el.name || el.id) + '|' + (el.value || '');
+                return 'cb|' + name + '|' + (el.value || '') + '|' + id;
             }
             if (el.type === 'radio') {
-                return 'radio|' + (el.name || el.id);
+                return 'radio|' + name + '|' + id;
             }
             if (el.type === 'file') {
-                return 'file|' + (el.name || el.id);
+                return 'file|' + (id || name);
             }
-            return 'val|' + (el.name || el.id);
+            return 'val|' + (id || name);
         }
 
         function readFieldValue(el) {
@@ -2082,7 +2107,22 @@ document.addEventListener("DOMContentLoaded", async function () {
                 return document.querySelector('input[name="' + CSS.escape(el.name) + '"]:checked')?.value || '';
             }
             if (el.type === 'file') return '';
-            return el.value ?? '';
+            return String(el.value ?? '').replace(/\s+/g, ' ').trim();
+        }
+
+        function collectionSignature(form) {
+            const groups = {};
+            form.querySelectorAll('input, select, textarea').forEach((el) => {
+                const name = el.name || '';
+                if (!name.endsWith('[]') || shouldIgnoreField(el)) return;
+                if (!groups[name]) groups[name] = [];
+                groups[name].push(readFieldValue(el));
+            });
+            const sig = {};
+            Object.keys(groups).sort().forEach((name) => {
+                sig[name] = groups[name].slice().sort().join('\u0001');
+            });
+            return sig;
         }
 
         function captureInitialState() {
@@ -2113,6 +2153,10 @@ document.addEventListener("DOMContentLoaded", async function () {
             initialState['officeIds|distBody'] = distIds.join(',');
             ['masterlistOfficeIds[]', 'drfSourceUnit[]', 'dcnSourceUnit[]', 'masterlistOriginatorNames[]'].forEach((name) => {
                 initialState['source|' + name] = sourceHiddenIds(name).join(',');
+            });
+            const collections = collectionSignature(form);
+            Object.keys(collections).forEach((name) => {
+                initialState['collection|' + name] = collections[name];
             });
         }
 
@@ -2181,6 +2225,17 @@ document.addEventListener("DOMContentLoaded", async function () {
                 const baseline = initialState['source|' + name];
                 if (baseline === undefined) return;
                 if (baseline !== sourceHiddenIds(name).join(',')) dirty = true;
+            });
+
+            const collections = collectionSignature(form);
+            Object.keys(initialState).forEach((key) => {
+                if (dirty || !key.startsWith('collection|')) return;
+                const name = key.slice('collection|'.length);
+                if ((collections[name] || '') !== initialState[key]) dirty = true;
+            });
+            Object.keys(collections).forEach((name) => {
+                if (dirty) return;
+                if (initialState['collection|' + name] === undefined && collections[name] !== '') dirty = true;
             });
 
             return dirty;
@@ -2866,7 +2921,9 @@ function applyRevisedDocumentContext(data, options = {}) {
         });
         updateTotal('retrievalTotal', 'retrievalBody');
         const retSection = document.getElementById('section-4');
-        if (retSection) retSection.style.display = 'block';
+        if (retSection && (typeof allowsDocumentRetrieval !== 'function' || allowsDocumentRetrieval())) {
+            retSection.style.display = 'block';
+        }
     }
 
     applyRevisedApprovalFromPrevious(data);
@@ -3320,8 +3377,12 @@ async function restoreSupersedeHistory() {
         const picked = document.getElementById('supersedeDocPicked');
         if (picked) {
             picked.hidden = false;
+            var sourceStatus = revisionStatusText(source.revision_status);
             picked.textContent = (source.doc_no || fromNo) + ' — ' + (source.doc_title || 'Untitled')
-                + ' (Rev ' + (source.revise_no ?? 0) + ', ' + revisionStatusText(source.revision_status) + ') was superseded.';
+                + ' (Rev ' + (source.revise_no ?? 0) + ', ' + sourceStatus + ') '
+                + (sourceStatus === 'Latest'
+                    ? 'stays the current copy until this recurring document is saved.'
+                    : 'was superseded.');
         }
     }
     await showSupersedeDocumentHistory(selfRow || {
@@ -5363,7 +5424,7 @@ window.toggleSection = function (checklistId, show) {
         if (drfSection) drfSection.style.display = 'none';
         return;
     }
-    // Retrieval only exists once the document has been revised (revise_no > 0)
+    // Retrieval is only for a Revise registration, not New or Recur.
     if (checklistId === 4 && !allowsDocumentRetrieval()) {
         const ret = document.getElementById('section-4');
         if (ret) ret.style.display = 'none';
@@ -8348,6 +8409,8 @@ window.submitForm = function () {
     }
     const draftFlag = document.getElementById('saveAsDraft');
     if (draftFlag) draftFlag.value = '0';
+    const appraisalFlag = document.getElementById('openAppraisal');
+    if (appraisalFlag) appraisalFlag.value = window.__openAppraisalAfterSave ? '1' : '0';
     syncChecklistHiddenInputs();
     if (typeof syncSyllabiContextHidden === 'function') {
         syncSyllabiContextHidden();

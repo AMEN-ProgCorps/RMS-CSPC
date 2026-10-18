@@ -207,6 +207,10 @@
 
     <x-nav.dcs />
 
+    @if(\App\Helpers\RegisterQueryHelper::canAccessOfficeIntake() && !\App\Helpers\RegisterQueryHelper::canBrowseAllOfficeIntake())
+        <livewire:components.dcs.incoming-live />
+    @endif
+
     @auth
         <livewire:components.session-guard />
     @endauth

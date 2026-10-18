@@ -8,10 +8,16 @@ use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
 
 new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class extends Component {
+    #[On('office-incoming-refresh')]
+    public function refreshOfficeIncoming(): void
+    {
+    }
+
     public function with(): array
     {
         $userDisplayName = trim(implode(' ', array_filter([
@@ -46,7 +52,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             $dcnRows = OfficeIntakeHelper::listMyDcn();
             $docGroups = OfficeIntakeHelper::officeDocumentGroups(null, false, 'received');
             $docTotal = OfficeIntakeHelper::officeDocumentTotal(null, 'received');
-            $incomingTotal = OfficeIntakeHelper::officeDocumentTotal(null, 'pending');
+            $incomingTotal = OfficeIntakeHelper::officeIncomingAttentionTotal();
 
             return [
                 'isDcsPathPending' => false,

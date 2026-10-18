@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-rms-error="1">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -21,26 +21,23 @@
         ];
         $color = $colors[$error->status] ?? ($error->status >= 500 ? '#dc2626' : '#1d4ed8');
 
-        $loginPath = '/';
-        $currentPath = '/'.ltrim(request()->path(), '/');
-        $currentPath = rtrim($currentPath, '/') ?: '/';
+        $retryUrl = '/'.ltrim(request()->path(), '/');
+        $query = request()->getQueryString();
+        if (is_string($query) && $query !== '') {
+            $retryUrl .= '?'.$query;
+        }
         $referer = (string) request()->headers->get('referer', '');
-        $refererPath = parse_url($referer, PHP_URL_PATH);
-        $refererPath = is_string($refererPath) ? (rtrim($refererPath, '/') ?: '/') : '';
         $refererHost = parse_url($referer, PHP_URL_HOST);
+        $refererPath = parse_url($referer, PHP_URL_PATH);
+        $refererQuery = parse_url($referer, PHP_URL_QUERY);
+        $refererUrl = is_string($refererPath) ? $refererPath : '';
+        if ($refererUrl !== '' && is_string($refererQuery) && $refererQuery !== '') {
+            $refererUrl .= '?'.$refererQuery;
+        }
         $sameHost = $referer !== '' && $refererHost === request()->getHost();
-        $path = request()->path();
-        $home = match (true) {
-            str_starts_with($path, 'dcs') => url('/dcs'),
-            str_starts_with($path, 'dts') => url('/dts'),
-            str_starts_with($path, 'rdp') => url('/rdp'),
-            str_starts_with($path, 'admin') => url('/admin/console'),
-            str_starts_with($path, 'profile') => url('/profile'),
-            default => '',
-        };
-        $backUrl = ($sameHost && $refererPath !== '' && $refererPath !== $loginPath && $refererPath !== $currentPath)
-            ? $referer
-            : $home;
+        $backUrl = ($sameHost && $refererUrl !== '' && $refererUrl !== '/' && $refererUrl !== $retryUrl)
+            ? $refererUrl
+            : '';
     @endphp
     <title>{{ $error->title }}</title>
     <style>
@@ -72,6 +69,18 @@
         strong { display: block; margin-top: 6px; font-size: 1.15rem; }
         p { margin: 8px 0 0; color: #475569; line-height: 1.5; }
         .ref { margin-top: 14px; font-weight: 700; color: var(--err); }
+        .detail {
+            margin-top: 14px;
+            padding: 10px 12px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            color: #334155;
+            font-size: 0.85rem;
+            line-height: 1.45;
+            word-break: break-word;
+        }
+        .detail strong { display: inline; margin: 0; font-size: inherit; }
         a {
             display: inline-block;
             margin-top: 16px;
@@ -87,35 +96,57 @@
         <p class="status">Error {{ $error->status }}</p>
         <strong>{{ $error->title }}</strong>
         <p>{{ $error->message }}</p>
+        @if($error->file)
+            <p class="detail"><strong>File:</strong> {{ $error->file }}@if($error->line) on line {{ $error->line }}@endif</p>
+        @endif
         @if($error->reference)
             <p class="ref">Reference {{ $error->reference }}</p>
         @endif
-        <a href="{{ $backUrl !== '' ? $backUrl : '#' }}" id="rmsErrorBack" data-fallback="{{ $backUrl }}">Back to the system</a>
+        <a href="{{ $backUrl !== '' ? $backUrl : '#' }}" id="rmsErrorBack" data-back="{{ $backUrl }}" data-retry="{{ $retryUrl }}">Back to the system</a>
     </main>
     <script>
         (function () {
             var link = document.getElementById('rmsErrorBack');
-            if (!link) return;
-            link.addEventListener('click', function (event) {
-                var fallback = link.getAttribute('data-fallback') || '';
-                var referrer = document.referrer || '';
-                var referrerPath = '';
-                try {
-                    referrerPath = referrer ? new URL(referrer).pathname.replace(/\/$/, '') || '/' : '';
-                } catch (e) {
-                    referrerPath = '';
-                }
-                var cameFromLogin = referrerPath === '/' || referrerPath === '';
-                var sameSite = referrer.indexOf(location.origin) === 0;
-                if (sameSite && !cameFromLogin && referrerPath !== location.pathname.replace(/\/$/, '')) {
+            var retry = (link && link.getAttribute('data-retry')) || (location.pathname + location.search);
+            if (retry.charAt(0) !== '/' || retry.indexOf('//') === 0) {
+                retry = location.pathname + location.search;
+            }
+            function storedPage(key) {
+                try { return sessionStorage.getItem(key) || ''; } catch (e) { return ''; }
+            }
+            function usable(url) {
+                return !!url && url.charAt(0) === '/' && url.indexOf('//') !== 0 && url !== '/' && url !== retry;
+            }
+            var back = storedPage('rmsLastGoodPage');
+            if (!usable(back)) back = storedPage('rmsPreviousPage');
+            if (!usable(back)) back = (link && link.getAttribute('data-back')) || '';
+            if (!usable(back)) back = '';
+            if (link) {
+                link.setAttribute('href', back || '#');
+                link.addEventListener('click', function (event) {
+                    if (back) return;
                     event.preventDefault();
-                    history.back();
-                    return;
-                }
-                if (!fallback) {
-                    event.preventDefault();
-                }
-            });
+                    if (history.length > 1) history.back();
+                });
+            }
+
+            var checking = false;
+            setInterval(function () {
+                if (checking || document.visibilityState === 'hidden') return;
+                checking = true;
+                fetch(retry, { credentials: 'same-origin', headers: { 'Accept': 'text/html' } })
+                    .then(function (response) {
+                        return response.text().then(function (html) {
+                            var path = '';
+                            try { path = new URL(response.url, location.origin).pathname; } catch (e) { path = ''; }
+                            if (path === '/login' || path === '/portal' || path === '/') return;
+                            var stillError = response.status >= 400 || (html && html.indexOf('data-rms-error="1"') !== -1);
+                            if (!stillError && response.ok) location.replace(retry);
+                        });
+                    })
+                    .catch(function () {})
+                    .then(function () { checking = false; });
+            }, 4000);
         })();
     </script>
 </body>

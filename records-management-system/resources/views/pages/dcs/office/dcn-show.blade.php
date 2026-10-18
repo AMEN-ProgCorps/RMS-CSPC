@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: One office DCN. Print unlocks on this page when RFIO sets rfio_print_notified_at.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;

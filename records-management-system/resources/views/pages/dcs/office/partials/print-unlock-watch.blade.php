@@ -1,3 +1,6 @@
+{{--
+DCS file: Polls dcs.api.office-intake.print-ready every 2 seconds and replaces the locked Print control. The route must stay on EnforceDcsIntakeAllowlist or an office user gets 403 and the button never unlocks.
+--}}
 @if(! ($canPrint ?? false))
 <script>
 (function () {

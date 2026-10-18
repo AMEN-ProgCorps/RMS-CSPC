@@ -21,9 +21,18 @@
             window.RMS_NOTIF_TOGGLE_KEY = notifToggleKey;
             var chatifyToggleKey = localStorage.getItem('rms-chatify-toggle-key') || '{{ auth()->user()?->chatifyToggleKey() ?? "" }}';
             window.RMS_CHATIFY_TOGGLE_KEY = chatifyToggleKey;
-            // Follow Scroll is strictly disabled on DCS
-            window.RMS_DISABLE_FOLLOW_SCROLL = true;
-            window.RMS_FOLLOW_SCROLL_ENABLED = false;
+            var followScrollEnabled = localStorage.getItem('rms-follow-scroll-enabled') !== null
+                ? localStorage.getItem('rms-follow-scroll-enabled') === 'true'
+                : {{ auth()->user()?->followScrollEnabled() ? 'true' : 'false' }};
+            window.RMS_FOLLOW_SCROLL_ENABLED = followScrollEnabled;
+            var followScrollSide = localStorage.getItem('rms-follow-scroll-side') !== null
+                ? localStorage.getItem('rms-follow-scroll-side') === 'true'
+                : {{ auth()->user()?->followScrollSide() ? 'true' : 'false' }};
+            window.RMS_FOLLOW_SCROLL_SIDE = followScrollSide;
+            var followScrollVertical = localStorage.getItem('rms-follow-scroll-vertical') !== null
+                ? localStorage.getItem('rms-follow-scroll-vertical') === 'true'
+                : {{ auth()->user()?->followScrollVertical() ? 'true' : 'false' }};
+            window.RMS_FOLLOW_SCROLL_VERTICAL = followScrollVertical;
             var sidebar = localStorage.getItem('sidebarState');
             if (!sidebar) {
                 var legacyDcs = localStorage.getItem('dcs-sidebar-collapsed');

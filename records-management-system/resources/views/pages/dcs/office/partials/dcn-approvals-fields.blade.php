@@ -1,3 +1,6 @@
+{{--
+DCS file: Repeatable approver name and position rows on the office DCN.
+--}}
 @php
     $approvalRows = $approvalRows ?? [];
     if ($approvalRows === []) {

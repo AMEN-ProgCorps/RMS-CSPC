@@ -1,3 +1,6 @@
+{{--
+DCS file: Read-only DCN summary on the admin request screen.
+--}}
 @php
     $departmentParts = \App\Helpers\OfficeIntakeHelper::parseDepartmentDate($dcn);
 @endphp

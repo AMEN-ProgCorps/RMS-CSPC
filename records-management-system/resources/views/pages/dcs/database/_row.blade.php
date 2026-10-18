@@ -1,3 +1,6 @@
+{{--
+DCS file: One database table row. Originator names that were saved comma-separated render through x-dcs.originator-lines.
+--}}
 <td>{{ $r['doc_no'] }}</td>
 <td>{{ $r['rev_no'] }}</td>
 <td class="db-title-cell" title="{{ $r['title'] }}">

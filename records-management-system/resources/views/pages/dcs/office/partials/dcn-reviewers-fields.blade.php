@@ -1,3 +1,6 @@
+{{--
+DCS file: Repeatable reviewer name rows on the office DCN.
+--}}
 @php
     $reviewerRows = $reviewerRows ?? [];
     if ($reviewerRows === []) {

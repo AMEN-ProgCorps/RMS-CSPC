@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Document database. Parents are the latest copy. Superseded and obsolete copies are children. The revision filter keeps a row only when its own status matches.
+ */
+
 use App\Helpers\DcsDatabaseColumns;
 use App\Helpers\RegisterQueryHelper;
 use App\Models\PersonalSetting;

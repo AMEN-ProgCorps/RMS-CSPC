@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Review queue for scans and registrations before they are fully controlled.
+ */
+
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;

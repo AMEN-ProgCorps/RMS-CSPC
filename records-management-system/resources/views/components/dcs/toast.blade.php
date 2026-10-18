@@ -1,3 +1,6 @@
+{{--
+DCS file: DCS toast. Same look on every DCS screen.
+--}}
 @props([
     'message' => null,
     'type' => null,

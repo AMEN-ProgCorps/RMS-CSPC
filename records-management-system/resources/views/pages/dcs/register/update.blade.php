@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Update an existing registration. Writes go through RegisterUpdateHelper.
+ */
+
 use App\Helpers\RegisterQueryHelper;
 use App\Helpers\RegisterUpdateHelper;
 use Illuminate\Http\RedirectResponse;

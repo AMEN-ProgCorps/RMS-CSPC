@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Stamping. One row per document family. The stamp is applied to that family's scan.
+ */
+
 use App\Helpers\RegisterQueryHelper;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;

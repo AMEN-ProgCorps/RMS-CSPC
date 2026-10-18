@@ -8,13 +8,6 @@ use PHPUnit\Framework\TestCase;
 
 class DcsFamilyStackTest extends TestCase
 {
-    public static function setUpBeforeClass(): void
-    {
-        if (! class_exists(RegisterQueryHelper::class, false)) {
-            require_once dirname(__DIR__, 2).'/resources/views/pages/dcs/logic/register-query.blade.php';
-        }
-    }
-
     public function test_obsolete_without_stack_stays_in_the_same_document_family(): void
     {
         $groups = RegisterQueryHelper::foldOrphanStatusCopies(collect([

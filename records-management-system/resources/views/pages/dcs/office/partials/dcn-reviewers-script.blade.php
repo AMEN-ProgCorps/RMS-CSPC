@@ -1,3 +1,6 @@
+{{--
+DCS file: Adds and removes reviewer rows on the office DCN.
+--}}
 <script>
 (function () {
     const root = document.getElementById('ofiReviewers');

@@ -1,3 +1,6 @@
+{{--
+DCS file: Toolbar and modal for picking distribution offices and saving them as a group.
+--}}
 {{-- Shared toolbar + modal for distribution office multi-select / saved groups --}}
 <div class="reg-dist-toolbar" id="distOfficeToolbar">
     <div class="reg-dist-toolbar-actions">

@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Document Registration create screen. Sub-Type stays hidden when the document type has no subtypes. Revision history and the DCN document check load together.
+ */
+
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -6122,7 +6126,7 @@ function lockSupersedeFinderInputs(locked) {
 
 async function loadSupersedeFamily(doc) {
     if (!doc || !doc.request_id) return doc ? [doc] : [];
-    const params = new URLSearchParams({ request_id: String(doc.request_id) });
+    const params = new URLSearchParams({ request_id: String(doc.request_id), lineage: '1' });
     if (doc.doc_no) params.set('doc_no', doc.doc_no);
     const raw = await fetch('/dcs/api/documents/revisions?' + params.toString()).then(function (r) { return r.json(); });
     return Array.isArray(raw) && raw.length ? raw : (doc ? [doc] : []);
@@ -6154,6 +6158,10 @@ async function showSupersedeDocumentHistory(doc, options) {
         }
     }
     if (!revisions.length) revisions = [doc];
+    if (!options.excludeRequestId) {
+        const openId = document.getElementById('requestId')?.value;
+        if (openId) options.excludeRequestId = openId;
+    }
     if (options.excludeRequestId) {
         const currentId = String(options.excludeRequestId);
         revisions = revisions.filter(function (row) {

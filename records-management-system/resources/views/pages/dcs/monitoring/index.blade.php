@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Monitoring home. Uses the shared report browser with category monitoring.
+ */
+
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;

@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Document Registration edit screen. Same subtype and revision-history behavior as the create screen.
+ */
+
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -3189,7 +3193,7 @@ async function showSupersedeDocumentHistory(doc, options) {
     if (!revisions.length) {
         try {
             if (doc.request_id) {
-                const params = new URLSearchParams({ request_id: String(doc.request_id) });
+                const params = new URLSearchParams({ request_id: String(doc.request_id), lineage: '1' });
                 if (doc.doc_no) params.set('doc_no', doc.doc_no);
                 const raw = await fetch('/dcs/api/documents/revisions?' + params.toString()).then(r => r.json());
                 if (Array.isArray(raw)) revisions = raw;
@@ -3199,6 +3203,10 @@ async function showSupersedeDocumentHistory(doc, options) {
         }
     }
     if (!revisions.length) revisions = [doc];
+    if (!options.excludeRequestId) {
+        const openId = document.getElementById('requestId')?.value;
+        if (openId) options.excludeRequestId = openId;
+    }
     if (options.excludeRequestId) {
         const currentId = String(options.excludeRequestId);
         revisions = revisions.filter(function (row) {
@@ -3287,7 +3295,7 @@ async function restoreSupersedeHistory() {
     if (!requestId || !fromNo) return;
     let revisions = [];
     try {
-        const params = new URLSearchParams({ request_id: String(requestId), doc_no: fromNo });
+        const params = new URLSearchParams({ request_id: String(requestId), doc_no: fromNo, lineage: '1' });
         const raw = await fetch('/dcs/api/documents/revisions?' + params.toString()).then(r => r.json());
         if (Array.isArray(raw)) revisions = raw;
     } catch (e) {

@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: One office DRF. Print is locked until RFIO sends the print-and-sign notice, then print-unlock-watch.blade.php enables it without a reload.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;

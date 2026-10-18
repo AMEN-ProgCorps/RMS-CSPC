@@ -1,3 +1,6 @@
+{{--
+DCS file: On-screen Generate Report and Monitoring table. Masterlist originators use x-dcs.originator-lines. Document number, revision, title, and effectivity date use the center alignment class.
+--}}
 <main class="rpt-page" id="rptPage">
     <template x-teleport="body">
     <div class="rpt-filter-layer">

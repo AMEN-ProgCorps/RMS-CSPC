@@ -1,3 +1,6 @@
+{{--
+DCS file: Print layout for a distribution and retrieval sheet.
+--}}
 <!DOCTYPE html>
 <html lang="en">
 <head>

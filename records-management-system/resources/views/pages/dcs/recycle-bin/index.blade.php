@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Deleted registrations. RegisterUpdateHelper permanently removes rows older than one year.
+ */
+
 use App\Helpers\RegisterPersistHelper;
 use App\Helpers\RegisterQueryHelper;
 use App\Helpers\RegisterUpdateHelper;

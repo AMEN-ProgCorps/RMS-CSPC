@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Blocks a DCS screen when the account's module permission does not include it.
+ */
+
 namespace App\Http\Middleware;
 
 use App\Helpers\RegisterPersistHelper;

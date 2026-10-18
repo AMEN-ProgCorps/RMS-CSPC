@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Saved registration drafts for the current user.
+ */
+
 use App\Helpers\RegisterQueryHelper;
 use App\Helpers\RegisterUpdateHelper;
 use Illuminate\Http\RedirectResponse;

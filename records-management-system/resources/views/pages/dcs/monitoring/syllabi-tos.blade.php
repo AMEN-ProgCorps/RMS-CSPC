@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Syllabi and TOS monitoring table.
+ */
+
 use App\Helpers\SyllabiMonitoringHelper;
 use App\Helpers\RegisterQueryHelper;
 use Illuminate\Support\Facades\Cache;

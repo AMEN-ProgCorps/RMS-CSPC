@@ -10,11 +10,7 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $dcsBootstrap = resource_path('views/pages/dcs/logic/bootstrap.blade.php');
-        if (file_exists($dcsBootstrap)) {
-            require_once $dcsBootstrap;
-        }
-
+        // DCS helpers live in app/Helpers and autoload with the rest of App.
         // Replace Blade compiler so Docker/WSL utime failures on compiled views
         // do not take down the page (compiled content is already correct).
         $this->app->singleton('blade.compiler', function ($app) {

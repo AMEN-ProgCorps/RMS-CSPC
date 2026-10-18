@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: One office intake request. Review, then Proceed to Registration. Print-and-sign is a separate notice.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Illuminate\Http\RedirectResponse;

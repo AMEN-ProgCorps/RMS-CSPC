@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: DCS dashboard. Office users see intake steps. Admin DCS sees latest, superseded, and obsolete counts. Those chips open the database with ?revision=.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Illuminate\Support\Facades\DB;

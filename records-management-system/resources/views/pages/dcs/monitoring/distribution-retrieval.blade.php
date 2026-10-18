@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Distribution and Retrieval. Column widths are fixed. The subtype column is omitted when no row in the group has a subtype. Opening ?doc= selects that document.
+ */
+
 use App\Helpers\DistributionRetrievalMonitorHelper;
 use App\Helpers\RegisterQueryHelper;
 use App\Support\ErrorDiagnosis;

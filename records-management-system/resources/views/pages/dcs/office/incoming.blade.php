@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Documents sent to this office that are waiting to be received.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;

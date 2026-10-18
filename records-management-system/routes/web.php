@@ -1,7 +1,5 @@
 <?php
 
-require_once resource_path('views/pages/dcs/logic/bootstrap.blade.php');
-
 use App\Http\Controllers\ChatController;
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\CalendarHelper;

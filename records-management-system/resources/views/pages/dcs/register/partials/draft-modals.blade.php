@@ -1,3 +1,6 @@
+{{--
+DCS file: Confirm and leave-guard modals for registration drafts.
+--}}
 {{-- Draft confirm + leave-guard modals (Register create / edit) --}}
 <template x-teleport="body">
     <div class="reg-modal-overlay" id="regDraftConfirmModal" aria-hidden="true" onclick="if(event.target===this)closeDraftConfirmModal()">

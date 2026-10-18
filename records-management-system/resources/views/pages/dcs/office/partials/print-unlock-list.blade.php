@@ -1,3 +1,6 @@
+{{--
+DCS file: Same print-ready poll for the lock icons on My DRF and My DCN.
+--}}
 <script>
 (function () {
     var nodes = Array.prototype.slice.call(document.querySelectorAll('[data-print-locked]'));

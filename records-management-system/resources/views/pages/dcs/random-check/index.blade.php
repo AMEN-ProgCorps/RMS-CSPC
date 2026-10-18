@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Admin Random Check schedule and results. Visits are June and December.
+ */
+
 use App\Helpers\RandomCheckHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;

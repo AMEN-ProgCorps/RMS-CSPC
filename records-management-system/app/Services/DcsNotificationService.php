@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: DCS bell notices. Office intake print-and-sign and received-copy notices are created here. Received-copy opens Distribution and Retrieval with ?doc=.
+ */
+
 namespace App\Services;
 
 use Illuminate\Support\Facades\DB;

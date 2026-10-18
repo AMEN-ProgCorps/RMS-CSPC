@@ -1,3 +1,6 @@
+{{--
+DCS file: Splits a stored originator on commas and prints one name per line. Used by reports, the database, and office lists. The printed DRF and DCN do not use this component. They keep the comma-separated string on one line.
+--}}
 @php
     $raw = trim((string) ($name ?? ''));
     $lines = $raw === ''

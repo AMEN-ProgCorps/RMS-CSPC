@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Generate Report screen. The table markup is partials/report-browser.blade.php. Data cells are Arial 10pt.
+ */
+
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;

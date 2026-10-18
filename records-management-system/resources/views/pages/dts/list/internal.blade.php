@@ -2223,7 +2223,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                             <th>Received</th>
                                             <th>Forwarded</th>
                                             <th>Total Time</th>
-                                            <th>Action Need</th>
+                                            <th style="white-space: nowrap; min-width: 140px;">Action Need</th>
                                             <th>Notes</th>
                                             @if ($editingAll)
                                                 <th>Actions</th>
@@ -2258,7 +2258,7 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                                     @endif
                                                 </td>
                                                 <td>{{ $step->total_time_completed ?: '-' }}</td>
-                                                <td>
+                                                <td class="action-cell" style="white-space: nowrap; text-align: center;">
                                                     @if ($step->is_active_step && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
                                                         <select wire:model.live="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
                                                             @foreach($this->actionOptions as $opt)
@@ -2276,7 +2276,15 @@ new #[Layout('layouts.dts')] #[Title('DTS - Internal Transactions')] class exten
                                                             </div>
                                                         @endif
                                                     @else
-                                                        {{ ($selectedTransaction->status === 'completed' || !is_null($step->date_out)) ? ($step->action_needed ?: 'Finished') : ($step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending')) }}
+                                                        @if ($selectedTransaction->status === 'completed' || !is_null($step->date_out))
+                                                            <span style="background: #dcfce7; color: #166534; border: 1px solid #86efac; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; box-sizing: border-box;">
+                                                                ✓ {{ $step->action_needed ?: 'Finished' }}
+                                                            </span>
+                                                        @else
+                                                            <span style="background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; box-sizing: border-box;">
+                                                                {{ $step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending') }}
+                                                            </span>
+                                                        @endif
                                                     @endif
                                                 </td>
                                                 <td>

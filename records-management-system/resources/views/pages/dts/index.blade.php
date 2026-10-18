@@ -4116,7 +4116,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                             <th>Received</th>
                                             <th>Forwarded</th>
                                             <th>Total Time</th>
-                                            <th>Action Need</th>
+                                            <th style="white-space: nowrap; min-width: 140px;">Action Need</th>
                                             <th>Notes</th>
                                             @if ($editingAll)
                                                 <th>Actions</th>
@@ -4172,7 +4172,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                      @endif
                                                  </td>
                                                  <td>{{ ($step->total_time_completed ?? null) ?: '-' }}</td>
-                                                 <td>
+                                                 <td class="action-cell" style="white-space: nowrap; text-align: center;">
                                                      @if ($step->is_active_step && $canProcess && is_null($step->date_out) && $selectedTransaction->status !== 'completed')
                                                          <select wire:model.live="activeAction" class="receive-row-action-select" style="padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 500;">
                                                              @foreach($this->actionOptions as $opt)
@@ -4183,7 +4183,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                              <div style="margin-top: 6px;">
                                                                  <select wire:model="forwardToOfficeCode" style="width: 100%; padding: 4px 8px; border: 1.5px solid #3b82f6; border-radius: 6px; font-size: 12px; font-weight: 600; background: #eff6ff; color: #1e40af;">
                                                                      <option value="">-- Select Office --</option>
-                                                                     @foreach(\App\Services\DtsRoutingService::getAvailableTargetOffices(auth()->user()?->details?->office?->office_code) as $availOff)
+                                                                     @foreach(\App\Services\DtsRoutingService::getAvailableTargetOffices(auth()->user()?->details?->office?->office_code ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user())) as $availOff)
                                                                          <option value="{{ $availOff->office_code }}">{{ $availOff->office_code }} - {{ $availOff->office_name }}</option>
                                                                      @endforeach
                                                                  </select>
@@ -4191,15 +4191,15 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System')] class extends 
                                                          @endif
                                                      @else
                                                          @if ($isStepRevision)
-                                                             <span style="background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                                                             <span style="background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; box-sizing: border-box;">
                                                                  <i class="fa-solid fa-rotate-left"></i> Returned for Revision
                                                              </span>
                                                          @elseif ($selectedTransaction->status === 'completed' || !is_null($step->date_out))
-                                                             <span style="background: #dcfce7; color: #166534; border: 1px solid #86efac; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 700;">
+                                                             <span style="background: #dcfce7; color: #166534; border: 1px solid #86efac; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; box-sizing: border-box;">
                                                                  ✓ {{ $step->action_needed ?: 'Finished' }}
                                                              </span>
                                                          @else
-                                                             <span style="background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;">
+                                                             <span style="background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; box-sizing: border-box;">
                                                                  {{ $step->action_needed ?: ($step->date_in ? 'Ongoing' : 'Pending') }}
                                                              </span>
                                                          @endif

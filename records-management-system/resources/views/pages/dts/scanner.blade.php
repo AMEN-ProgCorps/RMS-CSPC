@@ -1450,7 +1450,7 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     </thead>
                     <tbody>
                         @foreach($sessionScans as $idx => $scan)
-                            <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+                            <tr class="session-scan-row" style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s;">
                                 <td style="padding: 12px 14px; color: #94a3b8; font-weight: 500; font-family: monospace;">{{ $scan['time'] }}</td>
                                 <td style="padding: 12px 14px; font-weight: 700; color: #0f172a; font-family: monospace;">{{ $scan['code'] }}</td>
                                 <td style="padding: 12px 14px;">
@@ -1546,48 +1546,210 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                 height: 240px !important;
             }
         }
+
+        /* Session scans table hover */
+        .session-scan-row:hover {
+            background-color: #f8fafc !important;
+        }
+
+        /* Available Documents Modal Styles & Hover */
+        .available-doc-item {
+            transition: all 0.15s ease;
+            cursor: pointer;
+        }
+        .available-doc-item:hover {
+            border-color: #0284c7 !important;
+            background-color: #f8fafc !important;
+            box-shadow: 0 4px 12px rgba(2, 132, 199, 0.08);
+        }
+
+        /* Dark Mode Overrides for Available Documents Modal */
+        [data-theme="dark"] .session-scan-row:hover {
+            background-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .available-modal-card {
+            background: #0f172a !important;
+            border-color: #334155 !important;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7) !important;
+        }
+
+        [data-theme="dark"] .available-modal-header {
+            background: #1e293b !important;
+            border-bottom-color: #334155 !important;
+        }
+
+        [data-theme="dark"] .available-modal-icon {
+            background: #0c4a6e !important;
+            color: #38bdf8 !important;
+        }
+
+        [data-theme="dark"] .available-modal-title {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .available-modal-desc {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .available-modal-close {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .available-modal-close:hover {
+            background: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .available-modal-toolbar {
+            background: #0f172a !important;
+            border-bottom-color: #1e293b !important;
+        }
+
+        [data-theme="dark"] .available-modal-tabs {
+            background: #1e293b !important;
+        }
+
+        [data-theme="dark"] .available-tab-btn {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .available-tab-btn.active {
+            background: #0f172a !important;
+            color: #f8fafc !important;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+        }
+
+        [data-theme="dark"] .available-search-input {
+            background-color: #1e293b !important;
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .available-search-input::placeholder {
+            color: #64748b !important;
+        }
+
+        [data-theme="dark"] .available-doc-item {
+            background-color: #1e293b !important;
+            border-color: #334155 !important;
+        }
+
+        [data-theme="dark"] .available-doc-item:hover {
+            background-color: #283548 !important;
+            border-color: #38bdf8 !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+        }
+
+        [data-theme="dark"] .available-doc-control {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .available-doc-subject {
+            color: #e2e8f0 !important;
+        }
+
+        [data-theme="dark"] .available-doc-meta {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .available-meta-label {
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .available-meta-value {
+            color: #f1f5f9 !important;
+        }
+
+        [data-theme="dark"] .available-badge-type {
+            background: #334155 !important;
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .available-badge-pending {
+            background: #082f49 !important;
+            color: #38bdf8 !important;
+        }
+
+        [data-theme="dark"] .available-badge-custody {
+            background: #052e16 !important;
+            color: #4ade80 !important;
+        }
+
+        [data-theme="dark"] .available-empty-title {
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .available-modal-footer {
+            background: #1e293b !important;
+            border-top-color: #334155 !important;
+        }
+
+        [data-theme="dark"] .available-footer-text {
+            color: #94a3b8 !important;
+        }
+
+        [data-theme="dark"] .available-footer-text strong {
+            color: #f8fafc !important;
+        }
+
+        [data-theme="dark"] .available-footer-close {
+            background: #1e293b !important;
+            border-color: #334155 !important;
+            color: #cbd5e1 !important;
+        }
+
+        [data-theme="dark"] .available-footer-close:hover {
+            background: #334155 !important;
+            color: #f8fafc !important;
+        }
     </style>
 
     {{-- Available Codes / Actionable Transactions Modal --}}
     @if($showAvailableModal)
-        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(6px); z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 16px; animation: modalFadeIn 0.15s ease-out;">
-            <div style="background: #ffffff; border-radius: 16px; max-width: 860px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid #e2e8f0; overflow: hidden; animation: modalZoom 0.2s cubic-bezier(0.16, 1, 0.3, 1);">
+        <div class="available-modal-backdrop" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(6px); z-index: 99999; display: flex; align-items: center; justify-content: center; padding: 16px; animation: modalFadeIn 0.15s ease-out;">
+            <div class="available-modal-card" style="background: #ffffff; border-radius: 16px; max-width: 860px; width: 100%; max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid #e2e8f0; overflow: hidden; animation: modalZoom 0.2s cubic-bezier(0.16, 1, 0.3, 1);">
                 
                 {{-- Modal Header --}}
-                <div style="padding: 18px 24px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; background: #f8fafc;">
+                <div class="available-modal-header" style="padding: 18px 24px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; background: #f8fafc;">
                     <div style="display: flex; align-items: center; gap: 12px;">
-                        <div style="width: 40px; height: 40px; border-radius: 10px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+                        <div class="available-modal-icon" style="width: 40px; height: 40px; border-radius: 10px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 18px;">
                             <i class="fa-solid fa-list-check"></i>
                         </div>
                         <div>
-                            <h3 style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0;">
+                            <h3 class="available-modal-title" style="font-size: 16px; font-weight: 700; color: #0f172a; margin: 0;">
                                 Available Documents for Action
                             </h3>
-                            <p style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">
+                            <p class="available-modal-desc" style="font-size: 12px; color: #64748b; margin: 2px 0 0 0;">
                                 Documents currently assigned to your station pending receipt or dispatch.
                             </p>
                         </div>
                     </div>
-                    <button type="button" wire:click="closeAvailableCodesModal" 
+                    <button type="button" wire:click="closeAvailableCodesModal" class="available-modal-close"
                             style="width: 32px; height: 32px; border-radius: 8px; border: 1px solid #e2e8f0; background: #ffffff; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;">
                         &times;
                     </button>
                 </div>
 
                 {{-- Modal Filters & Search Bar --}}
-                <div style="padding: 16px 24px; border-bottom: 1px solid #f1f5f9; background: #ffffff; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;">
+                <div class="available-modal-toolbar" style="padding: 16px 24px; border-bottom: 1px solid #f1f5f9; background: #ffffff; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;">
                     
                     {{-- Tab Switcher --}}
-                    <div style="display: flex; gap: 6px; background: #f1f5f9; padding: 4px; border-radius: 10px;">
+                    <div class="available-modal-tabs" style="display: flex; gap: 6px; background: #f1f5f9; padding: 4px; border-radius: 10px;">
                         <button type="button" wire:click="$set('availableFilter', 'all')"
+                                class="available-tab-btn {{ $availableFilter === 'all' ? 'active' : '' }}"
                                 style="padding: 6px 12px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'all' ? 'background: #ffffff; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
                             All ({{ $this->availableCounts['all'] }})
                         </button>
                         <button type="button" wire:click="$set('availableFilter', 'incoming')"
+                                class="available-tab-btn {{ $availableFilter === 'incoming' ? 'active' : '' }}"
                                 style="padding: 6px 12px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'incoming' ? 'background: #ffffff; color: #0284c7; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
                             <i class="fa-solid fa-inbox" style="margin-right: 4px;"></i> Incoming / To Receive ({{ $this->availableCounts['incoming'] }})
                         </button>
                         <button type="button" wire:click="$set('availableFilter', 'received')"
+                                class="available-tab-btn {{ $availableFilter === 'received' ? 'active' : '' }}"
                                 style="padding: 6px 12px; border-radius: 7px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; transition: all 0.15s; {{ $availableFilter === 'received' ? 'background: #ffffff; color: #16a34a; box-shadow: 0 1px 3px rgba(0,0,0,0.1);' : 'background: transparent; color: #64748b;' }}">
                             <i class="fa-solid fa-paper-plane" style="margin-right: 4px;"></i> In Custody / To Forward ({{ $this->availableCounts['received'] }})
                         </button>
@@ -1596,47 +1758,46 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                     {{-- Search Input --}}
                     <div style="position: relative; flex: 1; min-width: 220px; max-width: 320px;">
                         <input type="text" wire:model.live.debounce.250ms="availableSearch" placeholder="Search control no, subject, origin..." 
+                               class="available-search-input"
                                style="width: 100%; height: 36px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 12px 0 32px; font-size: 12px; outline: none;" />
                         <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 12px; color: #94a3b8;"></i>
                     </div>
                 </div>
 
                 {{-- Modal Body: Scrollable Document List --}}
-                <div style="padding: 16px 24px; overflow-y: auto; flex: 1; max-height: calc(88vh - 180px);">
+                <div class="available-modal-body" style="padding: 16px 24px; overflow-y: auto; flex: 1; max-height: calc(88vh - 180px);">
                     @if($this->availableTransactions->isNotEmpty())
                         <div style="display: flex; flex-direction: column; gap: 10px;">
                             @foreach($this->availableTransactions as $item)
-                                <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; transition: all 0.15s; background: #ffffff;" 
-                                     onmouseover="this.style.borderColor='#0284c7'; this.style.background='#f8fafc';" 
-                                     onmouseout="this.style.borderColor='#e2e8f0'; this.style.background='#ffffff';">
+                                <div class="available-doc-item" style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; transition: all 0.15s; background: #ffffff;">
                                     
                                     <div style="flex: 1; min-width: 0;">
                                         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
-                                            <span style="font-family: monospace; font-size: 14px; font-weight: 800; color: #0f172a;">
+                                            <span class="available-doc-control" style="font-family: monospace; font-size: 14px; font-weight: 800; color: #0f172a;">
                                                 {{ $item->control_number }}
                                             </span>
                                             @if(!$item->is_received)
-                                                <span style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
+                                                <span class="available-badge-pending" style="font-size: 10px; font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
                                                     <i class="fa-solid fa-inbox" style="margin-right: 3px;"></i> Pending Receipt
                                                 </span>
                                             @else
-                                                <span style="font-size: 10px; font-weight: 700; background: #dcfce7; color: #15803d; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
+                                                <span class="available-badge-custody" style="font-size: 10px; font-weight: 700; background: #dcfce7; color: #15803d; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">
                                                     <i class="fa-solid fa-paper-plane" style="margin-right: 3px;"></i> In Custody / Ready to Forward
                                                 </span>
                                             @endif
-                                            <span style="font-size: 10px; font-weight: 600; background: #f1f5f9; color: #475569; padding: 2px 7px; border-radius: 5px;">
+                                            <span class="available-badge-type" style="font-size: 10px; font-weight: 600; background: #f1f5f9; color: #475569; padding: 2px 7px; border-radius: 5px;">
                                                 {{ ucfirst($item->type) }}
                                             </span>
                                         </div>
 
-                                        <div style="font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                        <div class="available-doc-subject" style="font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                                             {{ $item->subject ?: 'No subject specified' }}
                                         </div>
 
-                                        <div style="font-size: 11px; color: #64748b; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                                            <span><strong>Origin:</strong> {{ $item->originated_office_name ?: $item->originated_from }}</span>
+                                        <div class="available-doc-meta" style="font-size: 11px; color: #64748b; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                            <span><strong class="available-meta-label">Origin:</strong> <span class="available-meta-value">{{ $item->originated_office_name ?: $item->originated_from }}</span></span>
                                             @if($item->action_needed)
-                                                <span><strong>Action Needed:</strong> <span style="color: #0284c7; font-weight: 600;">{{ $item->action_needed }}</span></span>
+                                                <span><strong class="available-meta-label">Action Needed:</strong> <span style="color: #0284c7; font-weight: 600;">{{ $item->action_needed }}</span></span>
                                             @endif
                                             @if($item->qr_code)
                                                 <span style="font-family: monospace; color: #94a3b8;">QR: {{ $item->qr_code }}</span>
@@ -1658,16 +1819,16 @@ new #[Layout('layouts.dts')] #[Title('Advanced Scanner Console - DTS')] class ex
                             <div style="font-size: 32px; margin-bottom: 8px; color: #cbd5e1;">
                                 <i class="fa-solid fa-folder-open"></i>
                             </div>
-                            <div style="font-size: 14px; font-weight: 600; color: #475569;">No matching documents found</div>
+                            <div class="available-empty-title" style="font-size: 14px; font-weight: 600; color: #475569;">No matching documents found</div>
                             <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;">There are no active transactions pending action for this filter.</div>
                         </div>
                     @endif
                 </div>
 
                 {{-- Modal Footer --}}
-                <div style="padding: 12px 24px; border-top: 1px solid #e2e8f0; background: #f8fafc; display: flex; align-items: center; justify-content: space-between;">
-                    <span style="font-size: 12px; color: #64748b;">Click <strong>Select & Scan</strong> to load the document directly into the scanner workstation.</span>
-                    <button type="button" wire:click="closeAvailableCodesModal" 
+                <div class="available-modal-footer" style="padding: 12px 24px; border-top: 1px solid #e2e8f0; background: #f8fafc; display: flex; align-items: center; justify-content: space-between;">
+                    <span class="available-footer-text" style="font-size: 12px; color: #64748b;">Click <strong>Select & Scan</strong> to load the document directly into the scanner workstation.</span>
+                    <button type="button" wire:click="closeAvailableCodesModal" class="available-footer-close"
                             style="padding: 6px 14px; border-radius: 8px; border: 1px solid #cbd5e1; background: #ffffff; color: #475569; font-size: 12px; font-weight: 600; cursor: pointer;">
                         Close
                     </button>

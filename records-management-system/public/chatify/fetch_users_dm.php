@@ -204,14 +204,15 @@ if ($isAdmin) {
         // Global Chat match: full keywords only (e.g. "global", "global chat", "global gc")
         if (in_array($qLower, ['global', 'global chat', 'global gc', 'global channel'], true)) {
             $channels[] = [
-                'conv_id'      => 'global',
-                'channel_type' => 'global',
-                'title'        => 'Global Chat',
-                'subtitle'     => 'Campus-Wide Public Channel',
-                'office_id'    => null,
-                'office_name'  => 'Campus-Wide',
-                'office_code'  => 'GLOBAL',
-                'avatar_url'   => 'cspc.webp',
+                'conv_id'             => 'global',
+                'channel_type'        => 'global',
+                'title'               => 'Global Chat',
+                'subtitle'            => 'Campus-Wide Public Channel',
+                'office_id'           => null,
+                'office_name'         => 'Campus-Wide',
+                'office_code'         => 'GLOBAL',
+                'avatar_url'          => 'cspc.webp',
+                'is_chatify_verified' => true,
             ];
         }
 
@@ -244,14 +245,15 @@ if ($isAdmin) {
                     $name = trim($off['office_name'] ?? '');
                     $displayTitle = $code !== '' ? $code : $name;
                     $channels[] = [
-                        'conv_id'      => 'office_' . (int) $off['id'],
-                        'channel_type' => 'office_gc',
-                        'title'        => $displayTitle,
-                        'subtitle'     => 'Dedicated Office Group Chat',
-                        'office_id'    => (int) $off['id'],
-                        'office_name'  => $name,
-                        'office_code'  => $code,
-                        'avatar_url'   => 'cspc.webp',
+                        'conv_id'             => 'office_' . (int) $off['id'],
+                        'channel_type'        => 'office_gc',
+                        'title'               => $displayTitle,
+                        'subtitle'            => 'Dedicated Office Group Chat',
+                        'office_id'           => (int) $off['id'],
+                        'office_name'         => $name,
+                        'office_code'         => $code,
+                        'avatar_url'          => 'cspc.webp',
+                        'is_chatify_verified' => true,
                     ];
                 }
             } catch (Throwable $e) {

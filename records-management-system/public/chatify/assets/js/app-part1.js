@@ -3820,15 +3820,20 @@
               info.className = 'user-info';
 
               const nameRow = document.createElement('div');
-              nameRow.style.cssText = 'display:flex;align-items:center;gap:6px;';
+              nameRow.style.cssText = 'display:flex;align-items:center;gap:4px;min-width:0;';
 
               nameEl = document.createElement('div');
               nameEl.className = 'user-name';
               nameEl.style.fontSize = '13px';
               nameRow.appendChild(nameEl);
 
+              const checkBadge = document.createElement('span');
+              checkBadge.className = 'verified-badge';
+              checkBadge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+              nameRow.appendChild(checkBadge);
+
               const badge = document.createElement('span');
-              badge.style.cssText = 'font-size:10px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 5px;border-radius:4px;text-transform:uppercase;flex-shrink:0;';
+              badge.style.cssText = 'font-size:10px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 5px;border-radius:4px;text-transform:uppercase;flex-shrink:0;margin-left:4px;';
               badge.textContent = ch.channel_type === 'global' ? 'Global' : 'Office GC';
               nameRow.appendChild(badge);
 

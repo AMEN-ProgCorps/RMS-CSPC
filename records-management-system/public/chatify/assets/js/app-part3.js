@@ -87,7 +87,8 @@
       if (!headerBadgeParent) return;
       const existing = headerBadgeParent.querySelector('.verified-badge');
       const vSet = (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) ? verifiedAccountIds : window.verifiedAccountIdsSet;
-      const shouldHave = !!(isGlobalChat || (activeDMAccountId && vSet && vSet.has(Number(activeDMAccountId))));
+      const isChannelInSpy = !!(activeAdminConv && (activeAdminConv === 'global' || activeAdminConv.startsWith('office_')));
+      const shouldHave = !!(isGlobalChat || isChannelInSpy || (activeDMAccountId && vSet && vSet.has(Number(activeDMAccountId))));
       if (shouldHave) {
         if (!existing) injectBadge(headerBadgeParent);
       } else if (existing) {

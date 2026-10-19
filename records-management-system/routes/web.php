@@ -485,6 +485,7 @@ Route::middleware(['auth'])
         Volt::route('/rdp/received-documents', 'pages.rdp.received-documents.dts')->name('rdp.received-documents.index');
         Volt::route('/rdp/received-documents/dts', 'pages.rdp.received-documents.dts')->name('rdp.received-documents.dts');
         Volt::route('/rdp/received-documents/dcs', 'pages.rdp.received-documents.dcs')->name('rdp.received-documents.dcs');
+        Volt::route('/rdp/received-documents/record-requests', 'pages.rdp.received-documents.record-requests')->name('rdp.received-documents.record-requests');
 
         Volt::route('/rdp/add-records/inventory-and-appraisal', 'pages.rdp.add-records.inventory-and-appraisal')->name('rdp.add-records.inventory-and-appraisal');
         Volt::route('/rdp/add-records/records-and-disposition-schedule', 'pages.rdp.add-records.records-and-disposition-schedule')->name('rdp.add-records.records-and-disposition-schedule');

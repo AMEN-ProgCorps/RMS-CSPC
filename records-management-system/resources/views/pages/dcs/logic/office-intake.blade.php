@@ -917,7 +917,7 @@ class OfficeIntakeHelper
         $matched = self::findRevisableRegistrationMatch($finderNo, $currentTitle, $finderOriginator);
         if (! $matched) {
             throw ValidationException::withMessages([
-                'finderDocumentNo' => 'No registered document matched that number, title, and originator.',
+                'finderDocumentNo' => 'No registered revisable document matched that number, title, and originator.',
             ]);
         }
 
@@ -930,7 +930,7 @@ class OfficeIntakeHelper
         $previous = trim((string) ($matched->doc_no ?? ''));
         if ($previous === '') {
             throw ValidationException::withMessages([
-                'finderDocumentNo' => 'No registered document matched that number, title, and originator.',
+                'finderDocumentNo' => 'No registered revisable document matched that number, title, and originator.',
             ]);
         }
 

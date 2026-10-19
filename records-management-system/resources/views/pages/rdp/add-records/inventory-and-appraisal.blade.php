@@ -18,6 +18,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public bool $showParentDropdown = false;
     public array $subsections = [];
     public ?int $activeSubDropdownIndex = null;
+    public ?string $seriesModalError = null;
 
     // Selected Series Staged State (Deferred DB save)
     public ?int $record_series_id = null;
@@ -39,6 +40,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->selectedParentId = null;
         $this->selectedParentTypeId = null;
         $this->selectedParentOffice = null;
+        $this->seriesModalError = null;
     }
 
     public function setSeriesTypeFilter(?int $typeId): void
@@ -77,6 +79,136 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public string $active_period = '';
     public string $storage_period = '';
     public string $disposition_provision = '';
+
+    // Office Collective (Optional Spread Record Creation)
+    public array $collectiveOffices = [];
+    public bool $showCollectiveModal = false;
+    public string $collectiveSearch = '';
+    public array $tempCollectiveOffices = [];
+
+    public function openCollectiveModal(): void
+    {
+        $this->tempCollectiveOffices = $this->collectiveOffices;
+        $this->collectiveSearch = '';
+        $this->showCollectiveModal = true;
+    }
+
+    public function closeCollectiveModal(): void
+    {
+        $this->showCollectiveModal = false;
+        $this->collectiveSearch = '';
+    }
+
+    public function toggleCollectiveOffice(string $code): void
+    {
+        if (in_array($code, $this->tempCollectiveOffices, true)) {
+            $this->tempCollectiveOffices = array_values(array_diff($this->tempCollectiveOffices, [$code]));
+        } else {
+            $this->tempCollectiveOffices[] = $code;
+        }
+    }
+
+    public function selectAllCollectiveOffices(): void
+    {
+        $user = Auth::user();
+        $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        $officesTable = Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $allCodes = DB::table($officesTable)->where('is_active', true)->pluck('office_code')->toArray();
+        $this->tempCollectiveOffices = array_values(array_filter($allCodes, fn($c) => !empty($c) && $c !== $userOffice));
+    }
+
+    public function clearAllTempCollectiveOffices(): void
+    {
+        $this->tempCollectiveOffices = [];
+    }
+
+    public function applyCollectiveModal(): void
+    {
+        $user = Auth::user();
+        $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+        $this->collectiveOffices = array_values(array_filter(array_unique($this->tempCollectiveOffices), fn($c) => !empty($c) && $c !== $userOffice));
+        $this->showCollectiveModal = false;
+    }
+
+    public function removeCollectiveOffice(int $index): void
+    {
+        if (isset($this->collectiveOffices[$index])) {
+            unset($this->collectiveOffices[$index]);
+            $this->collectiveOffices = array_values($this->collectiveOffices);
+        }
+    }
+
+    public function clearCollectiveOffices(): void
+    {
+        $this->collectiveOffices = [];
+    }
+
+    // Verification Modal State & Actions
+    public bool $showVerificationModal = false;
+
+    public function openVerificationModal(): void
+    {
+        if (!$this->validateRecordData()) {
+            return;
+        }
+        $this->showVerificationModal = true;
+    }
+
+    public function closeVerificationModal(): void
+    {
+        $this->showVerificationModal = false;
+    }
+
+    public function confirmCreateRecord(): void
+    {
+        $this->showVerificationModal = false;
+        $this->createRecord();
+    }
+
+    public function confirmSaveDraft(): void
+    {
+        $this->showVerificationModal = false;
+        $this->saveDraft();
+    }
+
+    public function getMediumNameById(?int $id): string
+    {
+        if (!$id) return 'Paper';
+        $med = DB::table('rdp_recorded_value')->where('id', $id)->value('medium_name');
+        return $med ?: 'Paper';
+    }
+
+    public function formatUtilityValuesForPreview(array $utilityIds): string
+    {
+        if (empty($utilityIds)) return '—';
+        $names = DB::table('rdp_utility_medium')
+            ->whereIn('id', $utilityIds)
+            ->pluck('utility_name')
+            ->toArray();
+        if (empty($names)) return '—';
+
+        $map = [
+            'Administrative' => 'Adm',
+            'Archival'       => 'Arc',
+            'Fiscal'         => 'F',
+            'Legal'          => 'L',
+        ];
+        $abbrs = [];
+        foreach ($names as $n) {
+            $abbrs[] = $map[$n] ?? strtoupper(substr($n, 0, 3));
+        }
+        return implode(', ', array_unique($abbrs));
+    }
+
+    public function formatPreviewDate(?string $date): string
+    {
+        if (empty($date)) return '—';
+        try {
+            return Carbon::parse($date)->format('M d, Y');
+        } catch (\Throwable) {
+            return $date;
+        }
+    }
 
     public bool $isAppraising = false;
 
@@ -476,26 +608,23 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function addBatchSubPeriod(): void
     {
+        $maxEndDate = null;
         if (!empty($this->batch_sub_periods)) {
-            $last = end($this->batch_sub_periods);
-            try {
-                $lastEnd = Carbon::parse($last['end_date']);
-                if ($lastEnd->month == 12 && $lastEnd->day >= 20) {
-                    $nextYear = $lastEnd->year + 1;
-                    $sStr = Carbon::create($nextYear, 1, 1)->format('Y-m-d');
-                    $eStr = Carbon::create($nextYear, 12, 31)->format('Y-m-d');
-                } else {
-                    $nextStart = $lastEnd->copy()->addDay();
-                    $sStr = $nextStart->format('Y-m-d');
-                    $eStr = $nextStart->copy()->endOfYear()->format('Y-m-d');
+            foreach ($this->batch_sub_periods as $sub) {
+                if (!empty($sub['end_date'])) {
+                    if ($maxEndDate === null || $sub['end_date'] > $maxEndDate) {
+                        $maxEndDate = $sub['end_date'];
+                    }
                 }
-            } catch (\Throwable $e) {
-                $sStr = Carbon::now()->format('Y-m-d');
-                $eStr = Carbon::now()->endOfYear()->format('Y-m-d');
             }
-        } elseif (!empty($this->batch_end_date)) {
+        }
+        if (!$maxEndDate && !empty($this->batch_end_date)) {
+            $maxEndDate = $this->batch_end_date;
+        }
+
+        if ($maxEndDate) {
             try {
-                $lastEnd = Carbon::parse($this->batch_end_date);
+                $lastEnd = Carbon::parse($maxEndDate);
                 if ($lastEnd->month == 12 && $lastEnd->day >= 20) {
                     $nextYear = $lastEnd->year + 1;
                     $sStr = Carbon::create($nextYear, 1, 1)->format('Y-m-d');
@@ -1189,6 +1318,9 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $this->utility_values = [1];
         }
 
+        $user = Auth::user();
+        $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+
         $this->prefill_intake_id = request()->query('prefill_intake_id') ? (int)request()->query('prefill_intake_id') : null;
         $this->prefill_source = request()->query('prefill_source');
         $this->prefill_code = request()->query('prefill_code');
@@ -1295,6 +1427,64 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
     }
 
+    public function resolveEffectiveSeriesRetention(object $series): array
+    {
+        $current = $series;
+        $visited = [];
+        $foundRetention = null;
+        $foundPermanent = false;
+        $foundRemarks = null;
+        $isInherited = false;
+
+        while ($current) {
+            if ($foundRetention === null) {
+                if ($current->retention_period) {
+                    $ret = DB::table('rdp_retention_period')->where('id', $current->retention_period)->first();
+                    if ($ret && (!empty(trim($ret->active_period ?? '')) || !empty(trim($ret->storage_period ?? '')) || !empty(trim($ret->total_period ?? '')))) {
+                        $foundRetention = $ret;
+                        if ($current->id !== $series->id) {
+                            $isInherited = true;
+                        }
+                    }
+                }
+            }
+
+            if (!$foundPermanent) {
+                if (!empty($current->is_retention_period_permanent)) {
+                    $foundPermanent = true;
+                    if ($current->id !== $series->id) {
+                        $isInherited = true;
+                    }
+                }
+            }
+
+            if ($foundRemarks === null) {
+                if (!empty(trim($current->remarks ?? ''))) {
+                    $foundRemarks = trim($current->remarks);
+                }
+            }
+
+            if (($foundRetention || $foundPermanent) && $foundRemarks !== null) {
+                break;
+            }
+
+            if (in_array($current->id, $visited, true)) {
+                break;
+            }
+            $visited[] = $current->id;
+
+            $pId = $current->parent_id ?? null;
+            $current = $pId ? DB::table('rdp_record_series')->where('id', $pId)->first() : null;
+        }
+
+        return [
+            'retention'     => $foundRetention,
+            'is_permanent'  => $foundPermanent,
+            'remarks'       => $foundRemarks,
+            'is_inherited'  => $isInherited,
+        ];
+    }
+
     public function loadSeriesById(int $id): void
     {
         $series = DB::table('rdp_record_series')->where('id', $id)->first();
@@ -1324,36 +1514,49 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->selectedSeriesTitle = implode(' ➔ ', array_column($this->selectedSeriesHierarchy, 'title'));
         $this->isCustomSeries = false;
 
-        $retention = null;
-        if ($series->retention_period) {
-            $retention = DB::table('rdp_retention_period')->where('id', $series->retention_period)->first();
-        }
+        $effective = $this->resolveEffectiveSeriesRetention($series);
+        $retention = $effective['retention'];
+        $effectiveRemarks = $effective['remarks'];
 
-        if (!empty($series->remarks)) {
+        $this->hasPredefinedRemarks = false;
+        $this->hasPredefinedRetention = false;
+
+        if (!empty($effectiveRemarks)) {
             $this->hasPredefinedRemarks = true;
-            $this->disposition_provision = $series->remarks;
+            $this->disposition_provision = $effectiveRemarks;
         }
 
-        $isPermFlag = (bool)($series->is_retention_period_permanent ?? false);
-        $isActivePermanent = $retention && strtolower($retention->active_period ?? '') === 'permanent';
-        $isTotalPermanent  = $retention && strtolower($retention->total_period ?? '') === 'permanent';
+        $isPermFlag = $effective['is_permanent'];
+        $isActivePermanent = $retention && strtolower(trim($retention->active_period ?? '')) === 'permanent';
+        $isTotalPermanent  = $retention && strtolower(trim($retention->total_period ?? '')) === 'permanent';
         $isTitlePermanent  = str_contains(strtolower($series->series_title), 'permanent');
+        $isPermanentSeries = $isPermFlag || $isActivePermanent || $isTotalPermanent || $isTitlePermanent;
 
-        if ($series->retention_period || $isPermFlag || $retention) {
+        $hasActivePeriod = $retention && !empty(trim($retention->active_period ?? '')) && strtolower(trim($retention->active_period ?? '')) !== 'none';
+        $hasStoragePeriod = $retention && !empty(trim($retention->storage_period ?? '')) && strtolower(trim($retention->storage_period ?? '')) !== 'none';
+        $hasRemarksCondition = !empty(trim($effectiveRemarks ?? ''));
+
+        if ($retention || $isPermanentSeries || $hasRemarksCondition) {
             $this->hasPredefinedRetention = true;
         }
 
-        if ($isPermFlag || $isActivePermanent || $isTotalPermanent || $isTitlePermanent) {
+        if ($isPermanentSeries) {
             $this->is_permanent = true;
             $this->active_period = '';
             $this->storage_period = '';
             $this->retention_period = 'Permanent';
             $this->time_value = 'P';
-        } else {
+        } elseif ($hasActivePeriod || $hasStoragePeriod) {
             $this->is_permanent = false;
             $this->active_period = mb_strtoupper($retention->active_period ?? '');
             $this->storage_period = mb_strtoupper($retention->storage_period ?? '');
             $this->retention_period = mb_strtoupper($this->computeTotalPeriod($this->active_period, $this->storage_period, false));
+            $this->time_value = 'T';
+        } else {
+            $this->is_permanent = false;
+            $this->active_period = '';
+            $this->storage_period = '';
+            $this->retention_period = 'SEE REMARKS';
             $this->time_value = 'T';
         }
 
@@ -1423,6 +1626,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             return;
         }
 
+        $this->seriesModalError = null;
         $this->showSeriesModal = true;
     }
 
@@ -1431,6 +1635,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->showSeriesModal = false;
         $this->showParentDropdown = false;
         $this->activeSubDropdownIndex = null;
+        $this->seriesModalError = null;
     }
 
     public ?int $selectedParentId = null;
@@ -1491,6 +1696,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->selectedParentTypeId = null;
         $this->selectedParentOffice = null;
         $this->showParentDropdown = true;
+        $this->seriesModalError = null;
     }
 
     public function selectParentSuggestion(string $title, ?int $id = null, ?int $typeId = null, ?string $office = null): void
@@ -1500,6 +1706,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->selectedParentTypeId = $typeId;
         $this->selectedParentOffice = $office;
         $this->showParentDropdown = false;
+        $this->seriesModalError = null;
     }
 
     public function selectSubSuggestion(int $index, string $title): void
@@ -1508,11 +1715,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $this->subsections[$index] = mb_strtoupper($title);
         }
         $this->activeSubDropdownIndex = null;
+        $this->seriesModalError = null;
     }
 
     public function addSubsection(): void
     {
         $this->subsections[] = '';
+        $this->seriesModalError = null;
     }
 
     public function removeSubsection(int $index): void
@@ -1521,15 +1730,19 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             unset($this->subsections[$index]);
             $this->subsections = array_values($this->subsections);
         }
+        $this->seriesModalError = null;
     }
 
     public function saveNewRecordSeries(): void
     {
+        $this->seriesModalError = null;
+
         $this->validate([
             'parentSeriesTitle' => 'required|string|max:255',
         ]);
 
-        $fullPathTitles = [mb_strtoupper(trim($this->parentSeriesTitle))];
+        $parentTitle = mb_strtoupper(trim($this->parentSeriesTitle));
+        $fullPathTitles = [$parentTitle];
 
         foreach ($this->subsections as $subTitle) {
             $trimmed = mb_strtoupper(trim($subTitle));
@@ -1540,82 +1753,158 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
         $this->selectedSeriesHierarchy = [];
         $currentParentId = null;
+        $parentNode = null;
+        $lastNode = null;
 
         foreach ($fullPathTitles as $idx => $t) {
             $query = DB::table('rdp_record_series')->where('series_title', 'ilike', $t);
             if ($idx === 0) {
-                $query->whereNull('parent_id');
-                if ($this->selectedSeriesTypeFilter) {
-                    $query->where('series_type', $this->selectedSeriesTypeFilter);
+                if ($this->selectedParentId) {
+                    $query->where('id', $this->selectedParentId);
+                } else {
+                    $query->whereNull('parent_id');
+                    if ($this->selectedSeriesTypeFilter) {
+                        $query->where('series_type', $this->selectedSeriesTypeFilter);
+                    }
                 }
             } elseif ($currentParentId) {
                 $query->where('parent_id', $currentParentId);
             }
             $existsNode = $query->first();
 
+            if ($idx === 0) {
+                $parentNode = $existsNode;
+            }
+
             if ($existsNode) {
                 $currentParentId = $existsNode->id;
+                $lastNode = $existsNode;
                 $this->selectedSeriesHierarchy[] = [
+                    'id' => $existsNode->id,
                     'title' => $t,
                     'is_predefined' => true,
                 ];
             } else {
                 $currentParentId = null;
+                $lastNode = null;
                 $this->selectedSeriesHierarchy[] = [
+                    'id' => null,
                     'title' => $t,
                     'is_predefined' => false,
                 ];
             }
         }
 
-        $this->selectedSeriesTitle = implode(' ➔ ', $fullPathTitles);
         $leafTitle = end($fullPathTitles);
+
+        // 1. Condition: When the Parent record has a Subsection in the database,
+        // the Apply Series will not continue without specifying a subsection.
+        if ($parentNode) {
+            $parentHasSubsections = DB::table('rdp_record_series')
+                ->where('parent_id', $parentNode->id)
+                ->exists();
+
+            $validSubsections = array_filter(array_map('trim', $this->subsections), fn($s) => !empty($s));
+            if ($parentHasSubsections && count($validSubsections) === 0) {
+                $this->seriesModalError = "The record series '{$parentNode->series_title}' contains subsections. Please add and select a subsection to continue.";
+                return;
+            }
+        } else {
+            // Check if user entered a title that is actually a subsection in the database (parent_id is not null)
+            $isActuallySubsection = DB::table('rdp_record_series')
+                ->where('series_title', 'ilike', $parentTitle)
+                ->whereNotNull('parent_id')
+                ->first();
+
+            if ($isActuallySubsection) {
+                $actualParent = DB::table('rdp_record_series')->where('id', $isActuallySubsection->parent_id)->first();
+                $actualParentName = $actualParent->series_title ?? 'its parent series';
+                $this->seriesModalError = "The title '{$this->parentSeriesTitle}' is a subsection of '{$actualParentName}'. Please select the parent series first.";
+                return;
+            }
+        }
+
+        // Also if the selected leaf node itself has further child subsections
+        if ($lastNode) {
+            $leafHasSubsections = DB::table('rdp_record_series')
+                ->where('parent_id', $lastNode->id)
+                ->exists();
+
+            if ($leafHasSubsections) {
+                $this->seriesModalError = "The selected series '{$lastNode->series_title}' contains further subsections. Please select a specific subsection to continue.";
+                return;
+            }
+        }
+
+        // 2. Condition: If the user's selected record series has no Active Period/Storage Period,
+        // Apply Series will not continue.
+        $targetSeries = $lastNode;
+        if (!$targetSeries) {
+            $targetSeries = DB::table('rdp_record_series')
+                ->where('series_title', 'ilike', $leafTitle)
+                ->first();
+        }
+
+        if (!$targetSeries) {
+            $this->seriesModalError = "The selected record series '{$leafTitle}' is not configured in the records disposition schedule.";
+            return;
+        }
+
+        $effective = $this->resolveEffectiveSeriesRetention($targetSeries);
+        $retention = $effective['retention'];
+        $effectiveRemarks = $effective['remarks'];
+
+        $isPermFlag = $effective['is_permanent'];
+        $isActivePermanent = $retention && strtolower(trim($retention->active_period ?? '')) === 'permanent';
+        $isTotalPermanent  = $retention && strtolower(trim($retention->total_period ?? '')) === 'permanent';
+        $isTitlePermanent  = str_contains(strtolower($leafTitle), 'permanent');
+        $isPermanentSeries = $isPermFlag || $isActivePermanent || $isTotalPermanent || $isTitlePermanent;
+
+        $hasActivePeriod = $retention && !empty(trim($retention->active_period ?? '')) && strtolower(trim($retention->active_period ?? '')) !== 'none';
+        $hasStoragePeriod = $retention && !empty(trim($retention->storage_period ?? '')) && strtolower(trim($retention->storage_period ?? '')) !== 'none';
+        $hasRemarksCondition = !empty(trim($effectiveRemarks ?? ''));
+
+        if (!$isPermanentSeries && !$hasActivePeriod && !$hasStoragePeriod && !$hasRemarksCondition) {
+            $this->seriesModalError = "The selected record series '{$targetSeries->series_title}' has no Active Period, Storage Period, or Remarks condition configured and cannot be applied.";
+            return;
+        }
+
+        // --- All checks passed: apply series to the form ---
+        $this->selectedSeriesTitle = implode(' ➔ ', $fullPathTitles);
+        $this->record_series_id = $targetSeries->id;
+        $this->isCustomSeries = false;
 
         $this->hasPredefinedRemarks = false;
         $this->hasPredefinedRetention = false;
 
-        $foundSeries = DB::table('rdp_record_series')
-            ->where('series_title', 'ilike', $leafTitle)
-            ->first();
+        if (!empty($effectiveRemarks)) {
+            $this->hasPredefinedRemarks = true;
+            $this->disposition_provision = $effectiveRemarks;
+        }
 
-        if ($foundSeries) {
-            $this->isCustomSeries = false;
-            $retention = null;
-            if ($foundSeries->retention_period) {
-                $retention = DB::table('rdp_retention_period')
-                    ->where('id', $foundSeries->retention_period)
-                    ->first();
-            }
+        if ($retention || $isPermanentSeries || $hasRemarksCondition) {
+            $this->hasPredefinedRetention = true;
+        }
 
-            if (!empty($foundSeries->remarks)) {
-                $this->hasPredefinedRemarks = true;
-                $this->disposition_provision = $foundSeries->remarks;
-            }
-
-            $isPermFlag = (bool)($foundSeries->is_retention_period_permanent ?? false);
-            $isActivePermanent = $retention && strtolower($retention->active_period ?? '') === 'permanent';
-            $isTotalPermanent  = $retention && strtolower($retention->total_period ?? '') === 'permanent';
-            $isTitlePermanent  = str_contains(strtolower($leafTitle), 'permanent');
-
-            if ($foundSeries->retention_period || $isPermFlag || $retention) {
-                $this->hasPredefinedRetention = true;
-            }
-
-            if ($isPermFlag || $isActivePermanent || $isTotalPermanent || $isTitlePermanent) {
-                $this->is_permanent = true;
-                $this->active_period = '';
-                $this->storage_period = '';
-                $this->retention_period = 'Permanent';
-                $this->time_value = 'P';
-            } else {
-                $this->is_permanent = false;
-                $this->active_period = mb_strtoupper($retention->active_period ?? '');
-                $this->storage_period = mb_strtoupper($retention->storage_period ?? '');
-                $this->retention_period = mb_strtoupper($this->computeTotalPeriod($this->active_period, $this->storage_period, false));
-                $this->time_value = 'T';
-            }
+        if ($isPermanentSeries) {
+            $this->is_permanent = true;
+            $this->active_period = '';
+            $this->storage_period = '';
+            $this->retention_period = 'Permanent';
+            $this->time_value = 'P';
+        } elseif ($hasActivePeriod || $hasStoragePeriod) {
+            $this->is_permanent = false;
+            $this->active_period = mb_strtoupper($retention->active_period ?? '');
+            $this->storage_period = mb_strtoupper($retention->storage_period ?? '');
+            $this->retention_period = mb_strtoupper($this->computeTotalPeriod($this->active_period, $this->storage_period, false));
+            $this->time_value = 'T';
         } else {
-            $this->isCustomSeries = true;
+            // Governed by condition in Remarks
+            $this->is_permanent = false;
+            $this->active_period = '';
+            $this->storage_period = '';
+            $this->retention_period = 'SEE REMARKS';
+            $this->time_value = 'T';
         }
 
         $this->syncArchivalAutoSelect();
@@ -1623,6 +1912,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->showSeriesModal = false;
         $this->showParentDropdown = false;
         $this->activeSubDropdownIndex = null;
+        $this->seriesModalError = null;
     }
 
     public function with(): array
@@ -2150,6 +2440,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             $user = Auth::user();
             $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
+            $validCollective = array_values(array_filter(array_unique($this->collectiveOffices), fn($code) => !empty($code) && $code !== $userOfficeCode));
+            $isSpread = !empty($validCollective);
+            $requestGroupId = $isSpread ? ('SPREAD-' . date('Ymd') . '-' . strtoupper(Str::random(6))) : null;
+
             $rawVol = trim($this->volume);
             $rawAmt = trim((string)$this->volume_amount);
             if (!empty($rawVol) && preg_match('/\d/', $rawVol)) {
@@ -2304,6 +2598,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             }
 
             foreach ($itemsToProcess as $rIdx => $rData) {
+                // If spreading, also register collective offices as duplicate holders
+                $recordDuplicates = $rData['duplicate_offices'] ?? [];
+                if ($isSpread) {
+                    $recordDuplicates = array_values(array_unique(array_merge($recordDuplicates, $validCollective)));
+                }
+
                 $insertRow = [
                     'record_series_id'       => $this->record_series_id,
                     'description'            => $rData['description'],
@@ -2318,6 +2618,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     'office_own'             => $userOfficeCode,
                     'upload_doc_id_handler'  => ($rIdx === 0) ? $documentIdHandler : null,
                     'is_draft'               => false,
+                    'is_active'              => true,
+                    'is_request'             => false,
+                    'request_group_id'       => $requestGroupId,
+                    'request_status'         => null,
+                    'request_origin_office'  => null,
+                    'request_target_office'  => null,
                     'created_at'             => now(),
                     'updated_at'             => now(),
                 ];
@@ -2349,7 +2655,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     ]);
                 }
 
-                foreach (($rData['duplicate_offices'] ?? []) as $dupOffice) {
+                foreach ($recordDuplicates as $dupOffice) {
                     DB::table('rdp_duplication_section')->insert([
                         'dup_id_manager' => $recordId,
                         'office_code'    => $dupOffice,
@@ -2395,6 +2701,105 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     }
                     DB::table('rdp_period_covered')->insert($pRow);
                 }
+
+                // If spreading to collective offices, insert a pending request record for each collective office
+                if ($isSpread) {
+                    foreach ($validCollective as $colOffice) {
+                        $colInsertRow = [
+                            'record_series_id'       => $this->record_series_id,
+                            'description'            => $rData['description'],
+                            'period_id'              => $periodId,
+                            'volume'                 => $rData['volume'],
+                            'records_location'       => $rData['records_location'],
+                            'restriction'            => $rData['restriction'],
+                            'records_medium'         => $rData['records_medium'],
+                            'time_value'             => $rData['time_value'],
+                            'frequence_use'          => $rData['frequence_use'],
+                            'user_own'               => $user?->id,
+                            'office_own'             => $colOffice,
+                            'upload_doc_id_handler'  => ($rIdx === 0) ? $documentIdHandler : null,
+                            'is_draft'               => false,
+                            'is_active'              => false,
+                            'is_request'             => true,
+                            'request_group_id'       => $requestGroupId,
+                            'request_status'         => 'pending',
+                            'request_origin_office'  => $userOfficeCode,
+                            'request_target_office'  => $colOffice,
+                            'created_at'             => now(),
+                            'updated_at'             => now(),
+                        ];
+                        if ($hasBatchCol) {
+                            $colInsertRow['ispartof_batch'] = ($this->entryMode === 'batch');
+                        }
+                        if ($hasBatchIdCol && $batchId !== null) {
+                            $colInsertRow['batch_id'] = $batchId;
+                        }
+
+                        $colRecordId = DB::table('rdp_record')->insertGetId($colInsertRow);
+
+                        DB::table('rdp_record')->where('id', $colRecordId)->update([
+                            'utility_value'  => $colRecordId,
+                            'duplication_id' => $colRecordId,
+                        ]);
+
+                        foreach ($rData['utility_values'] as $uId) {
+                            DB::table('rdp_utility_manager')->insert([
+                                'record_holder'  => $colRecordId,
+                                'utility_medium' => $uId,
+                                'is_active'      => true,
+                                'created_at'     => now(),
+                                'updated_at'     => now(),
+                            ]);
+                        }
+
+                        foreach ($recordDuplicates as $dupOffice) {
+                            DB::table('rdp_duplication_section')->insert([
+                                'dup_id_manager' => $colRecordId,
+                                'office_code'    => $dupOffice,
+                                'created_at'     => now(),
+                                'updated_at'     => now(),
+                            ]);
+                        }
+
+                        if (!empty($rData['sub_periods'])) {
+                            foreach ($rData['sub_periods'] as $sub) {
+                                if (empty($sub['start_date']) && empty($sub['end_date'])) continue;
+                                $colPRow = [
+                                    'period_owner' => $colRecordId,
+                                    'date_covered' => $sub['start_date'] ?? $rData['date_covered'],
+                                    'created_at'   => now(),
+                                    'modified_at'  => now(),
+                                ];
+                                if ($hasEndCol && !empty($sub['end_date'])) {
+                                    $colPRow['date_covered_end'] = $sub['end_date'];
+                                }
+                                if ($hasVolCol && !empty($sub['volume'])) {
+                                    $colPRow['volume'] = trim($sub['volume']);
+                                }
+                                if ($hasDescCol) {
+                                    $subDesc = !empty(trim((string)($sub['description'] ?? '')))
+                                        ? trim($sub['description'])
+                                        : $this->formatSubPeriodDefaultDescription($sub['start_date'] ?? '', $sub['end_date'] ?? '', $rData['description']);
+                                    if (!empty($subDesc)) {
+                                        $colPRow['description'] = $subDesc;
+                                    }
+                                }
+                                DB::table('rdp_period_covered')->insert($colPRow);
+                            }
+                        } elseif (!empty($rData['date_covered'])) {
+                            $colPRow = [
+                                'period_owner' => $colRecordId,
+                                'date_covered' => $rData['date_covered'],
+                                'created_at'   => now(),
+                                'modified_at'  => now(),
+                            ];
+                            if ($hasEndCol && !empty($rData['date_covered_end'])) {
+                                $colPRow['date_covered_end'] = $rData['date_covered_end'];
+                            }
+                            DB::table('rdp_period_covered')->insert($colPRow);
+                        }
+                    }
+                }
             }
 
             if ($this->prefill_intake_id && $firstRecordId) {
@@ -2407,12 +2812,30 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
             DB::commit();
 
+            if ($isSpread) {
+                $seriesTitle = !empty($this->selectedSeriesTitle) ? $this->selectedSeriesTitle : 'Inventory Record';
+                foreach ($validCollective as $colOffice) {
+                    \App\Services\RdpNotificationService::notifyRecordRequestSubmitted(
+                        $colOffice,
+                        $userOfficeCode ?? 'Unknown Office',
+                        $seriesTitle
+                    );
+                }
+            }
+
             $count = count($itemsToProcess);
-            $this->successMessage = ($this->entryMode === 'multi' && $count > 1) 
-                ? "Multi-entry of {$count} records created successfully under this series!" 
-                : ($this->entryMode === 'batch' 
-                    ? "Batch record with duration breakdown created successfully!"
-                    : "Inventory and Appraisal Record created successfully!");
+            if ($isSpread) {
+                $officeCount = count($validCollective);
+                $this->successMessage = ($this->entryMode === 'multi' && $count > 1) 
+                    ? "Multi-entry of {$count} records created for {$userOfficeCode} and spread to {$officeCount} collective office(s)!" 
+                    : "Record created successfully for {$userOfficeCode} and spread to {$officeCount} collective office(s)!";
+            } else {
+                $this->successMessage = ($this->entryMode === 'multi' && $count > 1) 
+                    ? "Multi-entry of {$count} records created successfully under this series!" 
+                    : ($this->entryMode === 'batch' 
+                        ? "Batch record with duration breakdown created successfully!"
+                        : "Inventory and Appraisal Record created successfully!");
+            }
             $this->resetFormFields();
 
         } catch (\Exception $e) {
@@ -2424,6 +2847,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function resetFormFields(): void
     {
+        $this->showVerificationModal = false;
         $this->showValidationErrors = false;
         $this->entryMode = 'single';
         $this->isBatchMode = false;
@@ -2464,6 +2888,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->duplicate_offices = [];
         $this->duplicate_search = '';
         $this->showDuplicateDropdown = false;
+        $this->collectiveOffices = [];
+        $this->showCollectiveModal = false;
+        $this->collectiveSearch = '';
+        $this->tempCollectiveOffices = [];
         $this->dispatch('scroll-to-top');
     }
 
@@ -2581,6 +3009,32 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 </div>
                 @if(!$isAppraising)
                     <div class="ia-mode-actions">
+                        @php
+                            $validCollectiveOffices = array_values(array_filter($collectiveOffices ?? [], fn($c) => $c !== ($userOfficeCode ?? null)));
+                            $collectiveCount = count($validCollectiveOffices);
+                        @endphp
+                        <!-- Office Collective Trigger Button -->
+                        <button type="button" 
+                                wire:click="openCollectiveModal" 
+                                class="ia-btn ia-btn-collective {{ $collectiveCount > 0 ? 'is-active' : '' }}" 
+                                title="{{ $collectiveCount > 0 ? 'Office Collective: ' . $collectiveCount . ' selected' : 'Add offices to Office Collective' }}">
+                            <!-- Office Building Icon -->
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"></path>
+                                <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"></path>
+                                <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"></path>
+                                <path d="M10 6h4"></path>
+                                <path d="M10 10h4"></path>
+                                <path d="M10 14h4"></path>
+                                <path d="M10 18h4"></path>
+                            </svg>
+                            @if($collectiveCount > 0)
+                                <span>Office Collective [ {{ $collectiveCount }} ]</span>
+                            @else
+                                <span>+ Add Office to Collective</span>
+                            @endif
+                        </button>
+
                         {{-- Entry Mode Split Dropdown Button --}}
                         <div x-data="{ modeOpen: false }" @click.outside="modeOpen = false" style="position: relative; display: inline-flex; vertical-align: middle; z-index: 50;">
                             @php
@@ -3503,7 +3957,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         <span style="font-size: 11px; color: #64748b; font-weight: 500;">(Predefined — Read Only)</span>
                     @endif
                 </span>
-                <input type="text" class="ia-input" wire:model.live.debounce.500ms="active_period" placeholder="E.G. 6 MONTHS, 1 YEAR" {{ ($is_permanent || $hasPredefinedRetention) ? 'disabled' : '' }}>
+                <input type="text" class="ia-input" wire:model.live.debounce.500ms="active_period" placeholder="{{ ($hasPredefinedRemarks && empty($active_period) && empty($storage_period)) ? 'Condition in Remarks' : 'E.G. 6 MONTHS, 1 YEAR' }}" {{ ($is_permanent || $hasPredefinedRetention) ? 'disabled' : '' }}>
             </div>
 
             <!-- Storage Period -->
@@ -3514,14 +3968,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         <span style="font-size: 11px; color: #64748b; font-weight: 500;">(Predefined — Read Only)</span>
                     @endif
                 </span>
-                <input type="text" class="ia-input" wire:model.live.debounce.500ms="storage_period" placeholder="E.G. 1 YEAR, 4 YEARS" {{ ($is_permanent || $hasPredefinedRetention) ? 'disabled' : '' }}>
+                <input type="text" class="ia-input" wire:model.live.debounce.500ms="storage_period" placeholder="{{ ($hasPredefinedRemarks && empty($active_period) && empty($storage_period)) ? 'Condition in Remarks' : 'E.G. 1 YEAR, 4 YEARS' }}" {{ ($is_permanent || $hasPredefinedRetention) ? 'disabled' : '' }}>
             </div>
 
             <!-- Total Period (Computed) -->
             <div class="ia-form-row {{ ($is_permanent || $hasPredefinedRetention) ? 'ia-row-disabled' : '' }}" wire:key="ia-row-total-period">
                 <span class="ia-label">Total Period</span>
                 <div class="ia-computed-box">
-                    {{ $this->computeTotalPeriod($active_period, $storage_period, $is_permanent) ?: '— (Auto-calculated)' }}
+                    {{ $this->computeTotalPeriod($active_period, $storage_period, $is_permanent) ?: (($hasPredefinedRemarks && empty($active_period) && empty($storage_period)) ? 'SEE REMARKS' : '— (Auto-calculated)') }}
                 </div>
             </div>
 
@@ -3553,12 +4007,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             @endif
 
             <button type="button" wire:click="resetFormFields" onclick="rdpScrollToTop()" class="ia-btn ia-btn-secondary">CLEAR FORM</button>
-            <button type="button" wire:click="saveDraft" onclick="rdpScrollToTop()" class="ia-btn ia-btn-secondary">
-                {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'SAVE DRAFT (' . count($batchItems) . ' RECORDS)' : 'SAVE DRAFT' }}
-            </button>
-            <button type="button" wire:click="createRecord" onclick="rdpScrollToTop()" class="ia-btn ia-btn-primary ia-btn-lg">
+            <button type="button" wire:click="openVerificationModal" class="ia-btn ia-btn-primary ia-btn-lg">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-                {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'CREATE ' . count($batchItems) . ' RECORDS' : 'CREATE RECORD' }}
+                @if(count($collectiveOffices) > 0)
+                    {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'CREATE ' . count($batchItems) . ' RECORDS & SPREAD TO ' . count($collectiveOffices) . ' ' . \Illuminate\Support\Str::plural('OFFICE', count($collectiveOffices)) : 'CREATE RECORD & SPREAD TO ' . count($collectiveOffices) . ' ' . \Illuminate\Support\Str::plural('OFFICE', count($collectiveOffices)) }}
+                @else
+                    {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'CREATE ' . count($batchItems) . ' RECORDS' : 'CREATE RECORD' }}
+                @endif
             </button>
         </div>
     </div>
@@ -3573,6 +4028,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     <button wire:click="closeSeriesModal" class="ia-modal-close">&times;</button>
                 </div>
                 <div class="ia-modal-body">
+                    @if($seriesModalError)
+                        <div class="ia-series-error-alert" style="background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 10px 14px; border-radius: 8px; font-size: 12.5px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                                <span>{{ $seriesModalError }}</span>
+                            </div>
+                            <button type="button" wire:click="$set('seriesModalError', null)" style="border: none; background: none; color: inherit; font-size: 18px; cursor: pointer; line-height: 1; padding: 0 4px;">&times;</button>
+                        </div>
+                    @endif
+
                     <!-- Record Series Type Dropdown -->
                     <div style="margin-bottom: 18px;">
                         <label class="ia-modal-label" style="display: block; margin-bottom: 8px;">Select Record Series Type:</label>
@@ -3640,6 +4105,102 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 <div class="ia-modal-footer">
                     <button type="button" wire:click="closeSeriesModal" class="ia-btn ia-btn-secondary">Cancel</button>
                     <button type="button" wire:click="saveNewRecordSeries" class="ia-btn ia-btn-primary">Apply Series</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- ═══════ Office Collective Modal ═══════ -->
+    @if($showCollectiveModal)
+        <div class="ia-modal-overlay" style="z-index: 10000;">
+            <div class="ia-modal-card" style="width: 620px; max-width: 95vw; border-radius: 14px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.25);">
+                <div class="ia-modal-header" style="padding: 18px 22px; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h3 class="ia-modal-title" style="margin: 0 0 4px 0; font-size: 17px; font-weight: 700;">Office Collective</h3>
+                        <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 500;">
+                            Select offices to receive a duplicate copy of this record as an incoming Record Request
+                        </p>
+                    </div>
+                    <button type="button" wire:click="closeCollectiveModal" class="ia-modal-close" style="font-size: 22px; cursor: pointer;">&times;</button>
+                </div>
+                
+                <div class="ia-modal-body" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; max-height: 65vh; overflow-y: auto;">
+                    <!-- Search & Selection Actions -->
+                    <div style="display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+                        <div style="position: relative; flex: 1; min-width: 220px;">
+                            <input type="text" 
+                                   class="ia-input" 
+                                   wire:model.live.debounce.150ms="collectiveSearch" 
+                                   placeholder="Search office by code or name..."
+                                   style="width: 100%; font-size: 13px; padding-left: 12px;">
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <button type="button" wire:click="selectAllCollectiveOffices" class="ia-btn ia-btn-secondary" style="font-size: 11px; height: 32px; padding: 0 10px;">Select All</button>
+                            <button type="button" wire:click="clearAllTempCollectiveOffices" class="ia-btn ia-btn-secondary" style="font-size: 11px; height: 32px; padding: 0 10px;">Clear</button>
+                        </div>
+                    </div>
+
+                    @php
+                        $userOffice = Auth::user()?->details?->office?->office_code ?? Auth::user()?->details?->office_code ?? null;
+                        $searchLower = strtolower(trim($collectiveSearch));
+                        $availableOffices = collect($officesList)->filter(function($off) use ($userOffice, $searchLower) {
+                            if ($off->office_code === $userOffice) return false;
+                            if (empty($searchLower)) return true;
+                            return str_contains(strtolower($off->office_code), $searchLower) || str_contains(strtolower($off->office_name), $searchLower);
+                        });
+                    @endphp
+
+                    <!-- Selected Count Badge -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; font-size: 12.5px; color: #1e40af; font-weight: 600;">
+                        <span>Selected in Collective: <strong>{{ count($tempCollectiveOffices) }}</strong> {{ \Illuminate\Support\Str::plural('office', count($tempCollectiveOffices)) }}</span>
+                        @if(count($tempCollectiveOffices) > 0)
+                            <span style="font-size: 11.5px; color: #2563eb; font-weight: 700;">Ready to spread</span>
+                        @endif
+                    </div>
+
+                    <!-- Offices List -->
+                    <div style="display: flex; flex-direction: column; gap: 6px; border: 1px solid #e2e8f0; border-radius: 8px; max-height: 280px; overflow-y: auto; padding: 6px;">
+                        @forelse($availableOffices as $off)
+                            @php
+                                $isSelected = in_array($off->office_code, $tempCollectiveOffices, true);
+                            @endphp
+                            <div wire:click="toggleCollectiveOffice('{{ $off->office_code }}')"
+                                 class="ia-collective-item {{ $isSelected ? 'is-selected' : '' }}">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <input type="checkbox" 
+                                           {{ $isSelected ? 'checked' : '' }} 
+                                           style="cursor: pointer; pointer-events: none; width: 16px; height: 16px; accent-color: #2563eb;">
+                                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                        <span class="ia-collective-code-badge">
+                                            {{ $off->office_code }}
+                                        </span>
+                                        <span class="ia-collective-name">
+                                            {{ $off->office_name }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <span style="font-size: 11.5px; font-weight: 700; color: {{ $isSelected ? '#2563eb' : '#94a3b8' }};">
+                                    {{ $isSelected ? '✓ Selected' : '+ Select' }}
+                                </span>
+                            </div>
+                        @empty
+                            <div style="text-align: center; padding: 24px; font-size: 12.5px; color: #64748b;">
+                                No matching active offices found.
+                            </div>
+                        @endforelse
+                    </div>
+                </div>
+
+                <div class="ia-modal-footer" style="padding: 14px 22px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border-bottom-left-radius: 14px; border-bottom-right-radius: 14px;">
+                    <span style="font-size: 12px; color: #64748b; font-weight: 500;">
+                        {{ count($tempCollectiveOffices) }} {{ \Illuminate\Support\Str::plural('office', count($tempCollectiveOffices)) }} chosen
+                    </span>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" wire:click="closeCollectiveModal" class="ia-btn ia-btn-secondary" style="height: 36px; padding: 0 14px; font-size: 12.5px;">Cancel</button>
+                        <button type="button" wire:click="applyCollectiveModal" class="ia-btn ia-btn-primary" style="height: 36px; padding: 0 16px; font-size: 12.5px; background: #2563eb; border-color: #2563eb;">
+                            Apply to Collective
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -3869,6 +4430,285 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         <button type="button" wire:click="closeBatchModal" class="ia-btn ia-btn-secondary">Close</button>
                         <button type="button" wire:click="applyBatchModal" class="ia-btn ia-btn-primary" style="background: #059669; border-color: #059669;">
                             ✓ Apply Breakdown to Form
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- ═══════ Record Verification & Print Preview Modal ═══════ -->
+    @if($showVerificationModal)
+        <div class="ia-modal-overlay" wire:click.self="closeVerificationModal" style="z-index: 1050;">
+            <div class="ia-modal-card is-verification-modal">
+                <div class="ia-modal-header" style="background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%); border-bottom: 1px solid #e2e8f0; padding: 18px 24px;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div style="width: 38px; height: 38px; border-radius: 10px; background: #dcfce7; display: flex; align-items: center; justify-content: center; color: #15803d; flex-shrink: 0; box-shadow: 0 2px 6px rgba(21, 128, 61, 0.15);">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+                        </div>
+                        <div>
+                            <div style="font-size: 17px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                                Record Verification & Print Preview
+                                <span style="font-size: 11px; font-weight: 700; background: #e0e7ff; color: #4338ca; padding: 2px 8px; border-radius: 9999px;">NAP Form 1 Layout</span>
+                            </div>
+                            <p style="margin: 3px 0 0 0; font-size: 12px; color: #64748b;">
+                                Review the official National Archives of the Philippines layout before finalizing record creation or saving as draft.
+                            </p>
+                        </div>
+                    </div>
+                    <button type="button" wire:click="closeVerificationModal" class="ia-modal-close" title="Close Verification">&times;</button>
+                </div>
+
+                <div class="ia-modal-body" style="padding: 18px 24px; background: #f8fafc; overflow-y: auto; max-height: calc(88vh - 145px);">
+                    @if(count($collectiveOffices) > 0)
+                        <div class="ia-verification-spread-notice" style="background: #eff6ff; border: 1.5px solid #93c5fd; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-3"/></svg>
+                                <div>
+                                    <div style="font-weight: 700; color: #1e3a8a; font-size: 12.5px;">
+                                        Collective Office Spread Activated
+                                    </div>
+                                    <div style="font-size: 11.5px; color: #1e40af; margin-top: 2px;">
+                                        This record will be created under your office (<strong>{{ $userOfficeCode }}</strong>) and spread as a record request to <strong>{{ count($collectiveOffices) }}</strong> collective {{ \Illuminate\Support\Str::plural('office', count($collectiveOffices)) }}:
+                                        <span style="font-weight: 600;">{{ implode(', ', $collectiveOffices) }}</span>.
+                                    </div>
+                                </div>
+                            </div>
+                            <span style="background: #dbeafe; color: #1d4ed8; font-weight: 700; font-size: 11px; padding: 4px 8px; border-radius: 6px; white-space: nowrap;">
+                                {{ count($collectiveOffices) }} {{ \Illuminate\Support\Str::plural('Office', count($collectiveOffices)) }}
+                            </span>
+                        </div>
+                    @endif
+
+                    <!-- Print Sheet Document Container -->
+                    <div class="ia-verification-sheet" style="background: #ffffff; border: 1.5px solid #000; padding: 18px 20px; font-family: Arial, sans-serif; box-shadow: 0 4px 14px rgba(0,0,0,0.06); color: #000;">
+                        <!-- Top Identifier -->
+                        <div style="font-size: 8px; font-weight: normal; margin-bottom: 4px; line-height: 1.2;">
+                            NAP Records Inventory and Appraisal Form<br>2024
+                        </div>
+
+                        <!-- Top Header Grid Box (Fields 1 to 8) -->
+                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-bottom: none; font-size: 8px; text-align: left; table-layout: fixed;">
+                            <tr>
+                                <td rowspan="3" style="width: 28%; border: 1px solid #000; text-align: center; vertical-align: middle; padding: 4px;">
+                                    <div style="border: 1.5px solid #000; padding: 6px 4px; margin: 2px;">
+                                        <div style="font-weight: bold; font-size: 9.5px; text-align: center;">NATIONAL ARCHIVES OF THE PHILIPPINES</div>
+                                        <div style="font-style: italic; font-size: 8px; margin: 2px 0 6px 0; text-align: center;">Pambansang Sinupan ng Pilipinas</div>
+                                        <div style="font-weight: bold; font-size: 9.5px; text-align: center;">RECORDS INVENTORY AND APPRAISAL</div>
+                                    </div>
+                                </td>
+                                <td rowspan="2" style="width: 27%; border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                    <strong>1. NAME OF OFFICE:</strong>
+                                    <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ Auth::user()?->details?->office?->office_name ?? Auth::user()?->details?->office_code ?? 'CAMARINES SUR POLYTECHNIC COLLEGES' }}</div>
+                                </td>
+                                <td style="width: 18%; border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                    <strong>2. DEPARTMENT/DIVISION:</strong>
+                                    <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ Auth::user()?->details?->office?->office_name ?? Auth::user()?->details?->office_code ?? 'CSPC' }}</div>
+                                </td>
+                                <td style="width: 27%; border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                    <strong>4. TELEPHONE NO.:</strong>
+                                    <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">—</div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                    <strong>3. SECTION/UNIT:</strong>
+                                    <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ Auth::user()?->details?->office_code ?? 'MAIN' }}</div>
+                                </td>
+                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                    <strong>5. EMAIL ADDRESS:</strong>
+                                    <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ Auth::user()?->email ?? '—' }}</div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                    <strong>6. ADDRESS:</strong>
+                                    <div style="font-size: 8.5px; font-weight: bold; margin-top: 2px;">San Miguel, Nabua, Camarines Sur</div>
+                                </td>
+                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                    <strong>7. PERSON-IN-CHARGE OF FILES:</strong>
+                                    <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ Auth::user()?->name ?? 'Records Officer' }}</div>
+                                </td>
+                                <td style="border: 1px solid #000; padding: 4px 6px; vertical-align: top;">
+                                    <strong>8. DATE PREPARED:</strong>
+                                    <div style="font-size: 9px; font-weight: bold; margin-top: 2px;">{{ now()->format('F d, Y') }}</div>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <!-- Main Columns 9 to 20 Data Table -->
+                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 7.5px; text-align: center; table-layout: fixed;">
+                            <thead>
+                                <tr style="font-weight: bold; background: #fafafa;">
+                                    <th rowspan="2" style="border: 1px solid #000; width: 18%; padding: 4px 2px;">9. RECORDS SERIES TITLE AND DESCRIPTION</th>
+                                    <th rowspan="2" style="border: 1px solid #000; width: 8.5%; padding: 4px 2px;">10. PERIOD COVERED / INCLUSIVE DATES</th>
+                                    <th rowspan="2" style="border: 1px solid #000; width: 6%; padding: 4px 2px;">11. VOLUME</th>
+                                    <th rowspan="2" style="border: 1px solid #000; width: 6.5%; padding: 4px 2px;">12. RECORDS MEDIUM</th>
+                                    <th rowspan="2" style="border: 1px solid #000; width: 6%; padding: 4px 2px;">13. RESTRICTION/S</th>
+                                    <th rowspan="2" style="border: 1px solid #000; width: 7.5%; padding: 4px 2px;">14. LOCATION OF RECORDS</th>
+                                    <th rowspan="2" style="border: 1px solid #000; width: 6%; padding: 4px 2px;">15. FREQUENCY OF USE</th>
+                                    <th rowspan="2" style="border: 1px solid #000; width: 5.5%; padding: 4px 2px;">16. DUPLICATION</th>
+                                    <th rowspan="2" style="border: 1px solid #000; width: 5%; padding: 4px 2px;">17. TIME VALUE (T/P)</th>
+                                    <th rowspan="2" style="border: 1px solid #000; width: 6.5%; padding: 4px 2px;">18. UTILITY VALUE Adm/F/L/Arc</th>
+                                    <th colspan="3" style="border: 1px solid #000; width: 11%; padding: 4px 2px;">19. RETENTION PERIOD</th>
+                                    <th rowspan="2" style="border: 1px solid #000; width: 13.5%; padding: 4px 2px;">20. DISPOSITION PROVISION</th>
+                                </tr>
+                                <tr style="font-weight: bold; background: #fafafa;">
+                                    <th style="border: 1px solid #000; width: 3.6%; padding: 3px 2px;">Active</th>
+                                    <th style="border: 1px solid #000; width: 3.6%; padding: 3px 2px;">Storage</th>
+                                    <th style="border: 1px solid #000; width: 3.8%; padding: 3px 2px;">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @php
+                                    $cellBorder = "border: 1px solid #000;";
+                                @endphp
+
+                                @if($entryMode === 'single')
+                                    <tr style="vertical-align: top;">
+                                        <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px;">
+                                            <div style="font-weight: bold; font-size: 8px;">{{ strtoupper($selectedSeriesTitle ?: '—') }}</div>
+                                            @if(!empty(trim($description)))
+                                                <div style="font-size: 7.5px; margin-top: 2px; color: #1e293b;">{{ $description }}</div>
+                                            @endif
+                                        </td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $this->formatPreviewDate($date_covered) }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $volume ?: ($volume_amount ? ($volume_amount . ' ' . $volume_unit) : '—') }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $this->getMediumNameById($records_medium) }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $restriction ?: '—' }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $records_location ?: '—' }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $frequence_use ?: '—' }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ !empty($duplicate_offices) ? implode(', ', $duplicate_offices) : 'None' }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px; font-weight: bold;">{{ $time_value ?: 'T' }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px; font-weight: bold;">{{ $this->formatUtilityValuesForPreview($utility_values) }}</td>
+                                        @if($is_permanent)
+                                            <td colspan="3" style="{{ $cellBorder }} padding: 4px 2px; font-weight: bold;">PERMANENT</td>
+                                        @else
+                                            <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $active_period ?: '—' }}</td>
+                                            <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $storage_period ?: '—' }}</td>
+                                            <td style="{{ $cellBorder }} padding: 4px 2px; font-weight: bold;">{{ $retention_period ?: '—' }}</td>
+                                        @endif
+                                        <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px;">{{ $disposition_provision ?: '—' }}</td>
+                                    </tr>
+
+                                @elseif($entryMode === 'batch')
+                                    <!-- Parent Batch Row -->
+                                    <tr style="vertical-align: top; background: #fdfdfd;">
+                                        <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px;">
+                                            <div style="font-weight: bold; font-size: 8px;">{{ strtoupper($selectedSeriesTitle ?: '—') }}</div>
+                                            @if(!empty(trim($description)))
+                                                <div style="font-size: 7.5px; margin-top: 2px; color: #1e293b;">{{ $description }}</div>
+                                            @endif
+                                        </td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px; font-weight: bold;">
+                                            {{ $this->formatBatchDateRange($batch_start_date, $batch_end_date, false) ?: '—' }}
+                                        </td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px; font-weight: bold;">
+                                            {{ $this->getBatchTotalVolumeFormatted() ?: '—' }}
+                                        </td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $this->getMediumNameById($records_medium) }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $restriction ?: '—' }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $records_location ?: '—' }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $frequence_use ?: '—' }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px;">{{ !empty($duplicate_offices) ? implode(', ', $duplicate_offices) : 'None' }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px; font-weight: bold;">{{ $time_value ?: 'T' }}</td>
+                                        <td style="{{ $cellBorder }} padding: 4px 2px; font-weight: bold;">{{ $this->formatUtilityValuesForPreview($utility_values) }}</td>
+                                        @if($is_permanent)
+                                            <td colspan="3" style="{{ $cellBorder }} padding: 4px 2px; font-weight: bold;">PERMANENT</td>
+                                        @else
+                                            <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $active_period ?: '—' }}</td>
+                                            <td style="{{ $cellBorder }} padding: 4px 2px;">{{ $storage_period ?: '—' }}</td>
+                                            <td style="{{ $cellBorder }} padding: 4px 2px; font-weight: bold;">{{ $retention_period ?: '—' }}</td>
+                                        @endif
+                                        <td style="{{ $cellBorder }} text-align: left; padding: 4px 6px;">{{ $disposition_provision ?: '—' }}</td>
+                                    </tr>
+                                    <!-- Sub-period Rows -->
+                                    @foreach($batch_sub_periods as $subIdx => $sub)
+                                        <tr style="vertical-align: top; background: #ffffff;">
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 3px 6px 3px 18px; color: #334155;">
+                                                ↳ {{ $sub['description'] ?: $this->formatSubPeriodDefaultDescription($sub['start_date'] ?? '', $sub['end_date'] ?? '', $description) }}
+                                            </td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px; color: #334155;">
+                                                {{ $this->formatBatchDateRange($sub['start_date'] ?? '', $sub['end_date'] ?? '', false) ?: '—' }}
+                                            </td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px; color: #334155;">
+                                                {{ $sub['volume'] ?: '—' }}
+                                            </td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px; color: #94a3b8;">—</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px; color: #94a3b8;">—</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px; color: #94a3b8;">—</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px; color: #94a3b8;">—</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px; color: #94a3b8;">—</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px; color: #94a3b8;">—</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px; color: #94a3b8;">—</td>
+                                            <td colspan="3" style="{{ $cellBorder }} padding: 3px 2px; color: #94a3b8;">—</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px; color: #94a3b8;">—</td>
+                                        </tr>
+                                    @endforeach
+
+                                @elseif($entryMode === 'multi')
+                                    <!-- Series Title Header Row -->
+                                    <tr style="vertical-align: top; background: #f8fafc;">
+                                        <td colspan="14" style="{{ $cellBorder }} text-align: left; padding: 5px 8px; font-weight: bold; font-size: 8px;">
+                                            {{ strtoupper($selectedSeriesTitle ?: 'RECORD SERIES') }}
+                                            <span style="font-size: 7.5px; font-weight: normal; color: #64748b; margin-left: 6px;">
+                                                ({{ count($batchItems) }} {{ \Illuminate\Support\Str::plural('Record', count($batchItems)) }})
+                                            </span>
+                                        </td>
+                                    </tr>
+                                    <!-- Individual Multi Item Rows -->
+                                    @foreach($batchItems as $bIdx => $bItem)
+                                        <tr style="vertical-align: top;">
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 3px 6px;">
+                                                <span style="font-weight: bold; color: #2563eb;">#{{ $bIdx + 1 }}:</span>
+                                                {{ $bItem['description'] ?: '—' }}
+                                            </td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px;">{{ $this->formatPreviewDate($bItem['date_covered'] ?? '') }}</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px;">{{ $bItem['volume'] ?? '—' }}</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px;">{{ $this->getMediumNameById(!empty($bItem['records_medium']) ? (int)$bItem['records_medium'] : null) }}</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px;">{{ $bItem['restriction'] ?? '—' }}</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px;">{{ $bItem['records_location'] ?? '—' }}</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px;">{{ $bItem['frequence_use'] ?? '—' }}</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px;">{{ !empty($bItem['duplicate_offices']) ? implode(', ', $bItem['duplicate_offices']) : 'None' }}</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px; font-weight: bold;">{{ $bItem['time_value'] ?? 'T' }}</td>
+                                            <td style="{{ $cellBorder }} padding: 3px 2px; font-weight: bold;">{{ $this->formatUtilityValuesForPreview($bItem['utility_values'] ?? []) }}</td>
+                                            @if($is_permanent)
+                                                <td colspan="3" style="{{ $cellBorder }} padding: 3px 2px; font-weight: bold;">PERMANENT</td>
+                                            @else
+                                                <td style="{{ $cellBorder }} padding: 3px 2px;">{{ $active_period ?: '—' }}</td>
+                                                <td style="{{ $cellBorder }} padding: 3px 2px;">{{ $storage_period ?: '—' }}</td>
+                                                <td style="{{ $cellBorder }} padding: 3px 2px; font-weight: bold;">{{ $retention_period ?: '—' }}</td>
+                                            @endif
+                                            <td style="{{ $cellBorder }} text-align: left; padding: 3px 6px;">{{ $disposition_provision ?: '—' }}</td>
+                                        </tr>
+                                    @endforeach
+                                @endif
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 3 Action Buttons Footer -->
+                <div class="ia-modal-footer is-verification-footer" style="padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; background: #ffffff; border-top: 1px solid #e2e8f0; border-bottom-left-radius: 16px; border-bottom-right-radius: 16px;">
+                    <div style="font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 6px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                        <span>Please verify the record specifications before finalizing.</span>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button type="button" wire:click="closeVerificationModal" class="ia-btn ia-btn-secondary" style="height: 38px; padding: 0 16px; font-size: 13px; font-weight: 600;">
+                            Cancel
+                        </button>
+                        <button type="button" wire:click="confirmSaveDraft" class="ia-btn" style="height: 38px; padding: 0 16px; font-size: 13px; font-weight: 700; background: #f8fafc; color: #334155; border: 1.5px solid #cbd5e1; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; transition: all 0.2s;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                            {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'Submit as Draft (' . count($batchItems) . ' Records)' : 'Submit as Draft' }}
+                        </button>
+                        <button type="button" wire:click="confirmCreateRecord" class="ia-btn ia-btn-primary" style="height: 38px; padding: 0 20px; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                            @if(count($collectiveOffices) > 0)
+                                {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'Submit ' . count($batchItems) . ' Records & Spread' : 'Submit & Spread to Collective' }}
+                            @else
+                                {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'Submit ' . count($batchItems) . ' Records' : 'Submit' }}
+                            @endif
                         </button>
                     </div>
                 </div>

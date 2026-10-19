@@ -35,11 +35,12 @@ class NotificationBoxRemodelTest extends TestCase
         $this->tNotifications = Schema::hasTable('sys_notifications') ? 'sys_notifications' : 'notifications';
         $this->tNotificationDiv = Schema::hasTable('sys_notification_div') ? 'sys_notification_div' : 'notification_div';
 
-        $user = User::find($this->testUserId);
+        $user = User::find($this->testUserId) ?: User::first();
         if (!$user) {
             $this->markTestSkipped('Test user does not exist.');
             return;
         }
+        $this->testUserId = $user->id;
         Auth::login($user);
 
         // Store original office ID to restore later
@@ -73,20 +74,30 @@ class NotificationBoxRemodelTest extends TestCase
 
     protected function tearDown(): void
     {
-        $testNotifIds = DB::table($this->tNotifications)->where('office', $this->officeCode)->pluck('id');
-        DB::table($this->tNotificationDiv)->whereIn('id', $testNotifIds)->delete();
+        if (isset($this->officeCode) && isset($this->tNotifications)) {
+            $testNotifIds = DB::table($this->tNotifications)->where('office', $this->officeCode)->pluck('id');
+            if (isset($this->tNotificationDiv)) {
+                DB::table($this->tNotificationDiv)->whereIn('id', $testNotifIds)->delete();
+            }
 
-        $notifications = DB::table($this->tNotifications)->where('office', $this->officeCode)->get();
-        foreach ($notifications as $notif) {
-            DB::table($this->tNotifications)->where('id', $notif->id)->delete();
-            DB::table($this->tNotifContent)->where('id', $notif->contents)->delete();
+            $notifications = DB::table($this->tNotifications)->where('office', $this->officeCode)->get();
+            foreach ($notifications as $notif) {
+                DB::table($this->tNotifications)->where('id', $notif->id)->delete();
+                if (isset($this->tNotifContent)) {
+                    DB::table($this->tNotifContent)->where('id', $notif->contents)->delete();
+                }
+            }
         }
 
-        DB::table($this->tAccountDetails)
-            ->where('account_id', $this->testUserId)
-            ->update(['office_id' => $this->originalOfficeId]);
+        if (isset($this->testUserId) && isset($this->tAccountDetails) && isset($this->originalOfficeId)) {
+            DB::table($this->tAccountDetails)
+                ->where('account_id', $this->testUserId)
+                ->update(['office_id' => $this->originalOfficeId]);
+        }
 
-        DB::table($this->tOffice)->where('id', $this->officeId)->delete();
+        if (isset($this->officeId) && isset($this->tOffice)) {
+            DB::table($this->tOffice)->where('id', $this->officeId)->delete();
+        }
 
         parent::tearDown();
     }

@@ -243,7 +243,8 @@ class OfficeDcnDocNoDrfTest extends TestCase
                 $originRow['created_at'] = $now;
                 $originRow['updated_at'] = $now;
             }
-            $originatorId = (int) DB::table('dcs_originators')->insertGetId($originRow);
+            $originatorId = (int) (DB::table('dcs_originators')->where('originator_name', $originatorName)->value('id')
+                ?: DB::table('dcs_originators')->insertGetId($originRow));
             $ml['originator_id'] = $originatorId;
         }
         if (Schema::hasColumn('dcs_masterlist_registration', 'originator_name')) {
@@ -328,7 +329,7 @@ class OfficeDcnDocNoDrfTest extends TestCase
         $show = $this->actingAs(User::find($this->limitedUserId))
             ->get($response->headers->get('Location') ?? '');
         $show->assertOk();
-        $show->assertSee('Create DRF', false);
+        $show->assertDontSee('Create DRF', false);
         $show->assertDontSee('View linked DRF', false);
     }
 

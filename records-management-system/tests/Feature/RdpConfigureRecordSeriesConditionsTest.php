@@ -79,14 +79,61 @@ class RdpConfigureRecordSeriesConditionsTest extends TestCase
         $component->assertSet('hasPredefinedRemarks', true);
     }
 
-    public function test_series_with_no_active_or_storage_period_and_no_remarks_cannot_be_applied(): void
+    public function test_subsection_inherits_retention_period_and_remarks_from_parent(): void
     {
-        // CHARTS (id 10) has subsection Functional (id 11) which has retention_period = null and remarks = null
+        // ACCREDITION OF STUDENT FILES (id 625) + Applications (id 626)
+        // Parent has retention_period 385 (3 YEARS) and remarks "After expired"
+        // Subsection 626 has retention_period = null, remarks = null
         $component = Volt::test('pages.rdp.add-records.inventory-and-appraisal');
         $component->call('openSeriesModal');
 
-        $component->call('selectParentSuggestion', 'CHARTS', 10);
-        $component->set('subsections', ['Functional']);
+        $component->call('selectParentSuggestion', 'ACCREDITION OF STUDENT FILES', 625);
+        $component->set('subsections', ['Applications']);
+
+        $component->call('saveNewRecordSeries');
+
+        // Must succeed via inheritance!
+        $component->assertSet('showSeriesModal', false);
+        $this->assertNull($component->get('seriesModalError'));
+        $component->assertSet('selectedSeriesTitle', 'ACCREDITION OF STUDENT FILES ➔ APPLICATIONS');
+        $component->assertSet('active_period', '3 YEARS');
+        $component->assertSet('retention_period', '3 YEARS');
+        $this->assertStringContainsString('After expired', $component->get('disposition_provision'));
+    }
+
+    public function test_series_with_no_active_or_storage_period_and_no_remarks_cannot_be_applied(): void
+    {
+        // Create an unconfigured parent and subsection with no retention and no remarks
+        $parentId = DB::table('rdp_record_series')->insertGetId([
+            'series_title'                  => 'EMPTY PARENT ' . uniqid(),
+            'parent_id'                     => null,
+            'retention_period'              => null,
+            'is_retention_period_permanent' => false,
+            'remarks'                       => null,
+            'is_active'                     => true,
+            'created_at'                    => now(),
+            'updated_at'                    => now(),
+        ]);
+
+        $subId = DB::table('rdp_record_series')->insertGetId([
+            'series_title'                  => 'EMPTY SUB ' . uniqid(),
+            'parent_id'                     => $parentId,
+            'retention_period'              => null,
+            'is_retention_period_permanent' => false,
+            'remarks'                       => null,
+            'is_active'                     => true,
+            'created_at'                    => now(),
+            'updated_at'                    => now(),
+        ]);
+
+        $parent = DB::table('rdp_record_series')->where('id', $parentId)->first();
+        $sub = DB::table('rdp_record_series')->where('id', $subId)->first();
+
+        $component = Volt::test('pages.rdp.add-records.inventory-and-appraisal');
+        $component->call('openSeriesModal');
+
+        $component->call('selectParentSuggestion', $parent->series_title, $parentId);
+        $component->set('subsections', [$sub->series_title]);
 
         $component->call('saveNewRecordSeries');
 

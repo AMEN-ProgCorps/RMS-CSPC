@@ -2061,3 +2061,67 @@ textarea.ia-input {
     border-color: #ef4444 !important;
     color: #fca5a5 !important;
 }
+
+/* Verification Modal & Print Preview Styling */
+.ia-modal-card.is-verification-modal {
+    width: 1180px;
+    max-width: 96vw;
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+}
+
+.is-verification-modal .ia-modal-body {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 #f1f5f9;
+}
+
+.is-verification-modal .ia-modal-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.is-verification-modal .ia-modal-body::-webkit-scrollbar-track {
+    background: #f1f5f9;
+}
+
+.is-verification-modal .ia-modal-body::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+}
+
+.ia-verification-sheet table th,
+.ia-verification-sheet table td {
+    word-break: break-word;
+}
+
+[data-theme="dark"] .ia-modal-card.is-verification-modal {
+    background: #1e293b;
+    border: 1px solid #334155;
+}
+
+[data-theme="dark"] .ia-modal-card.is-verification-modal .ia-modal-header {
+    background: linear-gradient(135deg, rgba(22, 101, 52, 0.2) 0%, #1e293b 100%) !important;
+    border-bottom: 1px solid #334155 !important;
+}
+
+[data-theme="dark"] .ia-modal-card.is-verification-modal .ia-modal-header h3,
+[data-theme="dark"] .ia-modal-card.is-verification-modal .ia-modal-header div {
+    color: #f1f5f9 !important;
+}
+
+[data-theme="dark"] .is-verification-modal .ia-modal-body {
+    background: #0f172a !important;
+}
+
+[data-theme="dark"] .is-verification-modal .ia-modal-footer {
+    background: #1e293b !important;
+    border-top: 1px solid #334155 !important;
+}
+
+[data-theme="dark"] .ia-verification-sheet {
+    background: #ffffff !important;
+    color: #000000 !important;
+}

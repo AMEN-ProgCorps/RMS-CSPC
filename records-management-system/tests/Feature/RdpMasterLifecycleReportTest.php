@@ -170,6 +170,49 @@ class RdpMasterLifecycleReportTest extends TestCase
         $this->assertNotNull($response);
     }
 
+    public function test_master_lifecycle_generate_form_modal_interaction(): void
+    {
+        Volt::test('pages.rdp.reports.master-lifecycle')
+            ->assertSee('Generate Form')
+            ->assertSet('showGenerateModal', false)
+            ->call('openGenerateFormModal')
+            ->assertSet('showGenerateModal', true)
+            ->assertSee('Select Form Type')
+            ->assertSee('NAP Form 1')
+            ->assertSee('NAP Form 2')
+            ->assertSee('NAP Form 3')
+            ->call('closeGenerateFormModal')
+            ->assertSet('showGenerateModal', false);
+    }
+
+    public function test_master_lifecycle_generate_forms_saved_to_pending(): void
+    {
+        // 1. Generate NAP Form 1 and verify pending record created
+        $component1 = Volt::test('pages.rdp.reports.master-lifecycle');
+        $component1->call('openGenerateFormModal')
+            ->set('selectedFormType', 'nap1')
+            ->set('formClusterName', 'Test Generated NAP Form 1')
+            ->call('submitGenerateForm')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('rdp_pending_record', [
+            'cluster_name'   => 'Test Generated NAP Form 1',
+            'is_for_nap_one' => true,
+        ]);
+
+        // 2. Generate NAP Form 2 and verify pending series created
+        $component2 = Volt::test('pages.rdp.reports.master-lifecycle');
+        $component2->call('openGenerateFormModal')
+            ->set('selectedFormType', 'nap2')
+            ->set('formClusterName', 'Test Generated RDS Form 2')
+            ->call('submitGenerateForm')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('rdp_pending_record_series', [
+            'cluster_name' => 'Test Generated RDS Form 2',
+        ]);
+    }
+
     public function test_master_lifecycle_role_clearance_scoping(): void
     {
         // Component initialized with clearance enabled

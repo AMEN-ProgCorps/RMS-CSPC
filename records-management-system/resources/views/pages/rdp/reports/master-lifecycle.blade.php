@@ -18,6 +18,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
     public string $dateFrom = '';
     public string $dateTo = '';
 
+    // Generate Form Modal Properties
+    public bool $showGenerateModal = false;
+    public string $selectedFormType = 'nap1'; // 'nap1', 'nap2', 'nap3'
+    public string $formClusterName = '';
+    public string $formOffice = '';
+    public ?string $generateSuccessMessage = null;
+    public ?string $generateErrorMessage = null;
+    public ?int $lastGeneratedClusterId = null;
+
     /**
      * Check if user has role clearance to access the Generalized Records report.
      */
@@ -289,6 +298,314 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         }, $filename, [
             'Content-Type' => 'text/csv',
         ]);
+    }
+
+    public function openGenerateFormModal(): void
+    {
+        $user = Auth::user();
+        $perms = $user?->permissions;
+        if (!$this->hasReportAccessClearance($user, $perms)) {
+            $this->generateErrorMessage = 'You do not have clearance to generate RDP forms.';
+            return;
+        }
+
+        $userOffice = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
+        $this->formOffice = !empty($this->officeFilter) ? $this->officeFilter : ($userOffice ?? '');
+        $this->selectedFormType = 'nap1';
+        $this->updateDefaultFormClusterName();
+        $this->generateSuccessMessage = null;
+        $this->generateErrorMessage = null;
+        $this->lastGeneratedClusterId = null;
+        $this->showGenerateModal = true;
+    }
+
+    public function closeGenerateFormModal(): void
+    {
+        $this->showGenerateModal = false;
+        $this->generateSuccessMessage = null;
+        $this->generateErrorMessage = null;
+    }
+
+    public function updatedSelectedFormType(): void
+    {
+        $this->updateDefaultFormClusterName();
+    }
+
+    public function updatedFormOffice(): void
+    {
+        $this->updateDefaultFormClusterName();
+    }
+
+    private function updateDefaultFormClusterName(): void
+    {
+        $off = !empty($this->formOffice) ? $this->formOffice : 'CAMPUS';
+        $date = Carbon::now()->format('Y-m-d');
+        if ($this->selectedFormType === 'nap1') {
+            $this->formClusterName = "Inventory Form — {$off} ({$date})";
+        } elseif ($this->selectedFormType === 'nap2') {
+            $this->formClusterName = "RDS Schedule Form — {$off} ({$date})";
+        } else {
+            $this->formClusterName = "Disposal Authority Form — {$off} ({$date})";
+        }
+    }
+
+    public function submitGenerateForm(): void
+    {
+        $user = Auth::user();
+        $perms = $user?->permissions;
+        if (!$this->hasReportAccessClearance($user, $perms)) {
+            $this->generateErrorMessage = 'You do not have clearance to generate RDP forms.';
+            return;
+        }
+
+        $targetOffice = trim($this->formOffice);
+        $userOffice = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
+        if (empty($targetOffice) && !$this->hasAllOfficesClearance($user, $perms)) {
+            $targetOffice = $userOffice ?: '';
+        }
+
+        $data = $this->with();
+        $hierarchyTree = $data['hierarchyTree'] ?? [];
+
+        $mainPendingTbl = Schema::hasTable('rdp_main_pending_id') ? 'rdp_main_pending_id' : 'main_pending_id';
+
+        try {
+            DB::beginTransaction();
+
+            if ($this->selectedFormType === 'nap1') {
+                // Collect active (non-disposed) records from current hierarchy tree
+                $recordIds = [];
+                foreach ($hierarchyTree as $root) {
+                    if (!empty($root->direct_records)) {
+                        foreach ($root->direct_records as $rec) {
+                            if (($rec->status ?? '') !== 'disposed') {
+                                if (empty($targetOffice) || ($rec->office ?? '') === $targetOffice) {
+                                    $recordIds[] = (int)$rec->id;
+                                }
+                            }
+                        }
+                    }
+                    if (!empty($root->children)) {
+                        foreach ($root->children as $child) {
+                            if (!empty($child->records)) {
+                                foreach ($child->records as $sRec) {
+                                    if (($sRec->status ?? '') !== 'disposed') {
+                                        if (empty($targetOffice) || ($sRec->office ?? '') === $targetOffice) {
+                                            $recordIds[] = (int)$sRec->id;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                $recordIds = array_values(array_unique($recordIds));
+
+                if (empty($recordIds) && !empty($targetOffice)) {
+                    $recordIds = DB::table('rdp_record')
+                        ->where('is_draft', false)
+                        ->where('is_active', true)
+                        ->where('transferred_to_nap3', false)
+                        ->where('office_own', $targetOffice)
+                        ->pluck('id')
+                        ->map(fn($v) => (int)$v)
+                        ->all();
+                }
+
+                if (empty($recordIds)) {
+                    $this->generateErrorMessage = 'No active records available to package into NAP Form 1 for the selected office.';
+                    DB::rollBack();
+                    return;
+                }
+
+                $mainPendingId = DB::table($mainPendingTbl)->insertGetId([
+                    'status'     => 'UNUSED',
+                    'is_active'  => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $clusterTitle = trim($this->formClusterName) ?: ("Inventory Form — " . ($targetOffice ?: 'CAMPUS') . " (" . now()->format('Y-m-d') . ")");
+
+                DB::table('rdp_pending_record')->insert([
+                    'cluster_id'       => $mainPendingId,
+                    'cluster_name'     => $clusterTitle,
+                    'status_id'        => 1, // Pending Verification
+                    'office'           => $targetOffice ?: null,
+                    'created_by'       => $user?->id,
+                    'is_for_nap_one'   => true,
+                    'is_for_nap_three' => false,
+                    'is_active'        => true,
+                    'created_at'       => now(),
+                    'updated_at'       => now(),
+                ]);
+
+                foreach ($recordIds as $rId) {
+                    DB::table('rdp_grouped_record')->insert([
+                        'group_head' => $mainPendingId,
+                        'record_id'  => (int)$rId,
+                        'is_active'  => true,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+
+                DB::commit();
+                $this->lastGeneratedClusterId = $mainPendingId;
+                $this->generateSuccessMessage = "NAP Form 1 created with " . count($recordIds) . " records and saved to Pending successfully!";
+
+            } elseif ($this->selectedFormType === 'nap2') {
+                // Collect series from current hierarchy tree
+                $seriesIds = [];
+                foreach ($hierarchyTree as $root) {
+                    if (empty($targetOffice) || ($root->recorded_at_office ?? '') === $targetOffice) {
+                        $seriesIds[] = (int)$root->id;
+                    }
+                    if (!empty($root->children)) {
+                        foreach ($root->children as $child) {
+                            if (empty($targetOffice) || ($child->recorded_at_office ?? '') === $targetOffice) {
+                                $seriesIds[] = (int)$child->id;
+                            }
+                        }
+                    }
+                }
+                $seriesIds = array_values(array_unique($seriesIds));
+
+                if (empty($seriesIds) && !empty($targetOffice)) {
+                    $seriesIds = DB::table('rdp_record_series')
+                        ->where('is_active', true)
+                        ->where('recorded_at_office', $targetOffice)
+                        ->pluck('id')
+                        ->map(fn($v) => (int)$v)
+                        ->all();
+                }
+
+                if (empty($seriesIds)) {
+                    $this->generateErrorMessage = 'No record series available to package into NAP Form 2 for the selected office.';
+                    DB::rollBack();
+                    return;
+                }
+
+                $mainPendingId = DB::table($mainPendingTbl)->insertGetId([
+                    'status'     => 'UNUSED',
+                    'is_active'  => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $clusterTitle = trim($this->formClusterName) ?: ("RDS Schedule Form — " . ($targetOffice ?: 'CAMPUS') . " (" . now()->format('Y-m-d') . ")");
+
+                DB::table('rdp_pending_record_series')->insert([
+                    'cluster_id'   => $mainPendingId,
+                    'cluster_name' => $clusterTitle,
+                    'status_id'    => 1, // Pending Verification
+                    'office'       => $targetOffice ?: null,
+                    'created_by'   => $user?->id,
+                    'is_active'    => true,
+                    'created_at'   => now(),
+                    'updated_at'   => now(),
+                ]);
+
+                foreach ($seriesIds as $sId) {
+                    DB::table('rdp_grouped_record_series')->insert([
+                        'group_head'       => $mainPendingId,
+                        'record_series_id' => (int)$sId,
+                        'is_active'        => true,
+                        'created_at'       => now(),
+                        'updated_at'       => now(),
+                    ]);
+                }
+
+                DB::commit();
+                $this->lastGeneratedClusterId = $mainPendingId;
+                $this->generateSuccessMessage = "NAP Form 2 created with " . count($seriesIds) . " record series and saved to Pending successfully!";
+
+            } else {
+                // Collect disposed/expired records from current hierarchy tree
+                $recordIds = [];
+                foreach ($hierarchyTree as $root) {
+                    if (!empty($root->direct_records)) {
+                        foreach ($root->direct_records as $rec) {
+                            if (($rec->status ?? '') === 'disposed') {
+                                if (empty($targetOffice) || ($rec->office ?? '') === $targetOffice) {
+                                    $recordIds[] = (int)$rec->id;
+                                }
+                            }
+                        }
+                    }
+                    if (!empty($root->children)) {
+                        foreach ($root->children as $child) {
+                            if (!empty($child->records)) {
+                                foreach ($child->records as $sRec) {
+                                    if (($sRec->status ?? '') === 'disposed') {
+                                        if (empty($targetOffice) || ($sRec->office ?? '') === $targetOffice) {
+                                            $recordIds[] = (int)$sRec->id;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                $recordIds = array_values(array_unique($recordIds));
+
+                if (empty($recordIds) && !empty($targetOffice)) {
+                    $recordIds = DB::table('rdp_record')
+                        ->where('is_draft', false)
+                        ->where('is_active', true)
+                        ->where('transferred_to_nap3', true)
+                        ->where('office_own', $targetOffice)
+                        ->pluck('id')
+                        ->map(fn($v) => (int)$v)
+                        ->all();
+                }
+
+                if (empty($recordIds)) {
+                    $this->generateErrorMessage = 'No disposed or expired records available to package into NAP Form 3 for the selected office.';
+                    DB::rollBack();
+                    return;
+                }
+
+                $mainPendingId = DB::table($mainPendingTbl)->insertGetId([
+                    'status'     => 'UNUSED',
+                    'is_active'  => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $clusterTitle = trim($this->formClusterName) ?: ("Disposal Authority Form — " . ($targetOffice ?: 'CAMPUS') . " (" . now()->format('Y-m-d') . ")");
+
+                DB::table('rdp_pending_record')->insert([
+                    'cluster_id'       => $mainPendingId,
+                    'cluster_name'     => $clusterTitle,
+                    'status_id'        => 1, // Pending Verification
+                    'office'           => $targetOffice ?: null,
+                    'created_by'       => $user?->id,
+                    'is_for_nap_one'   => false,
+                    'is_for_nap_three' => true,
+                    'is_active'        => true,
+                    'created_at'       => now(),
+                    'updated_at'       => now(),
+                ]);
+
+                foreach ($recordIds as $rId) {
+                    DB::table('rdp_grouped_record')->insert([
+                        'group_head' => $mainPendingId,
+                        'record_id'  => (int)$rId,
+                        'is_active'  => true,
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+                }
+
+                DB::commit();
+                $this->lastGeneratedClusterId = $mainPendingId;
+                $this->generateSuccessMessage = "NAP Form 3 created with " . count($recordIds) . " expired records and saved to Pending successfully!";
+            }
+        } catch (\Exception $e) {
+            DB::rollBack();
+            $this->generateErrorMessage = 'Failed to generate form: ' . $e->getMessage();
+        }
     }
 
     public function with(): array
@@ -695,6 +1012,98 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             border-color: #2563eb;
             color: #2563eb;
             background: #eff6ff;
+        }
+
+        .ml-action-btn.ml-generate-btn {
+            background: #2563eb;
+            border-color: #2563eb;
+            color: #ffffff;
+            font-weight: 700;
+        }
+
+        .ml-action-btn.ml-generate-btn:hover {
+            background: #1d4ed8;
+            border-color: #1d4ed8;
+            color: #ffffff;
+        }
+
+        /* Generate Form Modal */
+        .ml-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .ml-modal-dialog {
+            background: #ffffff;
+            width: 100%;
+            max-width: 580px;
+            border-radius: 14px;
+            box-shadow: 0 20px 45px rgba(0, 0, 0, 0.2);
+            padding: 24px;
+            border: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            box-sizing: border-box;
+            animation: mlModalFadeIn 0.18s ease-out;
+        }
+
+        @keyframes mlModalFadeIn {
+            from { opacity: 0; transform: scale(0.97) translateY(8px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .ml-form-type-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+        }
+
+        .ml-form-type-card {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            border: 1.5px solid #e2e8f0;
+            background: #f8fafc;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .ml-form-type-card:hover {
+            border-color: #93c5fd;
+            background: #f0f7ff;
+        }
+
+        .ml-form-type-card.active {
+            border-color: #2563eb;
+            background: #eff6ff;
+            box-shadow: 0 0 0 1px #2563eb;
+        }
+
+        [data-theme="dark"] .ml-modal-dialog {
+            background: #0f172a;
+            border-color: #1e293b;
+            color: #f1f5f9;
+        }
+
+        [data-theme="dark"] .ml-form-type-card {
+            background: #1e293b;
+            border-color: #334155;
+        }
+
+        [data-theme="dark"] .ml-form-type-card.active {
+            background: #1e3a5f;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 1px #3b82f6;
         }
 
         .ml-filter-indicator {
@@ -1209,13 +1618,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
                     @endif
                 </button>
 
-                <!-- Export CSV Button (Aligned in Controls) -->
+                <!-- Generate Form Button -->
                 <button type="button" 
-                        wire:click="exportCsv" 
-                        class="ml-action-btn ml-export-btn"
-                        title="Download CSV spreadsheet of currently filtered records">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    <span>Export CSV</span>
+                        wire:click="openGenerateFormModal" 
+                        class="ml-action-btn ml-generate-btn"
+                        title="Generate official NAP Form (Form 1, 2, or 3) and save to Pending">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+                    <span>Generate Form</span>
                 </button>
 
                 @if(!empty($search) || $statusFilter !== 'all' || $retentionFilter !== 'all' || !empty($mediumFilter) || !empty($dateFrom) || !empty($dateTo) || ($hasAllOfficesClearance && !empty($officeFilter)))
@@ -1539,4 +1948,108 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             </button>
         </div>
     </aside>
+
+    <!-- GENERATE FORM MODAL -->
+    @if($showGenerateModal)
+        <div class="ml-modal-overlay" wire:click.self="closeGenerateFormModal">
+            <div class="ml-modal-dialog">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px;">
+                    <div>
+                        <h3 style="margin: 0; font-size: 16px; font-weight: 800; color: inherit;">Generate Report Form</h3>
+                        <p style="margin: 2px 0 0; font-size: 12px; color: #64748b;">Select an official NAP Form type to package into Pending.</p>
+                    </div>
+                    <button type="button" wire:click="closeGenerateFormModal" style="background: none; border: none; font-size: 18px; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 6px;" title="Close Modal">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+                </div>
+
+                @if($generateSuccessMessage)
+                    <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 14px 16px; font-size: 13px; color: #166534; font-weight: 600; display: flex; flex-direction: column; gap: 10px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+                            <span>{{ $generateSuccessMessage }}</span>
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 4px;">
+                            <a href="{{ route('rdp.pending.list') }}" class="ml-action-btn ml-generate-btn" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 6px 14px; height: 32px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+                                <span>Go to Pending Forms</span>
+                            </a>
+                            <button type="button" wire:click="closeGenerateFormModal" class="ml-action-btn" style="font-size: 12px; padding: 6px 14px; height: 32px;">Close</button>
+                        </div>
+                    </div>
+                @else
+                    @if($generateErrorMessage)
+                        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 14px; font-size: 12.5px; color: #991b1b; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                            <span>{{ $generateErrorMessage }}</span>
+                        </div>
+                    @endif
+
+                    <div style="display: flex; flex-direction: column; gap: 14px;">
+                        <div>
+                            <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 8px;">Select Form Type</label>
+                            <div class="ml-form-type-grid">
+                                <!-- NAP Form 1 -->
+                                <label class="ml-form-type-card {{ $selectedFormType === 'nap1' ? 'active' : '' }}">
+                                    <input type="radio" wire:model.live="selectedFormType" value="nap1" style="margin-top: 3px;">
+                                    <div>
+                                        <div style="font-size: 13px; font-weight: 700; color: inherit;">NAP Form 1 — Records Inventory and Appraisal</div>
+                                        <div style="font-size: 11.5px; color: #64748b; margin-top: 2px;">Packages active records from Generalized Records for appraisal, verification, and scheduling.</div>
+                                    </div>
+                                </label>
+
+                                <!-- NAP Form 2 -->
+                                <label class="ml-form-type-card {{ $selectedFormType === 'nap2' ? 'active' : '' }}">
+                                    <input type="radio" wire:model.live="selectedFormType" value="nap2" style="margin-top: 3px;">
+                                    <div>
+                                        <div style="font-size: 13px; font-weight: 700; color: inherit;">NAP Form 2 — Records Disposition Schedule (RDS)</div>
+                                        <div style="font-size: 11.5px; color: #64748b; margin-top: 2px;">Packages record series with retention rules into an RDS submission schedule.</div>
+                                    </div>
+                                </label>
+
+                                <!-- NAP Form 3 -->
+                                <label class="ml-form-type-card {{ $selectedFormType === 'nap3' ? 'active' : '' }}">
+                                    <input type="radio" wire:model.live="selectedFormType" value="nap3" style="margin-top: 3px;">
+                                    <div>
+                                        <div style="font-size: 13px; font-weight: 700; color: inherit;">NAP Form 3 — Request for Authority to Dispose of Records</div>
+                                        <div style="font-size: 11.5px; color: #64748b; margin-top: 2px;">Packages expired and disposed records into a formal disposal authority request.</div>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        @if($hasAllOfficesClearance)
+                            <div>
+                                <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Target Office</label>
+                                <select wire:model.live="formOffice" class="ml-search-input" style="width: 100%; padding: 8px 12px; font-size: 13px;">
+                                    <option value="">All Filtered Offices / Campus-wide</option>
+                                    @foreach($officesList as $off)
+                                        <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                        @else
+                            <div style="font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 6px;">
+                                <span style="font-weight: 700;">Office:</span>
+                                <span>{{ $userOfficeCode ?? 'N/A' }}</span>
+                            </div>
+                        @endif
+
+                        <div>
+                            <label style="font-size: 12.5px; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">Form / Cluster Title</label>
+                            <input type="text" wire:model="formClusterName" class="ml-search-input" style="width: 100%; padding: 8px 12px; font-size: 13px;" placeholder="Enter submission form title...">
+                        </div>
+
+                        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; border-top: 1px solid #e2e8f0; padding-top: 14px;">
+                            <button type="button" wire:click="closeGenerateFormModal" class="ml-action-btn" style="padding: 8px 16px;">Cancel</button>
+                            <button type="button" wire:click="submitGenerateForm" class="ml-action-btn ml-generate-btn" style="padding: 8px 18px; display: inline-flex; align-items: center; gap: 6px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                                <span>Save to Pending</span>
+                            </button>
+                        </div>
+                    </div>
+                @endif
+            </div>
+        </div>
+    @endif
 </div>

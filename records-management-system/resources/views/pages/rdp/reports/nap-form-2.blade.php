@@ -954,8 +954,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             font-family: Arial, Helvetica, sans-serif; 
             font-size: 10px;
             position: relative; 
-            display: flex;
-            flex-direction: column;
+            overflow: hidden;
         }
 
         @media print {
@@ -963,7 +962,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             header, #navigation, .navigation, nav, .top-nav-tabs-wrapper, .dcs-top-tabs-host, .chatify-floating-widget, .no-print, .nap-page-header, footer { display: none !important; }
             .modal-overlay { position: static !important; background: none !important; padding: 0 !important; display: block !important; }
             .modal-content { background: none !important; max-width: 100% !important; max-height: none !important; padding: 0 !important; box-shadow: none !important; overflow: visible !important; }
-            .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; margin-bottom: 0 !important; page-break-after: always; break-after: page; }
+            .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; margin-bottom: 0 !important; page-break-after: always; break-after: page; overflow: visible !important; }
             .print-sheet:last-child { page-break-after: auto; break-after: auto; }
             @page { size: portrait; margin: 0.4in; }
         }
@@ -1453,7 +1452,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 @foreach($dataPages as $pageIndex => $pageItems)
                     @php
                         $pageNumber = $pageIndex + 1;
-                        $fillerHeight = empty($pageItems) ? 880 : max(40, 880 - (count($pageItems) * 26));
+                        $fillerHeight = empty($pageItems) ? 660 : max(40, 660 - (count($pageItems) * 26));
                     @endphp
                     <div class="print-sheet">
                         <!-- Top Form Identifier -->
@@ -1493,7 +1492,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                         </table>
 
                         <!-- Data Table (Boxes 5 - 8) -->
-                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-top: none; font-family: Arial, sans-serif; font-size: 9px; table-layout: fixed; flex-grow: 1;">
+                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-top: none; font-family: Arial, sans-serif; font-size: 9px; table-layout: fixed;">
                             <thead>
                                 <tr style="background: #ffffff;">
                                     <th rowspan="2" style="width: 11%; border: 1px solid #000; border-top: 2px solid #000; padding: 6px 4px; text-align: center; font-weight: bold; vertical-align: middle;">
@@ -1565,7 +1564,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                         </table>
 
                         <!-- Bottom Statutory Notice -->
-                        <div style="border-top: 2px solid #000; padding-top: 6px; margin-top: 0; font-family: Arial, sans-serif; font-size: 8px; line-height: 1.35; text-align: justify;">
+                        <div style="padding-top: 6px; margin-top: 0; font-family: Arial, sans-serif; font-size: 8px; line-height: 1.35; text-align: justify;">
                             <strong>IMPORTANT:</strong> Pursuant to Section 18, Article III, RA 9470 s. 2007, "No government department, bureau, agency and instrumentality shall dispose of, destroy or authorize the disposal or destruction of any public records, which are in the custody or under its control except with the prior written authority of the executive director."
                         </div>
 
@@ -1654,11 +1653,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                     </table>
 
                     <!-- NAP Accomplishment Section -->
-                    <div style="border: 2px solid #000; margin-top: 14px; font-family: Arial, sans-serif; font-size: 9.5px; flex-grow: 1; display: flex; flex-direction: column;">
+                    <div style="border: 2px solid #000; margin-top: 14px; font-family: Arial, sans-serif; font-size: 9.5px; min-height: 480px; display: flex; flex-direction: column;">
                         <div style="border-bottom: 2px solid #000; padding: 6px; text-align: center; font-weight: bold; font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase;">
                             TO BE ACCOMPLISHED BY THE NATIONAL ARCHIVES OF THE PHILIPPINES
                         </div>
-                        <div style="padding: 16px 20px; flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between;">
+                        <div style="padding: 16px 20px; flex: 1; display: flex; flex-direction: column; justify-content: space-between;">
                             <div>
                                 <div style="margin-bottom: 14px; font-size: 9.5px;">This Records Disposition Schedule</div>
                                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding-left: 20px;">

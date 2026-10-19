@@ -211,6 +211,7 @@ if ($isAdmin) {
                 'office_id'    => null,
                 'office_name'  => 'Campus-Wide',
                 'office_code'  => 'GLOBAL',
+                'avatar_url'   => 'cspc.webp',
             ];
         }
 
@@ -250,6 +251,7 @@ if ($isAdmin) {
                         'office_id'    => (int) $off['id'],
                         'office_name'  => $name,
                         'office_code'  => $code,
+                        'avatar_url'   => 'cspc.webp',
                     ];
                 }
             } catch (Throwable $e) {

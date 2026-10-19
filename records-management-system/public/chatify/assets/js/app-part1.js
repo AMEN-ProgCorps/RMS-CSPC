@@ -3534,8 +3534,18 @@
       }
       renderMentionResultState('searching');
       const seq = ++mentionSearchSeq;
+      const targetConvId = (typeof getActiveChannelConvId === 'function')
+        ? getActiveChannelConvId()
+        : (window.activeChannel === 'office' ? (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) : 'global');
+      let url = 'mention_search.php?q=' + encodeURIComponent(query);
+      if (targetConvId) {
+        url += '&conv_id=' + encodeURIComponent(targetConvId);
+      }
+      if (window.activeChannel === 'office' && window.currentOfficeInfo && window.currentOfficeInfo.office_id) {
+        url += '&office_id=' + encodeURIComponent(window.currentOfficeInfo.office_id);
+      }
       const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'mention_search.php?q=' + encodeURIComponent(query), true);
+      xhr.open('GET', url, true);
       xhr.onload = function() {
         if (seq !== mentionSearchSeq) return; // stale — a newer query has since been typed
         if (this.status !== 200) { renderMentionResultState('empty'); return; }
@@ -3618,6 +3628,15 @@
         mentionModal.classList.add('active');
         mentionModal.setAttribute('aria-hidden', 'false');
         mentionSearchResults.innerHTML = '';
+        const descEl = document.getElementById('mentionModalDesc') || mentionModal.querySelector('.modal-body > p');
+        if (descEl) {
+          if (window.activeChannel === 'office') {
+            const officeName = (window.currentOfficeInfo && (window.currentOfficeInfo.office_code || window.currentOfficeInfo.display_title)) || 'Office GC';
+            descEl.textContent = 'Search for a member in ' + officeName + ' to mention.';
+          } else {
+            descEl.textContent = 'Search for a user to mention in Global Chat.';
+          }
+        }
         if (mentionSearchInput) {
           mentionSearchInput.value = '';
           setTimeout(function() { mentionSearchInput.focus(); }, 80);
@@ -3795,15 +3814,7 @@
 
               const avatar = document.createElement('div');
               avatar.className = 'user-avatar';
-              if (ch.channel_type === 'global') {
-                avatar.innerHTML = `<img src="cspc.webp" width="48" height="48" alt="CSPC" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;">`;
-              } else {
-                avatar.style.background = 'rgba(27,116,228,0.1)';
-                avatar.style.display = 'flex';
-                avatar.style.alignItems = 'center';
-                avatar.style.justifyContent = 'center';
-                avatar.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1b74e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"></path><path d="M9 8h1"></path><path d="M9 12h1"></path><path d="M9 16h1"></path><path d="M14 8h1"></path><path d="M14 12h1"></path><path d="M14 16h1"></path><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"></path></svg>`;
-              }
+              avatar.innerHTML = `<img src="cspc.webp" width="48" height="48" alt="CSPC" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">`;
 
               const info = document.createElement('div');
               info.className = 'user-info';
@@ -4302,11 +4313,7 @@
       chatHeaderTitle.textContent = ch.title;
       updateHeaderActiveStatus();
       applyHeaderAdminBadge();
-      if (ch.channel_type === 'global') {
-        applyHeaderAvatar({ avatar_url: 'cspc.webp', name: 'Global Chat' });
-      } else {
-        applyHeaderAvatar({ avatar_url: null, name: ch.office_code || ch.title });
-      }
+      applyHeaderAvatar({ avatar_url: 'cspc.webp', name: ch.office_code || ch.title || 'Office GC' });
 
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
       removePaginationBtn();

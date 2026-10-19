@@ -276,8 +276,8 @@ try {
 
       <!-- Pinned Office Group Chat entry -->
       <div class="user-item" id="officeChatItem" onclick="selectOfficeChat()" style="border-bottom:1px solid var(--border-color);">
-        <div class="user-avatar" style="background:rgba(27,116,228,0.1);display:flex;align-items:center;justify-content:center;border-radius:50%;width:48px;height:48px;flex-shrink:0;">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1b74e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"></path><path d="M9 8h1"></path><path d="M9 12h1"></path><path d="M9 16h1"></path><path d="M14 8h1"></path><path d="M14 12h1"></path><path d="M14 16h1"></path><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"></path></svg>
+        <div class="user-avatar" style="position:relative;">
+          <img src="cspc.webp" width="48" height="48" alt="CSPC logo" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
         </div>
         <div class="user-info">
           <div class="user-name-row" style="display:flex;align-items:center;justify-content:flex-start;gap:4px;min-width:0;">

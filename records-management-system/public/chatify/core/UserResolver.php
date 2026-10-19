@@ -144,13 +144,16 @@ class UserResolver
      *
      * @return array<int, array> Indexed array of user info arrays.
      */
-    public static function getAllExcept(?int $excludeAccountId): array
+    public static function getAllExcept(?int $excludeAccountId, ?int $officeId = null): array
     {
         self::loadAll();
 
         $users = [];
         foreach (self::$cache as $id => $row) {
             if ($excludeAccountId !== null && $id === $excludeAccountId) {
+                continue;
+            }
+            if ($officeId !== null && $officeId > 0 && (int) ($row['office_id'] ?? 0) !== $officeId) {
                 continue;
             }
             $users[] = [
@@ -300,12 +303,13 @@ class UserResolver
      *
      * Uses pg_trgm GIN index for sub-millisecond substring matching.
      *
-     * @param  string $query            Partial name, email, or office to search for
-     * @param  int    $excludeAccountId The current user's ID (exclude self)
-     * @param  int    $limit            Maximum results to return (default 10)
+     * @param  string   $query            Partial name, email, or office to search for
+     * @param  int      $excludeAccountId The current user's ID (exclude self)
+     * @param  int      $limit            Maximum results to return (default 10)
+     * @param  int|null $officeId         Optional office ID filter
      * @return array{users: array, hasMore: bool} Matching user rows and hasMore flag
      */
-    public static function searchUsers(string $query, int $excludeAccountId, int $limit = 10): array
+    public static function searchUsers(string $query, int $excludeAccountId, int $limit = 10, ?int $officeId = null): array
     {
         $q = trim($query);
         if ($q === '') {
@@ -315,6 +319,7 @@ class UserResolver
         try {
             $pdo  = Database::getConnection();
             $like = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $q) . '%';
+            $officeCondition = ($officeId !== null && $officeId > 0) ? " AND ad.office_id = :office_id" : "";
 
             $stmt = $pdo->prepare(
                 "SELECT ad.account_id,
@@ -330,7 +335,7 @@ class UserResolver
                         COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
                  FROM " . Database::t('account_details') . " ad
                  LEFT JOIN " . Database::t('office') . " o ON o.id = ad.office_id
-                 WHERE (:exclude = 0 OR ad.account_id != :exclude)
+                 WHERE (:exclude = 0 OR ad.account_id != :exclude)" . $officeCondition . "
                    AND (
                          ad.first_name ILIKE :q1
                       OR ad.last_name  ILIKE :q2
@@ -354,6 +359,9 @@ class UserResolver
                  LIMIT :lim"
             );
             $stmt->bindValue(':exclude', $excludeAccountId, PDO::PARAM_INT);
+            if ($officeId !== null && $officeId > 0) {
+                $stmt->bindValue(':office_id', $officeId, PDO::PARAM_INT);
+            }
             $stmt->bindValue(':q1', $like);
             $stmt->bindValue(':q2', $like);
             $stmt->bindValue(':q3', $like);
@@ -409,9 +417,9 @@ class UserResolver
      * @param int $offset Page offset
      * @return array { users: array, hasMore: bool, offset: int, limit: int }
      */
-    public static function searchUsersPaginated(string $query, int $excludeAccountId = 0, int $limit = 10, int $offset = 0): array
+    public static function searchUsersPaginated(string $query, int $excludeAccountId = 0, int $limit = 10, int $offset = 0, ?int $officeId = null): array
     {
-        $res = self::searchUsers($query, $excludeAccountId, $limit);
+        $res = self::searchUsers($query, $excludeAccountId, $limit, $officeId);
         return [
             'users'   => $res['users'],
             'hasMore' => $res['hasMore'],

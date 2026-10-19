@@ -5225,7 +5225,15 @@
         }
 
         let result;
-        try { result = JSON.parse(this.responseText); } catch(e) {
+        try {
+          let raw = this.responseText ? this.responseText.trim() : '';
+          const jsonStart = raw.indexOf('{');
+          const jsonEnd = raw.lastIndexOf('}');
+          if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+            raw = raw.slice(jsonStart, jsonEnd + 1);
+          }
+          result = JSON.parse(raw);
+        } catch(e) {
           showUploadErrorModal('Failed to parse server response.');
           return;
         }

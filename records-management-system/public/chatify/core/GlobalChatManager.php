@@ -222,11 +222,23 @@ class GlobalChatManager
         $result = self::insertMessage($senderId, $plaintext, 'text', $replyToUuid, $convId);
 
         if ($result !== false) {
-            $parsedIds = self::detectMentionsFromText($senderId, $plaintext);
+            $isOfficeGc     = str_starts_with($convId, 'office_');
+            $targetOfficeId = $isOfficeGc ? OfficeChatManager::parseOfficeId($convId) : null;
+
+            $parsedIds = self::detectMentionsFromText($senderId, $plaintext, $targetOfficeId);
             $allMentionedIds = array_values(array_unique(array_merge(
                 array_map('intval', $mentionedIds),
                 $parsedIds
             )));
+
+            // If in an office GC, strictly only allow mentioning members of that office
+            if ($targetOfficeId !== null && $targetOfficeId > 0 && !empty($allMentionedIds)) {
+                $allMentionedIds = array_values(array_filter($allMentionedIds, function ($accId) use ($targetOfficeId) {
+                    $u = UserResolver::getUserInfo($accId);
+                    return $u && (int) ($u['office_id'] ?? 0) === $targetOfficeId;
+                }));
+            }
+
             if (!empty($allMentionedIds)) {
                 self::recordMentions($senderId, $result['id'], $plaintext, $allMentionedIds);
             }
@@ -243,14 +255,14 @@ class GlobalChatManager
      *
      * @return int[] account_ids detected
      */
-    private static function detectMentionsFromText(int $senderId, string $plaintext): array
+    private static function detectMentionsFromText(int $senderId, string $plaintext, ?int $officeId = null): array
     {
         if (mb_strpos($plaintext, '@') === false) {
             return [];
         }
 
         try {
-            $allUsers = UserResolver::getAllExcept($senderId);
+            $allUsers = UserResolver::getAllExcept($senderId, $officeId);
             $detected = [];
 
             foreach ($allUsers as $user) {

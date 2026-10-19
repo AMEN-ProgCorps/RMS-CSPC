@@ -169,4 +169,12 @@ class RdpMasterLifecycleReportTest extends TestCase
         
         $this->assertNotNull($response);
     }
+
+    public function test_master_lifecycle_role_clearance_scoping(): void
+    {
+        // Component initialized with clearance enabled
+        $component = Volt::test('pages.rdp.reports.master-lifecycle');
+        $component->assertViewHas('hasAllOfficesClearance', true);
+        $component->assertSee('All Offices');
+    }
 }

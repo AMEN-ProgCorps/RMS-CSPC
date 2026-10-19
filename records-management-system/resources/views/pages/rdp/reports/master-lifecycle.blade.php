@@ -18,19 +18,51 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
     public string $dateFrom = '';
     public string $dateTo = '';
 
+    /**
+     * Check if user has role clearance to access the Master Lifecycle report.
+     */
+    private function hasReportAccessClearance(?object $user, ?object $perms): bool
+    {
+        if (!$user || !$perms) return false;
+
+        return (bool)($perms->is_sadm ?? false)
+            || (bool)($perms->is_admin ?? false)
+            || (int)($user->account_role ?? 0) === 1
+            || (bool)($perms->can_access_rdp_admin ?? false)
+            || (bool)($perms->can_rdp_generate_reports ?? true)
+            || (bool)($perms->can_rdp_access_form_1 ?? true);
+    }
+
+    /**
+     * Check if user has role clearance to view across all offices (or select other offices).
+     */
+    private function hasAllOfficesClearance(?object $user, ?object $perms): bool
+    {
+        if (!$user || !$perms) return false;
+
+        return (bool)($perms->is_sadm ?? false)
+            || (bool)($perms->is_admin ?? false)
+            || (int)($user->account_role ?? 0) === 1
+            || (bool)($perms->can_access_rdp_admin ?? false)
+            || (bool)($perms->rdp_view_all_files ?? false)
+            || (bool)($perms->can_rdp_view_others_form_1 ?? false)
+            || (bool)($perms->can_rdp_view_others_form_2 ?? false)
+            || (bool)($perms->can_rdp_view_others_form_3 ?? false);
+    }
+
     public function mount(): void
     {
         $user = Auth::user();
         $perms = $user?->permissions;
 
-        // Access clearance check
-        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_access_form_1 ?? true))) {
+        // Access clearance check via role clearance
+        if (!$this->hasReportAccessClearance($user, $perms)) {
             $this->redirectRoute('rdp');
             return;
         }
 
         $userOffice = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
-        if ($userOffice && !((bool)($perms->is_sadm ?? false))) {
+        if (!$this->hasAllOfficesClearance($user, $perms) && $userOffice) {
             $this->officeFilter = $userOffice;
         }
     }
@@ -52,7 +84,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
         $user = Auth::user();
         $perms = $user?->permissions;
         $userOffice = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
-        if (!((bool)($perms->is_sadm ?? false)) && $userOffice) {
+        if (!$this->hasAllOfficesClearance($user, $perms) && $userOffice) {
             $this->officeFilter = $userOffice;
         } else {
             $this->officeFilter = '';
@@ -266,7 +298,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
     {
         $user = Auth::user();
         $perms = $user?->permissions;
-        $isSadm = (bool)($perms->is_sadm ?? false);
+        $hasAllOfficesClearance = $this->hasAllOfficesClearance($user, $perms);
         $userOfficeCode = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
 
         // Fetch office list for filter panel
@@ -291,7 +323,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                 'rdp_retention_period.total_period',
             ]);
 
-        if (!$isSadm) {
+        if (!$hasAllOfficesClearance) {
             $seriesQuery->where('rdp_record_series.recorded_at_office', $userOfficeCode ?: '___NONE___');
         } elseif (!empty($this->officeFilter)) {
             $seriesQuery->where('rdp_record_series.recorded_at_office', $this->officeFilter);
@@ -509,12 +541,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
         }
 
         return [
-            'hierarchyTree'    => $hierarchyTree,
-            'statusCounts'     => $statusCounts,
-            'officesList'      => $officesList,
-            'mediumsList'      => $mediumsList,
-            'isSadm'           => $isSadm,
-            'userOfficeCode'   => $userOfficeCode,
+            'hierarchyTree'          => $hierarchyTree,
+            'statusCounts'           => $statusCounts,
+            'officesList'            => $officesList,
+            'mediumsList'            => $mediumsList,
+            'hasAllOfficesClearance' => $hasAllOfficesClearance,
+            'isSadm'                 => $hasAllOfficesClearance,
+            'userOfficeCode'         => $userOfficeCode,
         ];
     }
 };
@@ -1174,7 +1207,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                         title="Open filter panel">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                     <span>Filters</span>
-                    @if($retentionFilter !== 'all' || !empty($mediumFilter) || !empty($dateFrom) || !empty($dateTo) || ($isSadm && !empty($officeFilter)))
+                    @if($retentionFilter !== 'all' || !empty($mediumFilter) || !empty($dateFrom) || !empty($dateTo) || ($hasAllOfficesClearance && !empty($officeFilter)))
                         <span class="ml-filter-indicator" title="Active filters applied"></span>
                     @endif
                 </button>
@@ -1188,7 +1221,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                     <span>Export CSV</span>
                 </button>
 
-                @if(!empty($search) || $statusFilter !== 'all' || $retentionFilter !== 'all' || !empty($mediumFilter) || !empty($dateFrom) || !empty($dateTo) || ($isSadm && !empty($officeFilter)))
+                @if(!empty($search) || $statusFilter !== 'all' || $retentionFilter !== 'all' || !empty($mediumFilter) || !empty($dateFrom) || !empty($dateTo) || ($hasAllOfficesClearance && !empty($officeFilter)))
                     <button type="button" 
                             wire:click="clearFilters" 
                             class="ml-action-btn" 
@@ -1452,11 +1485,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
         </div>
 
         <div class="ml-drawer-body">
-            @if($isSadm)
+            @if($hasAllOfficesClearance)
                 <div class="ml-filter-group">
                     <label>Recorded Office</label>
                     <select wire:model.live="officeFilter">
-                        <option value="">All Offices (Super Admin)</option>
+                        <option value="">All Offices</option>
                         @foreach($officesList as $off)
                             <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
                         @endforeach

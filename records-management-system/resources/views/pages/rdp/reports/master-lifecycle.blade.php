@@ -19,7 +19,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
     public string $dateTo = '';
 
     /**
-     * Check if user has role clearance to access the Master Lifecycle report.
+     * Check if user has role clearance to access the Generalized Records report.
      */
     private function hasReportAccessClearance(?object $user, ?object $perms): bool
     {
@@ -30,7 +30,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             || (int)($user->account_role ?? 0) === 1
             || (bool)($perms->can_access_rdp_admin ?? false)
             || (bool)($perms->can_rdp_generate_reports ?? true)
-            || (bool)($perms->can_rdp_access_form_1 ?? true);
+            || (bool)($perms->can_access_rdp ?? true);
     }
 
     /**
@@ -44,10 +44,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
             || (bool)($perms->is_admin ?? false)
             || (int)($user->account_role ?? 0) === 1
             || (bool)($perms->can_access_rdp_admin ?? false)
-            || (bool)($perms->rdp_view_all_files ?? false)
-            || (bool)($perms->can_rdp_view_others_form_1 ?? false)
-            || (bool)($perms->can_rdp_view_others_form_2 ?? false)
-            || (bool)($perms->can_rdp_view_others_form_3 ?? false);
+            || (bool)($perms->rdp_view_all_files ?? false);
     }
 
     public function mount(): void

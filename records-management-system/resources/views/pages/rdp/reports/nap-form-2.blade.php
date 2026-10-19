@@ -163,7 +163,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $user = Auth::user();
         $perms = $user?->permissions;
         // Access clearance check
-        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_access_form_2 ?? true))) {
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true))) {
             $this->redirectRoute('rdp');
             return;
         }
@@ -185,6 +185,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
     public function openPrintModal(array $specificIds = []): void
     {
+        $perms = Auth::user()?->permissions;
+        if (!($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true)) {
+            $this->errorMessage = 'You do not have clearance to print NAP Form 2.';
+            return;
+        }
         if (!empty($specificIds)) {
             $this->selectedIds = array_map('strval', $specificIds);
         }
@@ -201,7 +206,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         if ($value) {
             $user = Auth::user();
             $perms = $user?->permissions;
-            $isSadm = (bool)($perms->is_sadm ?? false);
+            $canViewAll = (bool)($perms->is_sadm ?? false) || (bool)($perms->is_admin ?? false) || (bool)($perms->can_access_rdp_admin ?? false) || (bool)($perms->rdp_view_all_files ?? false);
             $userOffice = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
 
             $query = DB::table('rdp_record_series')
@@ -211,7 +216,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                       ->orWhereNull('rdp_record_series.is_verified');
                 });
 
-            if (!$isSadm) {
+            if (!$canViewAll) {
                 $query->where('rdp_record_series.recorded_at_office', $userOffice ?: '___NONE___');
             } elseif (!empty($this->officeFilter)) {
                 $query->where('rdp_record_series.recorded_at_office', $this->officeFilter);
@@ -313,8 +318,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
                 $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
             }
-            $isOtherOffice = !empty($userOffice) && !empty($record->recorded_at_office) && ($record->recorded_at_office !== $userOffice);
-            $this->canEditDescription = $isSadm || (!$isOtherOffice ? (bool)($perms->can_rdp_modify_form_2 ?? true) : ((bool)($perms->can_rdp_modify_form_2 ?? true) && (bool)($perms->can_rdp_edit_others_form_2 ?? false)));
+            $this->canEditDescription = $isSadm || (bool)($perms->can_rdp_modify_series ?? true);
             $this->canCancelRecord = $this->canEditDescription;
 
             $this->editingSeriesId = $record->id;
@@ -603,7 +607,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     {
         $user = Auth::user();
         $perms = $user?->permissions;
-        $isSadm = (bool)($perms->is_sadm ?? false);
+        $canViewAll = (bool)($perms->is_sadm ?? false) || (bool)($perms->is_admin ?? false) || (bool)($perms->can_access_rdp_admin ?? false) || (bool)($perms->rdp_view_all_files ?? false);
+        $isSadm = $canViewAll;
         $userOffice = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
 
         $query = DB::table('rdp_record_series')
@@ -627,8 +632,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
               ->orWhereNull('rdp_record_series.is_verified');
         });
 
-        // Strict office scoping: non-sadm is locked to their office; sadm respects officeFilter
-        if (!$isSadm) {
+        // Strict office scoping: non-authorized users locked to their office; authorized users respect officeFilter
+        if (!$canViewAll) {
             $query->where('rdp_record_series.recorded_at_office', $userOffice ?: '___NONE___');
         } elseif (!empty($this->officeFilter)) {
             $query->where('rdp_record_series.recorded_at_office', $this->officeFilter);
@@ -1002,7 +1007,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
                 @if($isSadm)
                     <select wire:model.live="officeFilter" class="nap-input nap-select-input">
-                        <option value="">All Offices (Super Admin)</option>
+                        <option value="">All Offices</option>
                         @foreach($officesList as $off)
                             <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
                         @endforeach

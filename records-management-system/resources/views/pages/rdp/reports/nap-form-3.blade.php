@@ -80,7 +80,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         $perms = $user?->permissions;
 
         // Access clearance check
-        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_access_form_3 ?? true))) {
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true))) {
             $this->redirectRoute('rdp');
             return;
         }
@@ -159,9 +159,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
         if ($value) {
             $user = Auth::user();
             $perms = $user?->permissions;
-            $isSadm = (bool)($perms->is_sadm ?? false);
+            $canViewAll = (bool)($perms->is_sadm ?? false) || (bool)($perms->is_admin ?? false) || (bool)($perms->can_access_rdp_admin ?? false) || (bool)($perms->rdp_view_all_files ?? false);
             $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
-            $effectiveOffice = ($isSadm && !empty($this->officeFilter)) ? $this->officeFilter : $userOffice;
+            $effectiveOffice = ($canViewAll && !empty($this->officeFilter)) ? $this->officeFilter : $userOffice;
 
             // Only records transferred to NAP Form 3 (expired)
             $query = DB::table('rdp_record')
@@ -391,7 +391,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     public function openPrintModal(): void
     {
         $perms = Auth::user()?->permissions;
-        if (!($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_print_form_3 ?? true)) {
+        if (!($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true)) {
             $this->errorMessage = 'You do not have clearance to print NAP Form 3.';
             return;
         }
@@ -419,8 +419,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
                 $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
                 $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
             }
-            $isOtherOffice = !empty($userOffice) && !empty($rec->office_own) && ($rec->office_own !== $userOffice);
-            $this->canEditDescription = $isSadm || (!$isOtherOffice ? (bool)($perms->can_rdp_modify_form_3 ?? true) : ((bool)($perms->can_rdp_modify_form_3 ?? true) && (bool)($perms->can_rdp_edit_others_form_3 ?? false)));
+            $this->canEditDescription = $isSadm || (bool)($perms->can_rdp_modify_series ?? true);
             $this->canCancelRecord = $this->canEditDescription;
 
             $this->editingSubjectId = $rec->id;
@@ -1568,15 +1567,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
     {
         $user = Auth::user();
         $perms = $user?->permissions;
-        $isSadm = (bool)($perms->is_sadm ?? false);
+        $canViewAll = (bool)($perms->is_sadm ?? false) || (bool)($perms->is_admin ?? false) || (bool)($perms->can_access_rdp_admin ?? false) || (bool)($perms->rdp_view_all_files ?? false);
+        $isSadm = $canViewAll;
         $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
         $userOfficeName = $user?->details?->office?->office_name ?? null;
 
         $officesTable = $this->getOfficesTable();
         $officesList = DB::table($officesTable)->where('is_active', true)->orderBy('office_name')->get();
 
-        // Effective office: locks strictly to user's office if not sadm; if sadm, respects officeFilter
-        $effectiveOffice = ($isSadm && !empty($this->officeFilter)) ? $this->officeFilter : $userOfficeCode;
+        // Effective office: locks strictly to user's office if not canViewAll; if canViewAll, respects officeFilter
+        $effectiveOffice = ($canViewAll && !empty($this->officeFilter)) ? $this->officeFilter : $userOfficeCode;
 
         // 1. Fetch records that are transferred to NAP Form 3 or part of a batch
         $recordsQuery = DB::table('rdp_record')
@@ -2363,7 +2363,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
 
                 @if($isSadm)
                     <select wire:model.live="officeFilter" class="nap-input nap-select-input">
-                        <option value="">All Offices (Super Admin)</option>
+                        <option value="">All Offices</option>
                         @foreach($officesList as $off)
                             <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
                         @endforeach

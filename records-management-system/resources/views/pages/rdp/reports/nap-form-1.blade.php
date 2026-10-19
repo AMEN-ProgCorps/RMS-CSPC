@@ -81,7 +81,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         $perms = $user?->permissions;
 
         // Access clearance check
-        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_access_form_1 ?? true))) {
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true))) {
             $this->redirectRoute('rdp');
             return;
         }
@@ -121,9 +121,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         if ($value) {
             $user = Auth::user();
             $perms = $user?->permissions;
-            $isSadm = (bool)($perms->is_sadm ?? false);
+            $canViewAll = (bool)($perms->is_sadm ?? false) || (bool)($perms->is_admin ?? false) || (bool)($perms->can_access_rdp_admin ?? false) || (bool)($perms->rdp_view_all_files ?? false);
             $userOffice = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
-            $effectiveOffice = ($isSadm && !empty($this->officeFilter)) ? $this->officeFilter : $userOffice;
+            $effectiveOffice = ($canViewAll && !empty($this->officeFilter)) ? $this->officeFilter : $userOffice;
 
             // Ensure expired records are synced so they are excluded from selection
             \App\Services\RdpRetentionService::syncTransferredRecords();
@@ -321,7 +321,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     public function openPrintModal(): void
     {
         $perms = Auth::user()?->permissions;
-        if (!($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_print_form_1 ?? true)) {
+        if (!($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true)) {
             $this->errorMessage = 'You do not have clearance to print NAP Form 1.';
             return;
         }
@@ -381,8 +381,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
                 $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
             }
-            $isOtherOffice = !empty($userOffice) && !empty($rec->office_own) && ($rec->office_own !== $userOffice);
-            $this->canEditDescription = $isSadm || (!$isOtherOffice ? (bool)($perms->can_rdp_modify_form_1 ?? true) : ((bool)($perms->can_rdp_modify_form_1 ?? true) && (bool)($perms->can_rdp_edit_others_form_1 ?? false)));
+            $this->canEditDescription = $isSadm || (bool)($perms->can_rdp_modify_series ?? true);
             $this->canCancelRecord = $this->canEditDescription;
 
             $this->editingSubjectId = $rec->id;
@@ -1610,15 +1609,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     {
         $user = Auth::user();
         $perms = $user?->permissions;
-        $isSadm = (bool)($perms->is_sadm ?? false);
+        $canViewAll = (bool)($perms->is_sadm ?? false) || (bool)($perms->is_admin ?? false) || (bool)($perms->can_access_rdp_admin ?? false) || (bool)($perms->rdp_view_all_files ?? false);
+        $isSadm = $canViewAll;
         $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
         $userOfficeName = $user?->details?->office?->office_name ?? null;
 
         $officesTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
         $officesList = DB::table($officesTable)->where('is_active', true)->orderBy('office_name')->get();
 
-        // Effective office: locks strictly to user's office if not sadm; if sadm, respects officeFilter
-        $effectiveOffice = ($isSadm && !empty($this->officeFilter)) ? $this->officeFilter : $userOfficeCode;
+        // Effective office: locks strictly to user's office if not canViewAll; if canViewAll, respects officeFilter
+        $effectiveOffice = ($canViewAll && !empty($this->officeFilter)) ? $this->officeFilter : $userOfficeCode;
 
         // Synchronize retention expiration so expired records are automatically transferred to NAP Form 3
         \App\Services\RdpRetentionService::syncTransferredRecords();
@@ -1678,18 +1678,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             }
         }
 
-        $hasRecordClearance = function($recOffice = null) use ($isSadm, $perms, $userOfficeCode) {
-            if ($isSadm || (bool)($perms->can_access_rdp_admin ?? false)) {
+        $hasRecordClearance = function($recOffice = null) use ($canViewAll, $perms, $userOfficeCode) {
+            if ($canViewAll) {
                 return true;
             }
-            $canModify = (bool)($perms->can_rdp_modify_form_1 ?? false);
+            $canModify = (bool)($perms->can_rdp_modify_series ?? true);
             if (!$canModify) {
                 return false;
             }
             if (empty($recOffice) || empty($userOfficeCode) || $recOffice === $userOfficeCode) {
                 return true;
             }
-            return (bool)($perms->can_rdp_edit_others_form_1 ?? false);
+            return false;
         };
 
         if ($allRecords->isEmpty()) {
@@ -2467,7 +2467,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
                 @if($isSadm)
                     <select wire:model.live="officeFilter" class="nap-input nap-select-input">
-                        <option value="">All Offices (Super Admin)</option>
+                        <option value="">All Offices</option>
                         @foreach($officesList as $off)
                             <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
                         @endforeach

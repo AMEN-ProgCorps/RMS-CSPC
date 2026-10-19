@@ -2050,3 +2050,14 @@ textarea.ia-input {
     color: #93c5fd;
     background: rgba(37, 99, 235, 0.4);
 }
+
+/* Series Modal Error Alert */
+.ia-series-error-alert {
+    animation: iaFadeIn 0.2s ease-in-out;
+}
+
+[data-theme="dark"] .ia-series-error-alert {
+    background: rgba(239, 68, 68, 0.15) !important;
+    border-color: #ef4444 !important;
+    color: #fca5a5 !important;
+}

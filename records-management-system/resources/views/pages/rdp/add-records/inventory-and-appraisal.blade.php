@@ -18,6 +18,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     public bool $showParentDropdown = false;
     public array $subsections = [];
     public ?int $activeSubDropdownIndex = null;
+    public ?string $seriesModalError = null;
 
     // Selected Series Staged State (Deferred DB save)
     public ?int $record_series_id = null;
@@ -39,6 +40,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->selectedParentId = null;
         $this->selectedParentTypeId = null;
         $this->selectedParentOffice = null;
+        $this->seriesModalError = null;
     }
 
     public function setSeriesTypeFilter(?int $typeId): void
@@ -1402,7 +1404,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $isTotalPermanent  = $retention && strtolower($retention->total_period ?? '') === 'permanent';
         $isTitlePermanent  = str_contains(strtolower($series->series_title), 'permanent');
 
-        if ($series->retention_period || $isPermFlag || $retention) {
+        $hasRemarksCondition = !empty(trim($series->remarks ?? ''));
+        if ($series->retention_period || $isPermFlag || $retention || $hasRemarksCondition) {
             $this->hasPredefinedRetention = true;
         }
 
@@ -1412,11 +1415,17 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $this->storage_period = '';
             $this->retention_period = 'Permanent';
             $this->time_value = 'P';
-        } else {
+        } elseif ($retention && (!empty($retention->active_period) || !empty($retention->storage_period))) {
             $this->is_permanent = false;
             $this->active_period = mb_strtoupper($retention->active_period ?? '');
             $this->storage_period = mb_strtoupper($retention->storage_period ?? '');
             $this->retention_period = mb_strtoupper($this->computeTotalPeriod($this->active_period, $this->storage_period, false));
+            $this->time_value = 'T';
+        } else {
+            $this->is_permanent = false;
+            $this->active_period = '';
+            $this->storage_period = '';
+            $this->retention_period = 'SEE REMARKS';
             $this->time_value = 'T';
         }
 
@@ -1486,6 +1495,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             return;
         }
 
+        $this->seriesModalError = null;
         $this->showSeriesModal = true;
     }
 
@@ -1494,6 +1504,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->showSeriesModal = false;
         $this->showParentDropdown = false;
         $this->activeSubDropdownIndex = null;
+        $this->seriesModalError = null;
     }
 
     public ?int $selectedParentId = null;
@@ -1554,6 +1565,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->selectedParentTypeId = null;
         $this->selectedParentOffice = null;
         $this->showParentDropdown = true;
+        $this->seriesModalError = null;
     }
 
     public function selectParentSuggestion(string $title, ?int $id = null, ?int $typeId = null, ?string $office = null): void
@@ -1563,6 +1575,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->selectedParentTypeId = $typeId;
         $this->selectedParentOffice = $office;
         $this->showParentDropdown = false;
+        $this->seriesModalError = null;
     }
 
     public function selectSubSuggestion(int $index, string $title): void
@@ -1571,11 +1584,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $this->subsections[$index] = mb_strtoupper($title);
         }
         $this->activeSubDropdownIndex = null;
+        $this->seriesModalError = null;
     }
 
     public function addSubsection(): void
     {
         $this->subsections[] = '';
+        $this->seriesModalError = null;
     }
 
     public function removeSubsection(int $index): void
@@ -1584,15 +1599,19 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             unset($this->subsections[$index]);
             $this->subsections = array_values($this->subsections);
         }
+        $this->seriesModalError = null;
     }
 
     public function saveNewRecordSeries(): void
     {
+        $this->seriesModalError = null;
+
         $this->validate([
             'parentSeriesTitle' => 'required|string|max:255',
         ]);
 
-        $fullPathTitles = [mb_strtoupper(trim($this->parentSeriesTitle))];
+        $parentTitle = mb_strtoupper(trim($this->parentSeriesTitle));
+        $fullPathTitles = [$parentTitle];
 
         foreach ($this->subsections as $subTitle) {
             $trimmed = mb_strtoupper(trim($subTitle));
@@ -1603,82 +1622,161 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
         $this->selectedSeriesHierarchy = [];
         $currentParentId = null;
+        $parentNode = null;
+        $lastNode = null;
 
         foreach ($fullPathTitles as $idx => $t) {
             $query = DB::table('rdp_record_series')->where('series_title', 'ilike', $t);
             if ($idx === 0) {
-                $query->whereNull('parent_id');
-                if ($this->selectedSeriesTypeFilter) {
-                    $query->where('series_type', $this->selectedSeriesTypeFilter);
+                if ($this->selectedParentId) {
+                    $query->where('id', $this->selectedParentId);
+                } else {
+                    $query->whereNull('parent_id');
+                    if ($this->selectedSeriesTypeFilter) {
+                        $query->where('series_type', $this->selectedSeriesTypeFilter);
+                    }
                 }
             } elseif ($currentParentId) {
                 $query->where('parent_id', $currentParentId);
             }
             $existsNode = $query->first();
 
+            if ($idx === 0) {
+                $parentNode = $existsNode;
+            }
+
             if ($existsNode) {
                 $currentParentId = $existsNode->id;
+                $lastNode = $existsNode;
                 $this->selectedSeriesHierarchy[] = [
+                    'id' => $existsNode->id,
                     'title' => $t,
                     'is_predefined' => true,
                 ];
             } else {
                 $currentParentId = null;
+                $lastNode = null;
                 $this->selectedSeriesHierarchy[] = [
+                    'id' => null,
                     'title' => $t,
                     'is_predefined' => false,
                 ];
             }
         }
 
-        $this->selectedSeriesTitle = implode(' ➔ ', $fullPathTitles);
         $leafTitle = end($fullPathTitles);
+
+        // 1. Condition: When the Parent record has a Subsection in the database,
+        // the Apply Series will not continue without specifying a subsection.
+        if ($parentNode) {
+            $parentHasSubsections = DB::table('rdp_record_series')
+                ->where('parent_id', $parentNode->id)
+                ->exists();
+
+            $validSubsections = array_filter(array_map('trim', $this->subsections), fn($s) => !empty($s));
+            if ($parentHasSubsections && count($validSubsections) === 0) {
+                $this->seriesModalError = "The record series '{$parentNode->series_title}' contains subsections. Please add and select a subsection to continue.";
+                return;
+            }
+        } else {
+            // Check if user entered a title that is actually a subsection in the database (parent_id is not null)
+            $isActuallySubsection = DB::table('rdp_record_series')
+                ->where('series_title', 'ilike', $parentTitle)
+                ->whereNotNull('parent_id')
+                ->first();
+
+            if ($isActuallySubsection) {
+                $actualParent = DB::table('rdp_record_series')->where('id', $isActuallySubsection->parent_id)->first();
+                $actualParentName = $actualParent->series_title ?? 'its parent series';
+                $this->seriesModalError = "The title '{$this->parentSeriesTitle}' is a subsection of '{$actualParentName}'. Please select the parent series first.";
+                return;
+            }
+        }
+
+        // Also if the selected leaf node itself has further child subsections
+        if ($lastNode) {
+            $leafHasSubsections = DB::table('rdp_record_series')
+                ->where('parent_id', $lastNode->id)
+                ->exists();
+
+            if ($leafHasSubsections) {
+                $this->seriesModalError = "The selected series '{$lastNode->series_title}' contains further subsections. Please select a specific subsection to continue.";
+                return;
+            }
+        }
+
+        // 2. Condition: If the user's selected record series has no Active Period/Storage Period,
+        // Apply Series will not continue.
+        $targetSeries = $lastNode;
+        if (!$targetSeries) {
+            $targetSeries = DB::table('rdp_record_series')
+                ->where('series_title', 'ilike', $leafTitle)
+                ->first();
+        }
+
+        if (!$targetSeries) {
+            $this->seriesModalError = "The selected record series '{$leafTitle}' is not configured in the records disposition schedule.";
+            return;
+        }
+
+        $retention = null;
+        if ($targetSeries->retention_period) {
+            $retention = DB::table('rdp_retention_period')
+                ->where('id', $targetSeries->retention_period)
+                ->first();
+        }
+
+        $isPermFlag = (bool)($targetSeries->is_retention_period_permanent ?? false);
+        $isActivePermanent = $retention && strtolower(trim($retention->active_period ?? '')) === 'permanent';
+        $isTotalPermanent  = $retention && strtolower(trim($retention->total_period ?? '')) === 'permanent';
+        $isTitlePermanent  = str_contains(strtolower($leafTitle), 'permanent');
+        $isPermanentSeries = $isPermFlag || $isActivePermanent || $isTotalPermanent || $isTitlePermanent;
+
+        $hasActivePeriod = $retention && !empty(trim($retention->active_period ?? '')) && strtolower(trim($retention->active_period ?? '')) !== 'none';
+        $hasStoragePeriod = $retention && !empty(trim($retention->storage_period ?? '')) && strtolower(trim($retention->storage_period ?? '')) !== 'none';
+        $hasRemarksCondition = !empty(trim($targetSeries->remarks ?? ''));
+
+        if (!$isPermanentSeries && !$hasActivePeriod && !$hasStoragePeriod && !$hasRemarksCondition) {
+            $this->seriesModalError = "The selected record series '{$targetSeries->series_title}' has no Active Period, Storage Period, or Remarks condition configured and cannot be applied.";
+            return;
+        }
+
+        // --- All checks passed: apply series to the form ---
+        $this->selectedSeriesTitle = implode(' ➔ ', $fullPathTitles);
+        $this->record_series_id = $targetSeries->id;
+        $this->isCustomSeries = false;
 
         $this->hasPredefinedRemarks = false;
         $this->hasPredefinedRetention = false;
 
-        $foundSeries = DB::table('rdp_record_series')
-            ->where('series_title', 'ilike', $leafTitle)
-            ->first();
+        if (!empty($targetSeries->remarks)) {
+            $this->hasPredefinedRemarks = true;
+            $this->disposition_provision = $targetSeries->remarks;
+        }
 
-        if ($foundSeries) {
-            $this->isCustomSeries = false;
-            $retention = null;
-            if ($foundSeries->retention_period) {
-                $retention = DB::table('rdp_retention_period')
-                    ->where('id', $foundSeries->retention_period)
-                    ->first();
-            }
+        if ($targetSeries->retention_period || $isPermFlag || $retention || $hasRemarksCondition) {
+            $this->hasPredefinedRetention = true;
+        }
 
-            if (!empty($foundSeries->remarks)) {
-                $this->hasPredefinedRemarks = true;
-                $this->disposition_provision = $foundSeries->remarks;
-            }
-
-            $isPermFlag = (bool)($foundSeries->is_retention_period_permanent ?? false);
-            $isActivePermanent = $retention && strtolower($retention->active_period ?? '') === 'permanent';
-            $isTotalPermanent  = $retention && strtolower($retention->total_period ?? '') === 'permanent';
-            $isTitlePermanent  = str_contains(strtolower($leafTitle), 'permanent');
-
-            if ($foundSeries->retention_period || $isPermFlag || $retention) {
-                $this->hasPredefinedRetention = true;
-            }
-
-            if ($isPermFlag || $isActivePermanent || $isTotalPermanent || $isTitlePermanent) {
-                $this->is_permanent = true;
-                $this->active_period = '';
-                $this->storage_period = '';
-                $this->retention_period = 'Permanent';
-                $this->time_value = 'P';
-            } else {
-                $this->is_permanent = false;
-                $this->active_period = mb_strtoupper($retention->active_period ?? '');
-                $this->storage_period = mb_strtoupper($retention->storage_period ?? '');
-                $this->retention_period = mb_strtoupper($this->computeTotalPeriod($this->active_period, $this->storage_period, false));
-                $this->time_value = 'T';
-            }
+        if ($isPermanentSeries) {
+            $this->is_permanent = true;
+            $this->active_period = '';
+            $this->storage_period = '';
+            $this->retention_period = 'Permanent';
+            $this->time_value = 'P';
+        } elseif ($hasActivePeriod || $hasStoragePeriod) {
+            $this->is_permanent = false;
+            $this->active_period = mb_strtoupper($retention->active_period ?? '');
+            $this->storage_period = mb_strtoupper($retention->storage_period ?? '');
+            $this->retention_period = mb_strtoupper($this->computeTotalPeriod($this->active_period, $this->storage_period, false));
+            $this->time_value = 'T';
         } else {
-            $this->isCustomSeries = true;
+            // Governed by condition in Remarks
+            $this->is_permanent = false;
+            $this->active_period = '';
+            $this->storage_period = '';
+            $this->retention_period = 'SEE REMARKS';
+            $this->time_value = 'T';
         }
 
         $this->syncArchivalAutoSelect();
@@ -1686,6 +1784,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $this->showSeriesModal = false;
         $this->showParentDropdown = false;
         $this->activeSubDropdownIndex = null;
+        $this->seriesModalError = null;
     }
 
     public function with(): array
@@ -3729,7 +3828,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         <span style="font-size: 11px; color: #64748b; font-weight: 500;">(Predefined — Read Only)</span>
                     @endif
                 </span>
-                <input type="text" class="ia-input" wire:model.live.debounce.500ms="active_period" placeholder="E.G. 6 MONTHS, 1 YEAR" {{ ($is_permanent || $hasPredefinedRetention) ? 'disabled' : '' }}>
+                <input type="text" class="ia-input" wire:model.live.debounce.500ms="active_period" placeholder="{{ ($hasPredefinedRemarks && empty($active_period) && empty($storage_period)) ? 'Condition in Remarks' : 'E.G. 6 MONTHS, 1 YEAR' }}" {{ ($is_permanent || $hasPredefinedRetention) ? 'disabled' : '' }}>
             </div>
 
             <!-- Storage Period -->
@@ -3740,14 +3839,14 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         <span style="font-size: 11px; color: #64748b; font-weight: 500;">(Predefined — Read Only)</span>
                     @endif
                 </span>
-                <input type="text" class="ia-input" wire:model.live.debounce.500ms="storage_period" placeholder="E.G. 1 YEAR, 4 YEARS" {{ ($is_permanent || $hasPredefinedRetention) ? 'disabled' : '' }}>
+                <input type="text" class="ia-input" wire:model.live.debounce.500ms="storage_period" placeholder="{{ ($hasPredefinedRemarks && empty($active_period) && empty($storage_period)) ? 'Condition in Remarks' : 'E.G. 1 YEAR, 4 YEARS' }}" {{ ($is_permanent || $hasPredefinedRetention) ? 'disabled' : '' }}>
             </div>
 
             <!-- Total Period (Computed) -->
             <div class="ia-form-row {{ ($is_permanent || $hasPredefinedRetention) ? 'ia-row-disabled' : '' }}" wire:key="ia-row-total-period">
                 <span class="ia-label">Total Period</span>
                 <div class="ia-computed-box">
-                    {{ $this->computeTotalPeriod($active_period, $storage_period, $is_permanent) ?: '— (Auto-calculated)' }}
+                    {{ $this->computeTotalPeriod($active_period, $storage_period, $is_permanent) ?: (($hasPredefinedRemarks && empty($active_period) && empty($storage_period)) ? 'SEE REMARKS' : '— (Auto-calculated)') }}
                 </div>
             </div>
 
@@ -3803,6 +3902,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     <button wire:click="closeSeriesModal" class="ia-modal-close">&times;</button>
                 </div>
                 <div class="ia-modal-body">
+                    @if($seriesModalError)
+                        <div class="ia-series-error-alert" style="background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 10px 14px; border-radius: 8px; font-size: 12.5px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                                <span>{{ $seriesModalError }}</span>
+                            </div>
+                            <button type="button" wire:click="$set('seriesModalError', null)" style="border: none; background: none; color: inherit; font-size: 18px; cursor: pointer; line-height: 1; padding: 0 4px;">&times;</button>
+                        </div>
+                    @endif
+
                     <!-- Record Series Type Dropdown -->
                     <div style="margin-bottom: 18px;">
                         <label class="ia-modal-label" style="display: block; margin-bottom: 8px;">Select Record Series Type:</label>

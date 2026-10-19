@@ -250,7 +250,7 @@
             $sectionTitle = 'Reports';
             $tabs = [
                 [
-                    'label' => 'Master Lifecycle',
+                    'label' => 'Generalized Records',
                     'url' => route('rdp.reports.master-lifecycle'),
                     'active' => request()->routeIs('rdp.reports.master-lifecycle'),
                 ],

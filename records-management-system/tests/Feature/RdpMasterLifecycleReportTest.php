@@ -121,7 +121,7 @@ class RdpMasterLifecycleReportTest extends TestCase
     {
         $response = $this->get('/rdp/reports/master-lifecycle');
         $response->assertStatus(200);
-        $response->assertSee('Master Records Lifecycle');
+        $response->assertSee('Generalized Records');
     }
 
     public function test_master_lifecycle_displays_hierarchy_and_records(): void

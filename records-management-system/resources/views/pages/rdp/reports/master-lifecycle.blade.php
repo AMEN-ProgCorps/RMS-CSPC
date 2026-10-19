@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
-new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Records Lifecycle')] class extends Component {
+new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized Records')] class extends Component {
     public string $search = '';
     public string $officeFilter = '';
     public string $retentionFilter = 'all'; // 'all', 'permanent', 'temporary'
@@ -185,7 +185,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
     {
         $data = $this->with();
         $hierarchyTree = $data['hierarchyTree'] ?? [];
-        $filename = 'master_records_lifecycle_' . date('Y-m-d_His') . '.csv';
+        $filename = 'generalized_records_' . date('Y-m-d_His') . '.csv';
 
         return response()->streamDownload(function () use ($hierarchyTree) {
             $handle = fopen('php://output', 'w');
@@ -1114,7 +1114,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; flex-wrap: wrap; gap: 14px;">
         <div>
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
-                <h1 style="font-size: 24px; font-weight: 800; color: #0f172a; letter-spacing: -0.02em; margin: 0;">Master Records Lifecycle</h1>
+                <h1 style="font-size: 24px; font-weight: 800; color: #0f172a; letter-spacing: -0.02em; margin: 0;">Generalized Records</h1>
                 <span style="background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; font-size: 11px; padding: 2px 9px; border-radius: 9999px; font-weight: 800; letter-spacing: 0.4px;">
                     GENERAL MATRIX
                 </span>

@@ -677,13 +677,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
             border-radius: 50%;
         }
 
-        /* Slide-Out Filter Drawer */
+        /* Slide-Out Filter Drawer (Elevated and Clean) */
         .ml-drawer-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(15, 23, 42, 0.6);
+            background: rgba(15, 23, 42, 0.45);
             backdrop-filter: blur(3px);
-            z-index: 9998;
+            z-index: 1000000;
             transition: opacity 0.2s ease;
         }
 
@@ -691,20 +691,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
             position: fixed;
             top: 0;
             right: 0;
-            width: 360px;
-            max-width: 90vw;
+            width: 380px;
+            max-width: 92vw;
             height: 100vh;
             background: #ffffff;
-            z-index: 9999;
-            box-shadow: -10px 0 30px rgba(0, 0, 0, 0.15);
+            z-index: 1000001;
+            box-shadow: -6px 0 25px rgba(0, 0, 0, 0.15);
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         .ml-drawer-head {
-            padding: 20px 24px;
+            padding: 18px 22px;
             border-bottom: 1px solid #e2e8f0;
             display: flex;
             justify-content: space-between;
@@ -712,21 +712,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
         }
 
         .ml-drawer-body {
-            padding: 24px;
+            padding: 22px;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
             gap: 18px;
             flex-grow: 1;
-        }
-
-        .ml-drawer-foot {
-            padding: 18px 24px;
-            border-top: 1px solid #e2e8f0;
-            background: #f8fafc;
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
         }
 
         .ml-filter-group {
@@ -736,10 +727,82 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
         }
 
         .ml-filter-group label {
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 700;
-            color: #334155;
-            letter-spacing: 0.3px;
+            color: #475569;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .ml-filter-group input,
+        .ml-filter-group select {
+            width: 100%;
+            height: 38px;
+            padding: 0 12px;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #0f172a;
+            background: #ffffff;
+            transition: all 0.15s ease;
+            box-sizing: border-box;
+        }
+
+        .ml-filter-group input:focus,
+        .ml-filter-group select:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+        }
+
+        .ml-drawer-foot {
+            padding: 16px 22px;
+            border-top: 1px solid #e2e8f0;
+            background: #f8fafc;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .ml-drawer-btn-reset {
+            height: 38px;
+            padding: 0 16px;
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            color: #475569;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .ml-drawer-btn-reset:hover {
+            border-color: #94a3b8;
+            background: #f1f5f9;
+            color: #0f172a;
+        }
+
+        .ml-drawer-btn-apply {
+            flex: 1;
+            height: 38px;
+            padding: 0 18px;
+            border: none;
+            background: #2563eb;
+            color: #ffffff;
+            font-size: 13px;
+            font-weight: 700;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .ml-drawer-btn-apply:hover {
+            background: #1d4ed8;
         }
 
         /* Table Styling with Sticky Anchors and Full Grid Matrix Borders */
@@ -960,12 +1023,29 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
 @endpush
 
 <div class="ml-container" 
+     @keydown.escape.window="drawerOpen = false"
      x-data="{
         drawerOpen: false,
         collapsedRoots: {},
         allRootsCollapsed: false,
         collapsedSubs: {},
         allSubsCollapsed: false,
+
+        init() {
+            this.$watch('drawerOpen', (open) => {
+                const widget = document.getElementById('chatify-global-widget');
+                if (widget) {
+                    widget.style.transition = 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
+                    widget.style.transform = open ? 'translateX(-390px)' : 'translateX(0)';
+                }
+            });
+        },
+        destroy() {
+            const widget = document.getElementById('chatify-global-widget');
+            if (widget) {
+                widget.style.transform = 'translateX(0)';
+            }
+        },
 
         toggleRoot(key) {
             this.collapsedRoots[key] = !this.isRootCollapsed(key);
@@ -1381,14 +1461,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                 <span>Filter Matrix</span>
             </div>
-            <button type="button" @click="drawerOpen = false" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #64748b;">&times;</button>
+            <button type="button" @click="drawerOpen = false" class="ml-chevron-btn" style="width: 28px; height: 28px; font-size: 20px; color: #64748b;" title="Close drawer">&times;</button>
         </div>
 
         <div class="ml-drawer-body">
             @if($isSadm)
                 <div class="ml-filter-group">
                     <label>Recorded Office</label>
-                    <select wire:model.live="officeFilter" class="nap-input nap-select-input" style="width: 100%;">
+                    <select wire:model.live="officeFilter">
                         <option value="">All Offices (Super Admin)</option>
                         @foreach($officesList as $off)
                             <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
@@ -1398,7 +1478,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
             @else
                 <div class="ml-filter-group">
                     <label>Recorded Office</label>
-                    <div style="padding: 8px 12px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 700; color: #1e293b;">
+                    <div style="padding: 9px 12px; background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 6px; font-size: 13px; font-weight: 700; color: #1e293b;">
                         Office: {{ $userOfficeCode ?? 'N/A' }}
                     </div>
                 </div>
@@ -1406,7 +1486,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
 
             <div class="ml-filter-group">
                 <label>Retention Classification</label>
-                <select wire:model.live="retentionFilter" class="nap-input nap-select-input" style="width: 100%;">
+                <select wire:model.live="retentionFilter">
                     <option value="all">All Retention Types</option>
                     <option value="permanent">Permanent Retention Only</option>
                     <option value="temporary">Temporary Retention Only</option>
@@ -1415,7 +1495,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
 
             <div class="ml-filter-group">
                 <label>Records Medium</label>
-                <select wire:model.live="mediumFilter" class="nap-input nap-select-input" style="width: 100%;">
+                <select wire:model.live="mediumFilter">
                     <option value="">All Mediums</option>
                     @foreach($mediumsList as $med)
                         <option value="{{ $med->id }}">{{ $med->medium_name }}</option>
@@ -1425,18 +1505,21 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
 
             <div class="ml-filter-group">
                 <label>Date Covered From</label>
-                <input type="text" wire:model.live.debounce.300ms="dateFrom" placeholder="e.g. 2020 or 2020-01-01" class="nap-input" style="width: 100%;">
+                <input type="text" wire:model.live.debounce.300ms="dateFrom" placeholder="e.g. 2020 or 2020-01-01">
             </div>
 
             <div class="ml-filter-group">
                 <label>Date Covered To</label>
-                <input type="text" wire:model.live.debounce.300ms="dateTo" placeholder="e.g. 2024 or 2024-12-31" class="nap-input" style="width: 100%;">
+                <input type="text" wire:model.live.debounce.300ms="dateTo" placeholder="e.g. 2024 or 2024-12-31">
             </div>
         </div>
 
         <div class="ml-drawer-foot">
-            <button type="button" wire:click="clearFilters" @click="drawerOpen = false" class="nap-btn nap-btn-secondary">Reset</button>
-            <button type="button" @click="drawerOpen = false" class="nap-btn nap-btn-primary">Apply Filters</button>
+            <button type="button" wire:click="clearFilters" @click="drawerOpen = false" class="ml-drawer-btn-reset">Reset</button>
+            <button type="button" @click="drawerOpen = false" class="ml-drawer-btn-apply">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                <span>Apply Filters</span>
+            </button>
         </div>
     </aside>
 </div>

@@ -298,7 +298,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
         }
 
         $allRawSeries = $seriesQuery
-            ->orderByRaw('item_number ASC NULLS LAST, series_title ASC')
+            ->orderByRaw("COALESCE(rdp_record_series.recorded_at_office, 'GENERAL / COMMON RECORDS') ASC, item_number ASC NULLS LAST, series_title ASC")
             ->get();
 
         $allSeriesMap = [];
@@ -666,15 +666,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
             position: sticky;
             top: 0;
             z-index: 10;
-            background: #0f172a;
-            color: #f8fafc;
-            padding: 10px 12px;
+            background: #f8fafc;
+            color: #475569;
+            padding: 9px 12px;
             font-weight: 700;
             font-size: 11px;
-            letter-spacing: 0.4px;
+            letter-spacing: 0.5px;
             text-align: left;
-            border-bottom: 2px solid #334155;
+            border-bottom: 2px solid #cbd5e1;
+            border-right: 1px solid #e2e8f0;
             white-space: nowrap;
+            text-transform: uppercase;
         }
 
         .ml-table th.col-sticky-1,
@@ -682,70 +684,100 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
             position: sticky;
             left: 0;
             z-index: 12;
-            width: 110px;
-            min-width: 110px;
+            width: 80px;
+            min-width: 80px;
+            max-width: 80px;
+            text-align: center;
         }
 
         .ml-table th.col-sticky-2,
         .ml-table td.col-sticky-2 {
             position: sticky;
-            left: 110px;
+            left: 80px;
             z-index: 12;
-            min-width: 260px;
-        }
-
-        .ml-table tbody td.col-sticky-1,
-        .ml-table tbody td.col-sticky-2 {
-            background-color: inherit;
+            min-width: 280px;
         }
 
         .ml-table thead th.col-sticky-1,
         .ml-table thead th.col-sticky-2 {
             z-index: 15;
-            background: #0f172a;
+            background: #f8fafc;
+        }
+
+        .ml-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #f1f5f9;
+            vertical-align: middle;
         }
 
         /* Row Footprints */
-        .root-series-row {
-            background: #f8fafc;
-            font-weight: 800;
-            border-top: 2px solid #cbd5e1 !important;
-            border-bottom: 2px solid #cbd5e1 !important;
+        .root-series-row td {
+            background-color: #f8fafc;
+            font-weight: 700;
+            border-top: 1px solid #cbd5e1;
+            border-bottom: 1px solid #cbd5e1;
         }
 
-        .sub-series-row {
-            background: #ffffff;
-            font-weight: 700;
+        .sub-series-row td {
+            background-color: #ffffff;
+            font-weight: 600;
             border-bottom: 1px solid #e2e8f0;
         }
 
-        .record-item-row {
-            background: #fafafa;
-            transition: background 0.15s ease;
+        .record-item-row td {
+            background-color: #ffffff;
             border-bottom: 1px solid #f1f5f9;
         }
 
-        .record-item-row:hover {
-            background: #f1f5f9;
+        .record-item-row:hover td {
+            background-color: #f8fafc;
         }
 
-        /* Darkened Footprint for Disposed & Revised */
-        .record-item-row.is-disposed {
-            background: #94a3b8 !important;
-        }
+        /* Muted Footprint for Disposed & Soft Tint for Revised */
         .record-item-row.is-disposed td {
-            color: #0f172a !important;
-            font-weight: 500;
-            border-color: #64748b !important;
+            background-color: #f8fafc !important;
+            color: #94a3b8 !important;
         }
 
-        .record-item-row.is-revised {
-            background: #cbd5e1 !important;
-        }
         .record-item-row.is-revised td {
-            color: #0f172a !important;
-            font-weight: 500;
-            border-color: #94a3b8 !important;
+            background-color: #fffbeb !important;
+        }
+
+        .table-section-divider-row td {
+            background: #e2e8f0 !important;
+            color: #1e293b !important;
+            font-weight: 800;
+            text-align: left;
+            padding: 8px 16px;
+            font-size: 11.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            border-top: 2px solid #cbd5e1;
+            border-bottom: 2px solid #cbd5e1;
+        }
+
+        [data-theme="dark"] .ml-table thead th,
+        [data-theme="dark"] .ml-table thead th.col-sticky-1,
+        [data-theme="dark"] .ml-table thead th.col-sticky-2 {
+            background: #0f172a !important;
+            color: #cbd5e1 !important;
+            border-bottom-color: #1e293b !important;
+        }
+        [data-theme="dark"] .ml-table td {
+            color: #cbd5e1 !important;
+            border-bottom-color: #1e293b !important;
+        }
+        [data-theme="dark"] .root-series-row td {
+            background-color: #1e293b !important;
+        }
+        [data-theme="dark"] .sub-series-row td,
+        [data-theme="dark"] .record-item-row td {
+            background-color: #0f172a !important;
+        }
+        [data-theme="dark"] .table-section-divider-row td {
+            background: #1e293b !important;
+            color: #60a5fa !important;
+            border-color: #334155 !important;
         }
 
         /* Badges */
@@ -961,26 +993,48 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                     </tr>
                 </thead>
                 <tbody>
+                    @php $prevOfficeName = null; @endphp
                     @forelse($hierarchyTree as $root)
+                        @php
+                            $currentOfficeName = trim((string)($root->recorded_at_office ?: 'GENERAL / COMMON RECORDS'));
+                        @endphp
+                        @if($currentOfficeName !== $prevOfficeName)
+                            <tr class="table-section-divider-row">
+                                <td colspan="12">
+                                    <span style="color: #2563eb; margin-right: 6px;">🏢</span> {{ strtoupper($currentOfficeName) }}
+                                </td>
+                            </tr>
+                            @php $prevOfficeName = $currentOfficeName; @endphp
+                        @endif
+
+                        @php
+                            $hasExpandable = ($root->aggregate_records_count > 0) || !empty($root->children) || !empty($root->direct_records);
+                        @endphp
                         <!-- ROOT SERIES ROW -->
-                        <tr class="root-series-row" style="cursor: pointer;" @click="toggleRoot('root-{{ $root->id }}')">
+                        <tr class="root-series-row" @if($hasExpandable) style="cursor: pointer;" @click="toggleRoot('root-{{ $root->id }}')" @endif>
                             <td class="col-sticky-1" style="font-weight: 800; text-align: center;">
                                 <div style="display: flex; align-items: center; justify-content: center; gap: 6px;">
-                                    <button type="button" class="nap-chevron-btn" style="padding: 2px;" title="Toggle Root Series">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
-                                             :style="isRootCollapsed('root-{{ $root->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'">
-                                            <polyline points="6 9 12 15 18 9"></polyline>
-                                        </svg>
-                                    </button>
+                                    @if($hasExpandable)
+                                        <button type="button" class="nap-chevron-btn" style="padding: 2px;" title="Toggle Root Series">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                                                 :style="isRootCollapsed('root-{{ $root->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'">
+                                                <polyline points="6 9 12 15 18 9"></polyline>
+                                            </svg>
+                                        </button>
+                                    @else
+                                        <span style="width: 17px; height: 17px; display: inline-block;"></span>
+                                    @endif
                                     <span>{{ $root->item_number ?: '—' }}</span>
                                 </div>
                             </td>
                             <td class="col-sticky-2">
                                 <div style="display: flex; align-items: center; gap: 8px;">
                                     <span style="font-weight: 800; color: #0f172a; font-size: 13px;">{{ strtoupper($root->series_title) }}</span>
-                                    <span style="font-size: 10.5px; background: #e2e8f0; color: #334155; padding: 2px 7px; border-radius: 12px; font-weight: 700;">
-                                        {{ $root->aggregate_records_count }} {{ $root->aggregate_records_count === 1 ? 'item' : 'items' }}
-                                    </span>
+                                    @if(($root->aggregate_records_count ?? 0) > 0)
+                                        <span style="font-size: 10.5px; background: #e2e8f0; color: #334155; padding: 2px 7px; border-radius: 12px; font-weight: 700;">
+                                            {{ $root->aggregate_records_count }} {{ $root->aggregate_records_count === 1 ? 'item' : 'items' }}
+                                        </span>
+                                    @endif
                                 </div>
                                 @if(!empty($root->remarks))
                                     <div class="ml-text-clamp" style="font-size: 11px; color: #64748b; margin-top: 2px;" title="{{ $root->remarks }}">
@@ -1015,11 +1069,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                             @foreach($root->direct_records as $rec)
                                 <tr class="record-item-row {{ $rec->status === 'disposed' ? 'is-disposed' : ($rec->status === 'revised' ? 'is-revised' : '') }}" 
                                     x-show="!isRootCollapsed('root-{{ $root->id }}')">
-                                    <td class="col-sticky-1" style="text-align: center; font-size: 11px; color: #64748b;">
-                                        ↳
+                                    <td class="col-sticky-1" style="text-align: center;">
+                                        <span style="width: 17px; display: inline-block;"></span>
                                     </td>
-                                    <td class="col-sticky-2" style="padding-left: 32px;">
-                                        <div style="font-weight: 600; color: #0f172a; font-size: 12px;">{{ $rec->description }}</div>
+                                    <td class="col-sticky-2" style="padding-left: 28px;">
+                                        <div style="display: flex; align-items: center; gap: 6px;">
+                                            <span style="color: #94a3b8; font-weight: 600; font-size: 11px;">└</span>
+                                            <div style="font-weight: 600; color: #1e293b; font-size: 12px;">{{ $rec->description }}</div>
+                                        </div>
                                     </td>
                                     <td>{{ $rec->date_covered ?: '—' }}</td>
                                     <td>{{ $rec->volume ?: '—' }}</td>
@@ -1052,30 +1109,39 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                         <!-- SUB-SERIES ROWS -->
                         @if(!empty($root->children))
                             @foreach($root->children as $sub)
+                                @php
+                                    $subHasExpandable = !empty($sub->records) && count($sub->records) > 0;
+                                @endphp
                                 <tr class="sub-series-row" 
                                     x-show="!isRootCollapsed('root-{{ $root->id }}')" 
-                                    style="cursor: pointer;" 
-                                    @click="toggleSub('sub-{{ $sub->id }}')">
-                                    <td class="col-sticky-1" style="text-align: center; font-weight: 700; padding-left: 18px;">
+                                    @if($subHasExpandable) style="cursor: pointer;" @click="toggleSub('sub-{{ $sub->id }}')" @endif>
+                                    <td class="col-sticky-1" style="text-align: center; font-weight: 700;">
                                         <div style="display: flex; align-items: center; justify-content: center; gap: 4px;">
-                                            <button type="button" class="nap-chevron-btn" style="padding: 2px;" title="Toggle Sub-Series">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
-                                                     :style="isSubCollapsed('sub-{{ $sub->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'">
-                                                    <polyline points="6 9 12 15 18 9"></polyline>
-                                                </svg>
-                                            </button>
-                                            <span>{{ $sub->item_number ?: '—' }}</span>
+                                            @if($subHasExpandable)
+                                                <button type="button" class="nap-chevron-btn" style="padding: 2px;" title="Toggle Sub-Series">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                                                         :style="isSubCollapsed('sub-{{ $sub->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'">
+                                                        <polyline points="6 9 12 15 18 9"></polyline>
+                                                    </svg>
+                                                </button>
+                                            @else
+                                                <span style="width: 16px; height: 16px; display: inline-block;"></span>
+                                            @endif
+                                            <span style="font-size: 11px; color: #64748b;">{{ $sub->item_number ?: '—' }}</span>
                                         </div>
                                     </td>
-                                    <td class="col-sticky-2" style="padding-left: 24px;">
-                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                    <td class="col-sticky-2" style="padding-left: 20px;">
+                                        <div style="display: flex; align-items: center; gap: 6px;">
+                                            <span style="color: #64748b; font-weight: 700; font-size: 12px;">└</span>
                                             <span style="font-weight: 700; color: #1e293b;">{{ $sub->series_title }}</span>
-                                            <span style="font-size: 10px; background: #f1f5f9; color: #475569; padding: 1px 6px; border-radius: 10px;">
-                                                {{ $sub->total_records_count }}
-                                            </span>
+                                            @if(($sub->total_records_count ?? 0) > 0)
+                                                <span style="font-size: 10px; background: #f1f5f9; color: #475569; padding: 1px 6px; border-radius: 10px;">
+                                                    {{ $sub->total_records_count }}
+                                                </span>
+                                            @endif
                                         </div>
                                         @if(!empty($sub->remarks))
-                                            <div class="ml-text-clamp" style="font-size: 11px; color: #64748b; margin-top: 1px;" title="{{ $sub->remarks }}">
+                                            <div class="ml-text-clamp" style="font-size: 11px; color: #64748b; margin-top: 1px; padding-left: 14px;" title="{{ $sub->remarks }}">
                                                 {{ $sub->remarks }}
                                             </div>
                                         @endif
@@ -1107,11 +1173,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                                     @foreach($sub->records as $sRec)
                                         <tr class="record-item-row {{ $sRec->status === 'disposed' ? 'is-disposed' : ($sRec->status === 'revised' ? 'is-revised' : '') }}" 
                                             x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubCollapsed('sub-{{ $sub->id }}')">
-                                            <td class="col-sticky-1" style="text-align: center; font-size: 11px; color: #64748b;">
-                                                ↳
+                                            <td class="col-sticky-1" style="text-align: center;">
+                                                <span style="width: 16px; display: inline-block;"></span>
                                             </td>
-                                            <td class="col-sticky-2" style="padding-left: 44px;">
-                                                <div style="font-weight: 500; color: #0f172a; font-size: 12px;">{{ $sRec->description }}</div>
+                                            <td class="col-sticky-2" style="padding-left: 38px;">
+                                                <div style="display: flex; align-items: center; gap: 6px;">
+                                                    <span style="color: #94a3b8; font-weight: 600; font-size: 11px;">└</span>
+                                                    <div style="font-weight: 500; color: #334155; font-size: 12px;">{{ $sRec->description }}</div>
+                                                </div>
                                             </td>
                                             <td>{{ $sRec->date_covered ?: '—' }}</td>
                                             <td>{{ $sRec->volume ?: '—' }}</td>

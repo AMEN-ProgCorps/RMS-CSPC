@@ -298,7 +298,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
         }
 
         $allRawSeries = $seriesQuery
-            ->orderByRaw("COALESCE(rdp_record_series.recorded_at_office, 'GENERAL / COMMON RECORDS') ASC, item_number ASC NULLS LAST, series_title ASC")
+            ->orderByRaw("item_number ASC NULLS LAST, series_title ASC")
             ->get();
 
         $allSeriesMap = [];
@@ -1220,20 +1220,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                     </tr>
                 </thead>
                 <tbody>
-                    @php $prevOfficeName = null; @endphp
                     @forelse($hierarchyTree as $root)
-                        @php
-                            $currentOfficeName = trim((string)($root->recorded_at_office ?: 'GENERAL / COMMON RECORDS'));
-                        @endphp
-                        @if($currentOfficeName !== $prevOfficeName)
-                            <tr class="table-section-divider-row">
-                                <td colspan="12">
-                                    <span style="color: #2563eb; margin-right: 6px;">🏢</span> {{ strtoupper($currentOfficeName) }}
-                                </td>
-                            </tr>
-                            @php $prevOfficeName = $currentOfficeName; @endphp
-                        @endif
-
                         @php
                             $hasExpandable = ($root->aggregate_records_count > 0) || !empty($root->children) || !empty($root->direct_records);
                         @endphp

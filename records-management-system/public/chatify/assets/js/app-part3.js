@@ -912,7 +912,7 @@
     }
 
     function openReplyForContainer(container) {
-      if (!container) return;
+      if (!container || container.classList.contains('user-moved')) return;
       const snippet = getReplySnippet(container);
       replyState = {
         msgId: container.getAttribute('data-msg-id') || '',
@@ -1322,6 +1322,7 @@
     function canReactToContainer(container) {
       if (!container) return false;
       if (isAdminAllChatsView || activeAdminConv) return false;
+      if (container.classList.contains('user-moved')) return false;
       if (container.hasAttribute('data-sending-uid') || container.hasAttribute('data-upload-uid')) return false;
       return !!container.getAttribute('data-msg-id');
     }

@@ -129,6 +129,7 @@ class GlobalChatManager
                             m.reply_to_msg_uuid,
                             r.message AS reply_message,
                             r.msg_type AS reply_msg_type,
+                            r.sender_id AS reply_sender_id,
                             to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                      FROM chat_messages m
                      LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
@@ -162,6 +163,7 @@ class GlobalChatManager
                             m.reply_to_msg_uuid,
                             r.message AS reply_message,
                             r.msg_type AS reply_msg_type,
+                            r.sender_id AS reply_sender_id,
                             to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                      FROM chat_messages m
                      LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid

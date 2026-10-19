@@ -17,7 +17,9 @@ if (empty($convId) || !preg_match('/^(\d+_\d+|global|office_\d+)$/', $convId)) {
     die('Invalid conv_id');
 }
 
-$isChannel = ($convId === 'global' || str_starts_with($convId, 'office_'));
+$isChannel      = ($convId === 'global' || str_starts_with($convId, 'office_'));
+$isOfficeGc     = str_starts_with($convId, 'office_');
+$targetOfficeId = $isOfficeGc ? OfficeChatManager::parseOfficeId($convId) : null;
 
 // ── Pagination & Incremental Fetching ──────────────────────────────────────────
 // INITIAL_LOAD = 100 (first open), BACKREAD_BATCH = 50 (scroll-up fetches).
@@ -118,7 +120,7 @@ function adminGetInitials(string $name): string
  * the small quoted bubble shown above a reply's own message-content, so the
  * admin spy view shows who-replied-to-what just like the regular DM view.
  */
-function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType, ?string $replyToUuid = null): string
+function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType, ?string $replyToUuid = null, bool $isReplySenderMoved = false): string
 {
     global $uploadsDir, $imageExts;
 
@@ -127,6 +129,10 @@ function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyT
     }
 
     $replyToAttr = $replyToUuid ? " data-reply-to='" . htmlspecialchars($replyToUuid, ENT_QUOTES) . "'" : '';
+
+    if ($isReplySenderMoved) {
+        return "<div class='reply-quote'{$replyToAttr}><div class='reply-quote-text' style='font-style:italic;opacity:0.8;'>This user has been moved to other office</div></div>";
+    }
 
     if ($replyType === 'upload') {
         $rawPayload = safeDecrypt($encryptedReplyMessage);
@@ -191,13 +197,41 @@ for ($i = 0; $i < $msgCount; $i++) {
     $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
     $bodyHtml    = '';
 
+    // Check if sender has been moved to another office
+    $senderInfo = UserResolver::getUserInfo($senderId);
+    $senderOfficeId = isset($senderInfo['office_id']) ? (int) $senderInfo['office_id'] : null;
+    $isUserMoved = ($isOfficeGc && $targetOfficeId && $senderId !== 1 && $senderOfficeId !== $targetOfficeId);
+
+    if ($isUserMoved) {
+        $bodyHtml .= "<div class='message-bubble'>";
+        $bodyHtml .= "<div class='message-content' style='font-style:italic;opacity:0.85;'>This user has been moved to other office</div>";
+        $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
+        $bodyHtml .= "</div>";
+
+        $html .= "<div class='message-container received user-moved' data-msg-id='{$msgId}' data-sender-id='{$senderId}'>";
+        $html .= "<div class='message-avatar'>{$avatarInner}</div>";
+        $html .= "<div class='bubble-wrapper'>";
+        $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
+        $html .= $bodyHtml;
+        $html .= "</div>";
+        $html .= "</div>";
+        continue;
+    }
+
     if ($type === 'text') {
         $content = safeDecrypt($msg['message'] ?? '');
         $contentEsc = htmlspecialchars($content, ENT_QUOTES);
 
         $replyQuoteHtml = '';
         if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
-            $replyQuoteHtml = adminBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid']);
+            $isReplySenderMoved = false;
+            if ($isOfficeGc && $targetOfficeId && !empty($msg['reply_sender_id'])) {
+                $rSenderId = (int) $msg['reply_sender_id'];
+                $rSenderInfo = UserResolver::getUserInfo($rSenderId);
+                $rSenderOfficeId = isset($rSenderInfo['office_id']) ? (int) $rSenderInfo['office_id'] : null;
+                $isReplySenderMoved = ($rSenderId !== 1 && $rSenderOfficeId !== $targetOfficeId);
+            }
+            $replyQuoteHtml = adminBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid'], $isReplySenderMoved);
         }
 
         $bodyHtml .= $replyQuoteHtml;

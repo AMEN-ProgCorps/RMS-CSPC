@@ -1477,7 +1477,11 @@
       params.set('msg_uuid', msgUuid);
       params.set('emoji', emoji);
       if (isGlobalChat) {
-        params.set('chat_type', 'global');
+        const targetConvId = (typeof getActiveChannelConvId === 'function')
+          ? getActiveChannelConvId()
+          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+        params.set('chat_type', targetConvId.startsWith('office_') ? 'office_gc' : 'global');
+        params.set('conv_id', targetConvId);
       } else if (activeDM) {
         params.set('chat_type', 'private');
         params.set('target_id', activeDMAccountId || 0);
@@ -1502,9 +1506,13 @@
             // Broadcast reaction in real-time over WebSocket, exactly like chat messages
             if (typeof ws !== 'undefined' && ws && ws.readyState === WebSocket.OPEN) {
               const recipId = activeDMAccountId || Number(data.target_id) || null;
+              const targetConvId = (typeof getActiveChannelConvId === 'function')
+                ? getActiveChannelConvId()
+                : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
               ws.send(JSON.stringify({
                 type: 'reaction',
-                chat_type: isGlobalChat ? 'global' : 'private',
+                chat_type: isGlobalChat ? (targetConvId.startsWith('office_') ? 'office_gc' : 'global') : 'private',
+                conv_id: isGlobalChat ? targetConvId : null,
                 recipient_id: recipId,
                 msg_uuid: data.msg_uuid,
                 emoji: data.emoji,
@@ -2238,7 +2246,10 @@
 
       gcPrefetchPromise = new Promise(function(resolve) {
         const xhr = new XMLHttpRequest();
-        xhr.open('GET', 'load.php?before_uuid=&limit=' + INITIAL_LOAD, true);
+        const convParam = (window.currentOfficeInfo && window.currentOfficeInfo.conv_id)
+          ? '&conv_id=' + encodeURIComponent(window.currentOfficeInfo.conv_id)
+          : '';
+        xhr.open('GET', 'load.php?before_uuid=&limit=' + INITIAL_LOAD + convParam, true);
         xhr.onload = function() {
           if (this.status === 200) {
             try {
@@ -2271,7 +2282,10 @@
 
       // Register Speculation Rules API rule dynamically for load.php
       if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules')) {
-        const url = 'load.php?before_uuid=';
+        const convParam = (window.currentOfficeInfo && window.currentOfficeInfo.conv_id)
+          ? '&conv_id=' + encodeURIComponent(window.currentOfficeInfo.conv_id)
+          : '';
+        const url = 'load.php?before_uuid=' + convParam;
         const ruleId = 'speculation-rule-global-chat';
         if (!document.getElementById(ruleId)) {
           try {
@@ -2325,24 +2339,23 @@
 
       const cursor     = loadOlderMode ? gcCursor : '';
       const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
+      const targetConvId = (typeof getActiveChannelConvId === 'function')
+        ? getActiveChannelConvId()
+        : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+      const convParam  = '&conv_id=' + encodeURIComponent(targetConvId);
 
       const xhr = new XMLHttpRequest();
       xhr.open('GET', 'load.php?before_uuid=' + encodeURIComponent(cursor)
-                    + '&limit=' + limitParam, true);
+                    + '&limit=' + limitParam
+                    + convParam, true);
       xhr.onload = function() {
         isLoadingGC = false;
         if (loadOlderMode) hideBackreadTopLoader();
         if (this.status !== 200) return;
-        // Stale-response guard: without this, a fetch started while Global
-        // Chat was open — most easily triggered by a fast backread that's
-        // still in flight — lands and inserts Global Chat messages into
-        // whatever chat is now on screen if the user switched away (to a
-        // DM or Admin conv) before the response arrived. loadChat/
-        // loadAdminConv already guard this per-chat (requestedUser/
-        // requestedConv); this was the one path missing it.
         if (!isGlobalChat) return;
         let data;
         try { data = JSON.parse(this.responseText); } catch(e) { return; }
+        if (data.conv_id && data.conv_id !== targetConvId) return;
         if (!loadOlderMode && typeof cacheGlobalChatSnapshot === 'function') {
           cacheGlobalChatSnapshot(data);
         }
@@ -2708,32 +2721,50 @@
 
           if (clearedGlobal) {
             globalChatCache = null;
+            if (typeof globalChatPrefetchedData !== 'undefined') globalChatPrefetchedData = null;
             gcCursor = '';
             gcViewingOlder = false;
             removePaginationBtn();
-            chatBox.innerHTML = '';
+            chatBox.innerHTML = '<div class="empty-chat"></div>';
             isFirstLoad = true;
             chatFullyLoaded = false;
-            loadGlobalChat(false, false);
+            isLoadingGC = false;
+            loadGlobalChat(false, false, true);
           } else if (typeof resetToHome === 'function') {
             resetToHome();
           } else {
             if (clearedDM) {
               loadChat();
             } else if (clearedAdminConv) {
-              loadAdminConv(clearedAdminConv, false);
-              fetchUsers();
+              if (clearedAdminConv === 'global' || clearedAdminConv.startsWith('office_')) {
+                chatBox.innerHTML = '<div class="empty-chat"></div>';
+                isFirstLoad = true;
+                chatFullyLoaded = false;
+                isLoadingAdminConv = false;
+                loadAdminConv(clearedAdminConv, false);
+              } else {
+                loadAdminConv(clearedAdminConv, false);
+                fetchUsers();
+              }
             }
           }
 
           // Broadcast the clear so every other connected client (the other
-          // party in the DM, or any other admin viewing the same admin
-          // conversation) refreshes immediately instead of showing stale
-          // messages until their next poll/reload. Global clears are
-          // broadcast system-wide server-side (WsPush::broadcast in
-          // delete_dm.php), so there's no client-driven ws.send needed here.
+          // party in the DM, or any other user in Global/Office GC) refreshes
+          // immediately instead of showing stale messages until their next poll/reload.
           if (ws && ws.readyState === WebSocket.OPEN) {
-            if (clearedDM && clearedDMAccId) {
+            if (clearedGlobal) {
+              const targetConvId = (typeof getActiveChannelConvId === 'function')
+                ? getActiveChannelConvId()
+                : (window.activeChannel === 'office' ? (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) : 'global');
+              ws.send(JSON.stringify({
+                type: 'chat_cleared',
+                chat_type: (targetConvId && targetConvId.startsWith('office_')) ? 'office_gc' : 'global',
+                conv_id: targetConvId || 'global',
+                office_id: (targetConvId && targetConvId.startsWith('office_')) ? (window.currentOfficeInfo && window.currentOfficeInfo.office_id) : null,
+                sender_id: wsConfig.accountId
+              }));
+            } else if (clearedDM && clearedDMAccId) {
               const myId = wsConfig.accountId;
               ws.send(JSON.stringify({
                 type: 'chat_cleared',
@@ -2743,13 +2774,24 @@
                 user_b: Math.max(myId, clearedDMAccId)
               }));
             } else if (clearedAdminConv) {
-              const clearedParts = clearedAdminConv.split('_').map(Number);
-              ws.send(JSON.stringify({
-                type: 'chat_cleared',
-                chat_type: 'admin_conv',
-                user_a: clearedParts[0],
-                user_b: clearedParts[1]
-              }));
+              if (clearedAdminConv === 'global' || clearedAdminConv.startsWith('office_')) {
+                const targetOfficeId = clearedAdminConv.startsWith('office_') ? parseInt(clearedAdminConv.replace('office_', ''), 10) : null;
+                ws.send(JSON.stringify({
+                  type: 'chat_cleared',
+                  chat_type: targetOfficeId ? 'office_gc' : 'global',
+                  conv_id: clearedAdminConv,
+                  office_id: targetOfficeId,
+                  sender_id: wsConfig.accountId
+                }));
+              } else {
+                const clearedParts = clearedAdminConv.split('_').map(Number);
+                ws.send(JSON.stringify({
+                  type: 'chat_cleared',
+                  chat_type: 'admin_conv',
+                  user_a: clearedParts[0],
+                  user_b: clearedParts[1]
+                }));
+              }
             }
           }
 
@@ -2770,6 +2812,10 @@
       let params = "secret=" + encodeURIComponent(secret);
       if (isGlobalChat) {
         params += "&global=1";
+        const targetConvId = (typeof getActiveChannelConvId === 'function')
+          ? getActiveChannelConvId()
+          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+        params += "&conv_id=" + encodeURIComponent(targetConvId);
       } else if (activeDMAccountId) {
         params += "&target_id=" + encodeURIComponent(activeDMAccountId) + "&target_user=" + encodeURIComponent(activeDM);
       } else if (activeDM) {
@@ -3127,7 +3173,7 @@
         // requirement anywhere in its path. Works from a totally empty
         // "no conversation selected" screen as long as the admin can type
         // into the message box and hit send.
-        if (cmd === '/backup') {
+        if (isAdmin && cmd === '/backup') {
           resetMessageInputVisualState();
           messageInput.style.height = 'auto';
           showBackupConfirmModal();
@@ -3284,8 +3330,14 @@
         const mentionedIdsParam = mentionsToNotify.length
           ? '&mentioned_ids=' + encodeURIComponent(JSON.stringify(mentionsToNotify.map(function(m) { return m.account_id; })))
           : '';
+        const targetConvId = (typeof getActiveChannelConvId === 'function')
+          ? getActiveChannelConvId()
+          : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+        const channelConvParam = isGlobalChat
+          ? '&conv_id=' + encodeURIComponent(targetConvId)
+          : '';
         payload = isGlobalChat
-          ? 'message=' + encodeURIComponent(message) + replyToParam + mentionedIdsParam
+          ? 'message=' + encodeURIComponent(message) + replyToParam + mentionedIdsParam + channelConvParam
           : 'target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM) + '&message=' + encodeURIComponent(message) + replyToParam;
       }
 
@@ -3584,10 +3636,11 @@
     // treated as a command. Purely cosmetic — has no bearing on whether the
     // command actually executes (that's still gated by isAdmin above and by
     // server-side Auth::isAdmin() checks on every endpoint).
-    if (isAdmin) {
+    if (messageInput) {
       messageInput.addEventListener('input', function() {
         const cmd = this.value.trim().toLowerCase();
-        if (cmd === '/clear' || cmd === '/backup') {
+        const canClearHere = (typeof isAdmin !== 'undefined' && isAdmin) || (isGlobalChat && window.activeChannel === 'office' && window.currentOfficeInfo && !!window.currentOfficeInfo.is_gc_admin);
+        if ((canClearHere && cmd === '/clear') || ((typeof isAdmin !== 'undefined' && isAdmin) && cmd === '/backup')) {
           this.style.color = '#e74c3c';
         } else {
           this.style.color = '';
@@ -5194,6 +5247,12 @@
         sendXhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
 
         let params = 'uploaded_files=' + encodeURIComponent(filesPayload);
+        if (isGlobalChat) {
+          const targetConvId = (typeof getActiveChannelConvId === 'function')
+            ? getActiveChannelConvId()
+            : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+          params += '&conv_id=' + encodeURIComponent(targetConvId);
+        }
         if (!isGlobalChat && activeDM) {
           params += '&target_id=' + encodeURIComponent(activeDMAccountId || 0) + '&target_user=' + encodeURIComponent(activeDM);
         }

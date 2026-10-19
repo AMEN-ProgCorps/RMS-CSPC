@@ -12,8 +12,10 @@
       }
       // Hide the admin's own conversation list/search while browsing all users' chats
       const globalChatItemEl = document.getElementById('globalChatItem');
+      const officeChatItemEl = document.getElementById('officeChatItem');
       if (ownSidebarSearch) ownSidebarSearch.style.display = isAdminAllChatsView ? 'none' : '';
       if (globalChatItemEl) globalChatItemEl.style.display = isAdminAllChatsView ? 'none' : '';
+      if (officeChatItemEl) officeChatItemEl.style.display = isAdminAllChatsView ? 'none' : '';
       if (sidebarUsers) sidebarUsers.style.display = isAdminAllChatsView ? 'none' : '';
 
       const inputSection = document.querySelector('.input-section');
@@ -110,15 +112,20 @@
           // was opening the SPIED user's conversation instead of the admin's.
           let savedAdminDM = preSpyDM || null;
           let savedIsGlobal = preSpyIsGlobal || false;
+          let savedIsOffice = false;
 
           if (!savedAdminDM && !savedIsGlobal) {
             const locDM = localStorage.getItem('activeDM');
             if (locDM === '__global__') savedIsGlobal = true;
+            else if (locDM === '__office__') savedIsOffice = true;
             else if (locDM && !locDM.startsWith('__admin__')) savedAdminDM = locDM;
           }
 
           if (savedIsGlobal) {
             selectGlobalChat();
+          } else if (savedIsOffice) {
+            if (typeof selectOfficeChat === 'function') selectOfficeChat();
+            else selectGlobalChat();
           } else if (savedAdminDM && savedAdminDM !== '' && !savedAdminDM.startsWith('__admin__')) {
             const matchedUser = (allUsersData || []).find(u => u.username === savedAdminDM);
             if (matchedUser) {

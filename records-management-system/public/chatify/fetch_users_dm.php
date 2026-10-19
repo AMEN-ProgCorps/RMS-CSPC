@@ -196,14 +196,82 @@ if ($isAdmin) {
             'limit'         => 50,
         ];
     } elseif ($adminQuery !== '') {
-        // Mode B: User/office search capped at 10 results max
-        $usersResult = UserResolver::searchUsersPaginated($adminQuery, 0, 10, 0);
+        // Mode B: User and Office GC / Global Chat search (Capped at 10 matches total)
+        $channels = [];
+        $qTrimmed = trim($adminQuery);
+        $qLower   = strtolower($qTrimmed);
+
+        // Global Chat match: full keywords only (e.g. "global", "global chat", "global gc")
+        if (in_array($qLower, ['global', 'global chat', 'global gc', 'global channel'], true)) {
+            $channels[] = [
+                'conv_id'      => 'global',
+                'channel_type' => 'global',
+                'title'        => 'Global Chat',
+                'subtitle'     => 'Campus-Wide Public Channel',
+                'office_id'    => null,
+                'office_name'  => 'Campus-Wide',
+                'office_code'  => 'GLOBAL',
+            ];
+        }
+
+        // Office GC match: strictly require the full office code (e.g. "CCS", "CCS GC", "[H]", etc.)
+        $codeCandidate = trim(preg_replace('/\s*(gc|group\s*chat)$/i', '', $qTrimmed));
+        $strippedBrackets = trim($codeCandidate, '[] ');
+
+        if ($codeCandidate !== '' || $qTrimmed !== '') {
+            try {
+                $pdo = Database::getConnection();
+                $stmt = $pdo->prepare('
+                    SELECT id, office_name, office_code
+                    FROM ' . Database::t('office') . '
+                    WHERE is_active = TRUE
+                      AND (
+                          UPPER(office_code) = UPPER(:q1)
+                          OR UPPER(office_code) = UPPER(:q2)
+                          OR UPPER(TRIM(office_code, \'[]\')) = UPPER(:q3)
+                      )
+                    LIMIT 1
+                ');
+                $stmt->execute([
+                    ':q1' => $qTrimmed,
+                    ':q2' => $codeCandidate !== '' ? $codeCandidate : $qTrimmed,
+                    ':q3' => $strippedBrackets !== '' ? $strippedBrackets : $qTrimmed,
+                ]);
+                $off = $stmt->fetch();
+                if ($off) {
+                    $code = trim($off['office_code'] ?? '');
+                    $name = trim($off['office_name'] ?? '');
+                    $displayTitle = $code !== '' ? $code : $name;
+                    $channels[] = [
+                        'conv_id'      => 'office_' . (int) $off['id'],
+                        'channel_type' => 'office_gc',
+                        'title'        => $displayTitle,
+                        'subtitle'     => 'Dedicated Office Group Chat',
+                        'office_id'    => (int) $off['id'],
+                        'office_name'  => $name,
+                        'office_code'  => $code,
+                    ];
+                }
+            } catch (Throwable $e) {
+                error_log('fetch_users_dm.php (admin spy office search) — ' . $e->getMessage());
+            }
+        }
+
+        $channelCount = count($channels);
+        $userLimit    = max(0, 10 - $channelCount);
+        $usersResult  = $userLimit > 0
+            ? UserResolver::searchUsersPaginated($adminQuery, 0, $userLimit, 0)
+            : ['users' => [], 'hasMore' => true];
+
+        $hasMore = !empty($usersResult['hasMore']);
+
         $adminSpyResponse = [
-            'type'    => 'users',
-            'users'   => $usersResult['users'],
-            'hasMore' => !empty($usersResult['hasMore']),
-            'offset'  => 0,
-            'limit'   => 10,
+            'type'     => 'users',
+            'channels' => $channels,
+            'users'    => $usersResult['users'],
+            'hasMore'  => $hasMore,
+            'offset'   => 0,
+            'limit'    => 10,
         ];
     }
 }

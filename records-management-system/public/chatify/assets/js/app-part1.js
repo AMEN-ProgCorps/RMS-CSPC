@@ -486,8 +486,12 @@
         } else if (data.type === 'users_dm_response') {
           processUsersDmPayload(data.data || {});
         } else if (data.type === 'messages_response') {
-          if (data.chat_type === 'global' && isGlobalChat) {
-            processGlobalChatData(data.data || {});
+          if ((data.chat_type === 'global' || data.chat_type === 'office_gc') && isGlobalChat) {
+            if (data.conv_id && window.currentOfficeInfo && window.currentOfficeInfo.conv_id && data.conv_id !== window.currentOfficeInfo.conv_id) {
+              // Ignore messages for other office GCs
+            } else {
+              processGlobalChatData(data.data || {});
+            }
           } else if (data.chat_type === 'private' && activeDM && (
             (activeDMAccountId && Number(data.target_id) > 0 && activeDMAccountId === Number(data.target_id)) ||
             (data.target_user && data.target_user === activeDM)
@@ -570,11 +574,24 @@
           if (targetMsgId && chatBox.querySelector(`.message-container[data-msg-id="${targetMsgId}"]`)) {
             return;
           }
-          if (data.chat_type === 'global') {
+          if (data.chat_type === 'global' || data.chat_type === 'office_gc') {
+            const isOfficeMsg = (data.chat_type === 'office_gc') || (data.conv_id && data.conv_id.startsWith('office_'));
+            const msgConvId   = data.conv_id || (isOfficeMsg ? window.currentOfficeInfo?.conv_id : 'global');
+
+            // If message is for another office GC, drop it
+            if (isOfficeMsg && window.currentOfficeInfo && window.currentOfficeInfo.conv_id && msgConvId !== window.currentOfficeInfo.conv_id) {
+              return;
+            }
+
             if (Array.isArray(data.mentioned_ids) && data.mentioned_ids.map(Number).includes(Number(wsConfig.accountId))) {
               catchUpMissedNotifications();
             }
-            if (isGlobalChat) {
+
+            const curConvId = (typeof getActiveChannelConvId === 'function')
+              ? getActiveChannelConvId()
+              : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+
+            if (isGlobalChat && msgConvId === curConvId) {
               const sender = Number(data.sender_id);
               if (sender !== wsConfig.accountId) {
                 if (data.has_upload) {
@@ -715,25 +732,48 @@
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
 
-          // ── Global Chat clear (super admin "/clear" while in Global Chat) ──
-          // Distinct from the private/admin_conv cases below — there's no
-          // partner account to resolve, and the sidebar list itself isn't
-          // affected (no conversation entry disappears).
-          if (data.chat_type === 'global') {
+          const isOfficeClear = (data.chat_type === 'office_gc') || (data.conv_id && String(data.conv_id).startsWith('office_'));
+          const clearedConvId = data.conv_id || (isOfficeClear ? (data.office_id ? 'office_' + data.office_id : null) : 'global');
+
+          // ── Case 1: Global Chat clear (super admin "/clear" in Global Chat) ──
+          if (clearedConvId === 'global' || data.chat_type === 'global') {
             globalChatCache = null;
+            if (typeof globalChatPrefetchedData !== 'undefined') globalChatPrefetchedData = null;
             gcCursor = '';
             gcViewingOlder = false;
             removePaginationBtn();
-            // If this user happens to have an attachment open in the
-            // lightbox at the exact moment Global Chat gets cleared, close
-            // it too — otherwise a since-deleted image would keep sitting
-            // on screen even though the message pane behind it is empty.
             if (typeof closeImageViewer === 'function') closeImageViewer();
-            if (isGlobalChat) {
+
+            if (isGlobalChat && window.activeChannel === 'global') {
               if (chatBox) chatBox.innerHTML = '<div class="empty-chat"></div>';
               isFirstLoad = true;
               chatFullyLoaded = false;
-              loadGlobalChat(false, false);
+              isLoadingGC = false;
+              loadGlobalChat(false, false, true);
+            }
+            fetchUsers();
+            return;
+          }
+
+          // ── Case 2: Office Group Chat clear (admin "/clear" in Office GC) ──
+          if (isOfficeClear) {
+            // Only affects users belonging to this office
+            if (window.currentOfficeInfo && window.currentOfficeInfo.conv_id && clearedConvId !== window.currentOfficeInfo.conv_id) {
+              return; // Clear belongs to another office
+            }
+            globalChatCache = null;
+            if (typeof globalChatPrefetchedData !== 'undefined') globalChatPrefetchedData = null;
+            gcCursor = '';
+            gcViewingOlder = false;
+            removePaginationBtn();
+            if (typeof closeImageViewer === 'function') closeImageViewer();
+
+            if (isGlobalChat && window.activeChannel === 'office') {
+              if (chatBox) chatBox.innerHTML = '<div class="empty-chat"></div>';
+              isFirstLoad = true;
+              chatFullyLoaded = false;
+              isLoadingGC = false;
+              loadGlobalChat(false, false, true);
             }
             fetchUsers();
             return;
@@ -861,6 +901,20 @@
             bellNotifications.unshift(data); // newest first
             updateBellBadge();
             renderBellList();
+          }
+        } else if (data.type === 'office_admin_status_changed') {
+          console.log('Received WebSocket real-time update notice:', data);
+          if (window.currentOfficeInfo && Number(window.currentOfficeInfo.office_id) === Number(data.office_id)) {
+            window.currentOfficeInfo.is_gc_admin = !!data.is_office_admin;
+          }
+          if (data.message) {
+            showNotifyToast({
+              id: Date.now(),
+              type: 'system',
+              title: 'Office GC Admin',
+              message: data.message,
+              created_at: new Date().toISOString()
+            });
           }
         } else if (data.type === 'session_kicked') {
           // Pushed by the server the instant another device logs into this
@@ -1449,6 +1503,10 @@
     function restoreActiveConversation(savedActiveDM) {
       if (savedActiveDM === '__global__') {
         selectGlobalChat();
+        return;
+      }
+      if (savedActiveDM === '__office__') {
+        selectOfficeChat();
         return;
       }
 
@@ -2763,6 +2821,8 @@
       if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
 
       isGlobalChat = false;
+      activeChannel = null;
+      window.activeChannel = null;
       const _hEl = document.querySelector('.header');
       if (_hEl) _hEl.classList.remove('is-global-chat');
       activeDM = u.username;
@@ -2823,8 +2883,9 @@
       u.unreadCount = 0;
       renderSidebarUsers();
       loadChat(false, false, true); // force: abort any in-flight request rather than drop this one
-      // Global Chat item deactivate
-      document.getElementById('globalChatItem').classList.remove('active');
+      // Channel items deactivate
+      document.getElementById('globalChatItem')?.classList.remove('active');
+      document.getElementById('officeChatItem')?.classList.remove('active');
       
       // Mobile/Tablet: hide sidebar when chat is selected
       if (isMobileViewport()) {
@@ -2837,8 +2898,19 @@
       }
     }
 
+    let activeChannel = 'global'; // 'global' | 'office' | null
+    window.activeChannel = activeChannel;
+
+    function getActiveChannelConvId() {
+      if (window.activeChannel === 'office' && window.currentOfficeInfo && window.currentOfficeInfo.conv_id) {
+        return window.currentOfficeInfo.conv_id;
+      }
+      return 'global';
+    }
+    window.getActiveChannelConvId = getActiveChannelConvId;
+
     function selectGlobalChat() {
-      if (isGlobalChat && !activeDM && !activeAdminConv) {
+      if (isGlobalChat && window.activeChannel === 'global' && !activeDM && !activeAdminConv) {
         if (isMobileViewport()) {
           sidebar.classList.remove('open');
           if (backButton) backButton.style.display = 'inline-flex';
@@ -2850,6 +2922,8 @@
       if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
 
       isGlobalChat = true;
+      activeChannel = 'global';
+      window.activeChannel = 'global';
       const _hEl = document.querySelector('.header');
       if (_hEl) _hEl.classList.add('is-global-chat');
       activeDM = null;
@@ -2859,16 +2933,15 @@
       gcCursor = '';
       gcHasMore = false;
       gcViewingOlder = false;
-      clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
+      clearSendingOverlay();
       hideEditBanner();
       if (typeof hideReplyBanner === 'function') hideReplyBanner();
       updateHeaderActiveStatus();
       isFirstLoad = true;
-      chatFullyLoaded = false; // suppress scroll buttons until global chat finishes loading
+      chatFullyLoaded = false;
       hideScrollIndicator();
       const _htpGc = document.getElementById('headerTypingPreview');
       if (_htpGc) { _htpGc.textContent = ''; _htpGc.classList.remove('active'); }
-      // Reset local typing indicator state
       if (localTypingTimeout) {
         clearTimeout(localTypingTimeout);
         localTypingTimeout = null;
@@ -2884,35 +2957,96 @@
       showTypingIndicator('', false);
 
       localStorage.setItem('activeDM', '__global__');
-      chatHeaderTitle.innerHTML = `Global Chat`;
-      applyHeaderAdminBadge(); // Adds check badge for Global Chat by default
+      chatHeaderTitle.innerHTML = 'Global Chat';
+      applyHeaderAdminBadge();
       applyHeaderAvatar({ avatar_url: 'cspc.webp', name: 'Global Chat' });
-      const cached = globalChatCache || (globalChatPrefetchedData ? { html: globalChatPrefetchedData.html || '', hasMore: globalChatPrefetchedData.hasMore || false, nextCursor: globalChatPrefetchedData.nextCursor || '', _raw: globalChatPrefetchedData } : null);
-
-      if (cached && cached._raw) {
-        gcCursor = cached.nextCursor || '';
-        gcHasMore = cached.hasMore || false;
-        gcViewingOlder = false;
-        if (typeof processGlobalChatData === 'function') {
-          processGlobalChatData(cached._raw, false);
-        }
-      } else {
-        chatBox.innerHTML = '';
-      }
+      chatBox.innerHTML = '';
 
       removePaginationBtn();
       renderSidebarUsers();
-      document.getElementById('globalChatItem').classList.add('active');
+      document.getElementById('globalChatItem')?.classList.add('active');
+      document.getElementById('officeChatItem')?.classList.remove('active');
+
       loadGlobalChat();
       if (isMobileViewport()) {
         sidebar.classList.remove('open');
         if (backButton) backButton.style.display = 'inline-flex';
       } else {
-        // Desktop only: auto-focus the message input so the cursor is ready
-        // without an extra click. preventScroll prevents the browser from shifting scrollable parents.
         setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
       }
     }
+    window.selectGlobalChat = selectGlobalChat;
+
+    function selectOfficeChat() {
+      if (isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv) {
+        if (isMobileViewport()) {
+          sidebar.classList.remove('open');
+          if (backButton) backButton.style.display = 'inline-flex';
+        }
+        return;
+      }
+
+      if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
+      if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
+
+      isGlobalChat = true;
+      activeChannel = 'office';
+      window.activeChannel = 'office';
+      const _hEl = document.querySelector('.header');
+      if (_hEl) _hEl.classList.add('is-global-chat');
+      activeDM = null;
+      activeDMAccountId = null;
+      activeAdminConv = null;
+      updateClearChatButtonVisibility();
+      gcCursor = '';
+      gcHasMore = false;
+      gcViewingOlder = false;
+      clearSendingOverlay();
+      hideEditBanner();
+      if (typeof hideReplyBanner === 'function') hideReplyBanner();
+      updateHeaderActiveStatus();
+      isFirstLoad = true;
+      chatFullyLoaded = false;
+      hideScrollIndicator();
+      const _htpGc = document.getElementById('headerTypingPreview');
+      if (_htpGc) { _htpGc.textContent = ''; _htpGc.classList.remove('active'); }
+      if (localTypingTimeout) {
+        clearTimeout(localTypingTimeout);
+        localTypingTimeout = null;
+      }
+      if (localTypingHeartbeat) {
+        clearInterval(localTypingHeartbeat);
+        localTypingHeartbeat = null;
+      }
+      if (localIsTyping) {
+        localIsTyping = false;
+        sendTypingStatus(false);
+      }
+      showTypingIndicator('', false);
+
+      localStorage.setItem('activeDM', '__office__');
+      const officeTitle = (window.currentOfficeInfo && window.currentOfficeInfo.display_title)
+        ? window.currentOfficeInfo.display_title
+        : 'Office Group Chat';
+      chatHeaderTitle.innerHTML = officeTitle;
+      applyHeaderAdminBadge();
+      applyHeaderAvatar({ avatar_url: 'cspc.webp', name: officeTitle });
+      chatBox.innerHTML = '';
+
+      removePaginationBtn();
+      renderSidebarUsers();
+      document.getElementById('officeChatItem')?.classList.add('active');
+      document.getElementById('globalChatItem')?.classList.remove('active');
+
+      loadGlobalChat();
+      if (isMobileViewport()) {
+        sidebar.classList.remove('open');
+        if (backButton) backButton.style.display = 'inline-flex';
+      } else {
+        setTimeout(() => messageInput.focus({ preventScroll: true }), 0);
+      }
+    }
+    window.selectOfficeChat = selectOfficeChat;
 
     function removePaginationBtn() {
       const existing = document.getElementById('loadOlderBtn');
@@ -3216,6 +3350,7 @@
     const adminConvItems = new Map(); // convId/userId -> item element
     let adminSpyType = 'none';        // 'none', 'users', or 'conversations'
     let adminSpyTargetUser = null;    // null or selected user object { account_id, full_name, email, ... }
+    let adminSpyChannels = [];        // array of channel search result objects (Office GCs & Global Chat)
     let adminSpyUsers = [];           // array of user search result objects
     let adminSpyConvs = [];           // array of conversation objects for target user
     let adminSpyHasMore = false;
@@ -3506,6 +3641,7 @@
       // If no query and no target user selected: empty state, zero network calls
       if (trimmedQuery === '' && currentTargetId === 0) {
         adminSpyType = 'none';
+        adminSpyChannels = [];
         adminSpyUsers = [];
         adminSpyConvs = [];
         adminSpyHasMore = false;
@@ -3536,6 +3672,7 @@
             adminSpyHasMore = !!adminData.hasMore;
 
             if (adminSpyType === 'users') {
+              adminSpyChannels = adminData.channels || [];
               adminSpyUsers = adminData.users || [];
             } else if (adminSpyType === 'conversations') {
               if (adminData.targetUser) {
@@ -3578,6 +3715,7 @@
         fetchAdminConvs(query, 0, false, 0);
       } else {
         adminSpyType = 'none';
+        adminSpyChannels = [];
         adminSpyUsers = [];
         renderAdminConvs();
       }
@@ -3620,11 +3758,14 @@
         return;
       }
 
-      // State B: Render User Search Results (Max 10)
+      // State B: Render User & Channel Search Results (Max 10)
       if (adminSpyType === 'users') {
-        if (!adminSpyUsers || adminSpyUsers.length === 0) {
+        const hasChannels = Array.isArray(adminSpyChannels) && adminSpyChannels.length > 0;
+        const hasUsers = Array.isArray(adminSpyUsers) && adminSpyUsers.length > 0;
+
+        if (!hasChannels && !hasUsers) {
           const q = adminSearchInput ? adminSearchInput.value.trim() : '';
-          list.innerHTML = `<div class="sidebar-empty-state" style="padding:24px 16px;text-align:center;font-size:13px;color:var(--text-secondary);opacity:0.85;font-weight:500;"><p style="margin:0;">No users found matching "${escapeHtml(q)}".</p></div>`;
+          list.innerHTML = `<div class="sidebar-empty-state" style="padding:24px 16px;text-align:center;font-size:13px;color:var(--text-secondary);opacity:0.85;font-weight:500;"><p style="margin:0;">No users or office group chats found matching "${escapeHtml(q)}".</p></div>`;
           adminConvItems.clear();
           return;
         }
@@ -3632,62 +3773,143 @@
         const emptyEl = list.querySelector('.sidebar-empty-state, .empty-chat');
         if (emptyEl) emptyEl.remove();
 
+        const existingNotice = list.querySelector('.search-limit-notice');
+        if (existingNotice) existingNotice.remove();
+
         const seen = new Set();
-        adminSpyUsers.forEach(u => {
-          const key = 'user_' + u.account_id;
-          seen.add(key);
-          let item = adminConvItems.get(key);
-          let nameEl, msgEl;
+        let renderedCount = 0;
 
-          if (!item) {
-            item = document.createElement('div');
-            item.className = 'user-item';
+        // 1. Render matching Group Chats (Office GCs and/or Global Chat)
+        if (hasChannels) {
+          adminSpyChannels.forEach(ch => {
+            if (renderedCount >= 10) return;
+            renderedCount++;
+            const key = 'channel_' + ch.conv_id;
+            seen.add(key);
+            let item = adminConvItems.get(key);
+            let nameEl, msgEl;
 
-            const avatar = document.createElement('div');
-            avatar.className = 'user-avatar';
-            if (!u.avatar_url) {
-              avatar.style.background = 'linear-gradient(135deg, #1b74e4, #00c3ff)';
+            if (!item) {
+              item = document.createElement('div');
+              item.className = 'user-item';
+
+              const avatar = document.createElement('div');
+              avatar.className = 'user-avatar';
+              if (ch.channel_type === 'global') {
+                avatar.innerHTML = `<img src="cspc.webp" width="48" height="48" alt="CSPC" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;">`;
+              } else {
+                avatar.style.background = 'rgba(27,116,228,0.1)';
+                avatar.style.display = 'flex';
+                avatar.style.alignItems = 'center';
+                avatar.style.justifyContent = 'center';
+                avatar.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1b74e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"></path><path d="M9 8h1"></path><path d="M9 12h1"></path><path d="M9 16h1"></path><path d="M14 8h1"></path><path d="M14 12h1"></path><path d="M14 16h1"></path><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"></path></svg>`;
+              }
+
+              const info = document.createElement('div');
+              info.className = 'user-info';
+
+              const nameRow = document.createElement('div');
+              nameRow.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+              nameEl = document.createElement('div');
+              nameEl.className = 'user-name';
+              nameEl.style.fontSize = '13px';
+              nameRow.appendChild(nameEl);
+
+              const badge = document.createElement('span');
+              badge.style.cssText = 'font-size:10px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 5px;border-radius:4px;text-transform:uppercase;flex-shrink:0;';
+              badge.textContent = ch.channel_type === 'global' ? 'Global' : 'Office GC';
+              nameRow.appendChild(badge);
+
+              msgEl = document.createElement('div');
+              msgEl.className = 'user-last-msg';
+              info.appendChild(nameRow);
+              info.appendChild(msgEl);
+
+              item.appendChild(avatar);
+              item.appendChild(info);
+
+              item._nameEl = nameEl;
+              item._msgEl = msgEl;
+
+              adminConvItems.set(key, item);
+            } else {
+              nameEl = item._nameEl || item.querySelector('.user-name');
+              msgEl = item._msgEl || item.querySelector('.user-last-msg');
             }
-            avatar.innerHTML = avatarInnerHtml(u.avatar_url, getInitialsFromFullName(u.full_name));
 
-            const info = document.createElement('div');
-            info.className = 'user-info';
+            item.onclick = () => openAdminChannel(ch);
 
-            nameEl = document.createElement('div');
-            nameEl.className = 'user-name';
-            nameEl.style.fontSize = '13px';
-            info.appendChild(nameEl);
+            const newClassName = 'user-item' + (activeAdminConv === ch.conv_id ? ' active' : '');
+            if (item.className !== newClassName) item.className = newClassName;
 
-            msgEl = document.createElement('div');
-            msgEl.className = 'user-last-msg';
-            info.appendChild(msgEl);
+            if (nameEl.textContent !== ch.title) nameEl.textContent = ch.title;
+            if (msgEl.textContent !== ch.subtitle) msgEl.textContent = ch.subtitle;
 
-            item.appendChild(avatar);
-            item.appendChild(info);
+            list.appendChild(item);
+          });
+        }
 
-            item._nameEl = nameEl;
-            item._msgEl = msgEl;
+        // 2. Render matching Users
+        if (hasUsers) {
+          adminSpyUsers.forEach(u => {
+            if (renderedCount >= 10) return;
+            renderedCount++;
+            const key = 'user_' + u.account_id;
+            seen.add(key);
+            let item = adminConvItems.get(key);
+            let nameEl, msgEl;
 
-            adminConvItems.set(key, item);
-          } else {
-            nameEl = item._nameEl || item.querySelector('.user-name');
-            msgEl = item._msgEl || item.querySelector('.user-last-msg');
-          }
+            if (!item) {
+              item = document.createElement('div');
+              item.className = 'user-item';
 
-          item.onclick = () => selectAdminSpyTargetUser(u);
-          item.onmouseenter = () => speculateConversationCard(u, item);
-          item.onpointerdown = () => speculateConversationCard(u, item);
+              const avatar = document.createElement('div');
+              avatar.className = 'user-avatar';
+              if (!u.avatar_url) {
+                avatar.style.background = 'linear-gradient(135deg, #1b74e4, #00c3ff)';
+              }
+              avatar.innerHTML = avatarInnerHtml(u.avatar_url, getInitialsFromFullName(u.full_name));
 
-          if (nameEl.textContent !== u.full_name) nameEl.textContent = u.full_name;
+              const info = document.createElement('div');
+              info.className = 'user-info';
 
-          let subText = u.email || '';
-          if (u.office_code) subText += ' • ' + u.office_code;
-          else if (u.office_name) subText += ' • ' + u.office_name;
+              nameEl = document.createElement('div');
+              nameEl.className = 'user-name';
+              nameEl.style.fontSize = '13px';
+              info.appendChild(nameEl);
 
-          if (msgEl.textContent !== subText) msgEl.textContent = subText;
+              msgEl = document.createElement('div');
+              msgEl.className = 'user-last-msg';
+              info.appendChild(msgEl);
 
-          list.appendChild(item);
-        });
+              item.appendChild(avatar);
+              item.appendChild(info);
+
+              item._nameEl = nameEl;
+              item._msgEl = msgEl;
+
+              adminConvItems.set(key, item);
+            } else {
+              nameEl = item._nameEl || item.querySelector('.user-name');
+              msgEl = item._msgEl || item.querySelector('.user-last-msg');
+            }
+
+            item.onclick = () => selectAdminSpyTargetUser(u);
+            item.onmouseenter = () => speculateConversationCard(u, item);
+            item.onpointerdown = () => speculateConversationCard(u, item);
+
+            if (nameEl.textContent !== u.full_name) nameEl.textContent = u.full_name;
+
+            let subText = u.email || '';
+            if (u.office_code) subText += ' • ' + u.office_code;
+            else if (u.office_name) subText += ' • ' + u.office_name;
+
+            if (msgEl.textContent !== subText) msgEl.textContent = subText;
+
+            list.appendChild(item);
+          });
+        }
 
         for (const [key, item] of adminConvItems) {
           if (!seen.has(key)) {
@@ -3695,9 +3917,6 @@
             adminConvItems.delete(key);
           }
         }
-
-        const existingNotice = list.querySelector('.search-limit-notice');
-        if (existingNotice) existingNotice.remove();
 
         if (adminSpyHasMore) {
           const notice = document.createElement('div');
@@ -4030,6 +4249,76 @@
       xhr.onerror = function() { isLoadingAdminConv = false; adminConvXhr = null; if (loadOlderMode) hideBackreadTopLoader(); };
       xhr.send();
     }
+
+    function openAdminChannel(ch) {
+      if (!ch) return;
+      if (activeAdminConv === ch.conv_id) {
+        if (isMobileViewport()) {
+          sidebar.classList.remove('open');
+          if (backButton) backButton.style.display = 'inline-flex';
+        }
+        return;
+      }
+
+      if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
+      if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
+
+      activeAdminConv = ch.conv_id;
+      activeDM = null;
+      activeDMAccountId = null;
+      isGlobalChat = false;
+      updateClearChatButtonVisibility();
+
+      const _hEl = document.querySelector('.header');
+      if (_hEl) {
+        _hEl.classList.remove('is-global-chat');
+        _hEl.classList.add('is-single-title');
+      }
+
+      adminConvCursor = '';
+      adminConvHasMore = false;
+      adminConvViewingOlder = false;
+      clearSendingOverlay();
+      hideEditBanner();
+      if (typeof hideReplyBanner === 'function') hideReplyBanner();
+      isFirstLoad = true;
+
+      if (localTypingTimeout) {
+        clearTimeout(localTypingTimeout);
+        localTypingTimeout = null;
+      }
+      if (localTypingHeartbeat) {
+        clearInterval(localTypingHeartbeat);
+        localTypingHeartbeat = null;
+      }
+      if (localIsTyping) {
+        localIsTyping = false;
+        sendTypingStatus(false);
+      }
+      showTypingIndicator('', false);
+
+      localStorage.setItem('activeSpyConv', ch.conv_id);
+
+      chatHeaderTitle.textContent = ch.title;
+      updateHeaderActiveStatus();
+      applyHeaderAdminBadge();
+      if (ch.channel_type === 'global') {
+        applyHeaderAvatar({ avatar_url: 'cspc.webp', name: 'Global Chat' });
+      } else {
+        applyHeaderAvatar({ avatar_url: null, name: ch.office_code || ch.title });
+      }
+
+      chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
+      removePaginationBtn();
+      renderAdminConvs();
+      loadAdminConv(ch.conv_id, false);
+
+      if (isMobileViewport()) {
+        sidebar.classList.remove('open');
+        if (backButton) backButton.style.display = 'inline-flex';
+      }
+    }
+    window.openAdminChannel = openAdminChannel;
 
     function openAdminConv(c) {
       if (!c) return;

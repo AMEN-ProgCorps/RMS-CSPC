@@ -13,9 +13,11 @@ if (!Auth::isAdmin()) {
 session_write_close();
 
 $convId = preg_replace('/[^a-z0-9_]/', '', strtolower(trim($_GET['conv_id'] ?? '')));
-if (empty($convId) || !preg_match('/^\d+_\d+$/', $convId)) {
+if (empty($convId) || !preg_match('/^(\d+_\d+|global|office_\d+)$/', $convId)) {
     die('Invalid conv_id');
 }
+
+$isChannel = ($convId === 'global' || str_starts_with($convId, 'office_'));
 
 // ── Pagination & Incremental Fetching ──────────────────────────────────────────
 // INITIAL_LOAD = 100 (first open), BACKREAD_BATCH = 50 (scroll-up fetches).
@@ -26,26 +28,43 @@ $limit          = min(max(1, $requestedLimit), 100);
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 $sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (string) $_GET['since_uuid']  : null;
 
-if ($sinceUuid !== null) {
-    $rawMessages = ConversationManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
-    $hasMore     = false;
+if ($isChannel) {
+    if ($sinceUuid !== null) {
+        $rawMessages = GlobalChatManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
+        $hasMore     = false;
+    } else {
+        $rawMessages = GlobalChatManager::loadRaw($limit + 1, $beforeUuid, $convId);
+        $hasMore     = count($rawMessages) > $limit;
+        if ($hasMore) {
+            array_pop($rawMessages);
+        }
+        $rawMessages = array_reverse($rawMessages);
+    }
+    $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
+    $pageUuids  = array_column($rawMessages, 'id');
+    $reactions  = GlobalChatManager::loadReactions($pageUuids);
 } else {
-    // Fetch limit+1 rows so we can detect hasMore without a separate COUNT(*).
-    $rawMessages = ConversationManager::loadRaw($convId, $limit + 1, $beforeUuid);
-    $hasMore     = count($rawMessages) > $limit;
-    if ($hasMore) {
-        array_pop($rawMessages); // discard the extra sentinel row
+    if ($sinceUuid !== null) {
+        $rawMessages = ConversationManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
+        $hasMore     = false;
+    } else {
+        // Fetch limit+1 rows so we can detect hasMore without a separate COUNT(*).
+        $rawMessages = ConversationManager::loadRaw($convId, $limit + 1, $beforeUuid);
+        $hasMore     = count($rawMessages) > $limit;
+        if ($hasMore) {
+            array_pop($rawMessages); // discard the extra sentinel row
+        }
+
+        // DB returns newest-first; flip for chronological display.
+        $rawMessages = array_reverse($rawMessages);
     }
 
-    // DB returns newest-first; flip for chronological display.
-    $rawMessages = array_reverse($rawMessages);
+    // Cursor for the next "load older" request.
+    $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
+
+    $pageUuids = array_column($rawMessages, 'id');
+    $reactions = ConversationManager::loadReactions($convId, $pageUuids);
 }
-
-// Cursor for the next "load older" request.
-$nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
-
-$pageUuids = array_column($rawMessages, 'id');
-$reactions = ConversationManager::loadReactions($convId, $pageUuids);
 
 $nameMap = [];
 

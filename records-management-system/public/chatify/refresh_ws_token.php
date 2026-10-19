@@ -30,13 +30,32 @@ if (!$accountId) {
     exit;
 }
 
+$oldOfficeId = (int) ($_SESSION['office_id'] ?? 0);
+$freshOfficeId = $oldOfficeId;
+$officeChanged = false;
+
+try {
+    $pdo = Database::getConnection();
+    $stmt = $pdo->prepare('SELECT office_id FROM ' . Database::t('account_details') . ' WHERE account_id = :id LIMIT 1');
+    $stmt->execute([':id' => $accountId]);
+    $freshOfficeId = (int) ($stmt->fetchColumn() ?: 0);
+    if ($freshOfficeId !== $oldOfficeId) {
+        $officeChanged = true;
+        session_start();
+        $_SESSION['office_id'] = $freshOfficeId;
+        session_write_close();
+    }
+} catch (Throwable $e) {}
+
 $ws_expires = time() + 900; // matches index.php's initial bootstrap lifetime
 $ws_payload = $accountId . '|' . $ws_expires;
 $ws_token   = hash_hmac('sha256', $ws_payload, CHAT_SHARED_SECRET);
 
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 echo json_encode([
-    'valid'   => true,
-    'expires' => $ws_expires,
-    'token'   => $ws_token,
+    'valid'          => true,
+    'expires'        => $ws_expires,
+    'token'          => $ws_token,
+    'office_id'      => $freshOfficeId,
+    'office_changed' => $officeChanged,
 ]);

@@ -83,13 +83,20 @@ try {
     // Non-fatal — verified badges simply won't show if DB is unavailable
 }
 
-// Resolve the CURRENT user's own full name from DB fresh on every load, so
-// a name change made in the main system shows up immediately in their own
-// name field here — for every user, not just the Super Admin. Their session
-// value can otherwise go stale until they log out and log back in.
+// Resolve the CURRENT user's own full name, avatar, and office from DB fresh on every load, so
+// an office or name change shows up immediately.
+$current_office_id = 0;
+$current_office_name = 'No Office Assigned';
+$current_office_code = '';
+
 try {
     $pdo  = Database::getConnection();
-    $stmt = $pdo->prepare('SELECT first_name, last_name, avatar_url FROM ' . Database::t('account_details') . ' WHERE account_id = ? LIMIT 1');
+    $stmt = $pdo->prepare('
+        SELECT ad.first_name, ad.last_name, ad.avatar_url, ad.office_id, o.office_name, o.office_code
+        FROM ' . Database::t('account_details') . ' ad
+        LEFT JOIN ' . Database::t('office') . ' o ON o.id = ad.office_id
+        WHERE ad.account_id = ? LIMIT 1
+    ');
     $stmt->execute([$_current_account_id]);
     $ownRow = $stmt->fetch();
     if ($ownRow) {
@@ -100,6 +107,10 @@ try {
             $_SESSION['full_name'] = $ownFullNameDisplay;
         }
         $_SESSION['avatar_url'] = (!empty($ownRow['avatar_url'])) ? $ownRow['avatar_url'] : null;
+        $current_office_id = (int) ($ownRow['office_id'] ?? 0);
+        $_SESSION['office_id'] = $current_office_id;
+        $current_office_name = $ownRow['office_name'] ?? 'No Office Assigned';
+        $current_office_code = $ownRow['office_code'] ?? '';
     }
 } catch (Throwable $e) {
     // Non-fatal
@@ -166,6 +177,15 @@ try {
     window.verifiedAccountIds = <?php echo json_encode($verified_account_ids); ?>;
     const verifiedAccountIds = new Set((window.verifiedAccountIds || []).map(Number));
     window.verifiedAccountIdsSet = verifiedAccountIds;
+    window.isSuperAdmin = <?php echo json_encode($is_admin); ?>;
+    window.currentOfficeInfo = {
+      office_id: <?php echo json_encode($current_office_id); ?>,
+      office_name: <?php echo json_encode($current_office_name); ?>,
+      office_code: <?php echo json_encode($current_office_code); ?>,
+      conv_id: <?php echo json_encode($current_office_id > 0 ? OfficeChatManager::convId($current_office_id) : 'global'); ?>,
+      is_gc_admin: <?php echo json_encode($is_admin); ?>,
+      display_title: <?php echo json_encode($current_office_id > 0 ? ($current_office_code !== '' ? $current_office_code : $current_office_name) : 'General Chat'); ?>
+    };
   </script>
   <!-- Apply dark mode BEFORE page renders to prevent flash -->
   <script>
@@ -241,7 +261,7 @@ try {
         <input type="text" id="searchInput" name="csp_srch_own_2k9" placeholder="Search" autocomplete="chrome-off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other" role="combobox" aria-autocomplete="list">
       </form>
       <!-- Pinned Global Chat entry -->
-      <div class="user-item" id="globalChatItem" onclick="selectGlobalChat()" onmouseenter="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)" onpointerdown="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)" style="border-bottom:1px solid var(--border-color);">
+      <div class="user-item" id="globalChatItem" onclick="selectGlobalChat()" onmouseenter="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)" onpointerdown="typeof speculateGlobalChatCard === 'function' && speculateGlobalChatCard(this)">
         <div class="user-avatar">
           <img src="cspc.webp" width="48" height="48" alt="CSPC logo" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
         </div>
@@ -250,9 +270,22 @@ try {
             <div class="user-name">Global Chat</div>
             <span class="verified-badge"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           </div>
-          <div class="user-last-msg" id="gcLastMsg">Everyone can chat here</div>
+          <div class="user-last-msg">Everyone can chat here</div>
         </div>
-        <span class="user-unread-badge" id="gcUnreadBadge" style="display:none;"></span>
+      </div>
+
+      <!-- Pinned Office Group Chat entry -->
+      <div class="user-item" id="officeChatItem" onclick="selectOfficeChat()" style="border-bottom:1px solid var(--border-color);">
+        <div class="user-avatar" style="background:rgba(27,116,228,0.1);display:flex;align-items:center;justify-content:center;border-radius:50%;width:48px;height:48px;flex-shrink:0;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1b74e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"></path><path d="M9 8h1"></path><path d="M9 12h1"></path><path d="M9 16h1"></path><path d="M14 8h1"></path><path d="M14 12h1"></path><path d="M14 16h1"></path><path d="M5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16"></path></svg>
+        </div>
+        <div class="user-info">
+          <div class="user-name-row" style="display:flex;align-items:center;justify-content:flex-start;gap:4px;min-width:0;">
+            <div class="user-name" id="officeGcTitle"><?php echo htmlspecialchars($current_office_id > 0 ? ($current_office_code !== '' ? $current_office_code : $current_office_name) : 'Office Group Chat'); ?></div>
+            <span class="verified-badge"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </div>
+          <div class="user-last-msg" id="officeGcLastMsg"><?php echo htmlspecialchars($current_office_id > 0 ? 'Official Office Group Chat' : 'No office assigned yet'); ?></div>
+        </div>
       </div>
       <div class="sidebar-users" id="sidebarUsers">
         <!-- Users will be populated here via JS -->

@@ -42,7 +42,7 @@ if ($emoji === '❤' || $emoji === '🖤' || $emoji === '🤍') {
 
 header('Content-Type: application/json');
 
-if ($msgUuid === '' || $emoji === '' || !in_array($chatType, ['global', 'private'], true)) {
+if ($msgUuid === '' || $emoji === '' || !in_array($chatType, ['global', 'office_gc', 'private'], true)) {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'Missing or invalid parameters.']);
     exit;
@@ -70,7 +70,36 @@ if ($chatType === 'private') {
     $convId = ConversationManager::convId($accountId, $targetId);
     $result = ConversationManager::toggleReaction($convId, $msgUuid, $emoji, $accountId, Reactions::ALLOWED);
 } else {
-    $result = GlobalChatManager::toggleReaction($msgUuid, $emoji, $accountId, Reactions::ALLOWED);
+    $channelConvId = trim($_POST['conv_id'] ?? '');
+    if (empty($channelConvId)) {
+        try {
+            $pdo = Database::getConnection();
+            $st = $pdo->prepare('SELECT conv_id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1');
+            $st->execute([':uuid' => $msgUuid]);
+            $channelConvId = $st->fetchColumn() ?: ($chatType === 'office_gc' ? 'office_1' : 'global');
+        } catch (Throwable $e) {
+            $channelConvId = ($chatType === 'office_gc') ? 'office_1' : 'global';
+        }
+    }
+    $convId = $channelConvId;
+
+    if (str_starts_with($convId, 'office_')) {
+        $targetOfficeId = OfficeChatManager::parseOfficeId($convId);
+        if ($targetOfficeId && $accountId !== 1) {
+            $userOfficeId = (int) ($_SESSION['office_id'] ?? 0);
+            if ($userOfficeId <= 0) {
+                $userInfo = UserResolver::getUserInfo($accountId);
+                $userOfficeId = (int) ($userInfo['office_id'] ?? 0);
+            }
+            if ($userOfficeId !== $targetOfficeId) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'You do not belong to this office group chat.']);
+                exit;
+            }
+        }
+    }
+
+    $result = GlobalChatManager::toggleReaction($msgUuid, $emoji, $accountId, Reactions::ALLOWED, $channelConvId);
 }
 
 if (empty($result['ok'])) {
@@ -84,7 +113,7 @@ if (empty($result['ok'])) {
 // live viewer get the same source-of-truth map instead of a client guess.
 $freshReactions = $chatType === 'private'
     ? ConversationManager::loadReactions($convId, [$msgUuid])
-    : GlobalChatManager::loadReactions([$msgUuid]);
+    : GlobalChatManager::loadReactions([$msgUuid], $convId);
 $reactionMap = $freshReactions[$msgUuid] ?? [];
 
 $responseData = [
@@ -94,15 +123,17 @@ $responseData = [
     'msg_uuid'  => $msgUuid,
     'target_id' => $targetId,
     'chat_type' => $chatType,
+    'conv_id'   => $convId,
     'reactions' => $reactionMap,
 ];
 
 echo json_encode($responseData);
 
 // ── Live push + audit log (fire-and-forget) ─────────────────────────────────
-WsPush::flushResponseThenRun(function () use ($chatType, $targetId, $accountId, $msgUuid, $emoji, $reactionMap, $result) {
+WsPush::flushResponseThenRun(function () use ($chatType, $convId, $targetId, $accountId, $msgUuid, $emoji, $reactionMap, $result) {
     $pushPayload = [
         'chat_type'  => $chatType,
+        'conv_id'    => $convId,
         'msg_uuid'   => $msgUuid,
         'emoji'      => $emoji,
         'reactions'  => $reactionMap,
@@ -112,12 +143,17 @@ WsPush::flushResponseThenRun(function () use ($chatType, $targetId, $accountId, 
     if ($chatType === 'private') {
         $pushPayload['target_id'] = $targetId;
         WsPush::push([$targetId, $accountId, 1], 'reaction_updated', $pushPayload);
+    } elseif (str_starts_with($convId, 'office_')) {
+        $offId = OfficeChatManager::parseOfficeId($convId);
+        $members = OfficeChatManager::getOfficeMembers($offId);
+        WsPush::push($members, 'reaction_updated', $pushPayload);
     } else {
         WsPush::broadcast('reaction_updated', $pushPayload);
     }
 
     ChatAuditLogger::log($accountId, 'react_message', $msgUuid, [
         'chat_type' => $chatType,
+        'conv_id'   => $convId,
         'emoji'     => $emoji,
         'action'    => $result['action'],
     ]);

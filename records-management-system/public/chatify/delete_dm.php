@@ -18,27 +18,20 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $myAccountId = Auth::accountId();
 $isAdmin     = Auth::isAdmin();
 
-// ── Admin-only endpoint ────────────────────────────────────────────────────────
-// Clearing a conversation is now a Super Admin action only. Regular users no
-// longer have a self-service "clear my chat" path through this endpoint.
-if (!$isAdmin) {
-    http_response_code(403);
-    die('Forbidden — administrator access required');
-}
-
 $targetId  = isset($_POST['target_id']) ? (int) trim($_POST['target_id']) : 0;
 $convId    = trim($_POST['conv_id'] ?? '');
 $secret    = trim($_POST['secret'] ?? '');
-$isGlobal  = !empty($_POST['global']);
+$isGlobal  = !empty($_POST['global']) || ($convId === 'global');
+$targetOfficeId = str_starts_with($convId, 'office_') ? OfficeChatManager::parseOfficeId($convId) : null;
 
-// ── Global Chat clear ("/clear" while Super Admin is viewing Global Chat) ──
-// Separate, simpler path: no conv_id/target resolution needed. Same
-// soft-clear contract as the DM branch below: this ONLY flips affected
-// chat_messages rows to status='inactive'. Nothing is deleted here — the
-// rows (and their uploaded files) stay put until the separate "/backup"
-// command explicitly moves them into chatify_chat_backup
-// (ConversationManager::backupGlobal(), see backup_dm.php).
-if ($isGlobal) {
+// ── Admin access check: Strictly Super Admin only ────────────────────────────
+if (!$isAdmin) {
+    http_response_code(403);
+    die('Forbidden — Super Administrator access required');
+}
+
+// ── Global / Office Chat clear ("/clear" while Super Admin is viewing or spying on Channel) ──
+if ($isGlobal || $targetOfficeId) {
     if (empty($secret)) {
         http_response_code(403);
         die('Secret key required');
@@ -48,24 +41,33 @@ if ($isGlobal) {
         die('Invalid secret key');
     }
 
-    $hadMessages = GlobalChatManager::countRaw() > 0;
-    GlobalChatManager::softClearChat();
+    $channelConvId = $targetOfficeId ? $convId : 'global';
+    $hadMessages   = GlobalChatManager::countRaw($channelConvId) > 0;
+    GlobalChatManager::softClearChat($channelConvId);
+    GlobalChatManager::clearReactions($channelConvId);
 
-    if ($hadMessages) {
-        // System-wide broadcast — every connected client (not just two
-        // participants) needs to know Global Chat was wiped.
+    if ($targetOfficeId) {
+        $memberIds = OfficeChatManager::getOfficeMembers($targetOfficeId);
+        WsPush::push($memberIds, 'chat_cleared', [
+            'chat_type' => 'office_gc',
+            'conv_id'   => $channelConvId,
+            'office_id' => $targetOfficeId,
+            'sender_id' => $myAccountId,
+        ]);
+    } else {
         WsPush::broadcast('chat_cleared', [
             'chat_type' => 'global',
+            'conv_id'   => 'global',
             'sender_id' => $myAccountId,
         ]);
     }
 
     echo $hadMessages ? 'Conversation cleared' : 'Nothing to clear';
 
-    ChatAuditLogger::log($myAccountId, 'clear_chat', 'global', [
-        'is_admin'   => true,
+    ChatAuditLogger::log($myAccountId, 'clear_chat', $channelConvId, [
+        'is_admin'   => $isAdmin,
         'soft_clear' => true,
-        'conv_id'    => 'global',
+        'conv_id'    => $channelConvId,
     ]);
     exit;
 }

@@ -68,14 +68,36 @@ $errors = [];
 // send normally, so a reply never fans out across every attachment.
 $allResults = [];
 
+$convId = trim($_POST['conv_id'] ?? '');
+$userOfficeId = (int) ($_SESSION['office_id'] ?? 0);
+if ($userOfficeId <= 0) {
+    $userInfo = UserResolver::getUserInfo($senderId);
+    $userOfficeId = (int) ($userInfo['office_id'] ?? 0);
+}
+
+if (empty($convId)) {
+    $convId = 'global';
+}
+
+$isOfficeGc     = str_starts_with($convId, 'office_');
+$targetOfficeId = $isOfficeGc ? OfficeChatManager::parseOfficeId($convId) : null;
+
+// Security check: Only members of this office or Super Admin (account_id = 1) can post
+if ($isOfficeGc && $targetOfficeId) {
+    if ($senderId !== 1 && $userOfficeId !== $targetOfficeId) {
+        http_response_code(403);
+        die(json_encode(['error' => 'You do not belong to this office group chat.']));
+    }
+}
+
 if ($message !== '') {
-    $result = GlobalChatManager::addTextMessage($senderId, $message, $replyToUuid, $mentionedIds);
+    $result = GlobalChatManager::addTextMessage($senderId, $message, $replyToUuid, $mentionedIds, $convId);
     if ($result === false) {
         $errors[] = 'Failed to save text message.';
     } else {
         $result['plaintext'] = $message;
         if (!empty($result['reply_to_msg_uuid'])) {
-            $prev = GlobalChatManager::getReplyPreview($result['reply_to_msg_uuid']);
+            $prev = GlobalChatManager::getReplyPreview($result['reply_to_msg_uuid'], $convId);
             if ($prev && isset($prev['snippet'])) {
                 $result['reply_message'] = $prev['snippet'];
                 $result['reply_snippet'] = $prev['snippet'];
@@ -103,7 +125,7 @@ if ($uploadedRaw !== '') {
         }
 
         $thisReplyTo = (empty($allResults)) ? $replyToUuid : null;
-        $msgResult   = GlobalChatManager::addUploadMessage($senderId, $filename, $thisReplyTo);
+        $msgResult   = GlobalChatManager::addUploadMessage($senderId, $filename, $thisReplyTo, $convId);
         if ($msgResult === false) {
             $errors[] = "Failed to save upload record: {$filename}";
             continue;
@@ -118,17 +140,15 @@ if (empty($errors) && !empty($allResults)) {
     foreach ($allResults as $msgData) {
         if (empty($msgData['id'])) continue;
 
-        // See send_dm.php for why has_upload must be set here (same bug,
-        // same fix, for Global Chat) — without it, viewers render an empty
-        // placeholder bubble and the follow-up has_upload event that would
-        // load the real attachment + mark it read gets deduped away.
         $replyPreview = null;
         if (!empty($msgData['reply_to_msg_uuid'])) {
-            $replyPreview = GlobalChatManager::getReplyPreview($msgData['reply_to_msg_uuid']);
+            $replyPreview = GlobalChatManager::getReplyPreview($msgData['reply_to_msg_uuid'], $convId);
         }
 
-        WsPush::broadcast('message', [
-            'chat_type'         => 'global',
+        $payload = [
+            'chat_type'         => $isOfficeGc ? 'office_gc' : 'global',
+            'conv_id'           => $convId,
+            'office_id'         => $targetOfficeId,
             'sender_id'         => $senderId,
             'sender_name'       => $_SESSION['full_name'] ?? ($_SESSION['first_name'] ?? ''),
             'sender_avatar'     => $_SESSION['avatar_url'] ?? null,
@@ -138,12 +158,21 @@ if (empty($errors) && !empty($allResults)) {
             'has_upload'        => ($msgData['type'] ?? '') === 'upload',
             'reply_to_msg_uuid' => $msgData['reply_to_msg_uuid'] ?? null,
             'reply_snippet'     => $replyPreview['snippet'] ?? null,
-        ]);
+        ];
+
+        if ($isOfficeGc && $targetOfficeId) {
+            $memberIds = OfficeChatManager::getOfficeMembers($targetOfficeId);
+            WsPush::push($memberIds, 'message', $payload);
+        } else {
+            WsPush::broadcast('message', $payload);
+        }
     }
-    echo json_encode(['success' => true, 'message' => $allResults[0], 'messages' => $allResults]);
+    echo json_encode(['success' => true, 'message' => $allResults[0], 'messages' => $allResults, 'conv_id' => $convId]);
     // ── Audit log (fire-and-forget) ───────────────────────────────────────────
     ChatAuditLogger::log($senderId, 'send_message', $allResults[0]['id'] ?? null, [
-        'chat_type'  => 'global',
+        'chat_type'  => $isOfficeGc ? 'office_gc' : 'global',
+        'conv_id'    => $convId,
+        'office_id'  => $targetOfficeId,
         'has_text'   => $message !== '',
         'has_file'   => $uploadedRaw !== '',
         'file_count' => count($allResults) - ($message !== '' ? 1 : 0),

@@ -2123,18 +2123,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             }
         },
         openPrintModal() {
+            this.printModalOpen = true;
             if (this.$wire) {
                 this.$wire.set('selectedIds', this.selectedIds, false);
                 this.$wire.set('seriesSelectionMode', this.seriesSelectionMode, false);
                 this.$wire.set('selectedSubjectIds', this.selectedSubjectIds, false);
-                this.$wire.openPrintModal();
+                this.$wire.call('openPrintModal');
             }
-            this.printModalOpen = true;
         },
         closePrintModal() {
             this.printModalOpen = false;
             if (this.$wire) {
-                this.$wire.set('showPrintModal', false, false);
+                this.$wire.call('closePrintModal');
             }
         },
         toggleSubjects(key) {
@@ -2889,7 +2889,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 3')
             $effectivePrintVolume = ($hasSelection && !empty($previewVols)) ? $compileVolumeHelper($previewVols) : '';
         @endphp
         <div class="modal-overlay" 
-             x-show="printModalOpen || {{ $showPrintModal ? 'true' : 'false' }}"
+             x-show="printModalOpen"
              x-cloak
              @click.self="closePrintModal()"
              @keydown.escape.window="closePrintModal()">

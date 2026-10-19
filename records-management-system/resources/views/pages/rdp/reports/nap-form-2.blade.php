@@ -776,16 +776,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             }
         },
         openPrintModal() {
+            this.printModalOpen = true;
             if (this.$wire) {
                 this.$wire.set('selectedIds', this.selectedIds, false);
-                this.$wire.openPrintModal();
+                this.$wire.call('openPrintModal');
             }
-            this.printModalOpen = true;
         },
         closePrintModal() {
             this.printModalOpen = false;
             if (this.$wire) {
-                this.$wire.set('showPrintModal', false, false);
+                this.$wire.call('closePrintModal');
             }
         },
         toggleRoot(key) {
@@ -1420,7 +1420,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             $totalPages = count($dataPages) + 1; // Last page is dedicated Signatures & NAP Approval Sheet
         @endphp
         <div class="modal-overlay" 
-             x-show="printModalOpen || {{ $showPrintModal ? 'true' : 'false' }}"
+             x-show="printModalOpen"
              x-cloak
              @click.self="closePrintModal()"
              @keydown.escape.window="closePrintModal()">

@@ -2118,16 +2118,16 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             }
         },
         openPrintModal() {
+            this.printModalOpen = true;
             if (this.$wire) {
                 this.$wire.set('selectedIds', this.selectedIds, false);
-                this.$wire.openPrintModal();
+                this.$wire.call('openPrintModal');
             }
-            this.printModalOpen = true;
         },
         closePrintModal() {
             this.printModalOpen = false;
             if (this.$wire) {
-                this.$wire.set('showPrintModal', false, false);
+                this.$wire.call('closePrintModal');
             }
         },
         toggleSubjects(key) {
@@ -2422,9 +2422,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
             <button type="button" 
                     @click="openPrintModal()" 
-                    class="nap-btn nap-btn-secondary">
-                <span wire:loading wire:target="openPrintModal" style="display:inline-block; width:12px; height:12px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; margin-right:4px;"></span>
-                Print Preview
+                    class="nap-btn nap-btn-secondary"
+                    style="background: #ffffff; border: 1px solid #cbd5e1; color: #0f172a; box-shadow: 0 1px 2px rgba(0,0,0,0.05); display: inline-flex; align-items: center; gap: 6px;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                <span>Print Preview</span>
+                <span x-show="selectedIds.length > 0" x-text="'(' + selectedIds.length + ')'"></span>
             </button>
             <button type="button" 
                     wire:click="openClusterModal" 
@@ -3104,7 +3106,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $totalPages = count($pages);
         @endphp
         <div class="modal-overlay" 
-             x-show="printModalOpen || {{ $showPrintModal ? 'true' : 'false' }}"
+             x-show="printModalOpen"
              x-cloak
              @click.self="closePrintModal()"
              @keydown.escape.window="closePrintModal()">

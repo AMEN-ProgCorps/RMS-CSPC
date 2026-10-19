@@ -529,19 +529,30 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
             font-family: 'Inter', system-ui, -apple-system, sans-serif;
         }
 
+        /* Controls Toolbar */
+        .ml-controls-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+
         /* Top Status Pills Bar */
         .ml-pills-wrap {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             flex-wrap: wrap;
         }
 
         .ml-pill-btn {
+            height: 34px;
             background: #ffffff;
             border: 1px solid #cbd5e1;
             color: #475569;
-            padding: 6px 14px;
+            padding: 0 12px;
             border-radius: 20px;
             font-size: 11.5px;
             font-weight: 700;
@@ -562,7 +573,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
             background: #0f172a;
             border-color: #0f172a;
             color: #ffffff;
-            box-shadow: 0 2px 4px rgba(15, 23, 42, 0.15);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
         }
 
         .ml-pill-count {
@@ -577,6 +588,93 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
         .ml-pill-btn.is-active .ml-pill-count {
             background: rgba(255, 255, 255, 0.25);
             color: #ffffff;
+        }
+
+        /* Toolbar Actions on Right */
+        .ml-actions-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .ml-search-box {
+            position: relative;
+            width: 260px;
+        }
+
+        .ml-search-box svg {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #64748b;
+            pointer-events: none;
+        }
+
+        .ml-search-box input {
+            width: 100%;
+            height: 34px;
+            padding: 0 12px 0 32px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 12.5px;
+            color: #0f172a;
+            background: #ffffff;
+            transition: all 0.15s ease;
+        }
+
+        .ml-search-box input:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+        }
+
+        .ml-action-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            height: 34px;
+            padding: 0 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background: #ffffff;
+            color: #334155;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .ml-action-btn:hover {
+            border-color: #94a3b8;
+            background: #f8fafc;
+            color: #0f172a;
+        }
+
+        .ml-action-btn.ml-export-btn {
+            background: #ffffff;
+            border-color: #cbd5e1;
+            color: #0f172a;
+            font-weight: 700;
+        }
+
+        .ml-action-btn.ml-export-btn:hover {
+            border-color: #2563eb;
+            color: #2563eb;
+            background: #eff6ff;
+        }
+
+        .ml-filter-indicator {
+            position: absolute;
+            top: -3px;
+            right: -3px;
+            width: 8px;
+            height: 8px;
+            background: #2563eb;
+            border-radius: 50%;
         }
 
         /* Slide-Out Filter Drawer */
@@ -644,14 +742,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
             letter-spacing: 0.3px;
         }
 
-        /* Table Styling with Sticky Anchors */
+        /* Table Styling with Sticky Anchors and Full Grid Matrix Borders */
         .ml-table-wrap {
             position: relative;
-            max-height: 75vh;
+            max-height: 72vh;
             overflow: auto;
             border: 1px solid #cbd5e1;
             border-radius: 8px;
             background: #ffffff;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
         }
 
         .ml-table {
@@ -668,7 +767,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
             z-index: 10;
             background: #f8fafc;
             color: #475569;
-            padding: 9px 12px;
+            padding: 10px 12px;
             font-weight: 700;
             font-size: 11px;
             letter-spacing: 0.5px;
@@ -684,18 +783,20 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
             position: sticky;
             left: 0;
             z-index: 12;
-            width: 80px;
-            min-width: 80px;
-            max-width: 80px;
+            width: 75px;
+            min-width: 75px;
+            max-width: 75px;
             text-align: center;
+            border-right: 1px solid #e2e8f0;
         }
 
         .ml-table th.col-sticky-2,
         .ml-table td.col-sticky-2 {
             position: sticky;
-            left: 80px;
+            left: 75px;
             z-index: 12;
-            min-width: 280px;
+            min-width: 290px;
+            border-right: 1px solid #e2e8f0;
         }
 
         .ml-table thead th.col-sticky-1,
@@ -704,10 +805,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
             background: #f8fafc;
         }
 
+        /* Grid lines across every cell */
         .ml-table td {
             padding: 8px 12px;
-            border-bottom: 1px solid #f1f5f9;
+            border-bottom: 1px solid #e2e8f0;
+            border-right: 1px solid #e2e8f0;
             vertical-align: middle;
+            line-height: 1.4;
+        }
+
+        .ml-table td:last-child {
+            border-right: none;
         }
 
         /* Row Footprints */
@@ -754,6 +862,34 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
             letter-spacing: 0.6px;
             border-top: 2px solid #cbd5e1;
             border-bottom: 2px solid #cbd5e1;
+            border-right: none !important;
+        }
+
+        /* Modern Chevron Toggle Button */
+        .ml-chevron-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            background: transparent;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            color: #64748b;
+            padding: 0;
+            transition: all 0.15s ease;
+        }
+
+        .ml-chevron-btn:hover {
+            background: #e2e8f0;
+            color: #0f172a;
+        }
+
+        /* Subtle dash styling */
+        .ml-dash {
+            color: #cbd5e1;
+            font-weight: 400;
         }
 
         [data-theme="dark"] .ml-table thead th,
@@ -861,32 +997,29 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
         }
      }">
 
-    <!-- Page Header (NAP Form Baseline Design) -->
-    <div class="nap-page-header">
+    <!-- Page Header (Polished DCS & NAP Fusion) -->
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; flex-wrap: wrap; gap: 14px;">
         <div>
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
-                <h1 class="nap-page-title">Master Records Lifecycle</h1>
-                <span class="nap-badge" style="background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; font-size: 11px; padding: 3px 10px; border-radius: 9999px; font-weight: 800;">
+                <h1 style="font-size: 24px; font-weight: 800; color: #0f172a; letter-spacing: -0.02em; margin: 0;">Master Records Lifecycle</h1>
+                <span style="background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; font-size: 11px; padding: 2px 9px; border-radius: 9999px; font-weight: 800; letter-spacing: 0.4px;">
                     GENERAL MATRIX
                 </span>
             </div>
-            <p class="nap-page-subtitle">Consolidated inventory matrix generalizing NAP Forms 1 to 3 with complete historical tracking of active, revised, and disposed records.</p>
+            <p style="font-size: 13px; color: #64748b; margin: 0;">Consolidated inventory matrix generalizing NAP Forms 1 to 3 with complete historical tracking of active, revised, and disposed records.</p>
         </div>
-        <div style="display: flex; gap: 10px; align-items: center;">
-            <button type="button" 
-                    wire:click="exportCsv" 
-                    class="nap-btn nap-btn-secondary" 
-                    style="display: inline-flex; align-items: center; gap: 6px;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                <span>Export CSV</span>
-            </button>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 12px; font-weight: 700; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 6px 14px; border-radius: 20px; display: inline-flex; align-items: center; gap: 6px;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <span>{{ $statusCounts['all'] ?? 0 }} Records Tracked</span>
+            </span>
         </div>
     </div>
 
     <!-- Main Card -->
-    <div class="nap-card">
-        <!-- Top Toolbar & Status Pills Bar (DCS Database Concept) -->
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px;">
+    <div class="nap-card" style="padding: 18px 20px;">
+        <!-- Unified Controls Toolbar (Pills on Left, Search + Actions on Right) -->
+        <div class="ml-controls-bar">
             <!-- Status Pills (Left) -->
             <div class="ml-pills-wrap">
                 <button type="button" 
@@ -933,18 +1066,21 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
             </div>
 
             <!-- Search & Actions (Right) -->
-            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                <input type="text" 
-                       wire:model.live.debounce.350ms="search" 
-                       placeholder="Search series, description, remarks..." 
-                       class="nap-input nap-search-input" 
-                       style="min-width: 260px;">
+            <div class="ml-actions-wrap">
+                <div class="ml-search-box">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+                    </svg>
+                    <input type="text" 
+                           wire:model.live.debounce.350ms="search" 
+                           placeholder="Search series, description, remarks...">
+                </div>
 
                 <!-- Expand / Collapse All Toggle -->
                 <button type="button" 
                         @click="allRootsCollapsed ? expandAll() : collapseAll()" 
-                        class="nap-btn nap-btn-secondary" 
-                        style="padding: 8px 12px; font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px;">
+                        class="ml-action-btn" 
+                        title="Expand or collapse all series groups">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" x-show="!allRootsCollapsed"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" x-show="allRootsCollapsed" x-cloak><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
                     <span x-text="allRootsCollapsed ? 'Expand All' : 'Collapse All'"></span>
@@ -953,43 +1089,54 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                 <!-- Filter Drawer Trigger Button -->
                 <button type="button" 
                         @click="drawerOpen = true" 
-                        class="nap-btn nap-btn-secondary" 
-                        style="position: relative; display: inline-flex; align-items: center; gap: 6px;">
+                        class="ml-action-btn" 
+                        style="position: relative;"
+                        title="Open filter panel">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                     <span>Filters</span>
                     @if($retentionFilter !== 'all' || !empty($mediumFilter) || !empty($dateFrom) || !empty($dateTo) || ($isSadm && !empty($officeFilter)))
-                        <span style="position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; background: #2563eb; border-radius: 50%;" title="Active filters applied"></span>
+                        <span class="ml-filter-indicator" title="Active filters applied"></span>
                     @endif
+                </button>
+
+                <!-- Export CSV Button (Aligned in Controls) -->
+                <button type="button" 
+                        wire:click="exportCsv" 
+                        class="ml-action-btn ml-export-btn"
+                        title="Download CSV spreadsheet of currently filtered records">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    <span>Export CSV</span>
                 </button>
 
                 @if(!empty($search) || $statusFilter !== 'all' || $retentionFilter !== 'all' || !empty($mediumFilter) || !empty($dateFrom) || !empty($dateTo) || ($isSadm && !empty($officeFilter)))
                     <button type="button" 
                             wire:click="clearFilters" 
-                            class="nap-btn nap-btn-secondary" 
-                            style="color: #dc2626; border-color: #fca5a5;">
+                            class="ml-action-btn" 
+                            style="color: #dc2626; border-color: #fca5a5;"
+                            title="Reset all filters">
                         Reset
                     </button>
                 @endif
             </div>
         </div>
 
-        <!-- Table Container with Sticky Anchors -->
+        <!-- Table Container with Sticky Anchors and Full Grid Lines -->
         <div class="ml-table-wrap">
             <table class="ml-table">
                 <thead>
                     <tr>
                         <th class="col-sticky-1">ITEM NO.</th>
                         <th class="col-sticky-2">RECORD SERIES TITLE & DESCRIPTION</th>
-                        <th style="min-width: 130px;">PERIOD COVERED</th>
-                        <th style="min-width: 90px;">VOLUME</th>
-                        <th style="min-width: 100px;">MEDIUM</th>
-                        <th style="min-width: 110px;">RESTRICTIONS</th>
-                        <th style="min-width: 140px;">LOCATION</th>
+                        <th style="min-width: 125px; text-align: center;">PERIOD COVERED</th>
+                        <th style="min-width: 90px; text-align: center;">VOLUME</th>
+                        <th style="min-width: 90px; text-align: center;">MEDIUM</th>
+                        <th style="min-width: 110px; text-align: center;">RESTRICTIONS</th>
+                        <th style="min-width: 130px; text-align: center;">LOCATION</th>
                         <th style="min-width: 75px; text-align: center;">ACTIVE</th>
                         <th style="min-width: 75px; text-align: center;">STORAGE</th>
                         <th style="min-width: 80px; text-align: center;">TOTAL</th>
-                        <th style="min-width: 120px; text-align: center;">STATUS</th>
-                        <th style="min-width: 90px; text-align: center;">OFFICE</th>
+                        <th style="min-width: 110px; text-align: center;">STATUS</th>
+                        <th style="min-width: 100px; text-align: center;">OFFICE</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1013,18 +1160,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                         <!-- ROOT SERIES ROW -->
                         <tr class="root-series-row" @if($hasExpandable) style="cursor: pointer;" @click="toggleRoot('root-{{ $root->id }}')" @endif>
                             <td class="col-sticky-1" style="font-weight: 800; text-align: center;">
-                                <div style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+                                <div style="display: flex; align-items: center; justify-content: center; gap: 4px;">
                                     @if($hasExpandable)
-                                        <button type="button" class="nap-chevron-btn" style="padding: 2px;" title="Toggle Root Series">
+                                        <button type="button" class="ml-chevron-btn" title="Toggle Root Series">
                                             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
                                                  :style="isRootCollapsed('root-{{ $root->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'">
                                                 <polyline points="6 9 12 15 18 9"></polyline>
                                             </svg>
                                         </button>
                                     @else
-                                        <span style="width: 17px; height: 17px; display: inline-block;"></span>
+                                        <span style="width: 20px; display: inline-block;"></span>
                                     @endif
-                                    <span>{{ $root->item_number ?: '—' }}</span>
+                                    <span style="font-size: 13px; font-weight: 800; color: #1e293b;">{{ $root->item_number ?: '—' }}</span>
                                 </div>
                             </td>
                             <td class="col-sticky-2">
@@ -1042,15 +1189,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                                     </div>
                                 @endif
                             </td>
-                            <td>{{ $root->compiled_period }}</td>
-                            <td>{{ $root->compiled_volume }}</td>
-                            <td>{{ $root->compiled_medium }}</td>
-                            <td>{{ $root->compiled_restriction }}</td>
-                            <td>
-                                <div class="ml-text-clamp" title="{{ $root->compiled_location }}">{{ $root->compiled_location }}</div>
+                            <td style="text-align: center;">{!! $root->compiled_period === '—' ? '<span class="ml-dash">—</span>' : e($root->compiled_period) !!}</td>
+                            <td style="text-align: center;">{!! $root->compiled_volume === '—' ? '<span class="ml-dash">—</span>' : e($root->compiled_volume) !!}</td>
+                            <td style="text-align: center;">{!! $root->compiled_medium === '—' ? '<span class="ml-dash">—</span>' : e($root->compiled_medium) !!}</td>
+                            <td style="text-align: center;">{!! $root->compiled_restriction === '—' ? '<span class="ml-dash">—</span>' : e($root->compiled_restriction) !!}</td>
+                            <td style="text-align: center;">
+                                <div class="ml-text-clamp" title="{{ $root->compiled_location }}">{!! $root->compiled_location === '—' ? '<span class="ml-dash">—</span>' : e($root->compiled_location) !!}</div>
                             </td>
-                            <td style="text-align: center;">{{ $root->effective_active ?: '—' }}</td>
-                            <td style="text-align: center;">{{ $root->effective_storage ?: '—' }}</td>
+                            <td style="text-align: center;">{!! empty($root->effective_active) ? '<span class="ml-dash">—</span>' : e($root->effective_active) !!}</td>
+                            <td style="text-align: center;">{!! empty($root->effective_storage) ? '<span class="ml-dash">—</span>' : e($root->effective_storage) !!}</td>
                             <td style="text-align: center; font-weight: 800;">
                                 {{ $root->is_retention_period_permanent ? 'PERMANENT' : ($root->effective_total ?: '—') }}
                             </td>
@@ -1070,7 +1217,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                                 <tr class="record-item-row {{ $rec->status === 'disposed' ? 'is-disposed' : ($rec->status === 'revised' ? 'is-revised' : '') }}" 
                                     x-show="!isRootCollapsed('root-{{ $root->id }}')">
                                     <td class="col-sticky-1" style="text-align: center;">
-                                        <span style="width: 17px; display: inline-block;"></span>
+                                        <span style="width: 20px; display: inline-block;"></span>
                                     </td>
                                     <td class="col-sticky-2" style="padding-left: 28px;">
                                         <div style="display: flex; align-items: center; gap: 6px;">
@@ -1078,15 +1225,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                                             <div style="font-weight: 600; color: #1e293b; font-size: 12px;">{{ $rec->description }}</div>
                                         </div>
                                     </td>
-                                    <td>{{ $rec->date_covered ?: '—' }}</td>
-                                    <td>{{ $rec->volume ?: '—' }}</td>
-                                    <td>{{ $rec->medium ?: '—' }}</td>
-                                    <td>{{ $rec->restriction ?: '—' }}</td>
-                                    <td>
-                                        <div class="ml-text-clamp" title="{{ $rec->location }}">{{ $rec->location }}</div>
+                                    <td style="text-align: center;">{!! empty($rec->date_covered) ? '<span class="ml-dash">—</span>' : e($rec->date_covered) !!}</td>
+                                    <td style="text-align: center;">{!! empty($rec->volume) ? '<span class="ml-dash">—</span>' : e($rec->volume) !!}</td>
+                                    <td style="text-align: center;">{!! empty($rec->medium) ? '<span class="ml-dash">—</span>' : e($rec->medium) !!}</td>
+                                    <td style="text-align: center;">{!! empty($rec->restriction) ? '<span class="ml-dash">—</span>' : e($rec->restriction) !!}</td>
+                                    <td style="text-align: center;">
+                                        <div class="ml-text-clamp" title="{{ $rec->location }}">{!! empty($rec->location) ? '<span class="ml-dash">—</span>' : e($rec->location) !!}</div>
                                     </td>
-                                    <td style="text-align: center;">{{ $root->effective_active ?: '—' }}</td>
-                                    <td style="text-align: center;">{{ $root->effective_storage ?: '—' }}</td>
+                                    <td style="text-align: center;">{!! empty($root->effective_active) ? '<span class="ml-dash">—</span>' : e($root->effective_active) !!}</td>
+                                    <td style="text-align: center;">{!! empty($root->effective_storage) ? '<span class="ml-dash">—</span>' : e($root->effective_storage) !!}</td>
                                     <td style="text-align: center;">{{ $root->is_retention_period_permanent ? 'PERMANENT' : ($root->effective_total ?: '—') }}</td>
                                     <td style="text-align: center;">
                                         @if($rec->status === 'revised')
@@ -1118,16 +1265,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                                     <td class="col-sticky-1" style="text-align: center; font-weight: 700;">
                                         <div style="display: flex; align-items: center; justify-content: center; gap: 4px;">
                                             @if($subHasExpandable)
-                                                <button type="button" class="nap-chevron-btn" style="padding: 2px;" title="Toggle Sub-Series">
+                                                <button type="button" class="ml-chevron-btn" title="Toggle Sub-Series">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
                                                          :style="isSubCollapsed('sub-{{ $sub->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'">
                                                         <polyline points="6 9 12 15 18 9"></polyline>
                                                     </svg>
                                                 </button>
                                             @else
-                                                <span style="width: 16px; height: 16px; display: inline-block;"></span>
+                                                <span style="width: 20px; display: inline-block;"></span>
                                             @endif
-                                            <span style="font-size: 11px; color: #64748b;">{{ $sub->item_number ?: '—' }}</span>
+                                            @if(!empty($sub->item_number))
+                                                <span style="font-size: 11.5px; font-weight: 700; color: #475569;">{{ $sub->item_number }}</span>
+                                            @endif
                                         </div>
                                     </td>
                                     <td class="col-sticky-2" style="padding-left: 20px;">
@@ -1146,15 +1295,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                                             </div>
                                         @endif
                                     </td>
-                                    <td>{{ $sub->compiled_period }}</td>
-                                    <td>{{ $sub->compiled_volume }}</td>
-                                    <td>{{ $sub->compiled_medium }}</td>
-                                    <td>{{ $sub->compiled_restriction }}</td>
-                                    <td>
-                                        <div class="ml-text-clamp" title="{{ $sub->compiled_location }}">{{ $sub->compiled_location }}</div>
+                                    <td style="text-align: center;">{!! $sub->compiled_period === '—' ? '<span class="ml-dash">—</span>' : e($sub->compiled_period) !!}</td>
+                                    <td style="text-align: center;">{!! $sub->compiled_volume === '—' ? '<span class="ml-dash">—</span>' : e($sub->compiled_volume) !!}</td>
+                                    <td style="text-align: center;">{!! $sub->compiled_medium === '—' ? '<span class="ml-dash">—</span>' : e($sub->compiled_medium) !!}</td>
+                                    <td style="text-align: center;">{!! $sub->compiled_restriction === '—' ? '<span class="ml-dash">—</span>' : e($sub->compiled_restriction) !!}</td>
+                                    <td style="text-align: center;">
+                                        <div class="ml-text-clamp" title="{{ $sub->compiled_location }}">{!! $sub->compiled_location === '—' ? '<span class="ml-dash">—</span>' : e($sub->compiled_location) !!}</div>
                                     </td>
-                                    <td style="text-align: center;">{{ $sub->effective_active ?: '—' }}</td>
-                                    <td style="text-align: center;">{{ $sub->effective_storage ?: '—' }}</td>
+                                    <td style="text-align: center;">{!! empty($sub->effective_active) ? '<span class="ml-dash">—</span>' : e($sub->effective_active) !!}</td>
+                                    <td style="text-align: center;">{!! empty($sub->effective_storage) ? '<span class="ml-dash">—</span>' : e($sub->effective_storage) !!}</td>
                                     <td style="text-align: center; font-weight: 700;">
                                         {{ $sub->is_retention_period_permanent ? 'PERMANENT' : ($sub->effective_total ?: '—') }}
                                     </td>
@@ -1174,7 +1323,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                                         <tr class="record-item-row {{ $sRec->status === 'disposed' ? 'is-disposed' : ($sRec->status === 'revised' ? 'is-revised' : '') }}" 
                                             x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubCollapsed('sub-{{ $sub->id }}')">
                                             <td class="col-sticky-1" style="text-align: center;">
-                                                <span style="width: 16px; display: inline-block;"></span>
+                                                <span style="width: 20px; display: inline-block;"></span>
                                             </td>
                                             <td class="col-sticky-2" style="padding-left: 38px;">
                                                 <div style="display: flex; align-items: center; gap: 6px;">
@@ -1182,15 +1331,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Recor
                                                     <div style="font-weight: 500; color: #334155; font-size: 12px;">{{ $sRec->description }}</div>
                                                 </div>
                                             </td>
-                                            <td>{{ $sRec->date_covered ?: '—' }}</td>
-                                            <td>{{ $sRec->volume ?: '—' }}</td>
-                                            <td>{{ $sRec->medium ?: '—' }}</td>
-                                            <td>{{ $sRec->restriction ?: '—' }}</td>
-                                            <td>
-                                                <div class="ml-text-clamp" title="{{ $sRec->location }}">{{ $sRec->location }}</div>
+                                            <td style="text-align: center;">{!! empty($sRec->date_covered) ? '<span class="ml-dash">—</span>' : e($sRec->date_covered) !!}</td>
+                                            <td style="text-align: center;">{!! empty($sRec->volume) ? '<span class="ml-dash">—</span>' : e($sRec->volume) !!}</td>
+                                            <td style="text-align: center;">{!! empty($sRec->medium) ? '<span class="ml-dash">—</span>' : e($sRec->medium) !!}</td>
+                                            <td style="text-align: center;">{!! empty($sRec->restriction) ? '<span class="ml-dash">—</span>' : e($sRec->restriction) !!}</td>
+                                            <td style="text-align: center;">
+                                                <div class="ml-text-clamp" title="{{ $sRec->location }}">{!! empty($sRec->location) ? '<span class="ml-dash">—</span>' : e($sRec->location) !!}</div>
                                             </td>
-                                            <td style="text-align: center;">{{ $sub->effective_active ?: '—' }}</td>
-                                            <td style="text-align: center;">{{ $sub->effective_storage ?: '—' }}</td>
+                                            <td style="text-align: center;">{!! empty($sub->effective_active) ? '<span class="ml-dash">—</span>' : e($sub->effective_active) !!}</td>
+                                            <td style="text-align: center;">{!! empty($sub->effective_storage) ? '<span class="ml-dash">—</span>' : e($sub->effective_storage) !!}</td>
                                             <td style="text-align: center;">{{ $sub->is_retention_period_permanent ? 'PERMANENT' : ($sub->effective_total ?: '—') }}</td>
                                             <td style="text-align: center;">
                                                 @if($sRec->status === 'revised')

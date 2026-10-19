@@ -250,6 +250,11 @@
             $sectionTitle = 'Reports';
             $tabs = [
                 [
+                    'label' => 'Master Lifecycle',
+                    'url' => route('rdp.reports.master-lifecycle'),
+                    'active' => request()->routeIs('rdp.reports.master-lifecycle'),
+                ],
+                [
                     'label' => 'NAP Form 1',
                     'url' => route('rdp.reports.nap-form-1'),
                     'active' => request()->routeIs('rdp.reports.nap-form-1'),

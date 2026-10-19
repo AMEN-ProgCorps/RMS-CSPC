@@ -1,0 +1,1224 @@
+<?php
+
+use Livewire\Attributes\Layout;
+use Livewire\Attributes\Title;
+use Livewire\Volt\Component;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
+use Carbon\Carbon;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+
+new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Master Records Lifecycle')] class extends Component {
+    public string $search = '';
+    public string $officeFilter = '';
+    public string $retentionFilter = 'all'; // 'all', 'permanent', 'temporary'
+    public string $statusFilter = 'all';    // 'all', 'active', 'revised', 'disposed', 'pending_rds', 'expired'
+    public string $mediumFilter = '';
+    public string $dateFrom = '';
+    public string $dateTo = '';
+
+    public function mount(): void
+    {
+        $user = Auth::user();
+        $perms = $user?->permissions;
+
+        // Access clearance check
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_access_form_1 ?? true))) {
+            $this->redirectRoute('rdp');
+            return;
+        }
+
+        $userOffice = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
+        if ($userOffice && !((bool)($perms->is_sadm ?? false))) {
+            $this->officeFilter = $userOffice;
+        }
+    }
+
+    public function setStatusFilter(string $status): void
+    {
+        $this->statusFilter = $status;
+    }
+
+    public function clearFilters(): void
+    {
+        $this->search = '';
+        $this->retentionFilter = 'all';
+        $this->statusFilter = 'all';
+        $this->mediumFilter = '';
+        $this->dateFrom = '';
+        $this->dateTo = '';
+
+        $user = Auth::user();
+        $perms = $user?->permissions;
+        $userOffice = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
+        if (!((bool)($perms->is_sadm ?? false)) && $userOffice) {
+            $this->officeFilter = $userOffice;
+        } else {
+            $this->officeFilter = '';
+        }
+    }
+
+    private function applySearchFilter($query, array $columns): void
+    {
+        $tokens = preg_split('/\s+/', trim($this->search), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        foreach ($tokens as $token) {
+            $like = '%' . addcslashes($token, '%_\\') . '%';
+
+            $query->where(function ($q) use ($columns, $like) {
+                foreach ($columns as $index => $column) {
+                    $method = $index === 0 ? 'where' : 'orWhere';
+                    if (stripos($column, 'CAST(') === 0) {
+                        $q->{$method}(DB::raw($column), 'ilike', $like);
+                    } else {
+                        $q->{$method}($column, 'ilike', $like);
+                    }
+                }
+            });
+        }
+    }
+
+    private function resolveEffectiveRetention(array $allSeriesMap, object $record): object
+    {
+        $current = $record;
+        $visited = [];
+
+        while ($current) {
+            $hasActive = !empty(trim((string)($current->active_period ?? '')));
+            $hasStorage = !empty(trim((string)($current->storage_period ?? '')));
+            $hasTotal = !empty(trim((string)($current->total_period ?? '')));
+            $isPerm = (bool)($current->is_retention_period_permanent ?? false);
+
+            if ($isPerm || $hasActive || $hasStorage || $hasTotal) {
+                return (object)[
+                    'active_period'                 => $current->active_period,
+                    'storage_period'                => $current->storage_period,
+                    'total_period'                  => $current->total_period,
+                    'is_retention_period_permanent' => $isPerm,
+                    'inherited'                     => $current->id !== $record->id,
+                ];
+            }
+
+            if (in_array($current->id, $visited, true)) {
+                break;
+            }
+            $visited[] = $current->id;
+
+            $pId = $current->parent_id ?? null;
+            $current = ($pId && isset($allSeriesMap[$pId])) ? $allSeriesMap[$pId] : null;
+        }
+
+        return (object)[
+            'active_period'                 => null,
+            'storage_period'                => null,
+            'total_period'                  => null,
+            'is_retention_period_permanent' => false,
+            'inherited'                     => false,
+        ];
+    }
+
+    private function compileVolume(array $volumes): string
+    {
+        $vols = array_filter(array_map('trim', $volumes));
+        if (empty($vols)) return '';
+
+        $unitTotals = [];
+        $unparsed = [];
+
+        foreach ($vols as $v) {
+            if (preg_match('/^([\d\.]+)\s*(.*)$/', $v, $matches)) {
+                $num = (float)$matches[1];
+                $unit = strtolower(trim($matches[2]));
+                if ($unit === '') $unit = 'units';
+                $unitTotals[$unit] = ($unitTotals[$unit] ?? 0) + $num;
+            } else {
+                $unparsed[] = $v;
+            }
+        }
+
+        $parts = [];
+        foreach ($unitTotals as $unit => $total) {
+            $formattedNum = (fmod($total, 1) === 0.0) ? (int)$total : number_format($total, 2);
+            $parts[] = $formattedNum . ' ' . $unit;
+        }
+        foreach (array_unique($unparsed) as $u) {
+            $parts[] = $u;
+        }
+
+        return implode(', ', $parts);
+    }
+
+    public function exportCsv(): StreamedResponse
+    {
+        $data = $this->with();
+        $hierarchyTree = $data['hierarchyTree'] ?? [];
+        $filename = 'master_records_lifecycle_' . date('Y-m-d_His') . '.csv';
+
+        return response()->streamDownload(function () use ($hierarchyTree) {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, [
+                'Item No.',
+                'Record Series / Title',
+                'Classification Level',
+                'Subject Description',
+                'Period Covered',
+                'Volume',
+                'Medium',
+                'Restrictions',
+                'Location',
+                'Active Period',
+                'Storage Period',
+                'Total Retention',
+                'Lifecycle Status',
+                'Recorded Office',
+            ]);
+
+            foreach ($hierarchyTree as $root) {
+                fputcsv($handle, [
+                    $root->item_number ?: '—',
+                    $root->series_title,
+                    'Root Series',
+                    $root->remarks ?: '—',
+                    $root->compiled_period ?: '—',
+                    $root->compiled_volume ?: '—',
+                    $root->compiled_medium ?: '—',
+                    $root->compiled_restriction ?: '—',
+                    $root->compiled_location ?: '—',
+                    $root->effective_active ?: '—',
+                    $root->effective_storage ?: '—',
+                    $root->effective_total ?: '—',
+                    $root->lifecycle_status,
+                    $root->recorded_at_office ?: '—',
+                ]);
+
+                if (!empty($root->direct_records)) {
+                    foreach ($root->direct_records as $rec) {
+                        fputcsv($handle, [
+                            $root->item_number ?: '—',
+                            $root->series_title,
+                            'Record Item',
+                            $rec->description,
+                            $rec->date_covered ?: '—',
+                            $rec->volume ?: '—',
+                            $rec->medium ?: '—',
+                            $rec->restriction ?: '—',
+                            $rec->location ?: '—',
+                            $root->effective_active ?: '—',
+                            $root->effective_storage ?: '—',
+                            $root->effective_total ?: '—',
+                            $rec->status,
+                            $root->recorded_at_office ?: '—',
+                        ]);
+                    }
+                }
+
+                if (!empty($root->children)) {
+                    foreach ($root->children as $sub) {
+                        fputcsv($handle, [
+                            $sub->item_number ?: '—',
+                            $sub->series_title,
+                            'Sub-Series',
+                            $sub->remarks ?: '—',
+                            $sub->compiled_period ?: '—',
+                            $sub->compiled_volume ?: '—',
+                            $sub->compiled_medium ?: '—',
+                            $sub->compiled_restriction ?: '—',
+                            $sub->compiled_location ?: '—',
+                            $sub->effective_active ?: '—',
+                            $sub->effective_storage ?: '—',
+                            $sub->effective_total ?: '—',
+                            $sub->lifecycle_status,
+                            $sub->recorded_at_office ?: '—',
+                        ]);
+
+                        if (!empty($sub->records)) {
+                            foreach ($sub->records as $sRec) {
+                                fputcsv($handle, [
+                                    $sub->item_number ?: '—',
+                                    $sub->series_title,
+                                    'Sub-Series Item',
+                                    $sRec->description,
+                                    $sRec->date_covered ?: '—',
+                                    $sRec->volume ?: '—',
+                                    $sRec->medium ?: '—',
+                                    $sRec->restriction ?: '—',
+                                    $sRec->location ?: '—',
+                                    $sub->effective_active ?: '—',
+                                    $sub->effective_storage ?: '—',
+                                    $sub->effective_total ?: '—',
+                                    $sRec->status,
+                                    $sub->recorded_at_office ?: '—',
+                                ]);
+                            }
+                        }
+                    }
+                }
+            }
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv',
+        ]);
+    }
+
+    public function with(): array
+    {
+        $user = Auth::user();
+        $perms = $user?->permissions;
+        $isSadm = (bool)($perms->is_sadm ?? false);
+        $userOfficeCode = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
+
+        // Fetch office list for filter panel
+        $officesList = DB::table(Schema::hasTable('sys_office') ? 'sys_office' : 'office')
+            ->where('is_active', true)
+            ->orderBy('office_name')
+            ->get();
+
+        // Fetch utility types and mediums map
+        $mediumTable = Schema::hasTable('rdp_recorded_value') ? 'rdp_recorded_value' : (Schema::hasTable('rdp_records_medium') ? 'rdp_records_medium' : (Schema::hasTable('rdp_medium') ? 'rdp_medium' : null));
+        $mediumsMap = $mediumTable ? DB::table($mediumTable)->pluck('medium_name', 'id')->all() : [];
+        $mediumsList = $mediumTable ? DB::table($mediumTable)->orderBy('medium_name')->get() : collect();
+
+        // 1. Base Record Series Query
+        $seriesQuery = DB::table('rdp_record_series')
+            ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+            ->where('rdp_record_series.is_active', true)
+            ->select([
+                'rdp_record_series.*',
+                'rdp_retention_period.active_period',
+                'rdp_retention_period.storage_period',
+                'rdp_retention_period.total_period',
+            ]);
+
+        if (!$isSadm) {
+            $seriesQuery->where('rdp_record_series.recorded_at_office', $userOfficeCode ?: '___NONE___');
+        } elseif (!empty($this->officeFilter)) {
+            $seriesQuery->where('rdp_record_series.recorded_at_office', $this->officeFilter);
+        }
+
+        $allRawSeries = $seriesQuery
+            ->orderByRaw('item_number ASC NULLS LAST, series_title ASC')
+            ->get();
+
+        $allSeriesMap = [];
+        foreach ($allRawSeries as $s) {
+            $allSeriesMap[$s->id] = $s;
+        }
+
+        // 2. Fetch Records with Period Covered
+        $recordQuery = DB::table('rdp_record')
+            ->leftJoin('rdp_period_covered', 'rdp_record.id', '=', 'rdp_period_covered.period_owner')
+            ->where('rdp_record.is_active', true)
+            ->select([
+                'rdp_record.*',
+                'rdp_period_covered.date_covered',
+                'rdp_period_covered.date_covered_end',
+                'rdp_period_covered.volume as period_volume',
+                'rdp_period_covered.id as period_id',
+            ]);
+
+        $seriesIds = $allRawSeries->pluck('id')->all();
+        if (empty($seriesIds)) {
+            $allRawRecords = collect();
+        } else {
+            $recordQuery->whereIn('rdp_record.record_series_id', $seriesIds);
+
+        if (!empty($this->mediumFilter)) {
+            $recordQuery->where('rdp_record.records_medium', $this->mediumFilter);
+        }
+
+        if (!empty($this->dateFrom)) {
+            $recordQuery->where(function($q) {
+                $q->where('rdp_period_covered.date_covered', '>=', $this->dateFrom)
+                  ->orWhere('rdp_period_covered.date_covered_end', '>=', $this->dateFrom);
+            });
+        }
+        if (!empty($this->dateTo)) {
+            $recordQuery->where(function($q) {
+                $q->where('rdp_period_covered.date_covered', '<=', $this->dateTo)
+                  ->orWhere('rdp_period_covered.date_covered_end', '<=', $this->dateTo);
+            });
+        }
+
+        if (!empty($this->search)) {
+            $this->applySearchFilter($recordQuery, [
+                'rdp_record.description',
+                'rdp_record.records_location',
+                'rdp_period_covered.date_covered',
+                'rdp_period_covered.date_covered_end',
+            ]);
+        }
+
+            $allRawRecords = $recordQuery->get();
+        }
+
+        // Fetch revision and disposal markers
+        $revisedRecordIds = [];
+        if (Schema::hasTable('rdp_revised_records')) {
+            $revisedRecordIds = DB::table('rdp_revised_records')->pluck('record_id', 'record_id')->all();
+        }
+
+        // Count totals for Status Pills
+        $statusCounts = [
+            'all'         => 0,
+            'active'      => 0,
+            'revised'     => 0,
+            'disposed'    => 0,
+            'pending_rds' => 0,
+            'expired'     => 0,
+        ];
+
+        // Group records by series_id
+        $recordsBySeries = [];
+        foreach ($allRawRecords as $r) {
+            $sId = (int)$r->record_series_id;
+            $parentSeries = $allSeriesMap[$sId] ?? null;
+            $eff = $parentSeries ? $this->resolveEffectiveRetention($allSeriesMap, $parentSeries) : (object)[
+                'active_period' => null,
+                'storage_period' => null,
+                'total_period' => null,
+                'is_retention_period_permanent' => false,
+            ];
+
+            // Evaluate lifecycle status
+            $isRevised = isset($revisedRecordIds[$r->id]);
+            if (!$isRevised) {
+                $dLow = mb_strtolower((string)$r->description);
+                if (str_contains($dLow, '[revised]') || str_contains($dLow, '(revised)') || preg_match('/\b(revised|superseded)\b/i', $dLow)) {
+                    $isRevised = true;
+                }
+            }
+
+            $isExpired = \App\Services\RdpRetentionService::isPeriodExpired(
+                $r->date_covered,
+                $r->date_covered_end,
+                $eff->total_period,
+                $eff->active_period,
+                $eff->storage_period,
+                $eff->is_retention_period_permanent
+            );
+            $isTransferred = (bool)($r->transferred_to_nap3 ?? false);
+
+            if ($isRevised) {
+                $status = 'revised';
+            } elseif ($isTransferred) {
+                $status = 'disposed';
+            } elseif ($isExpired) {
+                $status = 'expired';
+            } elseif ($parentSeries && (!(bool)($parentSeries->is_verified ?? false))) {
+                $status = 'pending_rds';
+            } else {
+                $status = 'active';
+            }
+
+            $r->status = $status;
+            $r->medium = !empty($r->records_medium) ? ($mediumsMap[$r->records_medium] ?? (string)$r->records_medium) : '—';
+            $r->location = $r->records_location ?: '—';
+            $r->volume = $r->period_volume ?: ($r->volume ?: '—');
+
+            // Apply Status Filter if specific status is selected
+            if ($this->statusFilter !== 'all' && $this->statusFilter !== $status) {
+                continue;
+            }
+
+            // Apply Retention Filter (Permanent vs Temporary)
+            if ($this->retentionFilter === 'permanent' && !($eff->is_retention_period_permanent || strtolower(trim((string)$eff->total_period)) === 'permanent')) {
+                continue;
+            } elseif ($this->retentionFilter === 'temporary' && ($eff->is_retention_period_permanent || strtolower(trim((string)$eff->total_period)) === 'permanent')) {
+                continue;
+            }
+
+            $recordsBySeries[$sId][] = $r;
+
+            // Increment status pill counts
+            $statusCounts['all']++;
+            if (isset($statusCounts[$status])) {
+                $statusCounts[$status]++;
+            }
+        }
+
+        // 3. Assemble Hierarchical Tree
+        $rootSeries = [];
+        $childSeriesByParent = [];
+
+        foreach ($allRawSeries as $s) {
+            $eff = $this->resolveEffectiveRetention($allSeriesMap, $s);
+            $s->effective_active = $eff->active_period;
+            $s->effective_storage = $eff->storage_period;
+            $s->effective_total = $eff->total_period;
+            $s->is_retention_period_permanent = $eff->is_retention_period_permanent;
+
+            $sRecords = $recordsBySeries[$s->id] ?? [];
+            $s->direct_records = $sRecords;
+            $s->total_records_count = count($sRecords);
+
+            // Inherit lifecycle badge for series level
+            if (!(bool)($s->is_verified ?? false)) {
+                $s->lifecycle_status = 'pending_rds';
+            } else {
+                $s->lifecycle_status = 'active';
+            }
+
+            // Summarized metadata
+            $pCovered = [];
+            $pVols = [];
+            $pMeds = [];
+            $pLocs = [];
+            $pRestr = [];
+
+            foreach ($sRecords as $rec) {
+                if (!empty($rec->date_covered)) $pCovered[] = $rec->date_covered;
+                if (!empty($rec->volume) && $rec->volume !== '—') $pVols[] = $rec->volume;
+                if (!empty($rec->medium) && $rec->medium !== '—') $pMeds[] = $rec->medium;
+                if (!empty($rec->location) && $rec->location !== '—') $pLocs[] = $rec->location;
+                if (!empty($rec->restriction) && $rec->restriction !== '—') $pRestr[] = $rec->restriction;
+            }
+
+            $s->compiled_period = !empty($pCovered) ? (min($pCovered) . (max($pCovered) !== min($pCovered) ? ' - ' . max($pCovered) : '')) : '—';
+            $s->compiled_volume = $this->compileVolume($pVols) ?: '—';
+            $s->compiled_medium = !empty($pMeds) ? implode(', ', array_unique($pMeds)) : '—';
+            $s->compiled_location = !empty($pLocs) ? implode(', ', array_unique($pLocs)) : '—';
+            $s->compiled_restriction = !empty($pRestr) ? implode(', ', array_unique($pRestr)) : '—';
+
+            if (empty($s->parent_id)) {
+                $rootSeries[] = $s;
+            } else {
+                $childSeriesByParent[(int)$s->parent_id][] = $s;
+            }
+        }
+
+        $hierarchyTree = [];
+        foreach ($rootSeries as $root) {
+            $children = $childSeriesByParent[$root->id] ?? [];
+            $root->children = $children;
+            $root->has_children = !empty($children);
+
+            // Compute total child records across root and sub-series
+            $childRecCount = $root->total_records_count;
+            foreach ($children as $c) {
+                $childRecCount += $c->total_records_count;
+            }
+            $root->aggregate_records_count = $childRecCount;
+
+            // If search/filter active, hide empty series branches
+            $hasContent = $childRecCount > 0 || (empty($this->search) && $this->statusFilter === 'all' && $this->retentionFilter === 'all');
+            if ($hasContent) {
+                $hierarchyTree[] = $root;
+            }
+        }
+
+        return [
+            'hierarchyTree'    => $hierarchyTree,
+            'statusCounts'     => $statusCounts,
+            'officesList'      => $officesList,
+            'mediumsList'      => $mediumsList,
+            'isSadm'           => $isSadm,
+            'userOfficeCode'   => $userOfficeCode,
+        ];
+    }
+};
+?>
+
+@push('styles')
+    @vite(['resources/css/admin/console.css'])
+    <style>
+        .ml-container {
+            padding: 24px;
+            min-height: 100vh;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+
+        /* Top Status Pills Bar */
+        .ml-pills-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .ml-pill-btn {
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            color: #475569;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 11.5px;
+            font-weight: 700;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.15s ease-in-out;
+        }
+
+        .ml-pill-btn:hover {
+            border-color: #94a3b8;
+            color: #0f172a;
+            background: #f8fafc;
+        }
+
+        .ml-pill-btn.is-active {
+            background: #0f172a;
+            border-color: #0f172a;
+            color: #ffffff;
+            box-shadow: 0 2px 4px rgba(15, 23, 42, 0.15);
+        }
+
+        .ml-pill-count {
+            background: rgba(0, 0, 0, 0.08);
+            color: inherit;
+            padding: 2px 7px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 800;
+        }
+
+        .ml-pill-btn.is-active .ml-pill-count {
+            background: rgba(255, 255, 255, 0.25);
+            color: #ffffff;
+        }
+
+        /* Slide-Out Filter Drawer */
+        .ml-drawer-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(3px);
+            z-index: 9998;
+            transition: opacity 0.2s ease;
+        }
+
+        .ml-drawer-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 360px;
+            max-width: 90vw;
+            height: 100vh;
+            background: #ffffff;
+            z-index: 9999;
+            box-shadow: -10px 0 30px rgba(0, 0, 0, 0.15);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .ml-drawer-head {
+            padding: 20px 24px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .ml-drawer-body {
+            padding: 24px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            flex-grow: 1;
+        }
+
+        .ml-drawer-foot {
+            padding: 18px 24px;
+            border-top: 1px solid #e2e8f0;
+            background: #f8fafc;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .ml-filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .ml-filter-group label {
+            font-size: 12px;
+            font-weight: 700;
+            color: #334155;
+            letter-spacing: 0.3px;
+        }
+
+        /* Table Styling with Sticky Anchors */
+        .ml-table-wrap {
+            position: relative;
+            max-height: 75vh;
+            overflow: auto;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            background: #ffffff;
+        }
+
+        .ml-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 12px;
+            color: #0f172a;
+        }
+
+        .ml-table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: #0f172a;
+            color: #f8fafc;
+            padding: 10px 12px;
+            font-weight: 700;
+            font-size: 11px;
+            letter-spacing: 0.4px;
+            text-align: left;
+            border-bottom: 2px solid #334155;
+            white-space: nowrap;
+        }
+
+        .ml-table th.col-sticky-1,
+        .ml-table td.col-sticky-1 {
+            position: sticky;
+            left: 0;
+            z-index: 12;
+            width: 110px;
+            min-width: 110px;
+        }
+
+        .ml-table th.col-sticky-2,
+        .ml-table td.col-sticky-2 {
+            position: sticky;
+            left: 110px;
+            z-index: 12;
+            min-width: 260px;
+        }
+
+        .ml-table tbody td.col-sticky-1,
+        .ml-table tbody td.col-sticky-2 {
+            background-color: inherit;
+        }
+
+        .ml-table thead th.col-sticky-1,
+        .ml-table thead th.col-sticky-2 {
+            z-index: 15;
+            background: #0f172a;
+        }
+
+        /* Row Footprints */
+        .root-series-row {
+            background: #f8fafc;
+            font-weight: 800;
+            border-top: 2px solid #cbd5e1 !important;
+            border-bottom: 2px solid #cbd5e1 !important;
+        }
+
+        .sub-series-row {
+            background: #ffffff;
+            font-weight: 700;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .record-item-row {
+            background: #fafafa;
+            transition: background 0.15s ease;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .record-item-row:hover {
+            background: #f1f5f9;
+        }
+
+        /* Darkened Footprint for Disposed & Revised */
+        .record-item-row.is-disposed {
+            background: #94a3b8 !important;
+        }
+        .record-item-row.is-disposed td {
+            color: #0f172a !important;
+            font-weight: 500;
+            border-color: #64748b !important;
+        }
+
+        .record-item-row.is-revised {
+            background: #cbd5e1 !important;
+        }
+        .record-item-row.is-revised td {
+            color: #0f172a !important;
+            font-weight: 500;
+            border-color: #94a3b8 !important;
+        }
+
+        /* Badges */
+        .ml-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.3px;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .ml-badge-active { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+        .ml-badge-revised { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+        .ml-badge-disposed { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+        .ml-badge-pending { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+        .ml-badge-expired { background: #fef2f2; color: #991b1b; border: 1px solid #f87171; }
+
+        /* Clamped Text */
+        .ml-text-clamp {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.35;
+        }
+
+        /* Dark Mode Overrides */
+        [data-theme="dark"] .ml-table-wrap { background: #131c2e !important; border-color: #1e293b !important; }
+        [data-theme="dark"] .ml-table { color: #cbd5e1 !important; }
+        [data-theme="dark"] .ml-table thead th { background: #0b1120 !important; color: #f8fafc !important; border-color: #1e293b !important; }
+        [data-theme="dark"] .root-series-row { background: #1a253c !important; }
+        [data-theme="dark"] .sub-series-row { background: #131c2e !important; }
+        [data-theme="dark"] .record-item-row { background: #0f172a !important; }
+        [data-theme="dark"] .record-item-row:hover { background: #1e293b !important; }
+        [data-theme="dark"] .ml-drawer-panel { background: #131c2e !important; color: #f8fafc !important; }
+        [data-theme="dark"] .ml-drawer-head, [data-theme="dark"] .ml-drawer-foot { background: #0f172a !important; border-color: #1e293b !important; }
+    </style>
+@endpush
+
+<div class="ml-container" 
+     x-data="{
+        drawerOpen: false,
+        collapsedRoots: {},
+        allRootsCollapsed: false,
+        collapsedSubs: {},
+        allSubsCollapsed: false,
+
+        toggleRoot(key) {
+            this.collapsedRoots[key] = !this.isRootCollapsed(key);
+        },
+        isRootCollapsed(key) {
+            if ($wire.search && $wire.search.trim().length > 0) return false;
+            if (this.collapsedRoots[key] !== undefined) return this.collapsedRoots[key];
+            return this.allRootsCollapsed;
+        },
+        toggleSub(key) {
+            this.collapsedSubs[key] = !this.isSubCollapsed(key);
+        },
+        isSubCollapsed(key) {
+            if ($wire.search && $wire.search.trim().length > 0) return false;
+            if (this.collapsedSubs[key] !== undefined) return this.collapsedSubs[key];
+            return this.allSubsCollapsed;
+        },
+        collapseAll() {
+            this.allRootsCollapsed = true;
+            this.allSubsCollapsed = true;
+            this.collapsedRoots = {};
+            this.collapsedSubs = {};
+        },
+        expandAll() {
+            this.allRootsCollapsed = false;
+            this.allSubsCollapsed = false;
+            this.collapsedRoots = {};
+            this.collapsedSubs = {};
+        }
+     }">
+
+    <!-- Page Header (NAP Form Baseline Design) -->
+    <div class="nap-page-header">
+        <div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+                <h1 class="nap-page-title">Master Records Lifecycle</h1>
+                <span class="nap-badge" style="background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; font-size: 11px; padding: 3px 10px; border-radius: 9999px; font-weight: 800;">
+                    GENERAL MATRIX
+                </span>
+            </div>
+            <p class="nap-page-subtitle">Consolidated inventory matrix generalizing NAP Forms 1 to 3 with complete historical tracking of active, revised, and disposed records.</p>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <button type="button" 
+                    wire:click="exportCsv" 
+                    class="nap-btn nap-btn-secondary" 
+                    style="display: inline-flex; align-items: center; gap: 6px;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span>Export CSV</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Card -->
+    <div class="nap-card">
+        <!-- Top Toolbar & Status Pills Bar (DCS Database Concept) -->
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px;">
+            <!-- Status Pills (Left) -->
+            <div class="ml-pills-wrap">
+                <button type="button" 
+                        class="ml-pill-btn {{ $statusFilter === 'all' ? 'is-active' : '' }}" 
+                        wire:click="setStatusFilter('all')">
+                    <span>ALL</span>
+                    <span class="ml-pill-count">{{ $statusCounts['all'] }}</span>
+                </button>
+                <button type="button" 
+                        class="ml-pill-btn {{ $statusFilter === 'active' ? 'is-active' : '' }}" 
+                        wire:click="setStatusFilter('active')">
+                    <span style="color: #16a34a; font-weight: 900;">●</span>
+                    <span>ACTIVE</span>
+                    <span class="ml-pill-count">{{ $statusCounts['active'] }}</span>
+                </button>
+                <button type="button" 
+                        class="ml-pill-btn {{ $statusFilter === 'revised' ? 'is-active' : '' }}" 
+                        wire:click="setStatusFilter('revised')">
+                    <span style="color: #d97706; font-weight: 900;">●</span>
+                    <span>REVISED</span>
+                    <span class="ml-pill-count">{{ $statusCounts['revised'] }}</span>
+                </button>
+                <button type="button" 
+                        class="ml-pill-btn {{ $statusFilter === 'disposed' ? 'is-active' : '' }}" 
+                        wire:click="setStatusFilter('disposed')">
+                    <span style="color: #dc2626; font-weight: 900;">●</span>
+                    <span>DISPOSED</span>
+                    <span class="ml-pill-count">{{ $statusCounts['disposed'] }}</span>
+                </button>
+                <button type="button" 
+                        class="ml-pill-btn {{ $statusFilter === 'pending_rds' ? 'is-active' : '' }}" 
+                        wire:click="setStatusFilter('pending_rds')">
+                    <span style="color: #2563eb; font-weight: 900;">●</span>
+                    <span>PENDING RDS</span>
+                    <span class="ml-pill-count">{{ $statusCounts['pending_rds'] }}</span>
+                </button>
+                <button type="button" 
+                        class="ml-pill-btn {{ $statusFilter === 'expired' ? 'is-active' : '' }}" 
+                        wire:click="setStatusFilter('expired')">
+                    <span style="color: #991b1b; font-weight: 900;">●</span>
+                    <span>EXPIRED</span>
+                    <span class="ml-pill-count">{{ $statusCounts['expired'] }}</span>
+                </button>
+            </div>
+
+            <!-- Search & Actions (Right) -->
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <input type="text" 
+                       wire:model.live.debounce.350ms="search" 
+                       placeholder="Search series, description, remarks..." 
+                       class="nap-input nap-search-input" 
+                       style="min-width: 260px;">
+
+                <!-- Expand / Collapse All Toggle -->
+                <button type="button" 
+                        @click="allRootsCollapsed ? expandAll() : collapseAll()" 
+                        class="nap-btn nap-btn-secondary" 
+                        style="padding: 8px 12px; font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" x-show="!allRootsCollapsed"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" x-show="allRootsCollapsed" x-cloak><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                    <span x-text="allRootsCollapsed ? 'Expand All' : 'Collapse All'"></span>
+                </button>
+
+                <!-- Filter Drawer Trigger Button -->
+                <button type="button" 
+                        @click="drawerOpen = true" 
+                        class="nap-btn nap-btn-secondary" 
+                        style="position: relative; display: inline-flex; align-items: center; gap: 6px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                    <span>Filters</span>
+                    @if($retentionFilter !== 'all' || !empty($mediumFilter) || !empty($dateFrom) || !empty($dateTo) || ($isSadm && !empty($officeFilter)))
+                        <span style="position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; background: #2563eb; border-radius: 50%;" title="Active filters applied"></span>
+                    @endif
+                </button>
+
+                @if(!empty($search) || $statusFilter !== 'all' || $retentionFilter !== 'all' || !empty($mediumFilter) || !empty($dateFrom) || !empty($dateTo) || ($isSadm && !empty($officeFilter)))
+                    <button type="button" 
+                            wire:click="clearFilters" 
+                            class="nap-btn nap-btn-secondary" 
+                            style="color: #dc2626; border-color: #fca5a5;">
+                        Reset
+                    </button>
+                @endif
+            </div>
+        </div>
+
+        <!-- Table Container with Sticky Anchors -->
+        <div class="ml-table-wrap">
+            <table class="ml-table">
+                <thead>
+                    <tr>
+                        <th class="col-sticky-1">ITEM NO.</th>
+                        <th class="col-sticky-2">RECORD SERIES TITLE & DESCRIPTION</th>
+                        <th style="min-width: 130px;">PERIOD COVERED</th>
+                        <th style="min-width: 90px;">VOLUME</th>
+                        <th style="min-width: 100px;">MEDIUM</th>
+                        <th style="min-width: 110px;">RESTRICTIONS</th>
+                        <th style="min-width: 140px;">LOCATION</th>
+                        <th style="min-width: 75px; text-align: center;">ACTIVE</th>
+                        <th style="min-width: 75px; text-align: center;">STORAGE</th>
+                        <th style="min-width: 80px; text-align: center;">TOTAL</th>
+                        <th style="min-width: 120px; text-align: center;">STATUS</th>
+                        <th style="min-width: 90px; text-align: center;">OFFICE</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($hierarchyTree as $root)
+                        <!-- ROOT SERIES ROW -->
+                        <tr class="root-series-row" style="cursor: pointer;" @click="toggleRoot('root-{{ $root->id }}')">
+                            <td class="col-sticky-1" style="font-weight: 800; text-align: center;">
+                                <div style="display: flex; align-items: center; justify-content: center; gap: 6px;">
+                                    <button type="button" class="nap-chevron-btn" style="padding: 2px;" title="Toggle Root Series">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                                             :style="isRootCollapsed('root-{{ $root->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'">
+                                            <polyline points="6 9 12 15 18 9"></polyline>
+                                        </svg>
+                                    </button>
+                                    <span>{{ $root->item_number ?: '—' }}</span>
+                                </div>
+                            </td>
+                            <td class="col-sticky-2">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-weight: 800; color: #0f172a; font-size: 13px;">{{ strtoupper($root->series_title) }}</span>
+                                    <span style="font-size: 10.5px; background: #e2e8f0; color: #334155; padding: 2px 7px; border-radius: 12px; font-weight: 700;">
+                                        {{ $root->aggregate_records_count }} {{ $root->aggregate_records_count === 1 ? 'item' : 'items' }}
+                                    </span>
+                                </div>
+                                @if(!empty($root->remarks))
+                                    <div class="ml-text-clamp" style="font-size: 11px; color: #64748b; margin-top: 2px;" title="{{ $root->remarks }}">
+                                        {{ $root->remarks }}
+                                    </div>
+                                @endif
+                            </td>
+                            <td>{{ $root->compiled_period }}</td>
+                            <td>{{ $root->compiled_volume }}</td>
+                            <td>{{ $root->compiled_medium }}</td>
+                            <td>{{ $root->compiled_restriction }}</td>
+                            <td>
+                                <div class="ml-text-clamp" title="{{ $root->compiled_location }}">{{ $root->compiled_location }}</div>
+                            </td>
+                            <td style="text-align: center;">{{ $root->effective_active ?: '—' }}</td>
+                            <td style="text-align: center;">{{ $root->effective_storage ?: '—' }}</td>
+                            <td style="text-align: center; font-weight: 800;">
+                                {{ $root->is_retention_period_permanent ? 'PERMANENT' : ($root->effective_total ?: '—') }}
+                            </td>
+                            <td style="text-align: center;">
+                                @if($root->lifecycle_status === 'pending_rds')
+                                    <span class="ml-badge ml-badge-pending">Pending RDS</span>
+                                @else
+                                    <span class="ml-badge ml-badge-active">Active</span>
+                                @endif
+                            </td>
+                            <td style="text-align: center; font-weight: 700;">{{ $root->recorded_at_office ?: 'ALL' }}</td>
+                        </tr>
+
+                        <!-- DIRECT RECORDS (Under Root) -->
+                        @if(!empty($root->direct_records))
+                            @foreach($root->direct_records as $rec)
+                                <tr class="record-item-row {{ $rec->status === 'disposed' ? 'is-disposed' : ($rec->status === 'revised' ? 'is-revised' : '') }}" 
+                                    x-show="!isRootCollapsed('root-{{ $root->id }}')">
+                                    <td class="col-sticky-1" style="text-align: center; font-size: 11px; color: #64748b;">
+                                        ↳
+                                    </td>
+                                    <td class="col-sticky-2" style="padding-left: 32px;">
+                                        <div style="font-weight: 600; color: #0f172a; font-size: 12px;">{{ $rec->description }}</div>
+                                    </td>
+                                    <td>{{ $rec->date_covered ?: '—' }}</td>
+                                    <td>{{ $rec->volume ?: '—' }}</td>
+                                    <td>{{ $rec->medium ?: '—' }}</td>
+                                    <td>{{ $rec->restriction ?: '—' }}</td>
+                                    <td>
+                                        <div class="ml-text-clamp" title="{{ $rec->location }}">{{ $rec->location }}</div>
+                                    </td>
+                                    <td style="text-align: center;">{{ $root->effective_active ?: '—' }}</td>
+                                    <td style="text-align: center;">{{ $root->effective_storage ?: '—' }}</td>
+                                    <td style="text-align: center;">{{ $root->is_retention_period_permanent ? 'PERMANENT' : ($root->effective_total ?: '—') }}</td>
+                                    <td style="text-align: center;">
+                                        @if($rec->status === 'revised')
+                                            <span class="ml-badge ml-badge-revised">Revised</span>
+                                        @elseif($rec->status === 'disposed')
+                                            <span class="ml-badge ml-badge-disposed">Disposed</span>
+                                        @elseif($rec->status === 'expired')
+                                            <span class="ml-badge ml-badge-expired">Expired</span>
+                                        @elseif($rec->status === 'pending_rds')
+                                            <span class="ml-badge ml-badge-pending">Pending RDS</span>
+                                        @else
+                                            <span class="ml-badge ml-badge-active">Active</span>
+                                        @endif
+                                    </td>
+                                    <td style="text-align: center; font-size: 11px;">{{ $root->recorded_at_office ?: 'ALL' }}</td>
+                                </tr>
+                            @endforeach
+                        @endif
+
+                        <!-- SUB-SERIES ROWS -->
+                        @if(!empty($root->children))
+                            @foreach($root->children as $sub)
+                                <tr class="sub-series-row" 
+                                    x-show="!isRootCollapsed('root-{{ $root->id }}')" 
+                                    style="cursor: pointer;" 
+                                    @click="toggleSub('sub-{{ $sub->id }}')">
+                                    <td class="col-sticky-1" style="text-align: center; font-weight: 700; padding-left: 18px;">
+                                        <div style="display: flex; align-items: center; justify-content: center; gap: 4px;">
+                                            <button type="button" class="nap-chevron-btn" style="padding: 2px;" title="Toggle Sub-Series">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                                                     :style="isSubCollapsed('sub-{{ $sub->id }}') ? 'transform: rotate(-90deg);' : 'transform: rotate(0deg);'">
+                                                    <polyline points="6 9 12 15 18 9"></polyline>
+                                                </svg>
+                                            </button>
+                                            <span>{{ $sub->item_number ?: '—' }}</span>
+                                        </div>
+                                    </td>
+                                    <td class="col-sticky-2" style="padding-left: 24px;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <span style="font-weight: 700; color: #1e293b;">{{ $sub->series_title }}</span>
+                                            <span style="font-size: 10px; background: #f1f5f9; color: #475569; padding: 1px 6px; border-radius: 10px;">
+                                                {{ $sub->total_records_count }}
+                                            </span>
+                                        </div>
+                                        @if(!empty($sub->remarks))
+                                            <div class="ml-text-clamp" style="font-size: 11px; color: #64748b; margin-top: 1px;" title="{{ $sub->remarks }}">
+                                                {{ $sub->remarks }}
+                                            </div>
+                                        @endif
+                                    </td>
+                                    <td>{{ $sub->compiled_period }}</td>
+                                    <td>{{ $sub->compiled_volume }}</td>
+                                    <td>{{ $sub->compiled_medium }}</td>
+                                    <td>{{ $sub->compiled_restriction }}</td>
+                                    <td>
+                                        <div class="ml-text-clamp" title="{{ $sub->compiled_location }}">{{ $sub->compiled_location }}</div>
+                                    </td>
+                                    <td style="text-align: center;">{{ $sub->effective_active ?: '—' }}</td>
+                                    <td style="text-align: center;">{{ $sub->effective_storage ?: '—' }}</td>
+                                    <td style="text-align: center; font-weight: 700;">
+                                        {{ $sub->is_retention_period_permanent ? 'PERMANENT' : ($sub->effective_total ?: '—') }}
+                                    </td>
+                                    <td style="text-align: center;">
+                                        @if($sub->lifecycle_status === 'pending_rds')
+                                            <span class="ml-badge ml-badge-pending">Pending RDS</span>
+                                        @else
+                                            <span class="ml-badge ml-badge-active">Active</span>
+                                        @endif
+                                    </td>
+                                    <td style="text-align: center; font-size: 11px;">{{ $sub->recorded_at_office ?: 'ALL' }}</td>
+                                </tr>
+
+                                <!-- RECORDS UNDER SUB-SERIES -->
+                                @if(!empty($sub->records))
+                                    @foreach($sub->records as $sRec)
+                                        <tr class="record-item-row {{ $sRec->status === 'disposed' ? 'is-disposed' : ($sRec->status === 'revised' ? 'is-revised' : '') }}" 
+                                            x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubCollapsed('sub-{{ $sub->id }}')">
+                                            <td class="col-sticky-1" style="text-align: center; font-size: 11px; color: #64748b;">
+                                                ↳
+                                            </td>
+                                            <td class="col-sticky-2" style="padding-left: 44px;">
+                                                <div style="font-weight: 500; color: #0f172a; font-size: 12px;">{{ $sRec->description }}</div>
+                                            </td>
+                                            <td>{{ $sRec->date_covered ?: '—' }}</td>
+                                            <td>{{ $sRec->volume ?: '—' }}</td>
+                                            <td>{{ $sRec->medium ?: '—' }}</td>
+                                            <td>{{ $sRec->restriction ?: '—' }}</td>
+                                            <td>
+                                                <div class="ml-text-clamp" title="{{ $sRec->location }}">{{ $sRec->location }}</div>
+                                            </td>
+                                            <td style="text-align: center;">{{ $sub->effective_active ?: '—' }}</td>
+                                            <td style="text-align: center;">{{ $sub->effective_storage ?: '—' }}</td>
+                                            <td style="text-align: center;">{{ $sub->is_retention_period_permanent ? 'PERMANENT' : ($sub->effective_total ?: '—') }}</td>
+                                            <td style="text-align: center;">
+                                                @if($sRec->status === 'revised')
+                                                    <span class="ml-badge ml-badge-revised">Revised</span>
+                                                @elseif($sRec->status === 'disposed')
+                                                    <span class="ml-badge ml-badge-disposed">Disposed</span>
+                                                @elseif($sRec->status === 'expired')
+                                                    <span class="ml-badge ml-badge-expired">Expired</span>
+                                                @elseif($sRec->status === 'pending_rds')
+                                                    <span class="ml-badge ml-badge-pending">Pending RDS</span>
+                                                @else
+                                                    <span class="ml-badge ml-badge-active">Active</span>
+                                                @endif
+                                            </td>
+                                            <td style="text-align: center; font-size: 11px;">{{ $sub->recorded_at_office ?: 'ALL' }}</td>
+                                        </tr>
+                                    @endforeach
+                                @endif
+                            @endforeach
+                        @endif
+                    @empty
+                        <tr>
+                            <td colspan="12" style="padding: 48px; text-align: center; color: #64748b;">
+                                <div style="font-size: 14px; font-weight: 700; color: #334155; margin-bottom: 4px;">No records match your criteria.</div>
+                                <div style="font-size: 12px;">Try adjusting your search query, status pills, or drawer filters.</div>
+                            </td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Slide-Out Filter Drawer (Offcanvas Concept from DCS Database) -->
+    <div class="ml-drawer-overlay" x-show="drawerOpen" x-cloak @click="drawerOpen = false"></div>
+    <aside class="ml-drawer-panel" x-show="drawerOpen" x-cloak :style="drawerOpen ? 'transform: translateX(0);' : 'transform: translateX(100%);'">
+        <div class="ml-drawer-head">
+            <div style="font-size: 15px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 8px;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                <span>Filter Matrix</span>
+            </div>
+            <button type="button" @click="drawerOpen = false" style="background: none; border: none; font-size: 20px; cursor: pointer; color: #64748b;">&times;</button>
+        </div>
+
+        <div class="ml-drawer-body">
+            @if($isSadm)
+                <div class="ml-filter-group">
+                    <label>Recorded Office</label>
+                    <select wire:model.live="officeFilter" class="nap-input nap-select-input" style="width: 100%;">
+                        <option value="">All Offices (Super Admin)</option>
+                        @foreach($officesList as $off)
+                            <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
+                        @endforeach
+                    </select>
+                </div>
+            @else
+                <div class="ml-filter-group">
+                    <label>Recorded Office</label>
+                    <div style="padding: 8px 12px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12.5px; font-weight: 700; color: #1e293b;">
+                        Office: {{ $userOfficeCode ?? 'N/A' }}
+                    </div>
+                </div>
+            @endif
+
+            <div class="ml-filter-group">
+                <label>Retention Classification</label>
+                <select wire:model.live="retentionFilter" class="nap-input nap-select-input" style="width: 100%;">
+                    <option value="all">All Retention Types</option>
+                    <option value="permanent">Permanent Retention Only</option>
+                    <option value="temporary">Temporary Retention Only</option>
+                </select>
+            </div>
+
+            <div class="ml-filter-group">
+                <label>Records Medium</label>
+                <select wire:model.live="mediumFilter" class="nap-input nap-select-input" style="width: 100%;">
+                    <option value="">All Mediums</option>
+                    @foreach($mediumsList as $med)
+                        <option value="{{ $med->id }}">{{ $med->medium_name }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div class="ml-filter-group">
+                <label>Date Covered From</label>
+                <input type="text" wire:model.live.debounce.300ms="dateFrom" placeholder="e.g. 2020 or 2020-01-01" class="nap-input" style="width: 100%;">
+            </div>
+
+            <div class="ml-filter-group">
+                <label>Date Covered To</label>
+                <input type="text" wire:model.live.debounce.300ms="dateTo" placeholder="e.g. 2024 or 2024-12-31" class="nap-input" style="width: 100%;">
+            </div>
+        </div>
+
+        <div class="ml-drawer-foot">
+            <button type="button" wire:click="clearFilters" @click="drawerOpen = false" class="nap-btn nap-btn-secondary">Reset</button>
+            <button type="button" @click="drawerOpen = false" class="nap-btn nap-btn-primary">Apply Filters</button>
+        </div>
+    </aside>
+</div>

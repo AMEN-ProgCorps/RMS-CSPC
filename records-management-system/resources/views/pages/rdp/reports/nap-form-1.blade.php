@@ -1694,8 +1694,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
 
         if ($allRecords->isEmpty()) {
             return [
-                'hierarchyTree'      => [],
-                'officesList'        => $officesList,
+                'hierarchyTree'          => [],
+                'allSelectableRecordIds' => [],
+                'officesList'            => $officesList,
                 'totalItemsCount'    => 0,
                 'permanentCount'     => 0,
                 'temporaryCount'     => 0,
@@ -2023,9 +2024,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             $tree[] = $rootNode;
         }
 
+        $allSelectableRecordIds = [];
+        foreach ($tree as $rNode) {
+            if (!empty($rNode->selectable_record_ids)) {
+                $allSelectableRecordIds = array_merge($allSelectableRecordIds, $rNode->selectable_record_ids);
+            }
+        }
+        $allSelectableRecordIds = array_values(array_unique(array_map('strval', $allSelectableRecordIds)));
+
         return [
-            'hierarchyTree'    => $tree,
-            'officesList'      => $officesList,
+            'hierarchyTree'          => $tree,
+            'allSelectableRecordIds' => $allSelectableRecordIds,
+            'officesList'            => $officesList,
             'totalItemsCount'  => $totalItemsCount,
             'permanentCount'   => $permanentCount,
             'temporaryCount'   => $temporaryCount,
@@ -2055,7 +2065,100 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     @vite(['resources/css/admin/console.css'])
 @endpush
 
-<div class="nap-page-container" style="padding: 24px; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+<div class="nap-page-container" 
+     x-data="{
+        printModalOpen: @json($showPrintModal),
+        selectedIds: @entangle('selectedIds'),
+        allSelectableIds: @js($allSelectableRecordIds ?? []),
+        collapsedSubjects: {},
+        allSubjectsCollapsed: false,
+        collapsedRoots: {},
+        allRootsCollapsed: false,
+
+        isSelected(id) {
+            return this.selectedIds.includes(String(id));
+        },
+        isSeriesSelected(childIds) {
+            if (!childIds || !childIds.length) return false;
+            const strIds = childIds.map(String);
+            return strIds.every(id => this.selectedIds.includes(id));
+        },
+        toggleSeries(childIds) {
+            if (!childIds || !childIds.length) return;
+            const strIds = childIds.map(String);
+            const allIn = strIds.every(id => this.selectedIds.includes(id));
+            if (allIn) {
+                this.selectedIds = this.selectedIds.filter(id => !strIds.includes(id));
+            } else {
+                const set = new Set([...this.selectedIds, ...strIds]);
+                this.selectedIds = Array.from(set);
+            }
+            if (this.$wire) {
+                this.$wire.set('selectedIds', this.selectedIds, false);
+            }
+        },
+        isAllSelected() {
+            if (!this.allSelectableIds || !this.allSelectableIds.length) return false;
+            return this.allSelectableIds.every(id => this.selectedIds.includes(id));
+        },
+        toggleSelectAll() {
+            if (this.isAllSelected()) {
+                this.selectedIds = [];
+            } else {
+                this.selectedIds = [...this.allSelectableIds];
+            }
+            if (this.$wire) {
+                this.$wire.set('selectedIds', this.selectedIds, false);
+            }
+        },
+        clearSelection() {
+            this.selectedIds = [];
+            if (this.$wire) {
+                this.$wire.set('selectedIds', [], false);
+            }
+        },
+        openPrintModal() {
+            if (this.$wire) {
+                this.$wire.set('selectedIds', this.selectedIds, false);
+                this.$wire.openPrintModal();
+            }
+            this.printModalOpen = true;
+        },
+        closePrintModal() {
+            this.printModalOpen = false;
+            if (this.$wire) {
+                this.$wire.set('showPrintModal', false, false);
+            }
+        },
+        toggleSubjects(key) {
+            this.collapsedSubjects[key] = !this.isSubjectsCollapsed(key);
+        },
+        isSubjectsCollapsed(key) {
+            if ($wire.search && $wire.search.trim().length > 0) return false;
+            if (this.collapsedSubjects[key] !== undefined) return this.collapsedSubjects[key];
+            return this.allSubjectsCollapsed;
+        },
+        toggleRoot(key) {
+            this.collapsedRoots[key] = !this.isRootCollapsed(key);
+        },
+        isRootCollapsed(key) {
+            if (this.collapsedRoots[key] !== undefined) return this.collapsedRoots[key];
+            return this.allRootsCollapsed;
+        },
+        collapseAll() {
+            this.allSubjectsCollapsed = true;
+            this.allRootsCollapsed = false;
+            this.collapsedSubjects = {};
+            this.collapsedRoots = {};
+        },
+        expandAll() {
+            this.allSubjectsCollapsed = false;
+            this.allRootsCollapsed = false;
+            this.collapsedSubjects = {};
+            this.collapsedRoots = {};
+        }
+     }"
+     style="padding: 24px; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
     <style>
         .nap-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); margin-bottom: 24px; }
         .nap-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; border: 1px solid #000; }
@@ -2317,11 +2420,18 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             <p class="nap-page-subtitle">Hierarchical inventory appraisal matrix and disposition schedule for National Archives of the Philippines.</p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <button type="button" wire:click="openPrintModal" class="nap-btn nap-btn-secondary">
+            <button type="button" 
+                    @click="openPrintModal()" 
+                    class="nap-btn nap-btn-secondary">
+                <span wire:loading wire:target="openPrintModal" style="display:inline-block; width:12px; height:12px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; margin-right:4px;"></span>
                 Print Preview
             </button>
-            <button type="button" wire:click="openClusterModal" class="nap-btn nap-btn-primary" {{ empty($selectedIds) ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : '' }}>
-                Create Form ({{ count($selectedIds) }})
+            <button type="button" 
+                    wire:click="openClusterModal" 
+                    class="nap-btn nap-btn-primary" 
+                    :disabled="selectedIds.length === 0" 
+                    :style="selectedIds.length === 0 ? 'opacity: 0.5; cursor: not-allowed;' : ''">
+                Create Form (<span x-text="selectedIds.length"></span>)
             </button>
         </div>
     </div>
@@ -2342,46 +2452,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
     @endif
 
     <!-- Filters & Table Card -->
-    <div class="nap-card" x-data="{
-        collapsedSubjects: {},
-        allSubjectsCollapsed: false,
-        collapsedRoots: {},
-        allRootsCollapsed: false,
-        
-        toggleSubjects(key) {
-            this.collapsedSubjects[key] = !this.isSubjectsCollapsed(key);
-        },
-        isSubjectsCollapsed(key) {
-            if ($wire.search && $wire.search.trim().length > 0) {
-                return false;
-            }
-            if (this.collapsedSubjects[key] !== undefined) {
-                return this.collapsedSubjects[key];
-            }
-            return this.allSubjectsCollapsed;
-        },
-        toggleRoot(key) {
-            this.collapsedRoots[key] = !this.isRootCollapsed(key);
-        },
-        isRootCollapsed(key) {
-            if (this.collapsedRoots[key] !== undefined) {
-                return this.collapsedRoots[key];
-            }
-            return this.allRootsCollapsed;
-        },
-        collapseAll() {
-            this.allSubjectsCollapsed = true;
-            this.allRootsCollapsed = false;
-            this.collapsedSubjects = {};
-            this.collapsedRoots = {};
-        },
-        expandAll() {
-            this.allSubjectsCollapsed = false;
-            this.allRootsCollapsed = false;
-            this.collapsedSubjects = {};
-            this.collapsedRoots = {};
-        }
-    }">
+    <div class="nap-card">
         <div style="display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 20px;">
             <div style="display: flex; gap: 12px; flex-wrap: wrap; flex: 1; align-items: center;">
                 <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search subject, volume, location..." class="nap-input nap-search-input">
@@ -2408,11 +2479,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     </div>
                 @endif
 
-                @if($search || $retentionFilter || ($isSadm && !empty($officeFilter) && $officeFilter !== $userOfficeCode) || count($selectedIds) > 0)
-                    <button type="button" wire:click="clearFilters" class="nap-btn nap-btn-secondary">
+                <template x-if="selectedIds.length > 0 || {{ ($search || $retentionFilter || ($isSadm && !empty($officeFilter) && $officeFilter !== $userOfficeCode)) ? 'true' : 'false' }}">
+                    <button type="button" @click="clearSelection()" wire:click="clearFilters" class="nap-btn nap-btn-secondary">
                         Reset Filters
                     </button>
-                @endif
+                </template>
 
                 <div style="display: inline-flex; gap: 8px; align-items: center; margin-left: 4px;">
                     <button type="button" @click="expandAll()" class="nap-btn nap-btn-secondary" style="padding: 7px 12px; font-size: 12px;" title="Expand all series to show subjects">
@@ -2430,11 +2501,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 </div>
             </div>
 
-            @if(count($selectedIds) > 0)
-                <div style="font-size: 13px; font-weight: 700; color: #2563eb;">
-                    {{ count($selectedIds) }} records selected
-                </div>
-            @endif
+            <div x-show="selectedIds.length > 0" x-cloak style="font-size: 13px; font-weight: 700; color: #2563eb;">
+                <span x-text="selectedIds.length"></span> records selected
+            </div>
         </div>
 
         <!-- MAIN HIERARCHICAL NAP FORM 1 TABLE -->
@@ -2444,7 +2513,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                     <tr>
                         <th rowspan="2" style="width: 56px; text-align: center; padding: 8px 4px;">
                             <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                <input type="checkbox" wire:model.live="selectAll" style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select / Deselect All">
+                                <input type="checkbox" 
+                                       :checked="isAllSelected()" 
+                                       @change="toggleSelectAll()" 
+                                       style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" 
+                                       title="Select / Deselect All">
                                 <span style="width: 20px; height: 20px; display: inline-block;"></span>
                             </div>
                         </th>
@@ -2477,20 +2550,26 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     @if(!$root->has_children)
                                         @if(!empty($root->selectable_record_ids))
                                             @php
-                                                $strIds = array_map('strval', $root->selectable_record_ids);
-                                                $isAllSelected = !empty($strIds) && count(array_intersect($strIds, $selectedIds)) === count($strIds);
+                                                $strIds = array_values(array_map('strval', $root->selectable_record_ids));
                                             @endphp
-                                            <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($root->selectable_record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select record series">
+                                            <input type="checkbox" 
+                                                   :checked="isSeriesSelected(@js($strIds))" 
+                                                   @click.stop="toggleSeries(@js($strIds))" 
+                                                   style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" 
+                                                   title="Select record series">
                                         @else
                                             <span style="width: 15px; display: inline-block;"></span>
                                         @endif
                                     @elseif($root->has_children)
                                         @if(!empty($root->selectable_record_ids))
                                             @php
-                                                $strRootIds = array_map('strval', $root->selectable_record_ids);
-                                                $isRootChecked = !empty($strRootIds) && count(array_intersect($strRootIds, $selectedIds)) === count($strRootIds);
+                                                $strRootIds = array_values(array_map('strval', $root->selectable_record_ids));
                                             @endphp
-                                            <input type="checkbox" wire:click="toggleSeriesSelection({{ $root->id }}, {{ json_encode($root->selectable_record_ids) }})" {{ $isRootChecked ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select record series group">
+                                            <input type="checkbox" 
+                                                   :checked="isSeriesSelected(@js($strRootIds))" 
+                                                   @click.stop="toggleSeries(@js($strRootIds))" 
+                                                   style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" 
+                                                   title="Select record series group">
                                         @else
                                             <span style="width: 15px; display: inline-block;"></span>
                                         @endif
@@ -2588,10 +2667,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
                                             @if(!empty($sub->selectable_record_ids))
                                                 @php
-                                                    $strIds = array_map('strval', $sub->selectable_record_ids);
-                                                    $isAllSelected = !empty($strIds) && count(array_intersect($strIds, $selectedIds)) === count($strIds);
+                                                    $strIds = array_values(array_map('strval', $sub->selectable_record_ids));
                                                 @endphp
-                                                <input type="checkbox" wire:click="toggleSeriesSelection({{ $sub->id }}, {{ json_encode($sub->selectable_record_ids) }})" {{ $isAllSelected ? 'checked' : '' }} style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select sub-series">
+                                                <input type="checkbox" 
+                                                       :checked="isSeriesSelected(@js($strIds))" 
+                                                       @click.stop="toggleSeries(@js($strIds))" 
+                                                       style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" 
+                                                       title="Select sub-series">
                                             @else
                                                 <span style="width: 15px; display: inline-block;"></span>
                                             @endif
@@ -2653,7 +2735,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         $isSelected = in_array($recIdStr, $selectedIds);
                                         $recStatus = $rec->status ?? 'active';
                                     @endphp
-                                    <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }} {{ $recStatus === 'disposed' ? 'is-disposed' : '' }} {{ $recStatus === 'revised' ? 'is-revised' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
+                                    <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }} {{ $recStatus === 'disposed' ? 'is-disposed' : '' }} {{ $recStatus === 'revised' ? 'is-revised' : '' }}" 
+                                        :class="{ 'is-selected': isSelected('{{ $recIdStr }}') }"
+                                        x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
                                         <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                             <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
                                                 <span style="width: 15px; display: inline-block;"></span>
@@ -2711,7 +2795,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                             @php
                                                 $subPStatus = $subP->status ?? 'active';
                                             @endphp
-                                            <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }} {{ $subPStatus === 'disposed' ? 'is-disposed' : '' }} {{ $subPStatus === 'revised' ? 'is-revised' : '' }}" x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
+                                            <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }} {{ $subPStatus === 'disposed' ? 'is-disposed' : '' }} {{ $subPStatus === 'revised' ? 'is-revised' : '' }}" 
+                                                :class="{ 'is-selected': isSelected('{{ $recIdStr }}') }"
+                                                x-show="!isRootCollapsed('root-{{ $root->id }}') && !isSubjectsCollapsed('sub-{{ $sub->id }}')">
                                                 <td style="text-align: center; padding: 6px 4px; white-space: nowrap;"></td>
                                                 <td style="padding-left: 64px;">
                                                     <span style="color: #94a3b8; margin-right: 4px;">└</span>
@@ -2771,7 +2857,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                     $isSelected = in_array($recIdStr, $selectedIds);
                                     $recStatus = $rec->status ?? 'active';
                                 @endphp
-                                <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }} {{ $recStatus === 'disposed' ? 'is-disposed' : '' }} {{ $recStatus === 'revised' ? 'is-revised' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
+                                <tr class="record-item-row {{ $isSelected ? 'is-selected' : '' }} {{ $recStatus === 'disposed' ? 'is-disposed' : '' }} {{ $recStatus === 'revised' ? 'is-revised' : '' }}" 
+                                    :class="{ 'is-selected': isSelected('{{ $recIdStr }}') }"
+                                    x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
                                     <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                         <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
                                             <span style="width: 15px; display: inline-block;"></span>
@@ -2829,7 +2917,9 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                                         @php
                                             $subPStatus = $subP->status ?? 'active';
                                         @endphp
-                                        <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }} {{ $subPStatus === 'disposed' ? 'is-disposed' : '' }} {{ $subPStatus === 'revised' ? 'is-revised' : '' }}" x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
+                                        <tr class="record-sub-period-row {{ $isSelected ? 'is-selected' : '' }} {{ $subPStatus === 'disposed' ? 'is-disposed' : '' }} {{ $subPStatus === 'revised' ? 'is-revised' : '' }}" 
+                                            :class="{ 'is-selected': isSelected('{{ $recIdStr }}') }"
+                                            x-show="!isSubjectsCollapsed('root-{{ $root->id }}')">
                                             <td style="text-align: center; padding: 6px 4px; white-space: nowrap;"></td>
                                             <td style="padding-left: 50px;">
                                                 <span style="color: #94a3b8; margin-right: 4px;">└</span>
@@ -3013,7 +3103,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             }
             $totalPages = count($pages);
         @endphp
-        <div class="modal-overlay" wire:click.self="closePrintModal">
+        <div class="modal-overlay" 
+             x-show="printModalOpen || {{ $showPrintModal ? 'true' : 'false' }}"
+             x-cloak
+             @click.self="closePrintModal()"
+             @keydown.escape.window="closePrintModal()">
             <div class="modal-content">
                 <div style="display: flex; justify-content: space-between; align-items: center;" class="no-print">
                     <div>
@@ -3022,14 +3116,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                         </div>
                         <div style="color: #cbd5e1; font-size: 12px; margin-top: 2px;">
                             @if($hasSelection)
-                                Showing only selected Record Series ({{ count($selectedIds) }} records selected).
+                                Showing only selected Record Series (<span x-text="selectedIds.length"></span> records selected).
                             @else
                                 Official Records Inventory and Appraisal Form Preview (No records selected — Blank Template).
                             @endif
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <button type="button" wire:click="closePrintModal" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+                        <button type="button" @click="closePrintModal()" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                             <span>Close Preview</span>
                         </button>

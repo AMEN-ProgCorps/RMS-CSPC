@@ -1934,13 +1934,6 @@
     let notifyTargetUser = null; // { account_id, username, name, ... } — same shape as fetch_users_dm.php's user objects
 
     function openNotifyModal(user) {
-      // Defense in depth: never allow the admin (account_id === 1) to be
-      // @mentioned/notified by a regular user, even if this gets called
-      // some other way besides the sidebar's notify button.
-      if (Number(user.account_id) === 1 && !serverIsAdmin) {
-        console.warn('Blocked attempt to notify/mention the admin.');
-        return;
-      }
       notifyTargetUser = user;
       notifyTargetName.textContent = '@' + user.username;
       notifyMessageInput.value = '';
@@ -4470,6 +4463,15 @@
       }
       const gcItem = document.getElementById('globalChatItem');
       if (gcItem) gcItem.classList.remove('active');
+      const ocItem = document.getElementById('officeChatItem');
+      if (ocItem) ocItem.classList.remove('active');
+
+      if (typeof sidebarUserItems !== 'undefined' && sidebarUserItems) {
+        sidebarUserItems.forEach(item => item.classList.remove('active'));
+      }
+      if (typeof adminConvItems !== 'undefined' && adminConvItems) {
+        adminConvItems.forEach(item => item.classList.remove('active'));
+      }
       
       renderSidebarUsers();
       if (serverIsAdmin) renderAdminConvs();

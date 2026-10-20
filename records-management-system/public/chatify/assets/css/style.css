@@ -292,10 +292,13 @@
       min-height: 72px;
       height: 72px;
       box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
     }
     
-    .user-item:hover {
-      background-color: var(--bg-drop-overlay);
+    @media (hover: hover) {
+      .user-item:hover {
+        background-color: var(--bg-drop-overlay);
+      }
     }
 
     .user-item.active {
@@ -2684,25 +2687,24 @@
     /* Scroll indicator */
     .scroll-indicator {
       position: absolute;
-      bottom: calc(100% + 8px);
-      right: 16px;
-      background: #1b74e4;
+      bottom: calc(100% + 12px);
+      right: 20px;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--bg-avatar-sent, #1b74e4);
       color: white;
-      padding: 8px 14px;
-      border-radius: 24px;
-      font-size: 13px;
-      font-weight: 500;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       cursor: pointer;
       opacity: 0;
       visibility: hidden;
       transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.2s ease, background 0.2s ease;
       z-index: 200;
       box-shadow: 0 2px 10px rgba(0,0,0,0.25);
-      display: flex;
-      align-items: center;
-      gap: 6px;
       user-select: none;
-      white-space: nowrap;
       will-change: opacity, transform;
     }
 
@@ -2718,7 +2720,14 @@
     }
 
     .scroll-indicator:active {
-      transform: scale(0.96);
+      transform: scale(0.92);
+    }
+
+    .scroll-indicator-arrow {
+      width: 16px;
+      height: 16px;
+      display: block;
+      transition: transform 0.2s ease;
     }
 
     /* Floating Load More button for Super Admin Spy Mode user cards */
@@ -2765,15 +2774,27 @@
     .unread-badge {
       background: #ff3b30;
       color: white;
-      border-radius: 12px;
-      padding: 1px 7px;
-      font-size: 11px;
+      border-radius: 10px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      font-size: 10px;
       font-weight: 700;
+      line-height: 18px;
+      text-align: center;
       display: none;
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      border: 2px solid var(--bg-chat, #fff);
+      box-sizing: border-box;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
 
     .scroll-indicator.has-unread .unread-badge {
-      display: inline-block;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     /* Desktop specific styles */
@@ -2892,6 +2913,25 @@
       .input-area {
         flex-shrink: 0;
         padding-bottom: 12px;
+      }
+
+      .scroll-indicator {
+        right: 16px;
+        bottom: calc(100% + 10px);
+      }
+
+      .user-item.active {
+        background-color: transparent !important;
+      }
+      .user-item:hover {
+        background-color: transparent !important;
+      }
+      .user-item:focus {
+        background-color: transparent !important;
+        outline: none !important;
+      }
+      .user-item:active {
+        background-color: var(--bg-drop-overlay) !important;
       }
     }
 

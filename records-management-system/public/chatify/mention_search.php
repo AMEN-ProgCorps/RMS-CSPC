@@ -12,9 +12,9 @@
 // (exact full-name match first, then partial, etc.) stays consistent
 // across the whole app.
 //
-// Same admin protection as the existing Notify feature (openNotifyModal()
-// in app-part1.js / notify.php): a regular user can never be shown the
-// Super Admin account (account_id === 1) as a mention target.
+// Mentions respect conversation scope: in Global Chat, all users can be
+// mentioned; in an Office GC, users within that office GC (including
+// Super Admin when assigned or participating) can be mentioned.
 // =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';
@@ -59,12 +59,6 @@ if ($q === '') {
 // instead of coming back empty just because rank #1 happened to be admin.
 $result = UserResolver::searchUsers($q, $myAccountId, 5, $officeId);
 $users  = $result['users'] ?? [];
-
-if (!$isAdmin) {
-    $users = array_values(array_filter($users, function ($u) {
-        return (int) ($u['account_id'] ?? 0) !== 1;
-    }));
-}
 
 $formattedUsers = array_map(function ($u) {
     return [

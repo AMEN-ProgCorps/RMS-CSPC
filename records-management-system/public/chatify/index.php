@@ -338,9 +338,12 @@ try {
 
     <div class="input-area">
       <!-- Scroll to bottom indicator anchored to top-right of input area -->
-      <div class="scroll-indicator" id="scrollIndicator">
-        <span>↓</span>
-        <span id="scrollIndicatorText">Go to bottom</span>
+      <div class="scroll-indicator" id="scrollIndicator" title="Go to bottom" aria-label="Go to bottom">
+        <svg class="scroll-indicator-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="12" y1="4" x2="12" y2="20"></line>
+          <polyline points="18 14 12 20 6 14"></polyline>
+        </svg>
+        <span id="scrollIndicatorText" style="display:none;" aria-hidden="true">Go to bottom</span>
         <span class="unread-badge" id="unreadBadge"></span>
       </div>
 

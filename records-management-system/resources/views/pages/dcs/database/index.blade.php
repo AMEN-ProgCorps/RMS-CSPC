@@ -457,10 +457,15 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
             foreach ($grouped as $rows) {
                 $allowsRevision = (bool) ($rows->first()['allows_revision'] ?? true);
                 $sorted = $allowsRevision
-                    ? $rows->sortByDesc('rev_no')->values()
+                    ? $rows->sortByDesc(function ($r) {
+                        $status = strtolower(trim((string) ($r['status'] ?? $r['revision_status'] ?? 'latest')));
+                        $latestRank = ($status === 'latest' || $status === '') ? 1 : 0;
+
+                        return sprintf('%d-%010d-%010d', $latestRank, (int) ($r['rev_no'] ?? 0), (int) ($r['request_id'] ?? 0));
+                    })->values()
                     : $rows->sortByDesc(fn ($r) => sprintf('%s|%010d', (string) ($r['effectivity_sort'] ?? ''), (int) ($r['request_id'] ?? 0)))->values();
                 $parent = $allowsRevision
-                    ? ($rows->first(fn ($r) => strtolower((string) $r['status']) === 'latest') ?? $sorted->first())
+                    ? ($sorted->first(fn ($r) => in_array(strtolower(trim((string) ($r['status'] ?? $r['revision_status'] ?? ''))), ['', 'latest'], true)) ?? $sorted->first())
                     : $sorted->first();
                 $children = $rows
                     ->filter(fn ($r) => $r['request_id'] !== $parent['request_id'])
@@ -488,6 +493,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 
             // Stack renumbered families: CSPC-F-102 under CSPC-F-1023 when revised_from_doc_no links them.
             $groups = $this->mergeRenumberLineageGroups($groups);
+            $groups = RegisterQueryHelper::splitUnrelatedUpdateChildren($groups);
 
             // After lineage merge, drop any parent/child that is not actually distributed to the office.
             if ($this->receivedBy !== '') {
@@ -1025,7 +1031,11 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         // revised_from is already on each row. Skip the per-family database walk;
         // that walk runs several queries for every revised document on each page load.
         $edges = RegisterQueryHelper::buildLineageMergeEdges($groupTips, []);
-        $edges = $this->dropEdgesBetweenDifferentDocuments($edges, $indexed, $byKey);
+        $groupsByKey = [];
+        foreach ($byKey as $key => $index) {
+            $groupsByKey[$key] = $indexed[$index];
+        }
+        $edges = RegisterQueryHelper::dropLineageEdgesBetweenUnrelatedGroups($edges, $groupsByKey);
         if ($edges === []) {
             return $groups->concat($standalone)->values();
         }
@@ -1691,8 +1701,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <th rowspan="3">PAGES</th>
                         <th rowspan="3">STATUS</th>
                         <th rowspan="3">PDF FILE</th>
-                        <th rowspan="3" class="db-offices-col">SOURCE UNIT</th>
-                        <th rowspan="3">RELATED DOCS</th>
+                        <th rowspan="3" class="db-offices-col db-source-unit-col">SOURCE UNIT</th>
+                        <th rowspan="3" class="db-related-col">RELATED DOCS</th>
 
                         <th rowspan="3" class="col-group-summary db-group-header" data-group="approval" x-show="visible.approval && !open.approval" x-on:click="toggle('approval')" @contextmenu.prevent="openGroupMenu($event, 'approval')">APPROVAL <span class="collapse-arrow">&#9654;</span></th>
                         <th colspan="{{ $groupColspans['approval'] ?? 2 }}" class="col-group-approval col-group-expanded db-group-header" x-show="visible.approval && open.approval" x-on:click="toggle('approval')" @contextmenu.prevent="openGroupMenu($event, 'approval')">APPROVAL <span class="collapse-arrow">&#9664;</span></th>

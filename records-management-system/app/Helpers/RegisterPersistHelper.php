@@ -634,13 +634,53 @@ class RegisterPersistHelper
         return array_values(array_filter($matched, fn ($n) => $n !== ''));
     }
 
+    /** Join originator chips or a comma-typed string into one stored value. */
+    public static function joinedOriginatorNames(mixed $rawName): string
+    {
+        $parts = is_array($rawName) ? $rawName : [$rawName];
+        $names = [];
+        foreach ($parts as $part) {
+            foreach (preg_split('/\s*,\s*/u', trim((string) $part)) ?: [] as $name) {
+                $name = trim($name);
+                if ($name !== '' && ! in_array($name, $names, true)) {
+                    $names[] = $name;
+                }
+            }
+        }
+
+        return implode(', ', $names);
+    }
+
+    /**
+     * @return list<array{type: string, id: mixed, label: string}>
+     */
+    public static function originatorSeedFromStored(mixed $rawName, mixed $originatorId = null): array
+    {
+        $joined = self::joinedOriginatorNames($rawName);
+        if ($joined === '') {
+            return [];
+        }
+
+        $parts = array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/u', $joined) ?: [])));
+        $seed = [];
+        foreach ($parts as $i => $label) {
+            $seed[] = [
+                'type' => 'name',
+                'id' => ($i === 0 && $originatorId) ? $originatorId : ('n' . ($i + 1)),
+                'label' => $label,
+            ];
+        }
+
+        return $seed;
+    }
+
     /**
      * Resolve masterlist originator for analytics: find-or-create in dcs_originators.
      * Returns ['originator_id' => int|null, 'originator_name' => string|null].
      */
     public static function resolveOriginator(mixed $rawName): array
     {
-        $name = is_array($rawName) ? trim((string) ($rawName[0] ?? '')) : trim((string) ($rawName ?? ''));
+        $name = self::joinedOriginatorNames($rawName);
         if ($name === '') {
             return ['originator_id' => null, 'originator_name' => null];
         }
@@ -2710,6 +2750,22 @@ class RegisterPersistHelper
             ];
         }
         self::insertRows('dcs_masterlist_related_docs', $rows);
+
+        // Related documents are a sidecar list for retrieval. They must not join this family stack.
+        if ($relatedIds === [] || ! Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
+            return;
+        }
+        $host = DB::table('dcs_masterlist_registration')->where('id', $masterlistId)->first(['doc_no', 'stack_group']);
+        $hostStack = trim((string) ($host->stack_group ?? ''));
+        $hostNo = mb_strtolower(trim((string) ($host->doc_no ?? '')));
+        if ($hostStack === '' || $hostNo === '') {
+            return;
+        }
+        DB::table('dcs_masterlist_registration')
+            ->whereIn('id', $relatedIds)
+            ->where('stack_group', $hostStack)
+            ->whereRaw('LOWER(TRIM(COALESCE(doc_no, \'\'))) <> ?', [$hostNo])
+            ->update(['stack_group' => null, 'updated_at' => now()]);
     }
 
     /** @param  list<array<string, mixed>>  $rows */
@@ -3171,6 +3227,7 @@ class RegisterPersistHelper
             ->update(['revision_status' => 'latest', 'updated_at' => now()]);
 
         DocumentStorageService::moveObsoleteDocinfoFilesForFamily($familyNos, $requestIds, $tipId);
+        RegisterQueryHelper::bumpDocumentListCache();
     }
 
 

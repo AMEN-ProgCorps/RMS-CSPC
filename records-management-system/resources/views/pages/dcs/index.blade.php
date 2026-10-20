@@ -1086,7 +1086,7 @@ document.addEventListener('alpine:init', () => {
                 } finally {
                     this.loading = false;
                 }
-            }, 300);
+            }, 120);
         },
         clear() {
             this.query = '';

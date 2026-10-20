@@ -160,6 +160,103 @@ class RdpIntakeService
         return $urls;
     }
 
+    /**
+     * Appraisal links for received DCS copies. Creates a pending intake when RDP
+     * was turned on after the office already marked the document received.
+     *
+     * @param  list<array{doc_no?: string, request_id?: int, doc_title?: string}>  $rows
+     * @return array<string, string>
+     */
+    public static function appraisalUrlsForReceivedOfficeDocs(?string $officeCode, array $rows): array
+    {
+        $officeCode = strtoupper(trim((string) $officeCode));
+        if ($officeCode === '' || $rows === [] || ! DB::getSchemaBuilder()->hasTable('rdp_received_documents')) {
+            return [];
+        }
+
+        $codes = [];
+        $byCode = [];
+        foreach ($rows as $row) {
+            $code = trim((string) ($row['doc_no'] ?? ''));
+            if ($code === '') {
+                continue;
+            }
+            $codes[] = $code;
+            if (! isset($byCode[$code])) {
+                $byCode[$code] = $row;
+            }
+        }
+        $codes = array_values(array_unique($codes));
+        if ($codes === []) {
+            return [];
+        }
+
+        $appraised = [];
+        $pending = self::pendingUrlsForOffice($officeCode, $codes);
+        $statusRows = DB::table('rdp_received_documents')
+            ->where('source_subsystem', 'DCS')
+            ->whereRaw('LOWER(target_office) = ?', [strtolower($officeCode)])
+            ->whereIn('document_code', $codes)
+            ->orderByDesc('id')
+            ->get(['document_code', 'status']);
+        foreach ($statusRows as $statusRow) {
+            $code = (string) $statusRow->document_code;
+            if (! isset($appraised[$code]) && strtolower((string) ($statusRow->status ?? '')) === 'appraised') {
+                $appraised[$code] = true;
+            }
+        }
+
+        $urls = [];
+        foreach ($codes as $code) {
+            if (! empty($appraised[$code])) {
+                continue;
+            }
+            if (! empty($pending[$code])) {
+                $urls[$code] = $pending[$code];
+            }
+        }
+
+        return $urls;
+    }
+
+    public static function ensurePendingForOfficeDocument(
+        string $officeCode,
+        int $requestId,
+        string $docNo,
+        string $title = ''
+    ): ?string {
+        $officeCode = strtoupper(trim($officeCode));
+        $docNo = trim($docNo);
+        if ($officeCode === '' || $docNo === '' || $requestId < 1) {
+            return null;
+        }
+
+        $existing = self::findExisting('DCS', $docNo, $officeCode);
+        if ($existing) {
+            if (strtolower((string) ($existing->status ?? '')) === 'appraised') {
+                return null;
+            }
+
+            return self::appraiseUrl($existing);
+        }
+
+        $result = self::accept([
+            'source_subsystem' => 'DCS',
+            'document_code' => $docNo,
+            'document_title' => $title !== '' ? $title : $docNo,
+            'description' => $title !== '' ? $title : $docNo,
+            'origin_office' => null,
+            'target_office' => $officeCode,
+            'date_received' => now()->toDateString(),
+            'file_path' => null,
+            'file_name' => null,
+            'document_id_handler' => null,
+            'metadata' => ['dcs_request_id' => $requestId],
+        ]);
+
+        return is_string($result['appraise_url'] ?? null) ? $result['appraise_url'] : null;
+    }
+
     public static function requestAlreadyForwarded(int $requestId): bool
     {
         if ($requestId < 1 || ! DB::getSchemaBuilder()->hasTable('rdp_received_documents')) {

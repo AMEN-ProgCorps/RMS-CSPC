@@ -228,12 +228,7 @@ new class extends Component {
             ->select("{$notifContentTbl}.redirect_url", "{$notifContentTbl}.content")
             ->first();
 
-        // Incoming notices stay unread until the office receives the document and, when appraisal is waiting, creates the record.
-        $keepIncomingOpen = $notification
-            && \App\Helpers\OfficeIntakeHelper::incomingNoticeStillOpen($notification->redirect_url ?? null);
-        if (! $keepIncomingOpen) {
-            $this->markAsRead($notificationId);
-        }
+        $this->markAsRead($notificationId);
 
         // 2. Office intake submissions / correction unlocks
         if ($notification && $notification->redirect_url) {

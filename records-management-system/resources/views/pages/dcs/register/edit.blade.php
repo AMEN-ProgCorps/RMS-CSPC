@@ -716,7 +716,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                             <div class="reg-reldocs" id="masterlistOriginatorWidget">
                                 <div class="reg-reldocs-inputwrap">
                                     <input type="text" id="masterlistOriginatorSearch" class="reg-reldocs-input"
-                                        placeholder="Type a name" autocomplete="off">
+                                        placeholder="Type names, separated by a comma" autocomplete="off">
                                     <button type="button" class="reg-reldocs-arrow-btn" id="masterlistOriginatorArrowBtn">
                                         <i class="fa-solid fa-chevron-down"></i>
                                     </button>
@@ -759,7 +759,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                             <div class="reg-reldocs" id="relatedDocsWidget">
                                 <div class="reg-reldocs-inputwrap">
                                     <input type="text" id="relatedDocsSearch" class="reg-reldocs-input"
-                                        placeholder="Type a document title to search..."
+                                        placeholder="Type a document title, then pick from latest documents..."
                                         autocomplete="off"
                                         oninput="handleRelatedDocSearch(this)"
                                         onfocus="handleRelatedDocFocus()">
@@ -1037,15 +1037,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     </a>
                 </div>
                 <div class="reg-actions-right">
-                    @php
-                        $appraisalOptIn = \Illuminate\Support\Facades\Schema::hasColumn('dcs_document_requests', 'appraisal_opt_in')
-                            && (bool) \Illuminate\Support\Facades\DB::table('dcs_document_requests')->where('id', (int) ($requestId ?? 0))->value('appraisal_opt_in');
-                        $appraisalOpen = empty($isDraftDoc)
-                            && $appraisalOptIn
-                            && isset($distributionOffices) && $distributionOffices->isNotEmpty()
-                            && ! \App\Services\RdpIntakeService::requestAlreadyForwarded((int) ($requestId ?? 0));
-                    @endphp
-                    @unless($readOnly)
+                    @unless($readOnly || !empty($isDraftDoc))
                     <p id="regNoChangesHint" class="reg-no-changes-hint" hidden>
                         <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                         No changes detected — edit a field to enable Update Document.
@@ -1059,14 +1051,12 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                         <i class="fa-regular fa-floppy-disk"></i> Save Draft
                     </button>
+                    <button type="button" id="btnSaveAndAppraise" class="reg-btn reg-btn-appraise" onclick="window.__openAppraisalAfterSave=true; confirmSave()" title="Save, then send this document to Appraisal. Office intake will appraise after receive.">
+                        <i class="fa-solid fa-clipboard-check"></i> Save and Appraise
+                    </button>
                     @endif
-                    @if($appraisalOpen)
-                    <a href="{{ route('rdp.add-records.inventory-and-appraisal', ['dcs_request_id' => $requestId]) }}" class="reg-btn reg-btn-generate">
-                        <i class="fa-solid fa-clipboard-check"></i> Appraisal
-                    </a>
-                    @endif
-                    <button type="button" id="btnUpdateDocument" class="reg-btn reg-btn-save" onclick="window.__openAppraisalAfterSave=false; confirmSave()">
-                        <i class="fa-solid fa-floppy-disk"></i> Update Document
+                    <button type="button" id="btnUpdateDocument" class="reg-btn reg-btn-save" onclick="window.__openAppraisalAfterSave=false; confirmSave()" title="{{ !empty($isDraftDoc) ? 'Save only. Office intake marks it received — no Appraisal.' : 'Update this document. Appraisal is not changed.' }}">
+                        <i class="fa-solid fa-floppy-disk"></i> {{ !empty($isDraftDoc) ? 'Save Document' : 'Update Document' }}
                     </button>
                     @endunless
                 </div>
@@ -2024,7 +2014,6 @@ document.addEventListener("DOMContentLoaded", async function () {
             resultsId: 'masterlistOriginatorResults',
             chipsId: 'masterlistOriginatorInlineChips',
             allowFreeText: true,
-            singleSelect: true,
             fieldName: 'masterlistOriginator',
             dataListGetter: () => allOriginators,
             idKey: 'originator_id',
@@ -2260,21 +2249,30 @@ document.addEventListener("DOMContentLoaded", async function () {
 
         function updateButtonState() {
             const hint = document.getElementById('regNoChangesHint');
-            if (isDirty()) {
-                updateBtn.disabled = false;
-                updateBtn.style.opacity = '';
-                updateBtn.style.cursor = '';
-                updateBtn.title = '';
-                updateBtn.removeAttribute('aria-disabled');
-                if (hint) hint.hidden = true;
-            } else {
-                updateBtn.disabled = true;
-                updateBtn.style.opacity = '0.45';
-                updateBtn.style.cursor = 'not-allowed';
-                updateBtn.title = 'No changes detected — edit a field to enable Update Document.';
-                updateBtn.setAttribute('aria-disabled', 'true');
-                if (hint) hint.hidden = false;
+            const appraiseBtn = document.getElementById('btnSaveAndAppraise');
+            const isDraft = !!window.__isDraftDoc;
+            const enabled = isDraft || isDirty();
+            if (updateBtn) {
+                updateBtn.disabled = !enabled;
+                updateBtn.style.opacity = enabled ? '' : '0.45';
+                updateBtn.style.cursor = enabled ? '' : 'not-allowed';
+                updateBtn.style.pointerEvents = enabled ? '' : 'none';
+                if (enabled) {
+                    updateBtn.title = '';
+                    updateBtn.removeAttribute('aria-disabled');
+                } else {
+                    updateBtn.title = 'No changes detected — edit a field to enable Update Document.';
+                    updateBtn.setAttribute('aria-disabled', 'true');
+                }
             }
+            if (appraiseBtn) {
+                appraiseBtn.disabled = false;
+                appraiseBtn.style.opacity = '';
+                appraiseBtn.style.cursor = '';
+                appraiseBtn.style.pointerEvents = '';
+                appraiseBtn.removeAttribute('aria-disabled');
+            }
+            if (hint) hint.hidden = enabled;
         }
 
         function refreshBaselineIfPristine() {
@@ -2318,7 +2316,7 @@ document.addEventListener("DOMContentLoaded", async function () {
 
         const originalConfirmSave = window.confirmSave;
         window.confirmSave = function () {
-            if (!isDirty()) return;
+            if (!window.__isDraftDoc && !isDirty() && !window.__openAppraisalAfterSave) return;
             if (originalConfirmSave) originalConfirmSave();
         };
     })();
@@ -4211,6 +4209,9 @@ function createSourceUnitWidget(opts) {
         // ── FIX: remove ALL hidden inputs for these field names,
         //    including stale blade-rendered ones without data-source-hidden
         const fieldNames = new Set([opts.officeFieldName, opts.nameFieldName, opts.fieldName].filter(Boolean));
+        if (opts.fieldName) {
+            fieldNames.add(String(opts.fieldName).endsWith('[]') ? String(opts.fieldName).slice(0, -2) : String(opts.fieldName) + '[]');
+        }
         fieldNames.forEach(name => {
             widget.querySelectorAll('input[type="hidden"][name="' + name + '"]').forEach(el => el.remove());
         });
@@ -4219,7 +4220,9 @@ function createSourceUnitWidget(opts) {
             const input = document.createElement('input');
             input.type = 'hidden';
             input.dataset.sourceHidden = 'true';
-            input.name = opts.fieldName || (item.type === 'office' ? opts.officeFieldName : opts.nameFieldName);
+            let name = opts.fieldName || (item.type === 'office' ? opts.officeFieldName : opts.nameFieldName);
+            if (opts.fieldName && name && !String(name).endsWith('[]')) name = name + '[]';
+            input.name = name;
             input.value = opts.fieldName ? item.label : (item.type === 'office' ? item.id : item.label);
             widget.appendChild(input);
         });
@@ -4305,6 +4308,7 @@ function createSourceUnitWidget(opts) {
         if (inputEl) inputEl.focus();
         syncInputText();
         document.getElementById(opts.resultsId).style.display = 'none';
+        if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
     }
 
     function positionPanel(panelEl, anchorEl) {
@@ -4362,6 +4366,7 @@ function createSourceUnitWidget(opts) {
     function removeItemAndSync(type, id) {
         removeItem(type, id);
         syncInputText();
+        if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
     }
 
     function setSelectedItems(items) {
@@ -4412,10 +4417,23 @@ function createSourceUnitWidget(opts) {
         }
     });
 
+    function commitPendingQuery() {
+        if (!inputEl || opts.singleSelect || !opts.allowFreeText) return;
+        const q = getCurrentQuery(inputEl);
+        if (!q) return;
+        const already = selected.some(i => String(i.label).toLowerCase() === q.toLowerCase());
+        if (already) return;
+        addFreeText(q);
+        syncInputText();
+        render();
+    }
+    const parentForm = inputEl ? inputEl.closest('form') : null;
+    if (parentForm) parentForm.addEventListener('submit', commitPendingQuery);
+
     render();
 
     const api = {
-        pick, removeItem: removeItemAndSync, reset, seedFromString, setSelectedItems,
+        pick, removeItem: removeItemAndSync, reset, seedFromString, setSelectedItems, commitPendingQuery,
         openPanel: togglePanel, get selected() { return selected; }
     };
     window.__sourceWidgets[opts.key] = api;
@@ -4530,33 +4548,69 @@ window.removeSourceOverlayItem = function (key, id) {
 // ══════════════════════════════════════════════
 // RELATED DOCUMENTS
 // ══════════════════════════════════════════════
-window.handleRelatedDocFocus = function () { closeRelatedDocsSelectedPanel(); };
+function relatedDocsQuery(input) {
+    const raw = String(input?.value || '');
+    const lastComma = raw.lastIndexOf(',');
+    return (lastComma === -1 ? raw : raw.slice(lastComma + 1)).trim();
+}
+
+function syncRelatedDocsInput() {
+    const input = document.getElementById('relatedDocsSearch');
+    if (!input) return;
+    if (relatedDocsSelected.length === 0) {
+        input.value = '';
+        return;
+    }
+    input.value = relatedDocsSelected.map(d => d.doc_title || d.doc_no || '').join(', ') + ', ';
+    const len = input.value.length;
+    try { input.setSelectionRange(len, len); } catch (e) {}
+}
+
+window.handleRelatedDocFocus = function (input) {
+    closeRelatedDocsSelectedPanel();
+    syncRelatedDocsInput();
+};
 
 window.handleRelatedDocSearch = function (input) {
     clearTimeout(window.__relatedDocsTimer);
-    const q = input.value.trim();
+    if (window.__relatedDocsAbort) {
+        try { window.__relatedDocsAbort.abort(); } catch (e) {}
+    }
+    const q = relatedDocsQuery(input);
     const dropdown = document.getElementById('relatedDocsResults');
     closeRelatedDocsSelectedPanel();
     if (q.length < 1) { dropdown.style.display = 'none'; return; }
 
     window.__relatedDocsTimer = setTimeout(async () => {
+        const abort = new AbortController();
+        window.__relatedDocsAbort = abort;
         try {
             const excludeId = document.getElementById('requestId')?.value || '';
-            const url = '/dcs/api/documents/search?q=' + encodeURIComponent(q)
+            const url = '/dcs/api/documents/search?latest_only=1&q=' + encodeURIComponent(q)
                 + (excludeId ? '&exclude_request_id=' + excludeId : '');
-            const data = await fetch(url).then(r => r.json());
-            relatedDocsCache = data.filter(d => !relatedDocsSelected.some(s => s.masterlist_id === d.masterlist_id));
+            const res = await fetch(url, { signal: abort.signal, headers: { 'Accept': 'application/json' } });
+            if (!res.ok) {
+                dropdown.innerHTML = '<div class="reg-reldocs-noresult">Could not search documents. Try again.</div>';
+                dropdown.style.display = 'block';
+                return;
+            }
+            const data = await res.json();
+            relatedDocsCache = (Array.isArray(data) ? data : []).filter(d => !relatedDocsSelected.some(s => s.masterlist_id === d.masterlist_id));
             if (relatedDocsCache.length === 0) {
-                dropdown.innerHTML = '<div class="reg-reldocs-noresult">No matching documents found</div>';
+                dropdown.innerHTML = '<div class="reg-reldocs-noresult">No latest document matches "' + escapeHtml(q) + '".</div>';
                 dropdown.style.display = 'block';
                 return;
             }
             dropdown.innerHTML = relatedDocsCache
-                .map(d => `<div onmousedown="pickRelatedDoc(${d.masterlist_id})">${escapeHtml(d.label)}</div>`)
+                .map(d => `<div onmousedown="pickRelatedDoc(${Number(d.masterlist_id)})">${escapeHtml(d.label || d.doc_title || '')}</div>`)
                 .join('');
             dropdown.style.display = 'block';
-        } catch (e) { console.error('Related doc search failed:', e); }
-    }, 300);
+        } catch (e) {
+            if (e && e.name === 'AbortError') return;
+            dropdown.innerHTML = '<div class="reg-reldocs-noresult">Could not search documents. Try again.</div>';
+            dropdown.style.display = 'block';
+        }
+    }, 80);
 };
 
 window.pickRelatedDoc = function (id) {
@@ -4564,15 +4618,17 @@ window.pickRelatedDoc = function (id) {
     if (!doc || relatedDocsSelected.some(d => d.masterlist_id === id)) return;
     relatedDocsSelected.push(doc);
     renderRelatedDocsChips();
-    const input = document.getElementById('relatedDocsSearch');
-    input.value = '';
+    syncRelatedDocsInput();
     document.getElementById('relatedDocsResults').style.display = 'none';
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
 };
 
 window.removeRelatedDoc = function (id, event) {
     if (event) event.stopPropagation();
     relatedDocsSelected = relatedDocsSelected.filter(d => d.masterlist_id !== id);
     renderRelatedDocsChips();
+    syncRelatedDocsInput();
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
 };
 
 window.toggleRelatedDocsSelected = function (e) {
@@ -4607,6 +4663,7 @@ function renderRelatedDocsChips() {
             <span class="reg-reldocs-chip-no">${escapeHtml(d.doc_no || '')}</span>
             <button type="button" onclick="removeRelatedDoc(${d.masterlist_id}, event)"><i class="fa-solid fa-xmark"></i></button>
         </div>`).join('');
+    syncRelatedDocsInput();
 }
 
 document.addEventListener('click', function (e) {
@@ -5313,8 +5370,10 @@ function unlockChecklist() {
     showFormActions();
     enableApproval();
     setTimeout(initFileInputs, 100);
-    const saveBtn = document.querySelector('.reg-btn-save');
-    if (saveBtn) saveBtn.style.display = "";
+    ['btnUpdateDocument', 'btnSaveDocument', 'btnSaveAndAppraise'].forEach((id) => {
+        const saveBtn = document.getElementById(id);
+        if (saveBtn) saveBtn.style.display = "";
+    });
 }
 
 function suggestedChecklistIdsForCurrentDocType() {
@@ -5863,41 +5922,32 @@ function setSyllabiContextHint(message, isError) {
 
 function setSyllabiContextTaken(taken, message) {
     window.syllabiContextTaken = !!taken;
-    const saveBtn = document.getElementById('btnUpdateDocument') || document.getElementById('btnSaveDocument');
-    const draftBtn = document.getElementById('btnSaveDraft');
+    const actionBtns = [
+        document.getElementById('btnUpdateDocument') || document.getElementById('btnSaveDocument'),
+        document.getElementById('btnSaveAndAppraise'),
+        document.getElementById('btnSaveDraft'),
+    ];
     if (taken) {
         setSyllabiContextHint(message || 'This semester and school year are already registered.', true);
-        if (saveBtn) {
-            saveBtn.disabled = true;
-            saveBtn.setAttribute('disabled', 'disabled');
-            saveBtn.style.opacity = '0.4';
-            saveBtn.style.cursor = 'not-allowed';
-            saveBtn.style.pointerEvents = 'none';
-        }
-        if (draftBtn) {
-            draftBtn.disabled = true;
-            draftBtn.setAttribute('disabled', 'disabled');
-            draftBtn.style.opacity = '0.4';
-            draftBtn.style.cursor = 'not-allowed';
-            draftBtn.style.pointerEvents = 'none';
-        }
+        actionBtns.forEach((btn) => {
+            if (!btn) return;
+            btn.disabled = true;
+            btn.setAttribute('disabled', 'disabled');
+            btn.style.opacity = '0.4';
+            btn.style.cursor = 'not-allowed';
+            btn.style.pointerEvents = 'none';
+        });
         return;
     }
     setSyllabiContextHint('', false);
-    if (saveBtn) {
-        saveBtn.disabled = false;
-        saveBtn.removeAttribute('disabled');
-        saveBtn.style.opacity = '';
-        saveBtn.style.cursor = '';
-        saveBtn.style.pointerEvents = '';
-    }
-    if (draftBtn) {
-        draftBtn.disabled = false;
-        draftBtn.removeAttribute('disabled');
-        draftBtn.style.opacity = '';
-        draftBtn.style.cursor = '';
-        draftBtn.style.pointerEvents = '';
-    }
+    actionBtns.forEach((btn) => {
+        if (!btn) return;
+        btn.disabled = false;
+        btn.removeAttribute('disabled');
+        btn.style.opacity = '';
+        btn.style.cursor = '';
+        btn.style.pointerEvents = '';
+    });
 }
 
 async function checkSyllabiContextTaken() {
@@ -8195,6 +8245,18 @@ window.confirmSave = function () {
     const errors = validateForm();
     if (errors.length > 0) { showValidationErrors(errors); return; }
     clearValidation();
+
+    const confirmBtn = document.getElementById('btnConfirmSaveModal');
+    if (confirmBtn) {
+        const isDraft = !!document.getElementById('btnSaveDraft');
+        if (window.__openAppraisalAfterSave) {
+            confirmBtn.innerHTML = '<i class="fa-solid fa-clipboard-check"></i> '
+                + (isDraft ? 'Confirm Save and Appraise' : 'Confirm Update and Appraise');
+        } else {
+            confirmBtn.innerHTML = '<i class="fa-solid fa-check"></i> '
+                + (isDraft ? 'Confirm Save' : 'Confirm Update');
+        }
+    }
 
     const reviewContent = document.getElementById("reviewContent");
     reviewContent.innerHTML = "";

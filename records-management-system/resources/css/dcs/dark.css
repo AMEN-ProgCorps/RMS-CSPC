@@ -1643,18 +1643,21 @@
     border-color: #7f1d1d !important;
 }
 
-[data-theme="dark"] .reg-btn-generate {
+[data-theme="dark"] .reg-btn-generate,
+[data-theme="dark"] .reg-btn-appraise {
     background: #131c2e !important;
     color: #93c5fd !important;
     border-color: #3b82f6 !important;
 }
 
-[data-theme="dark"] .reg-btn-generate:hover:not(:disabled) {
+[data-theme="dark"] .reg-btn-generate:hover:not(:disabled),
+[data-theme="dark"] .reg-btn-appraise:hover:not(:disabled) {
     background: #2563eb !important;
     color: #fff !important;
 }
 
-[data-theme="dark"] .reg-btn-generate:disabled {
+[data-theme="dark"] .reg-btn-generate:disabled,
+[data-theme="dark"] .reg-btn-appraise:disabled {
     background: #0f172a !important;
     color: #64748b !important;
     border-color: #1e293b !important;

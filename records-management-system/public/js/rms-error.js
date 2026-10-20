@@ -289,7 +289,16 @@
         window.fetch = function (input, init) {
             var body = init && init.body;
             var isUpload = typeof FormData !== 'undefined' && body instanceof FormData;
-            var armed = !isUpload && armSlowWatch();
+            var url = '';
+            try {
+                if (typeof input === 'string') url = input;
+                else if (input && typeof input.url === 'string') url = input.url;
+                else if (input && input.href) url = String(input.href);
+            } catch (e) { url = ''; }
+            var skipSlow = /\/dcs\/api\/documents\/(search|revisions)/.test(url)
+                || /\/livewire\/(update|upload-file)/.test(url)
+                || /incoming-live|office-incoming|print-ready/.test(url);
+            var armed = !isUpload && !skipSlow && armSlowWatch();
             return originalFetch.apply(this, arguments).then(function (response) {
                 var slowStatus = response && (response.status === 408 || response.status === 504);
                 if (armed) disarmSlowWatch(slowStatus);
@@ -334,6 +343,8 @@
     });
 
     window.addEventListener('error', function (event) {
+        var message = String((event && event.message) || '');
+        if (/ResizeObserver|undelivered notifications|script error/i.test(message)) return;
         var filename = event && event.filename ? String(event.filename) : '';
         if (!filename || filename.indexOf(location.origin) !== 0) return;
         showErrorScreen({

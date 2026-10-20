@@ -2990,6 +2990,11 @@ select.reg-field-locked:disabled {
     justify-content: flex-end;
 }
 
+.reg-actions-right .reg-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
 .reg-btn {
     display: inline-flex;
     align-items: center;
@@ -3192,18 +3197,21 @@ select.reg-field-locked:disabled {
     color: #991b1b;
 }
 
-.reg-btn-generate {
+.reg-btn-generate,
+.reg-btn-appraise {
     background: var(--reg-surface, #fff);
     color: var(--reg-accent);
     border: 1px solid var(--reg-accent);
 }
 
-.reg-btn-generate:hover:not(:disabled) {
+.reg-btn-generate:hover:not(:disabled),
+.reg-btn-appraise:hover:not(:disabled) {
     background: var(--reg-accent);
     color: #fff;
 }
 
-.reg-btn-generate:disabled {
+.reg-btn-generate:disabled,
+.reg-btn-appraise:disabled {
     opacity: 0.45;
     cursor: not-allowed;
 }

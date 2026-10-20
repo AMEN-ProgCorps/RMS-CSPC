@@ -49,6 +49,31 @@ class DcsFamilyStackTest extends TestCase
         $this->assertTrue(DocumentNumberSeriesHelper::shouldReplaceShiftStack(true));
     }
 
+    public function test_unrelated_logbooks_do_not_share_a_family(): void
+    {
+        $recur = $this->group('CSPC-LB-ST23', 'Sample Document to be Recured', [
+            $this->row(49, 'CSPC-LB-ST23', 'Sample Document to be Recured', 'latest', '', 5),
+        ]);
+        $outgoing = $this->group('CSPC-LB-ACCTG-02', 'Outgoing Reports (Special Journals)', [
+            $this->row(24, 'CSPC-LB-ACCTG-02', 'Outgoing Reports (Special Journals) revised', 'obsolete', 'stack-acctg', 2),
+        ]);
+
+        $this->assertFalse(RegisterQueryHelper::familyGroupsMatch($recur, $outgoing));
+
+        $merged = RegisterQueryHelper::splitUnrelatedUpdateChildren(collect([
+            [
+                'doc_no' => 'CSPC-LB-ST23',
+                'parent' => $recur['parent'],
+                'children' => $outgoing['parent'] ? [$outgoing['parent']] : [],
+            ],
+        ]));
+
+        $this->assertCount(2, $merged);
+        $this->assertSame('CSPC-LB-ST23', $merged[0]['doc_no']);
+        $this->assertSame([], $merged[0]['children']);
+        $this->assertSame('CSPC-LB-ACCTG-02', $merged[1]['doc_no']);
+    }
+
     public function test_same_title_or_same_stack_is_one_document(): void
     {
         $family = $this->group('CSPC-LB-STA-10', 'Result Slip Logbook', [

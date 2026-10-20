@@ -131,7 +131,7 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
                     <strong>{{ $officeName }}</strong>
                     that are waiting to be marked received.
                     @if(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp)
-                        After receipt, Appraisal stays here until the record is created, then the document moves to the
+                        After receipt, a Save and Appraise document stays here until Appraisal is finished. A plain save moves to the
                     @else
                         After receipt, they move to the
                     @endif
@@ -150,7 +150,7 @@ new #[Layout('layouts.dcs')] #[Title('Incoming Documents — CSPC DCS')] class e
             <div class="ofi-alert">{{ session('info') }}</div>
         @endif
         @if(collect($rows)->contains(fn ($row) => !empty($row['appraisal_url'])))
-            <div class="ofi-alert">These documents stay on Incoming, and the notice stays, until you finish Appraisal.</div>
+            <div class="ofi-alert">Save and Appraise documents stay on Incoming, and the notice stays, until you finish Appraisal.</div>
         @endif
 
         @unless(auth()->user()?->enableTopTabs() ?? true)

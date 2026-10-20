@@ -298,11 +298,11 @@ class RegisterQueryHelper
     public static function inventoryStackKey(array $row): string
     {
         $stackGroup = trim((string) ($row['stack_group'] ?? ''));
+        $type = (int) ($row['doc_type_id'] ?? 0) . '||' . (int) ($row['sub_type_id'] ?? 0);
         if ($stackGroup !== '') {
-            return 'rel||' . $stackGroup;
+            return 'rel||' . $stackGroup . '||' . $type;
         }
 
-        $type = (int) ($row['doc_type_id'] ?? 0) . '||' . (int) ($row['sub_type_id'] ?? 0);
         $syllabi = trim((string) ($row['syllabi_stack'] ?? ''));
         if ($syllabi !== '') {
             return 'syl||' . $syllabi . '||' . $type;
@@ -389,7 +389,40 @@ class RegisterQueryHelper
             return true;
         }
 
+        if (self::groupsShareRevisedFrom($left, $right)) {
+            return true;
+        }
+
         return self::groupsShareTitle($left, $right);
+    }
+
+    /**
+     * Recur/Revise may change the number. Unrelated documents that only share a type
+     * or a missing revision gap must not join the family.
+     *
+     * @param  array<string, array<string, true>>  $edges
+     * @param  array<string, array<string, mixed>>  $groupsByKey
+     * @return array<string, array<string, true>>
+     */
+    public static function dropLineageEdgesBetweenUnrelatedGroups(array $edges, array $groupsByKey): array
+    {
+        foreach ($edges as $winner => $absorbed) {
+            if (! isset($groupsByKey[$winner])) {
+                unset($edges[$winner]);
+                continue;
+            }
+            foreach (array_keys($absorbed) as $absorbedKey) {
+                if (! isset($groupsByKey[$absorbedKey])
+                    || ! self::familyGroupsMatch($groupsByKey[$winner], $groupsByKey[$absorbedKey])) {
+                    unset($edges[$winner][$absorbedKey]);
+                }
+            }
+            if (($edges[$winner] ?? []) === []) {
+                unset($edges[$winner]);
+            }
+        }
+
+        return $edges;
     }
 
     private static function firstStack(array $group): string
@@ -407,7 +440,8 @@ class RegisterQueryHelper
     private static function groupHasLatest(array $group): bool
     {
         foreach (array_merge([$group['parent'] ?? []], $group['children'] ?? []) as $row) {
-            if (in_array(strtolower(trim((string) ($row['status'] ?? ''))), ['', 'latest'], true)) {
+            $status = strtolower(trim((string) ($row['status'] ?? $row['revision_status'] ?? '')));
+            if (in_array($status, ['', 'latest'], true)) {
                 return true;
             }
         }
@@ -422,13 +456,40 @@ class RegisterQueryHelper
             return false;
         }
         foreach ($rows as $row) {
-            $status = strtolower(trim((string) ($row['status'] ?? '')));
+            $status = strtolower(trim((string) ($row['status'] ?? $row['revision_status'] ?? '')));
             if (! in_array($status, ['obsolete', 'superseded'], true)) {
                 return false;
             }
         }
 
         return true;
+    }
+
+    /** Update list parents are live copies. Obsolete-only families belong in history, not as a top row. */
+    private static function updateGroupIsClosedHistory(array $group): bool
+    {
+        $rows = array_merge([$group['parent'] ?? []], $group['children'] ?? []);
+        if ($rows === []) {
+            return true;
+        }
+
+        $sawLive = false;
+        $sawClosed = false;
+        foreach ($rows as $row) {
+            if (! empty($row['is_draft'])) {
+                continue;
+            }
+            $status = strtolower(trim((string) ($row['revision_status'] ?? $row['status'] ?? '')));
+            if ($status === '' || $status === 'latest') {
+                $sawLive = true;
+                continue;
+            }
+            if (in_array($status, ['obsolete', 'superseded'], true)) {
+                $sawClosed = true;
+            }
+        }
+
+        return $sawClosed && ! $sawLive;
     }
 
     private static function groupsShareTitle(array $family, array $orphan): bool
@@ -453,6 +514,60 @@ class RegisterQueryHelper
         }
 
         return false;
+    }
+
+    private static function groupsShareRevisedFrom(array $left, array $right): bool
+    {
+        $leftNos = self::groupDocNos($left);
+        $rightNos = self::groupDocNos($right);
+        if ($leftNos === [] || $rightNos === []) {
+            return false;
+        }
+
+        foreach (self::groupRevisedFromNos($left) as $from) {
+            if (isset($rightNos[$from])) {
+                return true;
+            }
+        }
+        foreach (self::groupRevisedFromNos($right) as $from) {
+            if (isset($leftNos[$from])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return array<string, true> */
+    private static function groupDocNos(array $group): array
+    {
+        $nos = [];
+        $parentNo = strtolower(trim((string) ($group['doc_no'] ?? $group['parent']['doc_no'] ?? '')));
+        if ($parentNo !== '' && $parentNo !== 'n/a') {
+            $nos[$parentNo] = true;
+        }
+        foreach (array_merge([$group['parent'] ?? []], $group['children'] ?? []) as $row) {
+            $no = strtolower(trim((string) ($row['doc_no'] ?? '')));
+            if ($no !== '' && $no !== 'n/a') {
+                $nos[$no] = true;
+            }
+        }
+
+        return $nos;
+    }
+
+    /** @return list<string> */
+    private static function groupRevisedFromNos(array $group): array
+    {
+        $froms = [];
+        foreach (array_merge([$group['parent'] ?? []], $group['children'] ?? []) as $row) {
+            $from = strtolower(trim((string) ($row['revised_from_doc_no'] ?? $row['revised_from'] ?? '')));
+            if ($from !== '') {
+                $froms[] = $from;
+            }
+        }
+
+        return $froms;
     }
 
     /**
@@ -1506,6 +1621,10 @@ class RegisterQueryHelper
                 continue;
             }
             $id = (int) ($row->originator_id ?? 0);
+            $stored = trim((string) ($row->originator_name ?? ''));
+            if ($stored !== '') {
+                continue;
+            }
             $row->originator_name = $id > 0 ? ($names[$id] ?? null) : null;
         }
     }
@@ -2635,6 +2754,7 @@ class RegisterQueryHelper
                     ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
                     ->whereIn('ml.request_id', $requestIds)
                     ->where('dr.doc_type_id', $docTypeId)
+                    ->whereIn('ml.doc_no', $familyNos)
                     ->whereRaw('LOWER(TRIM(ml.revised_from_doc_no)) = ?', [strtolower(trim($docNo))]);
                 if ($subTypeId) {
                     $predQuery->where('dr.sub_type_id', $subTypeId);
@@ -2722,6 +2842,7 @@ class RegisterQueryHelper
         }
 
         $edges = self::buildLineageMergeEdges(self::lineageGroupTipsFromParents($parentsByKey), $visibleIds);
+        $edges = self::dropLineageEdgesBetweenUnrelatedGroups($edges, $byKey);
 
         if ($edges === []) {
             return $groups->concat($standalone)->values();
@@ -2825,7 +2946,65 @@ class RegisterQueryHelper
             $merged->push($g);
         }
 
-        return $merged->concat($standalone)->values();
+        return self::splitUnrelatedUpdateChildren($merged->concat($standalone)->values());
+    }
+
+    /**
+     * A merged Update row may only keep older copies of the same document.
+     * Related docs, other logbooks, or a coincidental revision number stay their own families.
+     *
+     * @param  \Illuminate\Support\Collection<int, array<string, mixed>>  $groups
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     */
+    public static function splitUnrelatedUpdateChildren(Collection $groups): Collection
+    {
+        $out = collect();
+        foreach ($groups as $group) {
+            $keep = [];
+            $split = [];
+            $parentOnly = [
+                'doc_no' => $group['doc_no'] ?? ($group['parent']['doc_no'] ?? ''),
+                'parent' => $group['parent'] ?? [],
+                'children' => [],
+            ];
+            foreach ($group['children'] ?? [] as $child) {
+                $probe = [
+                    'doc_no' => $child['doc_no'] ?? '',
+                    'parent' => $child,
+                    'children' => [],
+                ];
+                if (self::familyGroupsMatch($parentOnly, $probe)) {
+                    $keep[] = $child;
+                } else {
+                    $split[] = $child;
+                }
+            }
+
+            $group['children'] = $keep;
+            $group['has_revisions'] = $keep !== [];
+            $group['revision_count'] = 1 + count($keep);
+            $memberIds = [(int) ($group['parent']['request_id'] ?? 0)];
+            foreach ($keep as $child) {
+                $memberIds[] = (int) ($child['request_id'] ?? 0);
+            }
+            $group['member_ids'] = array_values(array_filter($memberIds));
+            $out->push($group);
+
+            foreach ($split as $child) {
+                $out->push([
+                    'doc_no' => $child['doc_no'] ?? 'N/A',
+                    'parent' => $child,
+                    'children' => [],
+                    'has_revisions' => false,
+                    'revision_count' => 1,
+                    'sort_id' => (int) ($child['request_id'] ?? 0),
+                    'member_ids' => [(int) ($child['request_id'] ?? 0)],
+                    'allows_revision' => (bool) ($child['allows_revision'] ?? $group['allows_revision'] ?? true),
+                ]);
+            }
+        }
+
+        return $out->values();
     }
 
     /**
@@ -3089,6 +3268,9 @@ class RegisterQueryHelper
         if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
             $mlColumns[] = 'stack_group';
         }
+        if (self::supportsRevisedFromDocNo()) {
+            $mlColumns[] = 'revised_from_doc_no';
+        }
         if (Schema::hasColumn('dcs_masterlist_registration', 'effectivity_date')) {
             $mlColumns[] = 'effectivity_date';
         }
@@ -3118,6 +3300,9 @@ class RegisterQueryHelper
         }
         if (Schema::hasColumn('dcs_masterlist_registration', 'stack_group')) {
             $select[] = 'ml.stack_group';
+        }
+        if (self::supportsRevisedFromDocNo()) {
+            $select[] = 'ml.revised_from_doc_no';
         }
         if (Schema::hasColumn('dcs_masterlist_registration', 'effectivity_date')) {
             $select[] = 'ml.effectivity_date';
@@ -3165,6 +3350,7 @@ class RegisterQueryHelper
                 'doc_type' => $doc->doc_type_name ?? 'N/A',
                 'revision_status' => $status,
                 'stack_group' => trim((string) ($doc->stack_group ?? '')),
+                'revised_from_doc_no' => trim((string) ($doc->revised_from_doc_no ?? '')),
                 'effectivity_sort' => ! empty($doc->effectivity_date)
                     ? \Carbon\Carbon::parse($doc->effectivity_date)->format('Y-m-d')
                     : '',
@@ -3225,6 +3411,8 @@ class RegisterQueryHelper
         // Ids already loaded for this list. Avoid a second full-table scan.
         $visibleIds = $documents->pluck('id')->map(fn ($id) => (int) $id)->unique()->values()->all();
         $groups = self::mergeUpdateListLineageGroups($groups, $visibleIds);
+        $groups = self::splitUnrelatedUpdateChildren($groups);
+        $groups = $groups->reject(fn (array $group) => self::updateGroupIsClosedHistory($group))->values();
 
         return $groups->sortByDesc('sort_id')->values();
     }
@@ -4921,6 +5109,21 @@ class RegisterQueryHelper
             return [];
         }
 
+        $visibleIds = [];
+        $field = $request->input('field');
+        $docTypeId = $request->input('doc_type_id');
+        $subTypeId = $request->input('sub_type_id');
+        $allRevisions = $request->boolean('all_revisions');
+        $hasKeywords = Schema::hasColumn('dcs_masterlist_registration', 'keywords');
+        $dashboardSearch = !$allRevisions && ($field === null || $field === '');
+        $latestOnly = $request->boolean('latest_only') || $dashboardSearch;
+
+        $query = DB::table('dcs_masterlist_registration as ml')
+            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
+            ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
+            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
+            ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id');
+
         if (self::isLimitedDcsUser()) {
             abort_unless(
                 $request->boolean('originator_self'),
@@ -4928,24 +5131,14 @@ class RegisterQueryHelper
                 'Document search is limited to your own originator records.'
             );
             $visibleIds = self::visibleOriginatorRequestIds();
+            if ($visibleIds === []) {
+                return [];
+            }
+            $query->whereIn('ml.request_id', $visibleIds);
         } else {
-            $visibleIds = self::visibleRequestIds();
+            self::applyNotDeleted($query, 'dr');
+            self::applyRegisteredDocumentScope($query, 'dr');
         }
-        $field = $request->input('field');
-        $docTypeId = $request->input('doc_type_id');
-        $subTypeId = $request->input('sub_type_id');
-        $allRevisions = $request->boolean('all_revisions');
-        $hasKeywords = Schema::hasColumn('dcs_masterlist_registration', 'keywords');
-        // Dashboard search: include prior revisions so obsolete keywords still match.
-        // Keyword hits stay on the matching revision; title/doc_no hits resolve to the lineage tip.
-        $dashboardSearch = !$allRevisions && ($field === null || $field === '');
-
-        $query = DB::table('dcs_masterlist_registration as ml')
-            ->join('dcs_document_requests as dr', 'dr.id', '=', 'ml.request_id')
-            ->leftJoin('dcs_originators as og', 'og.id', '=', 'ml.originator_id')
-            ->leftJoin('dcs_doc_types as dt', 'dt.id', '=', 'dr.doc_type_id')
-            ->leftJoin('dcs_doc_types as st', 'st.id', '=', 'dr.sub_type_id')
-            ->whereIn('ml.request_id', $visibleIds);
 
         if ($request->boolean('originator_self')) {
             $userId = (int) auth()->id();
@@ -4971,7 +5164,7 @@ class RegisterQueryHelper
             });
         }
 
-        if (!$allRevisions && !$dashboardSearch) {
+        if ($latestOnly || (!$allRevisions && !$dashboardSearch)) {
             self::applyLatestRevisionStatus($query, 'ml');
         }
 
@@ -5042,7 +5235,7 @@ class RegisterQueryHelper
         $rows = $query->orderByDesc('ml.revise_no')
             ->orderBy('ml.doc_no')
             ->orderBy('ml.doc_title')
-            ->limit(count(self::searchTokens($q)) > 1 ? 200 : ($allRevisions ? 50 : ($dashboardSearch ? 60 : 30)))
+            ->limit(count(self::searchTokens($q)) > 1 ? 80 : ($allRevisions ? 50 : 20))
             ->get($select);
 
         $forRevision = $request->boolean('for_revision') || in_array($field, ['no', 'title', 'supersede'], true);
@@ -5061,11 +5254,25 @@ class RegisterQueryHelper
             return [];
         }
 
-        if ($dashboardSearch) {
-            $rows = self::resolveDashboardSearchHits($rows, $visibleIds, $hasKeywords, $q);
+        if ($dashboardSearch || $latestOnly) {
+            $seen = [];
+            $rows = $rows->filter(function ($m) use (&$seen) {
+                $key = strtolower(trim((string) ($m->doc_no ?? ''))) . '|'
+                    . (int) ($m->doc_type_id ?? 0) . '|'
+                    . (int) ($m->sub_type_id ?? 0);
+                if (isset($seen[$key])) {
+                    return false;
+                }
+                $seen[$key] = true;
+
+                return true;
+            })->values();
         } elseif ($forRevision && !$allRevisions) {
             // Documents for Revision must show the published current rev, not a
             // leftover revision draft or the next unused number.
+            if ($visibleIds === [] && ! self::isLimitedDcsUser()) {
+                $visibleIds = self::visibleRequestIds();
+            }
             $rows = self::resolveRevisionSearchHits($rows, $visibleIds, $hasKeywords);
         } elseif (!$allRevisions) {
             $seen = [];
@@ -6966,9 +7173,13 @@ class RegisterQueryHelper
                 $relatedIds = DB::table('dcs_masterlist_related_docs')
                     ->where('masterlist_id', $latest->id)
                     ->pluck('related_doc_id');
-                $latestRelatedDocs = DB::table('dcs_masterlist_registration')
-                    ->whereIn('id', $relatedIds)
-                    ->get(['id', 'doc_no', 'doc_title'])
+                $relatedQuery = DB::table('dcs_masterlist_registration as rel')
+                    ->join('dcs_document_requests as rdr', 'rdr.id', '=', 'rel.request_id')
+                    ->whereIn('rel.id', $relatedIds);
+                self::applyLatestRevisionStatus($relatedQuery, 'rel');
+                self::applyExcludeDrafts($relatedQuery, 'rdr');
+                $latestRelatedDocs = $relatedQuery
+                    ->get(['rel.id', 'rel.doc_no', 'rel.doc_title'])
                     ->map(fn ($d) => [
                         'masterlist_id' => $d->id,
                         'doc_no' => $d->doc_no,
@@ -7584,13 +7795,10 @@ class RegisterQueryHelper
                 'id' => $o->office_id,
                 'label' => $o->office_name ?? 'Unknown',
             ])->filter(fn ($o) => $o['id'])->values(),
-            'masterlistOriginatorSeed' => ($ml && ($ml->originator_name ?? null))
-                ? [[
-                    'type' => !empty($ml->originator_id ?? null) ? 'office' : 'name',
-                    'id' => ($ml->originator_id ?? null) ?: ('n' . $ml->id),
-                    'label' => $ml->originator_name,
-                ]]
-                : [],
+            'masterlistOriginatorSeed' => RegisterPersistHelper::originatorSeedFromStored(
+                $ml?->originator_name ?? null,
+                $ml?->originator_id ?? null
+            ),
             'syllabiGroupsSeed' => $syllabiGroupsSeed,
             'syllabiContextSeed' => $syllabi->first(),
             'isSyllabiLikeEdit' => RegisterPersistHelper::isSyllabiLikeSubTypeRow(

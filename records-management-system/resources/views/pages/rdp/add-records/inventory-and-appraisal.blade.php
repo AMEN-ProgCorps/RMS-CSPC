@@ -2418,6 +2418,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     'appraised_record_id' => $firstRecordId,
                     'updated_at' => now(),
                 ]);
+                \App\Helpers\OfficeIntakeHelper::bumpOfficeInventoryCache();
             }
 
             DB::commit();
@@ -2725,6 +2726,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     'appraised_record_id' => $firstRecordId,
                     'updated_at' => now(),
                 ]);
+                \App\Helpers\OfficeIntakeHelper::bumpOfficeInventoryCache();
             }
 
             DB::commit();

@@ -53,7 +53,7 @@ class NotificationFilterHelper
                 'key' => 'dcs_distribution',
                 'group' => 'Document Control System (DCS)',
                 'label' => 'Controlled Document Distribution',
-                'description' => 'When your office has a new controlled document to receive',
+                'description' => 'When your office has an incoming documented information',
                 'icon' => 'fa-file-shield',
             ],
             'dcs_registration' => [
@@ -113,7 +113,9 @@ class NotificationFilterHelper
         }
 
         // 5. DCS Controlled Document Distribution
-        if (str_contains($text, 'controlled document to receive') || str_contains($text, 'new controlled document')) {
+        if (str_contains($text, 'incoming documented information')
+            || str_contains($text, 'controlled document to receive')
+            || str_contains($text, 'new controlled document')) {
             return 'dcs_distribution';
         }
 

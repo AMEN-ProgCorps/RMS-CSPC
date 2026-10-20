@@ -263,7 +263,7 @@ class RegisterUpdateHelper
         try {
             $now = now();
             $approvalStatus = $request->input('approval_status', $docRequest->approval_status);
-            DB::table('dcs_document_requests')->where('id', $id)->update(array_filter([
+            $requestUpdate = [
                 'version_id' => $docRequest->version_id,
                 'doc_type_id' => $docRequest->doc_type_id,
                 'sub_type_id' => $resolvedSubTypeId,
@@ -271,7 +271,18 @@ class RegisterUpdateHelper
                 'is_draft' => RegisterQueryHelper::supportsDrafts() ? $saveAsDraft : null,
                 'updated_by' => auth()->id(),
                 'updated_at' => $now,
-            ], fn ($v) => $v !== null));
+            ];
+            if (
+                ! $saveAsDraft
+                && (string) $request->input('open_appraisal') === '1'
+                && Schema::hasColumn('dcs_document_requests', 'appraisal_opt_in')
+            ) {
+                $requestUpdate['appraisal_opt_in'] = true;
+            }
+            DB::table('dcs_document_requests')->where('id', $id)->update(array_filter(
+                $requestUpdate,
+                fn ($v) => $v !== null
+            ));
 
             $docTypeId = $docRequest->doc_type_id;
             $userId = auth()->id();
@@ -800,7 +811,8 @@ class RegisterUpdateHelper
                 Log::warning('DRF title sync after update skipped: '.$e->getMessage());
             }
 
-            if (! $saveAsDraft && $addedDistOfficeIds !== []) {
+            $holdForAppraisal = (string) $request->input('open_appraisal') === '1';
+            if (! $saveAsDraft && $addedDistOfficeIds !== [] && ! $holdForAppraisal) {
                 $notifyDocNo = trim((string) ($ml->doc_no ?? $docNo ?? ''));
                 $notifyTitle = trim((string) $savedTitle);
                 $revNo = isset($ml->revise_no) ? (int) $ml->revise_no : null;
@@ -869,12 +881,7 @@ class RegisterUpdateHelper
                 return $appraisalRedirect;
             }
 
-            // Published save clears unlock — send non-HEAD users back to Update (not the editor).
-            if (! $saveAsDraft && ! RegisterQueryHelper::isDocumentControlHead()) {
-                return redirect()->route('dcs.register.update')
-                    ->with('success', $successMessage);
-            }
-
+            // Stay on Edit after a plain save so Generate (distribution) is available.
             return redirect()->route('dcs.register.edit', $id)
                 ->with('success', $successMessage);
         } catch (\Throwable $e) {

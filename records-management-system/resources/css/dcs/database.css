@@ -585,6 +585,17 @@ td.col-group-summary-body {
     vertical-align: middle;
 }
 
+th.db-source-unit-col,
+td.db-source-unit-col,
+th.db-related-col,
+td.db-related-col {
+    max-width: 200px;
+    min-width: 128px;
+    width: 200px;
+    overflow: hidden;
+    vertical-align: top;
+}
+
 .db-offices-cell,
 .db-title-cell {
     max-width: 400px;

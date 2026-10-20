@@ -6,6 +6,7 @@ use App\Services\DocumentStorageService;
 use App\Services\DcsNotificationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -118,7 +119,22 @@ class OfficeIntakeHelper
 
         $query = DB::table($table)->whereIn('id', $ids)->whereNotNull('rfio_print_notified_at');
         if (! RegisterQueryHelper::canBrowseAllOfficeIntake()) {
-            $query->where('created_by', auth()->id());
+            $userId = (int) auth()->id();
+            $officeId = (int) (RegisterQueryHelper::currentOfficeId() ?? 0);
+            $query->where(function ($q) use ($userId, $officeId, $table) {
+                if ($userId > 0) {
+                    $q->where('created_by', $userId);
+                }
+                if ($officeId > 0) {
+                    $detailsTable = Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+                    $q->orWhereExists(function ($officeQ) use ($officeId, $detailsTable, $table) {
+                        $officeQ->select(DB::raw(1))
+                            ->from($detailsTable . ' as ofi_ad')
+                            ->whereColumn('ofi_ad.account_id', $table . '.created_by')
+                            ->where('ofi_ad.office_id', $officeId);
+                    });
+                }
+            });
         }
 
         return [
@@ -1373,10 +1389,59 @@ class OfficeIntakeHelper
         return RegisterQueryHelper::originatorMatchesCurrentUser($originatorName, $originatorAccountId);
     }
 
+    private static function mergeJoinedOriginator(Request $request): void
+    {
+        $request->merge([
+            'originatorName' => RegisterPersistHelper::joinedOriginatorNames($request->input('originatorName')),
+        ]);
+    }
+
+    public static function bumpOfficeInventoryCache(): void
+    {
+        try {
+            $version = (int) Cache::get('dcs.ofi.inventory.version', 1);
+            Cache::forever('dcs.ofi.inventory.version', $version + 1);
+        } catch (\Throwable) {
+        }
+    }
+
+    private static function officeInventoryCacheVersion(): int
+    {
+        try {
+            return (int) Cache::get('dcs.ofi.inventory.version', 1);
+        } catch (\Throwable) {
+            return 1;
+        }
+    }
+
+    private static function rememberOfficeInventory(string $suffix, callable $loader, int $ttl = 20): mixed
+    {
+        $officeId = (int) (RegisterQueryHelper::currentOfficeId() ?? 0);
+        $rdp = auth()->user()?->permissions?->can_access_rdp ? '1' : '0';
+        $key = 'dcs.ofi.inv.' . self::officeInventoryCacheVersion() . '.' . $officeId . '.' . $rdp . '.' . $suffix;
+        try {
+            $cached = Cache::get($key);
+            if ($cached !== null) {
+                return $cached;
+            }
+        } catch (\Throwable) {
+            $cached = null;
+        }
+
+        $value = $loader();
+        try {
+            Cache::put($key, $value, $ttl);
+        } catch (\Throwable) {
+        }
+
+        return $value;
+    }
+
     public static function storeDrf(Request $request): RedirectResponse
     {
         self::assertCanAccessIntake();
         RegisterPersistHelper::blankStringsToNull($request);
+        self::mergeJoinedOriginator($request);
 
         $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
         if (!$rateCheck['allowed']) {
@@ -1518,7 +1583,7 @@ class OfficeIntakeHelper
             'id' => 0,
             'doc_title' => trim((string) $request->input('drfTitle', '')),
             'drf_date' => $request->input('drfDate') ?: null,
-            'originator_name' => trim((string) $request->input('originatorName', '')),
+            'originator_name' => RegisterPersistHelper::joinedOriginatorNames($request->input('originatorName')),
             'doc_type_kind' => $request->input('docTypeKind'),
             'description_reason' => trim((string) $request->input('descriptionReason', '')),
             'prepared_by_name' => trim((string) $request->input('preparedByName', '')),
@@ -1569,7 +1634,7 @@ class OfficeIntakeHelper
             'change_from' => trim((string) $request->input('changeFrom', '')),
             'change_to' => trim((string) $request->input('changeTo', '')),
             'brief_purpose' => trim((string) $request->input('dcnJustification', '')),
-            'originator_name' => trim((string) $request->input('originatorName', '')),
+            'originator_name' => RegisterPersistHelper::joinedOriginatorNames($request->input('originatorName')),
             'department_on' => $request->input('departmentDate') ?: null,
             'dcn_no' => '',
             'preview_reviewers' => $reviewers,
@@ -1623,6 +1688,7 @@ class OfficeIntakeHelper
     {
         self::assertCanAccessIntake();
         RegisterPersistHelper::blankStringsToNull($request);
+        self::mergeJoinedOriginator($request);
 
         $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
         if (!$rateCheck['allowed']) {
@@ -1762,6 +1828,7 @@ class OfficeIntakeHelper
     {
         self::assertCanAccessIntake();
         RegisterPersistHelper::blankStringsToNull($request);
+        self::mergeJoinedOriginator($request);
         abort_unless(self::canOfficeEditIntake('drf', $id), 403, self::IMMUTABLE_MESSAGE);
 
         $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
@@ -1861,6 +1928,7 @@ class OfficeIntakeHelper
     {
         self::assertCanAccessIntake();
         RegisterPersistHelper::blankStringsToNull($request);
+        self::mergeJoinedOriginator($request);
         abort_unless(self::canOfficeEditIntake('dcn', $id), 403, self::IMMUTABLE_MESSAGE);
 
         $rateCheck = \App\Services\RateLimiterService::check('dcs_create');
@@ -2568,17 +2636,20 @@ class OfficeIntakeHelper
         abort_unless($record, 404);
         abort_if(self::isIntakeRegistered($type, $id), 422, 'This office intake is already registered.');
         abort_if(empty($record->rfio_received_at), 422, 'Receive the signed form before registration.');
+        abort_if(empty($record->rfio_print_notified_at), 422, 'Notify the submitting office that this form is correct before registration.');
         if ($type === 'dcn') {
             $linkedDrfId = self::findLinkedDrfIdForOfficeDcn($id);
             if ($linkedDrfId) {
                 $linkedDrf = self::findOfficeDrf($linkedDrfId);
                 abort_if(! $linkedDrf || empty($linkedDrf->rfio_received_at), 422, 'Receive the linked Document Request Form before registration.');
+                abort_if(empty($linkedDrf->rfio_print_notified_at), 422, 'Notify the office for both the DCN and DRF before registration.');
             }
         } else {
             $linkedDcnId = self::findSourceDcnIdForOfficeDrf($id);
             if ($linkedDcnId) {
                 $linkedDcn = self::findOfficeDcn($linkedDcnId);
                 abort_if(! $linkedDcn || empty($linkedDcn->rfio_received_at), 422, 'Receive the linked Document Change Notice before registration.');
+                abort_if(empty($linkedDcn->rfio_print_notified_at), 422, 'Notify the office for both the DCN and DRF before registration.');
             }
         }
 
@@ -3262,15 +3333,6 @@ class OfficeIntakeHelper
         $officeCodes = self::intakeOfficeCodes($type, $id, $record);
         abort_if($officeCodes === [], 422, 'No submitting office found to notify.');
 
-        $sent = 0;
-        foreach ($officeCodes as $officeCode) {
-            if (DcsNotificationService::notifyOfficeIntakeReadyForPrintSign($officeCode, $type, $id, $title)) {
-                $sent++;
-            }
-        }
-
-        abort_if($sent < 1, 422, 'Could not send notification to the submitting office.');
-
         $now = now();
         $userId = (int) auth()->id();
         if (Schema::hasColumn($table, 'rfio_print_notified_at')) {
@@ -3282,13 +3344,60 @@ class OfficeIntakeHelper
         }
 
         $record = $type === 'dcn' ? self::findOfficeDcn($id) : self::findOfficeDrf($id);
+        $peer = self::linkedIntakePeer($type, $id);
+        $peerNotified = $peer !== null && ! empty($peer['record']->rfio_print_notified_at ?? null);
+        $noticeHeld = $peer !== null && ! $peerNotified;
+        $sent = 0;
+
+        if (! $noticeHeld) {
+            foreach ($officeCodes as $officeCode) {
+                $ok = $peer
+                    ? DcsNotificationService::notifyOfficeIntakePairReadyForPrintSign(
+                        $officeCode,
+                        $type === 'dcn' ? $id : (int) $peer['id'],
+                        $type === 'drf' ? $id : (int) $peer['id'],
+                        $title
+                    )
+                    : DcsNotificationService::notifyOfficeIntakeReadyForPrintSign($officeCode, $type, $id, $title);
+                if ($ok) {
+                    $sent++;
+                }
+            }
+            abort_if($sent < 1, 422, 'Could not send notification to the submitting office.');
+        }
 
         return array_merge([
             'ok' => true,
             'type' => $type,
             'id' => $id,
             'notifiedOffices' => $officeCodes,
+            'noticeHeld' => $noticeHeld,
+            'pairComplete' => $peer !== null && $peerNotified,
+            'pairLabel' => $peer ? strtoupper((string) $peer['type']) : '',
         ], self::intakePrintNotifiedState($record));
+    }
+
+    /** @return array{type: string, id: int, record: object}|null */
+    private static function linkedIntakePeer(string $type, int $id): ?array
+    {
+        $type = strtolower($type);
+        if ($type === 'dcn') {
+            $peerId = self::findLinkedDrfIdForOfficeDcn($id);
+            if (! $peerId) {
+                return null;
+            }
+            $peer = self::findOfficeDrf($peerId);
+
+            return $peer ? ['type' => 'drf', 'id' => $peerId, 'record' => $peer] : null;
+        }
+
+        $peerId = self::findSourceDcnIdForOfficeDrf($id);
+        if (! $peerId) {
+            return null;
+        }
+        $peer = self::findOfficeDcn($peerId);
+
+        return $peer ? ['type' => 'dcn', 'id' => $peerId, 'record' => $peer] : null;
     }
 
     /**
@@ -4167,10 +4276,17 @@ class OfficeIntakeHelper
     /** @return int */
     public static function officeDocumentTotal(?int $officeId = null, string $receiptFilter = 'all'): int
     {
-        $query = self::officeMasterlistQuery($officeId, null);
-        self::applyOfficeReceiptFilter($query, (int) ($officeId ?? RegisterQueryHelper::currentOfficeId() ?? 0), $receiptFilter);
+        $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
 
-        return (int) $query->count();
+        return (int) self::rememberOfficeInventory(
+            'total.' . $receiptFilter . '.' . (int) ($officeId ?? 0),
+            function () use ($officeId, $receiptFilter) {
+                $query = self::officeMasterlistQuery($officeId, null);
+                self::applyOfficeReceiptFilter($query, (int) ($officeId ?? 0), $receiptFilter);
+
+                return (int) $query->count();
+            }
+        );
     }
 
     public static function officeIncomingAttentionTotal(?int $officeId = null): int
@@ -4276,6 +4392,24 @@ class OfficeIntakeHelper
         string $receiptFilter = 'all'
     ): array {
         $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
+        $onlyFlag = $onlyWithDocuments ? '1' : '0';
+
+        return self::rememberOfficeInventory(
+            'groups.' . $receiptFilter . '.' . $onlyFlag . '.' . (int) ($officeId ?? 0),
+            function () use ($officeId, $onlyWithDocuments, $receiptFilter) {
+                return self::buildOfficeDocumentGroups($officeId, $onlyWithDocuments, $receiptFilter);
+            }
+        );
+    }
+
+    /**
+     * @return list<array{key: string, label: string, count: int}>
+     */
+    private static function buildOfficeDocumentGroups(
+        ?int $officeId,
+        bool $onlyWithDocuments,
+        string $receiptFilter
+    ): array {
         $groups = [];
         foreach (self::documentGroupDefs() as $key => $label) {
             $scope = self::documentGroupScope($key);
@@ -4480,6 +4614,26 @@ class OfficeIntakeHelper
         string $receiptFilter = 'all'
     ): array {
         $officeId = $officeId ?? RegisterQueryHelper::currentOfficeId();
+        if (! $officeId) {
+            return [];
+        }
+
+        return self::rememberOfficeInventory(
+            'rows.' . $receiptFilter . '.' . ($groupKey === '' ? 'all' : $groupKey) . '.' . (int) $officeId,
+            function () use ($groupKey, $officeId, $receiptFilter) {
+                return self::buildOfficeDocumentRows($groupKey, (int) $officeId, $receiptFilter);
+            }
+        );
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private static function buildOfficeDocumentRows(
+        string $groupKey,
+        int $officeId,
+        string $receiptFilter
+    ): array {
         if (! $officeId) {
             return [];
         }
@@ -4703,6 +4857,7 @@ class OfficeIntakeHelper
             $requestId,
             $revNo
         );
+        self::bumpOfficeInventoryCache();
 
         return [
             'ok' => true,

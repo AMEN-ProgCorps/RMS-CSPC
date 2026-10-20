@@ -17,18 +17,24 @@ DCS file: One database table row. Originator names that were saved comma-separat
 <td style="text-align:center">
     @include('pages.dcs.database._scan', ['url' => $r['pdf_path'] ?? null])
 </td>
-<td class="db-offices-cell" wire:key="source-unit-{{ $r['request_id'] ?? 0 }}">
+<td class="db-offices-cell db-source-unit-col" wire:key="source-unit-{{ $r['request_id'] ?? 0 }}">
     @include('pages.dcs.database._offices-clamp', [
         'officesText' => $r['source_unit'] ?? '',
         'clampKey' => 'su' . ($r['request_id'] ?? 0),
     ])
 </td>
-<td>
-    @forelse($r['related'] ?? [] as $rel)
-        <span class="db-related-tag">{{ $rel['title'] ?? $rel['doc_no'] }}</span>
-    @empty
-        <span class="db-na">—</span>
-    @endforelse
+<td class="db-related-col" wire:key="related-{{ $r['request_id'] ?? 0 }}">
+    @php
+        $relatedLabels = collect($r['related'] ?? [])
+            ->map(fn ($rel) => trim((string) ($rel['title'] ?? $rel['doc_no'] ?? '')))
+            ->filter()
+            ->values()
+            ->all();
+    @endphp
+    @include('pages.dcs.database._offices-clamp', [
+        'officesText' => implode(', ', $relatedLabels),
+        'clampKey' => 'rel' . ($r['request_id'] ?? 0),
+    ])
 </td>
 
 <td class="col-group-summary-body col-group-summary-approval" x-show="visible.approval && !open.approval">

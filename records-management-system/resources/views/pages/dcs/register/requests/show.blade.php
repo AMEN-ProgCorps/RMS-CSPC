@@ -109,6 +109,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
             'key' => $payload['type'] ?? $this->type,
             'payload' => $payload,
             'pairReceived' => empty($linkedPayload) || ! empty($linkedPayload['received']),
+            'pairNotified' => empty($linkedPayload) || ! empty($linkedPayload['printNotified']),
             'pairLabel' => $linkedPayload ? strtoupper((string) ($linkedPayload['type'] ?? '')) : '',
             'proceedType' => $proceedType,
             'proceedId' => $proceedId,
@@ -119,6 +120,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                 'key' => $linkedPayload['type'],
                 'payload' => $linkedPayload,
                 'pairReceived' => ! empty($payload['received']),
+                'pairNotified' => ! empty($payload['printNotified']),
                 'pairLabel' => strtoupper($this->type),
                 'proceedType' => $proceedType,
                 'proceedId' => $proceedId,
@@ -209,7 +211,8 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                     $panelReceived = ! empty($ap['received']);
                     $panelNotified = ! empty($ap['printNotified']);
                     $panelPairPending = empty($panel['pairReceived']) && ($panel['pairLabel'] ?? '') !== '';
-                    $panelCanProceed = $panelReceived && ! $panelPairPending && ! empty($ap['canRegister']) && ! empty($panel['registerUrl']);
+                    $panelPairNotifyPending = empty($panel['pairNotified']) && ($panel['pairLabel'] ?? '') !== '';
+                    $panelCanProceed = $panelReceived && $panelNotified && ! $panelPairPending && ! $panelPairNotifyPending && ! empty($ap['canRegister']) && ! empty($panel['registerUrl']);
                 @endphp
                 <aside class="ofi-request-actions" data-ofi-actions data-preview-key="{{ $panel['key'] }}"
                     @if($panel['key'] !== $activePreviewKey) hidden @endif
@@ -221,6 +224,7 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                     data-can-register="{{ !empty($ap['canRegister']) ? '1' : '0' }}"
                     data-received="{{ $panelReceived ? '1' : '0' }}"
                     data-pair-received="{{ $panelPairPending ? '0' : '1' }}"
+                    data-pair-notified="{{ $panelPairNotifyPending ? '0' : '1' }}"
                     data-pair-label="{{ $panel['pairLabel'] ?? '' }}"
                     data-print-notified="{{ $panelNotified ? '1' : '0' }}"
                 >
@@ -299,13 +303,20 @@ new #[Layout('layouts.dcs')] #[Title('Review Request — CSPC DCS')] class exten
                         <div class="ofi-request-step-num" aria-hidden="true">{{ $panelReceived ? '3' : '4' }}</div>
                         <div class="ofi-request-step-body">
                             <p class="ofi-request-step-label">Proceed to registration</p>
+                            <div class="ofi-alert err" data-ofi-action-error hidden></div>
+                            <div data-ofi-proceed-wrap>
                             <button type="button" class="ofi-receive-proceed" data-ofi-proceed
                                 @disabled(! $panelCanProceed)>
                                 Proceed to Registration
                                 <i class="fa-solid fa-arrow-right"></i>
                             </button>
+                            </div>
                             <p class="ofi-request-step-hint" data-ofi-proceed-hint @if($panelCanProceed) hidden @endif>
-                                @if(! $panelReceived)
+                                @if(! $panelNotified)
+                                    Notify the submitting office that this {{ strtoupper($panelType) }} is correct before registration.
+                                @elseif($panelPairNotifyPending)
+                                    Notify the office for the linked {{ $panel['pairLabel'] }} as well — one notice is sent when both are confirmed.
+                                @elseif(! $panelReceived)
                                     Confirm receipt of the signed {{ strtoupper($panelType) }} first to unlock registration.
                                 @elseif($panelPairPending)
                                     Switch to the {{ $panel['pairLabel'] }} preview and confirm receipt of that signed form before registration.

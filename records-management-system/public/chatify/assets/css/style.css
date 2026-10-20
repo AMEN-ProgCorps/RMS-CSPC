@@ -3751,3 +3751,30 @@
     .dark-mode-header-btn:active {
       transform: scale(0.95);
     }
+
+    /* ── Settings Header Admin Key Button ── */
+    .admin-key-header-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: none;
+      background: #1b74e4;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+      outline: none;
+      padding: 0;
+      flex-shrink: 0;
+    }
+
+    .admin-key-header-btn:hover {
+      opacity: 0.9;
+      transform: scale(1.08);
+    }
+
+    .admin-key-header-btn:active {
+      transform: scale(0.95);
+    }

@@ -165,9 +165,17 @@
     if (adminKeyToggleBtn) {
       if (isAdmin) adminKeyToggleBtn.style.display = 'inline-flex';
       adminKeyToggleBtn.addEventListener('click', () => {
+        if (typeof closeCommSettingsModal === 'function') closeCommSettingsModal();
         openAdminKeyModal();
       });
     }
+
+    window.openAdminKeyModalFromSettings = function() {
+      if (typeof closeCommSettingsModal === 'function') {
+        closeCommSettingsModal();
+      }
+      openAdminKeyModal();
+    };
 
     function openAdminKeyModal() {
       if (!adminKeyModal) return;
@@ -189,7 +197,15 @@
       }
     }
 
+    window.openAdminKeyModal = openAdminKeyModal;
+    window.closeAdminKeyModal = closeAdminKeyModal;
+
     if (adminKeyCancelBtn) adminKeyCancelBtn.addEventListener('click', closeAdminKeyModal);
+    if (adminKeyModal) {
+      adminKeyModal.addEventListener('click', function(e) {
+        if (e.target === adminKeyModal) closeAdminKeyModal();
+      });
+    }
 
     function submitSecretKeyForm() {
       const form = document.getElementById('adminKeyForm');

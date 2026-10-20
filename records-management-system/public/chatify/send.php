@@ -82,9 +82,9 @@ if (empty($convId)) {
 $isOfficeGc     = str_starts_with($convId, 'office_');
 $targetOfficeId = $isOfficeGc ? OfficeChatManager::parseOfficeId($convId) : null;
 
-// Security check: Only members of this office or Super Admin (account_id = 1) can post
+// Security check: Only members of this office or Super Admins can post
 if ($isOfficeGc && $targetOfficeId) {
-    if ($senderId !== 1 && $userOfficeId !== $targetOfficeId) {
+    if (!Auth::isAdmin($senderId) && $userOfficeId !== $targetOfficeId) {
         http_response_code(403);
         die(json_encode(['error' => 'You do not belong to this office group chat.']));
     }

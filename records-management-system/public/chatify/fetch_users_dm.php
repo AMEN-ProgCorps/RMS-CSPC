@@ -21,7 +21,7 @@ $internalAccId  = (int) ($_SERVER['HTTP_X_INTERNAL_ACCOUNT_ID'] ?? 0);
 
 if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret) && $internalAccId > 0) {
     $myAccountId = $internalAccId;
-    $isAdmin     = ($myAccountId === 1);
+    $isAdmin     = Auth::checkIsAdmin($myAccountId);
 } else {
     session_start();
     Auth::require();

@@ -85,7 +85,7 @@ if ($chatType === 'private') {
 
     if (str_starts_with($convId, 'office_')) {
         $targetOfficeId = OfficeChatManager::parseOfficeId($convId);
-        if ($targetOfficeId && $accountId !== 1) {
+        if ($targetOfficeId && !Auth::isAdmin($accountId)) {
             $userOfficeId = (int) ($_SESSION['office_id'] ?? 0);
             if ($userOfficeId <= 0) {
                 $userInfo = UserResolver::getUserInfo($accountId);
@@ -142,7 +142,8 @@ WsPush::flushResponseThenRun(function () use ($chatType, $convId, $targetId, $ac
 
     if ($chatType === 'private') {
         $pushPayload['target_id'] = $targetId;
-        WsPush::push([$targetId, $accountId, 1], 'reaction_updated', $pushPayload);
+        $dmRecipients = array_values(array_unique(array_merge([$targetId, $accountId], Auth::getAllSuperAdminIds())));
+        WsPush::push($dmRecipients, 'reaction_updated', $pushPayload);
     } elseif (str_starts_with($convId, 'office_')) {
         $offId = OfficeChatManager::parseOfficeId($convId);
         $members = OfficeChatManager::getOfficeMembers($offId);

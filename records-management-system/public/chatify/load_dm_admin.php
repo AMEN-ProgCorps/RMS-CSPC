@@ -200,7 +200,7 @@ for ($i = 0; $i < $msgCount; $i++) {
     // Check if sender has been moved to another office
     $senderInfo = UserResolver::getUserInfo($senderId);
     $senderOfficeId = isset($senderInfo['office_id']) ? (int) $senderInfo['office_id'] : null;
-    $isUserMoved = ($isOfficeGc && $targetOfficeId && $senderId !== 1 && $senderOfficeId !== $targetOfficeId);
+    $isUserMoved = ($isOfficeGc && $targetOfficeId && !Auth::isAdmin($senderId) && $senderOfficeId !== $targetOfficeId);
 
     if ($isUserMoved) {
         $bodyHtml .= "<div class='message-bubble'>";
@@ -229,7 +229,7 @@ for ($i = 0; $i < $msgCount; $i++) {
                 $rSenderId = (int) $msg['reply_sender_id'];
                 $rSenderInfo = UserResolver::getUserInfo($rSenderId);
                 $rSenderOfficeId = isset($rSenderInfo['office_id']) ? (int) $rSenderInfo['office_id'] : null;
-                $isReplySenderMoved = ($rSenderId !== 1 && $rSenderOfficeId !== $targetOfficeId);
+                $isReplySenderMoved = (!Auth::isAdmin($rSenderId) && $rSenderOfficeId !== $targetOfficeId);
             }
             $replyQuoteHtml = adminBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid'], $isReplySenderMoved);
         }

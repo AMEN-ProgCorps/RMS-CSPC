@@ -59,7 +59,7 @@ $isOfficeGc     = str_starts_with($convId, 'office_');
 $targetOfficeId = $isOfficeGc ? OfficeChatManager::parseOfficeId($convId) : null;
 
 if ($isOfficeGc && $targetOfficeId) {
-    if ($myAccountId !== 1 && $userOfficeId !== $targetOfficeId) {
+    if (!Auth::isAdmin($myAccountId) && $userOfficeId !== $targetOfficeId) {
         http_response_code(403);
         echo json_encode(['error' => 'You do not belong to this office group chat.']);
         exit;
@@ -241,7 +241,7 @@ for ($i = 0; $i < $msgCount; $i++) {
 
     // Check if sender has been moved to another office
     $senderOfficeId = isset($senderInfo['office_id']) ? (int) $senderInfo['office_id'] : null;
-    $isUserMoved = ($isOfficeGc && $targetOfficeId && $senderId !== 1 && $senderOfficeId !== $targetOfficeId);
+    $isUserMoved = ($isOfficeGc && $targetOfficeId && !Auth::isAdmin($senderId) && $senderOfficeId !== $targetOfficeId);
 
     if ($isUserMoved) {
         $rawTimestamp = htmlspecialchars($msg['timestamp'] ?? '', ENT_QUOTES);
@@ -282,7 +282,7 @@ for ($i = 0; $i < $msgCount; $i++) {
                 $rSenderId = (int) $msg['reply_sender_id'];
                 $rSenderInfo = UserResolver::getUserInfo($rSenderId);
                 $rSenderOfficeId = isset($rSenderInfo['office_id']) ? (int) $rSenderInfo['office_id'] : null;
-                $isReplySenderMoved = ($rSenderId !== 1 && $rSenderOfficeId !== $targetOfficeId);
+                $isReplySenderMoved = (!Auth::isAdmin($rSenderId) && $rSenderOfficeId !== $targetOfficeId);
             }
             $replyQuoteHtml = gcBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid'], $isReplySenderMoved);
         }
@@ -460,5 +460,5 @@ echo json_encode([
     'hasMore'         => $hasMore,
     'nextCursor'      => $nextCursor,   // pass as before_uuid for next "load older" request
     'conv_id'         => $convId,
-    'is_office_admin' => ($myAccountId === 1),
+    'is_office_admin' => Auth::isAdmin($myAccountId),
 ]);

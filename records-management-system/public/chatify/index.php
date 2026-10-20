@@ -66,9 +66,9 @@ if (!Auth::check()) {
 $user_name = trim(preg_replace('/\s+/', ' ', (string) $_SESSION["name"]));
 $username  = $_SESSION["username"] ?? '';
 
-// Admin is strictly determined by account_id = 1
+// Super Admin is determined by role permissions (is_sadm), role name, or account_id = 1
 $_current_account_id = (int) ($_SESSION['account_id'] ?? 0);
-$is_admin = ($_current_account_id === 1);
+$is_admin = Auth::checkIsAdmin($_current_account_id);
 $_SESSION['is_admin'] = $is_admin;
 
 // Load the list of account_ids with is_chatify_verified = TRUE for real-time badge injection.
@@ -79,6 +79,12 @@ try {
     $stmt = $pdo->query('SELECT account_id FROM ' . Database::t('account_details') . ' WHERE is_chatify_verified = TRUE');
     $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
     $verified_account_ids = array_map('intval', $rows);
+    $adminIds = Auth::getAllSuperAdminIds();
+    foreach ($adminIds as $aid) {
+        if (!in_array($aid, $verified_account_ids, true)) {
+            $verified_account_ids[] = $aid;
+        }
+    }
 } catch (Throwable $e) {
     // Non-fatal — verified badges simply won't show if DB is unavailable
 }

@@ -203,6 +203,7 @@
         @endif
     </div>
     <div class="functions-container">
+        <div class="function-button {{ request()->routeIs('rdp.reports.master-lifecycle') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.reports.master-lifecycle') }}')">Generalized Records</div>
         <div class="function-button {{ request()->routeIs('rdp.reports.nap-form-1') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.reports.nap-form-1') }}')">NAP Form 1</div>
         <div class="function-button {{ request()->routeIs('rdp.reports.nap-form-2') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.reports.nap-form-2') }}')">NAP Form 2</div>
         <div class="function-button {{ request()->routeIs('rdp.reports.nap-form-3') ? 'force-active' : '' }}" onclick="proccedto('{{ route('rdp.reports.nap-form-3') }}')">NAP Form 3</div>

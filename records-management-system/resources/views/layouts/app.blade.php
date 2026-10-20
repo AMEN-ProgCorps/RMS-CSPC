@@ -101,6 +101,7 @@
                         $prewarmUrls[] = '/rdp/reports/nap-form-1';
                         $prewarmUrls[] = '/rdp/reports/nap-form-2';
                         $prewarmUrls[] = '/rdp/reports/nap-form-3';
+                        $prewarmUrls[] = '/rdp/reports/master-lifecycle';
                     }
                     if ($perms->is_sadm || $perms->can_access_dcs) {
                         $prewarmUrls[] = '/dcs';

@@ -2902,7 +2902,53 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     }
 }; ?>
 
-<div class="inventory-appraisal-form" x-data @scroll-to-top.window="rdpScrollToTop()" style="padding: 24px; max-width: 1200px; margin: 0 auto;">
+<div class="inventory-appraisal-form" 
+     x-data="{
+        collectiveModalOpen: false,
+        collectiveSearch: '',
+        collectiveSelected: @entangle('collectiveOffices'),
+        collectiveTempSelected: [],
+        allOffices: {{ json_encode($officesList->filter(fn($o) => $o->office_code !== ($userOfficeCode ?? null))->map(fn($o) => ['code' => $o->office_code, 'name' => $o->office_name])->values()) }},
+        get filteredCollectiveOffices() {
+            if (!this.collectiveSearch || !this.collectiveSearch.trim()) return this.allOffices;
+            const q = this.collectiveSearch.toLowerCase().trim();
+            return this.allOffices.filter(o => 
+                (o.code && o.code.toLowerCase().includes(q)) || 
+                (o.name && o.name.toLowerCase().includes(q))
+            );
+        },
+        openCollectiveModal() {
+            this.collectiveTempSelected = Array.isArray(this.collectiveSelected) ? [...this.collectiveSelected] : [];
+            this.collectiveSearch = '';
+            this.collectiveModalOpen = true;
+        },
+        closeCollectiveModal() {
+            this.collectiveModalOpen = false;
+            this.collectiveSearch = '';
+        },
+        toggleCollectiveOffice(code) {
+            if (this.collectiveTempSelected.includes(code)) {
+                this.collectiveTempSelected = this.collectiveTempSelected.filter(c => c !== code);
+            } else {
+                this.collectiveTempSelected.push(code);
+            }
+        },
+        selectAllCollectiveOffices() {
+            this.collectiveTempSelected = this.allOffices.map(o => o.code);
+        },
+        clearAllCollectiveOffices() {
+            this.collectiveTempSelected = [];
+        },
+        applyCollectiveModal() {
+            this.collectiveSelected = [...this.collectiveTempSelected];
+            if (this.$wire) {
+                this.$wire.set('collectiveOffices', this.collectiveTempSelected, false);
+            }
+            this.collectiveModalOpen = false;
+        }
+     }"
+     @scroll-to-top.window="rdpScrollToTop()" 
+     style="padding: 24px; max-width: 1200px; margin: 0 auto;">
     @push('styles')
         @vite(['resources/css/rdp/inventory-and-appraisal.css'])
     @endpush
@@ -3013,11 +3059,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                             $validCollectiveOffices = array_values(array_filter($collectiveOffices ?? [], fn($c) => $c !== ($userOfficeCode ?? null)));
                             $collectiveCount = count($validCollectiveOffices);
                         @endphp
-                        <!-- Office Collective Trigger Button -->
+                        <!-- Office Collective Trigger Button (Client-Side Alpine) -->
                         <button type="button" 
-                                wire:click="openCollectiveModal" 
-                                class="ia-btn ia-btn-collective {{ $collectiveCount > 0 ? 'is-active' : '' }}" 
-                                title="{{ $collectiveCount > 0 ? 'Office Collective: ' . $collectiveCount . ' selected' : 'Add offices to Office Collective' }}">
+                                @click="openCollectiveModal()" 
+                                class="ia-btn ia-btn-collective"
+                                :class="{ 'is-active': (collectiveSelected && collectiveSelected.length > 0) }" 
+                                :title="(collectiveSelected && collectiveSelected.length > 0) ? 'Office Collective: ' + collectiveSelected.length + ' selected' : 'Add offices to Office Collective'">
                             <!-- Office Building Icon -->
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"></path>
@@ -3028,11 +3075,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                 <path d="M10 14h4"></path>
                                 <path d="M10 18h4"></path>
                             </svg>
-                            @if($collectiveCount > 0)
-                                <span>Office Collective [ {{ $collectiveCount }} ]</span>
-                            @else
+                            <template x-if="collectiveSelected && collectiveSelected.length > 0">
+                                <span>Office Collective [ <span x-text="collectiveSelected.length"></span> ]</span>
+                            </template>
+                            <template x-if="!collectiveSelected || collectiveSelected.length === 0">
                                 <span>+ Add Office to Collective</span>
-                            @endif
+                            </template>
                         </button>
 
                         {{-- Entry Mode Split Dropdown Button --}}
@@ -3729,34 +3777,49 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     <!-- Records Location -->
                     <div class="ia-form-row" wire:key="ia-row-location" style="position: relative; z-index: 25;">
                         <span class="ia-label ia-label-required">Records Location</span>
-                        <div style="position: relative; flex: 1;" wire:click.outside="$set('showLocationDropdown', false)">
+                        <div style="position: relative; flex: 1;" 
+                             x-data="{
+                                open: false,
+                                locationValue: @entangle('records_location'),
+                                allLocs: {{ json_encode($this->getOfficePastLocations()) }},
+                                get suggestions() {
+                                    if (!this.locationValue || !this.locationValue.trim()) return this.allLocs.slice(0, 8);
+                                    const q = this.locationValue.toLowerCase().trim();
+                                    return this.allLocs.filter(l => l.toLowerCase().includes(q)).slice(0, 8);
+                                },
+                                selectLoc(val) {
+                                    this.locationValue = val;
+                                    this.open = false;
+                                }
+                             }"
+                             @click.outside="open = false">
                             <input type="text"
                                 class="ia-input"
-                                wire:model.live.debounce.150ms="records_location"
-                                wire:focus="$set('showLocationDropdown', true)"
+                                x-model="locationValue"
+                                @focus="open = true"
                                 placeholder="E.G. BUILDING A, CABINET 3, SHELF 2"
                                 style="width: 100%; {{ ($showValidationErrors && empty(trim($records_location))) ? 'border-color: #fca5a5; background: #fff5f5;' : '' }}">
 
-                            @if($showLocationDropdown && count($locationSuggestions) > 0)
-                                <div class="ia-autocomplete-dropdown">
-                                    @foreach($locationSuggestions as $locSugg)
-                                        <div wire:click="selectLocationSuggestion('{{ addslashes($locSugg) }}')"
-                                             class="ia-autocomplete-item"
-                                             style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                                            <div style="display: flex; align-items: center; gap: 8px;">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                                                    <circle cx="12" cy="10" r="3"></circle>
-                                                </svg>
-                                                <span style="font-weight: 600;">{{ $locSugg }}</span>
-                                            </div>
-                                            <span style="font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">
-                                                Office Location
-                                            </span>
+                            <div x-show="open && suggestions.length > 0" 
+                                 x-cloak
+                                 class="ia-autocomplete-dropdown">
+                                <template x-for="locSugg in suggestions" :key="locSugg">
+                                    <div @click="selectLoc(locSugg)"
+                                         class="ia-autocomplete-item"
+                                         style="display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer;">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                                                <circle cx="12" cy="10" r="3"></circle>
+                                            </svg>
+                                            <span style="font-weight: 600;" x-text="locSugg"></span>
                                         </div>
-                                    @endforeach
-                                </div>
-                            @endif
+                                        <span style="font-size: 10px; font-weight: 700; color: #64748b; background: #f1f5f9; border: 1px solid #cbd5e1; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">
+                                            Office Location
+                                        </span>
+                                    </div>
+                                </template>
+                            </div>
                         </div>
                     </div>
 
@@ -4110,101 +4173,87 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         </div>
     @endif
 
-    <!-- ═══════ Office Collective Modal ═══════ -->
-    @if($showCollectiveModal)
-        <div class="ia-modal-overlay" style="z-index: 10000;">
-            <div class="ia-modal-card" style="width: 620px; max-width: 95vw; border-radius: 14px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.25);">
-                <div class="ia-modal-header" style="padding: 18px 22px; display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <h3 class="ia-modal-title" style="margin: 0 0 4px 0; font-size: 17px; font-weight: 700;">Office Collective</h3>
-                        <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 500;">
-                            Select offices to receive a duplicate copy of this record as an incoming Record Request
-                        </p>
-                    </div>
-                    <button type="button" wire:click="closeCollectiveModal" class="ia-modal-close" style="font-size: 22px; cursor: pointer;">&times;</button>
+    <!-- ═══════ Office Collective Modal (Client-Side Alpine) ═══════ -->
+    <div x-show="collectiveModalOpen || {{ $showCollectiveModal ? 'true' : 'false' }}" 
+         x-cloak 
+         class="ia-modal-overlay" 
+         style="z-index: 10000;" 
+         @keydown.escape.window="closeCollectiveModal()">
+        <div class="ia-modal-card" 
+             @click.outside="closeCollectiveModal()" 
+             style="width: 620px; max-width: 95vw; border-radius: 14px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.25);">
+            <div class="ia-modal-header" style="padding: 18px 22px; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 class="ia-modal-title" style="margin: 0 0 4px 0; font-size: 17px; font-weight: 700;">Office Collective</h3>
+                    <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 500;">
+                        Select offices to receive a duplicate copy of this record as an incoming Record Request
+                    </p>
                 </div>
-                
-                <div class="ia-modal-body" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; max-height: 65vh; overflow-y: auto;">
-                    <!-- Search & Selection Actions -->
-                    <div style="display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
-                        <div style="position: relative; flex: 1; min-width: 220px;">
-                            <input type="text" 
-                                   class="ia-input" 
-                                   wire:model.live.debounce.150ms="collectiveSearch" 
-                                   placeholder="Search office by code or name..."
-                                   style="width: 100%; font-size: 13px; padding-left: 12px;">
-                        </div>
-                        <div style="display: flex; gap: 6px;">
-                            <button type="button" wire:click="selectAllCollectiveOffices" class="ia-btn ia-btn-secondary" style="font-size: 11px; height: 32px; padding: 0 10px;">Select All</button>
-                            <button type="button" wire:click="clearAllTempCollectiveOffices" class="ia-btn ia-btn-secondary" style="font-size: 11px; height: 32px; padding: 0 10px;">Clear</button>
-                        </div>
+                <button type="button" @click="closeCollectiveModal()" class="ia-modal-close" style="font-size: 22px; cursor: pointer;">&times;</button>
+            </div>
+            
+            <div class="ia-modal-body" style="padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; max-height: 65vh; overflow-y: auto;">
+                <!-- Search & Selection Actions -->
+                <div style="display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+                    <div style="position: relative; flex: 1; min-width: 220px;">
+                        <input type="text" 
+                               class="ia-input" 
+                               x-model="collectiveSearch" 
+                               placeholder="Search office by code or name..."
+                               style="width: 100%; font-size: 13px; padding-left: 12px;">
                     </div>
-
-                    @php
-                        $userOffice = Auth::user()?->details?->office?->office_code ?? Auth::user()?->details?->office_code ?? null;
-                        $searchLower = strtolower(trim($collectiveSearch));
-                        $availableOffices = collect($officesList)->filter(function($off) use ($userOffice, $searchLower) {
-                            if ($off->office_code === $userOffice) return false;
-                            if (empty($searchLower)) return true;
-                            return str_contains(strtolower($off->office_code), $searchLower) || str_contains(strtolower($off->office_name), $searchLower);
-                        });
-                    @endphp
-
-                    <!-- Selected Count Badge -->
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; font-size: 12.5px; color: #1e40af; font-weight: 600;">
-                        <span>Selected in Collective: <strong>{{ count($tempCollectiveOffices) }}</strong> {{ \Illuminate\Support\Str::plural('office', count($tempCollectiveOffices)) }}</span>
-                        @if(count($tempCollectiveOffices) > 0)
-                            <span style="font-size: 11.5px; color: #2563eb; font-weight: 700;">Ready to spread</span>
-                        @endif
+                    <div style="display: flex; gap: 6px;">
+                        <button type="button" @click="selectAllCollectiveOffices()" class="ia-btn ia-btn-secondary" style="font-size: 11px; height: 32px; padding: 0 10px;">Select All</button>
+                        <button type="button" @click="clearAllCollectiveOffices()" class="ia-btn ia-btn-secondary" style="font-size: 11px; height: 32px; padding: 0 10px;">Clear</button>
                     </div>
+                </div>
 
-                    <!-- Offices List -->
-                    <div style="display: flex; flex-direction: column; gap: 6px; border: 1px solid #e2e8f0; border-radius: 8px; max-height: 280px; overflow-y: auto; padding: 6px;">
-                        @forelse($availableOffices as $off)
-                            @php
-                                $isSelected = in_array($off->office_code, $tempCollectiveOffices, true);
-                            @endphp
-                            <div wire:click="toggleCollectiveOffice('{{ $off->office_code }}')"
-                                 class="ia-collective-item {{ $isSelected ? 'is-selected' : '' }}">
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <input type="checkbox" 
-                                           {{ $isSelected ? 'checked' : '' }} 
-                                           style="cursor: pointer; pointer-events: none; width: 16px; height: 16px; accent-color: #2563eb;">
-                                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                        <span class="ia-collective-code-badge">
-                                            {{ $off->office_code }}
-                                        </span>
-                                        <span class="ia-collective-name">
-                                            {{ $off->office_name }}
-                                        </span>
-                                    </div>
+                <!-- Selected Count Badge -->
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; font-size: 12.5px; color: #1e40af; font-weight: 600;">
+                    <span>Selected in Collective: <strong x-text="collectiveTempSelected.length"></strong> <span x-text="collectiveTempSelected.length === 1 ? 'office' : 'offices'"></span></span>
+                    <span x-show="collectiveTempSelected.length > 0" style="font-size: 11.5px; color: #2563eb; font-weight: 700;">Ready to spread</span>
+                </div>
+
+                <!-- Offices List -->
+                <div style="display: flex; flex-direction: column; gap: 6px; border: 1px solid #e2e8f0; border-radius: 8px; max-height: 280px; overflow-y: auto; padding: 6px;">
+                    <template x-for="off in filteredCollectiveOffices" :key="off.code">
+                        <div @click="toggleCollectiveOffice(off.code)"
+                             class="ia-collective-item"
+                             :class="{ 'is-selected': collectiveTempSelected.includes(off.code) }">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <input type="checkbox" 
+                                       :checked="collectiveTempSelected.includes(off.code)" 
+                                       style="cursor: pointer; pointer-events: none; width: 16px; height: 16px; accent-color: #2563eb;">
+                                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                                    <span class="ia-collective-code-badge" x-text="off.code"></span>
+                                    <span class="ia-collective-name" x-text="off.name"></span>
                                 </div>
-                                <span style="font-size: 11.5px; font-weight: 700; color: {{ $isSelected ? '#2563eb' : '#94a3b8' }};">
-                                    {{ $isSelected ? '✓ Selected' : '+ Select' }}
-                                </span>
                             </div>
-                        @empty
-                            <div style="text-align: center; padding: 24px; font-size: 12.5px; color: #64748b;">
-                                No matching active offices found.
-                            </div>
-                        @endforelse
-                    </div>
-                </div>
-
-                <div class="ia-modal-footer" style="padding: 14px 22px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border-bottom-left-radius: 14px; border-bottom-right-radius: 14px;">
-                    <span style="font-size: 12px; color: #64748b; font-weight: 500;">
-                        {{ count($tempCollectiveOffices) }} {{ \Illuminate\Support\Str::plural('office', count($tempCollectiveOffices)) }} chosen
-                    </span>
-                    <div style="display: flex; gap: 8px;">
-                        <button type="button" wire:click="closeCollectiveModal" class="ia-btn ia-btn-secondary" style="height: 36px; padding: 0 14px; font-size: 12.5px;">Cancel</button>
-                        <button type="button" wire:click="applyCollectiveModal" class="ia-btn ia-btn-primary" style="height: 36px; padding: 0 16px; font-size: 12.5px; background: #2563eb; border-color: #2563eb;">
-                            Apply to Collective
-                        </button>
+                            <span style="font-size: 11.5px; font-weight: 700;"
+                                  :style="{ color: collectiveTempSelected.includes(off.code) ? '#2563eb' : '#94a3b8' }"
+                                  x-text="collectiveTempSelected.includes(off.code) ? '✓ Selected' : '+ Select'">
+                            </span>
+                        </div>
+                    </template>
+                    <div x-show="filteredCollectiveOffices.length === 0" style="text-align: center; padding: 24px; font-size: 12.5px; color: #64748b;">
+                        No matching active offices found.
                     </div>
                 </div>
             </div>
+
+            <div class="ia-modal-footer" style="padding: 14px 22px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border-bottom-left-radius: 14px; border-bottom-right-radius: 14px;">
+                <span style="font-size: 12px; color: #64748b; font-weight: 500;">
+                    <span x-text="collectiveTempSelected.length"></span> <span x-text="collectiveTempSelected.length === 1 ? 'office' : 'offices'"></span> chosen
+                </span>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" @click="closeCollectiveModal()" class="ia-btn ia-btn-secondary" style="height: 36px; padding: 0 14px; font-size: 12.5px;">Cancel</button>
+                    <button type="button" @click="applyCollectiveModal()" class="ia-btn ia-btn-primary" style="height: 36px; padding: 0 16px; font-size: 12.5px; background: #2563eb; border-color: #2563eb;">
+                        Apply to Collective
+                    </button>
+                </div>
+            </div>
         </div>
-    @endif
+    </div>
 
     <!-- ═══════ Batch Period Covered & Volume Modal ═══════ -->
     @if($showBatchModal)

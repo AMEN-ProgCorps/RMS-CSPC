@@ -49,8 +49,11 @@ class RdpReportsSearchTest extends TestCase
     {
         parent::setUp();
 
-        $admin = User::find(1);
+        $admin = User::whereHas('permissions', fn($q) => $q->where('is_sadm', true))->first()
+            ?? User::first();
         if ($admin) {
+            $this->actingAs($admin);
+            \Livewire\Livewire::actingAs($admin);
             Auth::login($admin);
         }
 

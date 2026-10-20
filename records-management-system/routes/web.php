@@ -493,6 +493,7 @@ Route::middleware(['auth'])
         Volt::route('/rdp/reports/nap-form-1', 'pages.rdp.reports.nap-form-1')->name('rdp.reports.nap-form-1');
         Volt::route('/rdp/reports/nap-form-2', 'pages.rdp.reports.nap-form-2')->name('rdp.reports.nap-form-2');
         Volt::route('/rdp/reports/nap-form-3', 'pages.rdp.reports.nap-form-3')->name('rdp.reports.nap-form-3');
+        Volt::route('/rdp/reports/master-lifecycle', 'pages.rdp.reports.master-lifecycle')->name('rdp.reports.master-lifecycle');
 
         Volt::route('/rdp/references/{type}', 'pages.rdp.references.show')->name('rdp.references.show');
 

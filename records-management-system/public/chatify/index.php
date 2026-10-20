@@ -285,7 +285,7 @@ try {
             <div class="user-name" id="officeGcTitle"><?php echo htmlspecialchars($current_office_id > 0 ? ($current_office_code !== '' ? $current_office_code : $current_office_name) : 'Office Group Chat'); ?></div>
             <span class="verified-badge"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           </div>
-          <div class="user-last-msg" id="officeGcLastMsg"><?php echo htmlspecialchars($current_office_id > 0 ? 'Official Office Group Chat' : 'No office assigned yet'); ?></div>
+          <div class="user-last-msg" id="officeGcLastMsg"><?php echo htmlspecialchars($current_office_id > 0 ? ($current_office_name !== '' ? $current_office_name : 'No Office Assigned') : 'No office assigned yet'); ?></div>
         </div>
       </div>
       <div class="sidebar-users" id="sidebarUsers">

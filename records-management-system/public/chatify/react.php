@@ -147,7 +147,8 @@ WsPush::flushResponseThenRun(function () use ($chatType, $convId, $targetId, $ac
     } elseif (str_starts_with($convId, 'office_')) {
         $offId = OfficeChatManager::parseOfficeId($convId);
         $members = OfficeChatManager::getOfficeMembers($offId);
-        WsPush::push($members, 'reaction_updated', $pushPayload);
+        $targetIds = array_values(array_unique(array_merge($members, Auth::getAllSuperAdminIds())));
+        WsPush::push($targetIds, 'reaction_updated', $pushPayload);
     } else {
         WsPush::broadcast('reaction_updated', $pushPayload);
     }

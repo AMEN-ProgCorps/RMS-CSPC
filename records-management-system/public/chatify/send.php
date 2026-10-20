@@ -162,7 +162,9 @@ if (empty($errors) && !empty($allResults)) {
 
         if ($isOfficeGc && $targetOfficeId) {
             $memberIds = OfficeChatManager::getOfficeMembers($targetOfficeId);
-            WsPush::push($memberIds, 'message', $payload);
+            $adminIds  = Auth::getAllSuperAdminIds();
+            $targetIds = array_values(array_unique(array_merge($memberIds, $adminIds)));
+            WsPush::push($targetIds, 'message', $payload);
         } else {
             WsPush::broadcast('message', $payload);
         }

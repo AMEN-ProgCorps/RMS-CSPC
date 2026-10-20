@@ -185,13 +185,16 @@ try {
     window.verifiedAccountIdsSet = verifiedAccountIds;
     window.isSuperAdmin = <?php echo json_encode($is_admin); ?>;
     window.currentOfficeInfo = {
-      office_id: <?php echo json_encode($current_office_id); ?>,
-      office_name: <?php echo json_encode($current_office_name); ?>,
-      office_code: <?php echo json_encode($current_office_code); ?>,
-      conv_id: <?php echo json_encode($current_office_id > 0 ? OfficeChatManager::convId($current_office_id) : 'global'); ?>,
+      office_id: <?php echo json_encode($current_office_id > 0 ? $current_office_id : null); ?>,
+      office_name: <?php echo json_encode($current_office_id > 0 ? $current_office_name : null); ?>,
+      office_code: <?php echo json_encode($current_office_id > 0 ? $current_office_code : null); ?>,
+      conv_id: <?php echo json_encode($current_office_id > 0 ? OfficeChatManager::convId($current_office_id) : null); ?>,
       is_gc_admin: <?php echo json_encode($is_admin); ?>,
-      display_title: <?php echo json_encode($current_office_id > 0 ? ($current_office_code !== '' ? $current_office_code : $current_office_name) : 'General Chat'); ?>
+      display_title: <?php echo json_encode($current_office_id > 0 ? ($current_office_code !== '' ? $current_office_code : $current_office_name) : null); ?>
     };
+    if (!window.currentOfficeInfo.office_id && localStorage.getItem('activeDM') === '__office__') {
+      localStorage.removeItem('activeDM');
+    }
   </script>
   <!-- Apply dark mode BEFORE page renders to prevent flash -->
   <script>
@@ -275,17 +278,17 @@ try {
         </div>
       </div>
 
-      <!-- Pinned Office Group Chat entry -->
-      <div class="user-item" id="officeChatItem" onclick="selectOfficeChat()" style="border-bottom:1px solid var(--border-color);">
+      <!-- Pinned Office Group Chat entry (only visible when user belongs to an office) -->
+      <div class="user-item" id="officeChatItem" onclick="selectOfficeChat()" style="border-bottom:1px solid var(--border-color);<?php echo $current_office_id <= 0 ? 'display:none;' : ''; ?>">
         <div class="user-avatar" style="position:relative;">
           <img src="cspc.webp" width="48" height="48" alt="CSPC logo" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
         </div>
         <div class="user-info">
           <div class="user-name-row" style="display:flex;align-items:center;justify-content:flex-start;gap:4px;min-width:0;">
-            <div class="user-name" id="officeGcTitle"><?php echo htmlspecialchars($current_office_id > 0 ? ($current_office_code !== '' ? $current_office_code : $current_office_name) : 'Office Group Chat'); ?></div>
+            <div class="user-name" id="officeGcTitle"><?php echo htmlspecialchars($current_office_code !== '' ? $current_office_code : $current_office_name); ?></div>
             <span class="verified-badge"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           </div>
-          <div class="user-last-msg" id="officeGcLastMsg"><?php echo htmlspecialchars($current_office_id > 0 ? ($current_office_name !== '' ? $current_office_name : 'No Office Assigned') : 'No office assigned yet'); ?></div>
+          <div class="user-last-msg" id="officeGcLastMsg"><?php echo htmlspecialchars($current_office_name); ?></div>
         </div>
       </div>
       <div class="sidebar-users" id="sidebarUsers">
@@ -324,6 +327,13 @@ try {
         <?php if ($is_admin): ?>
         <button id="clearChatHeaderBtn" class="clear-button" style="display:none;" title="Clear this conversation" onclick="showModal()">Clear Chat</button>
         <?php endif; ?>
+        <button type="button" id="officeInfoBtn" class="header-info-btn" style="display:none;" title="View office group chat members" onclick="openOfficeMembersModal()" aria-label="Office Information">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -416,7 +426,7 @@ try {
         <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="flex-shrink:0;">
           <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
         </svg>
-        <span>Root Admin Spy Mode</span>
+        <span>Super Admin Spy Mode</span>
       </div>
     </div>
   </div>
@@ -528,6 +538,27 @@ try {
       <div class="modal-body bell-list" id="notificationBellList"></div>
       <div class="modal-footer">
         <button class="modal-button cancel-button" id="notificationBellClose">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Office Members Modal (View users in Office GC) -->
+  <div class="modal" id="officeMembersModal" aria-hidden="true">
+    <div class="modal-content" style="max-width:440px;height:460px;max-height:85vh;display:flex;flex-direction:column;box-sizing:border-box;">
+      <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;flex-shrink:0;">
+        <div style="min-width:0;flex:1;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <h3 id="officeMembersModalTitle" style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Office Members</h3>
+            <span id="officeMembersCountBadge" style="font-size:11px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:2px 7px;border-radius:10px;flex-shrink:0;">0</span>
+          </div>
+          <div id="officeMembersModalSubtitle" style="font-size:11px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;">Group Chat Directory</div>
+        </div>
+      </div>
+      <div class="modal-body" id="officeMembersList" style="padding:16px;overflow-y:auto;flex:1;min-height:0;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scroll-behavior:smooth;touch-action:pan-y;display:flex;flex-direction:column;gap:8px;">
+        <!-- Members populated dynamically via JS -->
+      </div>
+      <div class="modal-footer" style="flex-shrink:0;">
+        <button type="button" class="modal-button cancel-button" onclick="closeOfficeMembersModal()">Close</button>
       </div>
     </div>
   </div>

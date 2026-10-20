@@ -48,7 +48,8 @@ if ($isGlobal || $targetOfficeId) {
 
     if ($targetOfficeId) {
         $memberIds = OfficeChatManager::getOfficeMembers($targetOfficeId);
-        WsPush::push($memberIds, 'chat_cleared', [
+        $targetIds = array_values(array_unique(array_merge($memberIds, Auth::getAllSuperAdminIds())));
+        WsPush::push($targetIds, 'chat_cleared', [
             'chat_type' => 'office_gc',
             'conv_id'   => $channelConvId,
             'office_id' => $targetOfficeId,

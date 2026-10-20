@@ -54,6 +54,19 @@ class Auth
                 } catch (Throwable $e) {
                     return false;
                 }
+            } else {
+                try {
+                    $pdo = Database::getConnection();
+                    $stmt = $pdo->prepare('SELECT office_id FROM ' . Database::t('account_details') . ' WHERE account_id = :id LIMIT 1');
+                    $stmt->execute([':id' => $laravelUserId]);
+                    $dbOfficeId = $stmt->fetchColumn();
+                    $freshOfficeId = ($dbOfficeId !== false && $dbOfficeId !== null && (int)$dbOfficeId > 0) ? (int)$dbOfficeId : null;
+                    if (($_SESSION['office_id'] ?? null) !== $freshOfficeId) {
+                        $_SESSION['office_id'] = $freshOfficeId;
+                    }
+                } catch (Throwable $e) {
+                    // Non-fatal
+                }
             }
         } else {
             // No active Laravel session -> invalidate local session immediately

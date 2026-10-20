@@ -320,15 +320,32 @@ if ($isAdmin) {
     }
 }
 
+$freshMyOfficeId = isset($myInfo['office_id']) ? (int) $myInfo['office_id'] : 0;
+$freshMyOffice = null;
+if ($freshMyOfficeId > 0) {
+    try {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare('SELECT office_name, office_code FROM ' . Database::t('office') . ' WHERE id = :id LIMIT 1');
+        $stmt->execute([':id' => $freshMyOfficeId]);
+        $freshMyOffice = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable) {}
+}
+
+if (session_status() === PHP_SESSION_ACTIVE) {
+    $_SESSION['office_id'] = $freshMyOfficeId;
+}
+
 echo json_encode([
     'users'         => array_values($sidebarUsers),
     'hasMore'       => $hasMoreUsers,
     'currentUser'   => [
-        'account_id' => $myAccountId,
-        'full_name'  => $myInfo['full_name'] ?? Auth::fullName(),
-        'office_id'  => $_SESSION['office_id'] ?? null,
-        'is_admin'   => $isAdmin,
-        'avatar_url' => $myInfo['avatar_url'] ?? ($_SESSION['avatar_url'] ?? null),
+        'account_id'  => $myAccountId,
+        'full_name'   => $myInfo['full_name'] ?? Auth::fullName(),
+        'office_id'   => $freshMyOfficeId > 0 ? $freshMyOfficeId : null,
+        'office_name' => $freshMyOffice['office_name'] ?? null,
+        'office_code' => $freshMyOffice['office_code'] ?? null,
+        'is_admin'    => $isAdmin,
+        'avatar_url'  => $myInfo['avatar_url'] ?? ($_SESSION['avatar_url'] ?? null),
     ],
     'conversations' => $adminSpyResponse['conversations'] ?? [],
     'adminConvs'    => $adminSpyResponse,

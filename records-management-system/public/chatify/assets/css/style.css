@@ -1687,6 +1687,9 @@
       opacity: 0.85;
       font-size: 13px;
     }
+    .message-container.user-moved .message-sender {
+      color: var(--text-secondary, #65676b) !important;
+    }
 
     /* Avatar Styles */
     .message-avatar {
@@ -2500,6 +2503,10 @@
     .cancel-button {
       border-right: 1px solid var(--border-color);
       color: var(--text-primary);
+    }
+
+    .modal-footer .modal-button:last-child {
+      border-right: none;
     }
 
     .cancel-button:hover {
@@ -3777,4 +3784,70 @@
 
     .admin-key-header-btn:active {
       transform: scale(0.95);
+    }
+
+    /* ── Header Office Info Button ── */
+    .header-info-btn {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: transparent !important;
+      color: var(--icon-color, var(--text-secondary));
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+      box-shadow: none !important;
+      outline: none;
+      padding: 0;
+      margin: 0;
+      flex-shrink: 0;
+    }
+
+    .header-info-btn:hover {
+      background: transparent !important;
+      color: var(--icon-hover, #1b74e4);
+      transform: scale(1.08);
+      opacity: 0.9;
+    }
+
+    .header-info-btn:active {
+      background: transparent !important;
+      transform: scale(0.95);
+    }
+
+    /* ── Office Members Modal Scrollbar & Smooth Scrolling (Hidden Scrollbar) ── */
+    #officeMembersList {
+      scrollbar-width: none !important; /* Firefox */
+      -ms-overflow-style: none !important; /* IE/Edge */
+      overscroll-behavior: contain;
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-y;
+    }
+    #officeMembersList::-webkit-scrollbar {
+      display: none !important; /* Chrome/Safari/Edge */
+      width: 0 !important;
+      height: 0 !important;
+    }
+
+    /* ── Office Members List Row: Clean borderless style without rectangle ── */
+    #officeMembersList .mention-user-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border: none !important;
+      background: transparent !important;
+      cursor: default !important;
+      padding: 7px 4px !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      transition: none !important;
+    }
+
+    #officeMembersList .mention-user-row:hover {
+      border: none !important;
+      background: transparent !important;
+      box-shadow: none !important;
     }

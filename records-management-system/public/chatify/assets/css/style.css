@@ -1669,6 +1669,22 @@
       justify-content: flex-start;
     }
 
+    /* Moved user bubble in office GC */
+    .message-container.user-moved .message-bubble {
+      background: var(--bg-secondary, #f0f2f5) !important;
+      border: 1px dashed var(--border-color, #ccd0d5) !important;
+      color: var(--text-secondary, #65676b) !important;
+      font-style: italic !important;
+      cursor: default !important;
+      user-select: none;
+    }
+    .message-container.user-moved .message-content {
+      font-style: italic !important;
+      color: var(--text-secondary, #65676b) !important;
+      opacity: 0.85;
+      font-size: 13px;
+    }
+
     /* Avatar Styles */
     .message-avatar {
       width: 32px;

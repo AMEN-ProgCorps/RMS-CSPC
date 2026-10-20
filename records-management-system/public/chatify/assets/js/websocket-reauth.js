@@ -16,6 +16,10 @@
         })
         .then(function (data) {
           if (!data || !data.token) throw new Error('malformed refresh response');
+          if (data.office_changed) {
+            window.location.reload();
+            return;
+          }
           wsConfig.expires = data.expires;
           wsConfig.token = data.token;
           if (ws && ws.readyState === WebSocket.OPEN) {

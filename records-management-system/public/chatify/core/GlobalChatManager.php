@@ -111,7 +111,7 @@ class GlobalChatManager
      *                                  null → return the newest $limit messages.
      * @return array<int, array>
      */
-    public static function loadRaw(int $limit = 50, ?string $beforeUuid = null): array
+    public static function loadRaw(int $limit = 50, ?string $beforeUuid = null, string $convId = self::CONV_ID): array
     {
         try {
             $pdo = Database::getConnection();
@@ -129,6 +129,7 @@ class GlobalChatManager
                             m.reply_to_msg_uuid,
                             r.message AS reply_message,
                             r.msg_type AS reply_msg_type,
+                            r.sender_id AS reply_sender_id,
                             to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                      FROM chat_messages m
                      LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
@@ -137,7 +138,7 @@ class GlobalChatManager
                      ORDER BY m.created_at DESC, m.id DESC
                      LIMIT :lim'
                 );
-                $stmt->bindValue(':conv_id', self::CONV_ID);
+                $stmt->bindValue(':conv_id', $convId);
                 $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
             } else {
                 // ── Keyset: messages older than the cursor ────────────────────
@@ -149,7 +150,7 @@ class GlobalChatManager
 
                 if (!$curRow) {
                     // Cursor message was deleted; fall back to newest page
-                    return self::loadRaw($limit, null);
+                    return self::loadRaw($limit, null, $convId);
                 }
 
                 $stmt = $pdo->prepare(
@@ -162,6 +163,7 @@ class GlobalChatManager
                             m.reply_to_msg_uuid,
                             r.message AS reply_message,
                             r.msg_type AS reply_msg_type,
+                            r.sender_id AS reply_sender_id,
                             to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
                      FROM chat_messages m
                      LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
@@ -171,7 +173,7 @@ class GlobalChatManager
                      ORDER BY m.created_at DESC, m.id DESC
                      LIMIT :lim'
                 );
-                $stmt->bindValue(':conv_id', self::CONV_ID);
+                $stmt->bindValue(':conv_id', $convId);
                 $stmt->bindValue(':cur_ts', $curRow['created_at']);
                 $stmt->bindValue(':cur_id', (int) $curRow['id'], PDO::PARAM_INT);
                 $stmt->bindValue(':lim', $limit, PDO::PARAM_INT);
@@ -186,12 +188,12 @@ class GlobalChatManager
     }
 
     /**
-     * Count all global messages.
+     * Count all global/channel messages.
      * NOTE: Only use this when a total count is genuinely required (e.g. admin
      * display). Do NOT call this in the normal message-loading path; use
      * keyset pagination instead.
      */
-    public static function countRaw(): int
+    public static function countRaw(string $convId = self::CONV_ID): int
     {
         try {
             $pdo  = Database::getConnection();
@@ -199,7 +201,7 @@ class GlobalChatManager
             $stmt = $pdo->prepare(
                 "SELECT COUNT(*) FROM chat_messages WHERE conv_id = :conv_id AND status = 'active'"
             );
-            $stmt->execute([':conv_id' => self::CONV_ID]);
+            $stmt->execute([':conv_id' => $convId]);
             return (int) $stmt->fetchColumn();
         } catch (PDOException $e) {
             error_log('GlobalChatManager::countRaw() — ' . $e->getMessage());
@@ -217,16 +219,28 @@ class GlobalChatManager
      *                             ChatNotifier once the message itself is
      *                             safely saved.
      */
-    public static function addTextMessage(int $senderId, string $plaintext, ?string $replyToUuid = null, array $mentionedIds = []): array|false
+    public static function addTextMessage(int $senderId, string $plaintext, ?string $replyToUuid = null, array $mentionedIds = [], string $convId = self::CONV_ID): array|false
     {
-        $result = self::insertMessage($senderId, $plaintext, 'text', $replyToUuid);
+        $result = self::insertMessage($senderId, $plaintext, 'text', $replyToUuid, $convId);
 
         if ($result !== false) {
-            $parsedIds = self::detectMentionsFromText($senderId, $plaintext);
+            $isOfficeGc     = str_starts_with($convId, 'office_');
+            $targetOfficeId = $isOfficeGc ? OfficeChatManager::parseOfficeId($convId) : null;
+
+            $parsedIds = self::detectMentionsFromText($senderId, $plaintext, $targetOfficeId);
             $allMentionedIds = array_values(array_unique(array_merge(
                 array_map('intval', $mentionedIds),
                 $parsedIds
             )));
+
+            // If in an office GC, strictly only allow mentioning members of that office
+            if ($targetOfficeId !== null && $targetOfficeId > 0 && !empty($allMentionedIds)) {
+                $allMentionedIds = array_values(array_filter($allMentionedIds, function ($accId) use ($targetOfficeId) {
+                    $u = UserResolver::getUserInfo($accId);
+                    return $u && (int) ($u['office_id'] ?? 0) === $targetOfficeId;
+                }));
+            }
+
             if (!empty($allMentionedIds)) {
                 self::recordMentions($senderId, $result['id'], $plaintext, $allMentionedIds);
             }
@@ -243,14 +257,14 @@ class GlobalChatManager
      *
      * @return int[] account_ids detected
      */
-    private static function detectMentionsFromText(int $senderId, string $plaintext): array
+    private static function detectMentionsFromText(int $senderId, string $plaintext, ?int $officeId = null): array
     {
         if (mb_strpos($plaintext, '@') === false) {
             return [];
         }
 
         try {
-            $allUsers = UserResolver::getAllExcept($senderId);
+            $allUsers = UserResolver::getAllExcept($senderId, $officeId);
             $detected = [];
 
             foreach ($allUsers as $user) {
@@ -360,22 +374,18 @@ class GlobalChatManager
     }
 
     /**
-     * Append a file-upload message to the global chat.
+     * Append a file-upload message to the channel/group chat.
      */
-    public static function addUploadMessage(int $senderId, string $filename, ?string $replyToUuid = null): array|false
+    public static function addUploadMessage(int $senderId, string $filename, ?string $replyToUuid = null, string $convId = self::CONV_ID): array|false
     {
-        return self::insertMessage($senderId, $filename, 'upload', $replyToUuid);
+        return self::insertMessage($senderId, $filename, 'upload', $replyToUuid, $convId);
     }
 
     /**
      * Look up a reply target's decrypted preview + type for the given
-     * msg_uuid, scoped to the global channel. Used by send.php to build the
-     * WsPush 'message' payload so other tabs can render the quoted bubble
-     * without a round-trip to load.php. Returns null if the target doesn't
-     * exist (already archived/backed up, wrong conv, etc.) — callers should
-     * just omit the reply preview in that case.
+     * msg_uuid, scoped to the specified channel.
      */
-    public static function getReplyPreview(string $msgUuid): ?array
+    public static function getReplyPreview(string $msgUuid, string $convId = self::CONV_ID): ?array
     {
         try {
             $pdo  = Database::getConnection();
@@ -384,7 +394,7 @@ class GlobalChatManager
                  WHERE msg_uuid = :uuid AND conv_id = :conv_id AND status = \'active\'
                  LIMIT 1'
             );
-            $stmt->execute([':uuid' => $msgUuid, ':conv_id' => self::CONV_ID]);
+            $stmt->execute([':uuid' => $msgUuid, ':conv_id' => $convId]);
             $row = $stmt->fetch();
             if (!$row) return null;
 
@@ -417,7 +427,7 @@ class GlobalChatManager
     // -------------------------------------------------------------------------
 
     /**
-     * Load all reactions for the global chat.
+     * Load all reactions for the channel/group chat.
      * Scoped to the provided message UUIDs to avoid loading all reactions
      * for the entire history on every page load.
      *
@@ -425,7 +435,7 @@ class GlobalChatManager
      *
      * @param string[] $msgUuids  The UUIDs currently visible on the page (optional)
      */
-    public static function loadReactions(array $msgUuids = []): array
+    public static function loadReactions(array $msgUuids = [], string $convId = self::CONV_ID): array
     {
         try {
             $pdo = Database::getConnection();
@@ -440,7 +450,7 @@ class GlobalChatManager
                 );
                 $stmt->execute($msgUuids);
             } else {
-                // Fallback: all reactions for the whole global channel
+                // Fallback: all reactions for the whole channel
                 $stmt = $pdo->prepare(
                     'SELECT r.msg_uuid, r.emoji, r.account_id
                      FROM chat_reactions r
@@ -448,7 +458,7 @@ class GlobalChatManager
                      WHERE m.conv_id = :conv_id
                      ORDER BY r.reacted_at ASC'
                 );
-                $stmt->execute([':conv_id' => self::CONV_ID]);
+                $stmt->execute([':conv_id' => $convId]);
             }
 
             $reactions = [];
@@ -463,14 +473,15 @@ class GlobalChatManager
     }
 
     /**
-     * Toggle a reaction on a global message.
+     * Toggle a reaction on a channel message.
      * One emoji per user per message. Same emoji = remove; different = replace.
      */
     public static function toggleReaction(
         string $msgId,
         string $emoji,
         int    $accountId,
-        array  $allowed
+        array  $allowed,
+        string $convId = self::CONV_ID
     ): array {
         if (!in_array($emoji, $allowed, true)) {
             return ['ok' => false, 'action' => 'invalid_emoji'];
@@ -479,11 +490,11 @@ class GlobalChatManager
         try {
             $pdo = Database::getConnection();
 
-            // Verify message belongs to global chat
+            // Verify message belongs to this channel
             $check = $pdo->prepare(
                 'SELECT msg_uuid FROM chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id LIMIT 1'
             );
-            $check->execute([':uuid' => $msgId, ':conv_id' => self::CONV_ID]);
+            $check->execute([':uuid' => $msgId, ':conv_id' => $convId]);
             if (!$check->fetch()) {
                 return ['ok' => false, 'action' => 'message_not_found'];
             }
@@ -496,9 +507,9 @@ class GlobalChatManager
     }
 
     /**
-     * Clear ALL global reactions (called after chat wipe).
+     * Clear ALL reactions for a channel (called after chat wipe).
      */
-    public static function clearReactions(): void
+    public static function clearReactions(string $convId = self::CONV_ID): void
     {
         try {
             $pdo  = Database::getConnection();
@@ -508,26 +519,18 @@ class GlobalChatManager
                      SELECT msg_uuid FROM chat_messages WHERE conv_id = :conv_id
                  )'
             );
-            $stmt->execute([':conv_id' => self::CONV_ID]);
+            $stmt->execute([':conv_id' => $convId]);
         } catch (PDOException $e) {
             error_log('GlobalChatManager::clearReactions() — ' . $e->getMessage());
         }
     }
 
     /**
-     * Soft-clear Global Chat ("/clear" while Super Admin is viewing Global
-     * Chat). Mirrors ConversationManager::deleteConversation()'s admin
-     * branch: this ONLY flips every currently-active global message to
-     * status='inactive'. Nothing is deleted, no upload files are touched —
-     * rows stay in chat_messages (just hidden from loadRaw(), which filters
-     * on status='active') until the separate, explicit "/backup" command
-     * (backup_dm.php → ConversationManager::backupGlobal()) moves them into
-     * chatify_chat_backup. This keeps /clear and /backup decoupled, same as
-     * the DM flow, so a clear can never silently destroy data.
+     * Soft-clear channel messages.
      *
      * @return int Number of messages flipped to inactive.
      */
-    public static function softClearChat(): int
+    public static function softClearChat(string $convId = self::CONV_ID): int
     {
         try {
             $pdo = Database::getConnection();
@@ -538,7 +541,7 @@ class GlobalChatManager
                  SET status = 'inactive', updated_at = NOW()
                  WHERE conv_id = :conv_id AND status = 'active'"
             );
-            $stmt->execute([':conv_id' => self::CONV_ID]);
+            $stmt->execute([':conv_id' => $convId]);
             return $stmt->rowCount();
         } catch (PDOException $e) {
             error_log('GlobalChatManager::softClearChat() — ' . $e->getMessage());
@@ -566,14 +569,15 @@ class GlobalChatManager
     }
 
     /**
-     * Insert a new message row into the global chat.
+     * Insert a new message row into the channel.
      * History is unlimited — no pruning occurs after insert.
      */
     private static function insertMessage(
         int     $senderId,
         string  $content,
         string  $type,
-        ?string $replyToUuid = null
+        ?string $replyToUuid = null,
+        string  $convId = self::CONV_ID
     ): array|false {
         $encrypted = encryptMessage($content);
         if ($encrypted === false) {
@@ -584,12 +588,8 @@ class GlobalChatManager
         $dt   = new DateTime('now', new DateTimeZone('Asia/Manila'));
         $ts   = $dt->format('Y-m-d H:i:s.uP');
 
-        // A reply target must actually be a live message in THIS channel —
-        // otherwise silently drop it rather than store a bogus reference
-        // (the FK would reject it anyway, but this avoids the failed
-        // insert/exception path for a simple bad/stale client-side id).
         if ($replyToUuid !== null) {
-            $replyToUuid = self::messageExists($replyToUuid) ? $replyToUuid : null;
+            $replyToUuid = self::messageExists($replyToUuid, $convId) ? $replyToUuid : null;
         }
 
         try {
@@ -600,7 +600,7 @@ class GlobalChatManager
                  VALUES (:conv_id, :sender_id, NULL, :message, :msg_type, :created_at, :created_at, :msg_uuid, :reply_to)'
             );
             $stmt->execute([
-                ':conv_id'    => self::CONV_ID,
+                ':conv_id'    => $convId,
                 ':sender_id'  => $senderId,
                 ':message'    => $encrypted,
                 ':msg_type'   => $type,
@@ -624,17 +624,17 @@ class GlobalChatManager
     }
 
     /**
-     * Does an active message with this UUID exist in the global channel?
+     * Does an active message with this UUID exist in the channel?
      * Used to validate an incoming reply_to before insert.
      */
-    private static function messageExists(string $msgUuid): bool
+    private static function messageExists(string $msgUuid, string $convId = self::CONV_ID): bool
     {
         try {
             $pdo  = Database::getConnection();
             $stmt = $pdo->prepare(
                 'SELECT 1 FROM chat_messages WHERE msg_uuid = :uuid AND conv_id = :conv_id AND status = \'active\' LIMIT 1'
             );
-            $stmt->execute([':uuid' => $msgUuid, ':conv_id' => self::CONV_ID]);
+            $stmt->execute([':uuid' => $msgUuid, ':conv_id' => $convId]);
             return (bool) $stmt->fetchColumn();
         } catch (PDOException $e) {
             error_log('GlobalChatManager::messageExists() — ' . $e->getMessage());

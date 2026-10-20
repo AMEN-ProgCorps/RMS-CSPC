@@ -75,7 +75,11 @@ class ImageProcessor
             }
         }
 
-        imagedestroy($img);
+        // In PHP 8.0+, GdImage instances are automatically freed when they fall out of scope.
+        // imagedestroy() has had no effect since PHP 8.0 and is deprecated in PHP 8.5+.
+        if (PHP_VERSION_ID < 80000 && is_resource($img)) {
+            imagedestroy($img);
+        }
         return $finalName;
     }
 
@@ -139,7 +143,9 @@ class ImageProcessor
         imagecopyresampled($canvas, $img, 0, 0, 0, 0, $newW, $newH, $w, $h);
 
         $ok = imagewebp($canvas, $destPath, $quality);
-        imagedestroy($canvas);
+        if (PHP_VERSION_ID < 80000 && is_resource($canvas)) {
+            imagedestroy($canvas);
+        }
         return $ok;
     }
 }

@@ -736,7 +736,7 @@ wss.on('connection', (ws) => {
     if (data.type === 'message_edited') {
       if (isRateLimited(state.accountId, 'message')) return;
 
-      const { chat_type, recipient_id, msg_uuid, message } = data;
+      const { chat_type, recipient_id, msg_uuid, message, conv_id } = data;
       log(`Broadcasting message_edited event: msg_uuid=${msg_uuid}, sender_id=${state.accountId}`);
 
       const payloadStr = JSON.stringify({
@@ -744,10 +744,11 @@ wss.on('connection', (ws) => {
         msg_uuid,
         message,
         chat_type,
+        conv_id: conv_id || null,
         sender_id: state.accountId
       });
 
-      if (chat_type === 'global') {
+      if (chat_type === 'global' || chat_type === 'office_gc') {
         broadcastToAll(payloadStr, state.accountId);
       } else if (chat_type === 'private') {
         // Recipient, any other session of the sender, and admin (1) for spymode
@@ -760,12 +761,13 @@ wss.on('connection', (ws) => {
     if (data.type === 'reaction') {
       if (isRateLimited(state.accountId, 'message')) return;
 
-      const { chat_type, recipient_id, msg_uuid, emoji, reactions } = data;
+      const { chat_type, recipient_id, msg_uuid, emoji, reactions, conv_id } = data;
       log(`Broadcasting reaction event: chat_type=${chat_type}, msg_uuid=${msg_uuid}, sender_id=${state.accountId}`);
 
       const payloadObj = {
         type: 'reaction_updated',
         chat_type: chat_type || 'global',
+        conv_id: conv_id || null,
         msg_uuid: msg_uuid,
         emoji: emoji,
         reactions: reactions || {},
@@ -773,7 +775,7 @@ wss.on('connection', (ws) => {
       };
       const payloadStr = JSON.stringify(payloadObj);
 
-      if (chat_type === 'global') {
+      if (chat_type === 'global' || chat_type === 'office_gc') {
         broadcastToAll(payloadStr);
       } else if (chat_type === 'private') {
         // Recipient, sender's other tabs/sessions, and admin (1) for spy mode
@@ -974,7 +976,24 @@ wss.on('connection', (ws) => {
       const { chat_type, recipient_id, user_a, user_b } = data;
       log(`Broadcasting chat_cleared event: chat_type=${chat_type}, by=${state.accountId}`);
 
-      if (chat_type === 'private') {
+      if (chat_type === 'global') {
+        const payloadStr = JSON.stringify({
+          type: 'chat_cleared',
+          chat_type: 'global',
+          conv_id: 'global',
+          sender_id: state.accountId
+        });
+        broadcastToAll(payloadStr);
+      } else if (chat_type === 'office_gc') {
+        const payloadStr = JSON.stringify({
+          type: 'chat_cleared',
+          chat_type: 'office_gc',
+          conv_id: data.conv_id || (data.office_id ? 'office_' + data.office_id : null),
+          office_id: data.office_id,
+          sender_id: state.accountId
+        });
+        broadcastToAll(payloadStr);
+      } else if (chat_type === 'private') {
         const a = Math.min(state.accountId, Number(recipient_id));
         const b = Math.max(state.accountId, Number(recipient_id));
         const payloadStr = JSON.stringify({

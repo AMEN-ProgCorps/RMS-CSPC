@@ -216,11 +216,18 @@ if ($isAdmin) {
             ];
         }
 
-        // Office GC match: strictly require the full office code (e.g. "CCS", "CCS GC", "[H]", etc.)
+        // Office GC match: search by office_code OR office_name (supporting exact, prefix, word match, and partial matches)
         $codeCandidate = trim(preg_replace('/\s*(gc|group\s*chat)$/i', '', $qTrimmed));
+        if ($codeCandidate === '') {
+            $codeCandidate = $qTrimmed;
+        }
         $strippedBrackets = trim($codeCandidate, '[] ');
 
-        if ($codeCandidate !== '' || $qTrimmed !== '') {
+        $likeSearch   = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $codeCandidate) . '%';
+        $prefixSearch = str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $codeCandidate) . '%';
+        $wordSearch   = '% ' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $codeCandidate) . '%';
+
+        if ($codeCandidate !== '') {
             try {
                 $pdo = Database::getConnection();
                 $stmt = $pdo->prepare('
@@ -228,27 +235,48 @@ if ($isAdmin) {
                     FROM ' . Database::t('office') . '
                     WHERE is_active = TRUE
                       AND (
-                          UPPER(office_code) = UPPER(:q1)
-                          OR UPPER(office_code) = UPPER(:q2)
-                          OR UPPER(TRIM(office_code, \'[]\')) = UPPER(:q3)
+                          UPPER(office_code) = UPPER(:exact_code)
+                          OR UPPER(office_code) = UPPER(:raw_code)
+                          OR UPPER(TRIM(office_code, \'[]\')) = UPPER(:stripped_code)
+                          OR UPPER(office_name) = UPPER(:exact_name)
+                          OR office_code ILIKE :like_search
+                          OR office_name ILIKE :like_search
                       )
-                    LIMIT 1
+                    ORDER BY
+                      CASE
+                        WHEN UPPER(office_code) = UPPER(:exact_code) THEN 0
+                        WHEN UPPER(TRIM(office_code, \'[]\')) = UPPER(:stripped_code) THEN 1
+                        WHEN LOWER(office_name) = LOWER(:exact_name) THEN 2
+                        WHEN office_code ILIKE :prefix_search THEN 3
+                        WHEN office_name ILIKE :prefix_search THEN 4
+                        WHEN office_name ILIKE :word_search THEN 5
+                        ELSE 6
+                      END,
+                      office_name ASC
+                    LIMIT 11
                 ');
                 $stmt->execute([
-                    ':q1' => $qTrimmed,
-                    ':q2' => $codeCandidate !== '' ? $codeCandidate : $qTrimmed,
-                    ':q3' => $strippedBrackets !== '' ? $strippedBrackets : $qTrimmed,
+                    ':exact_code'     => $codeCandidate,
+                    ':raw_code'       => $qTrimmed,
+                    ':stripped_code'  => $strippedBrackets !== '' ? $strippedBrackets : $codeCandidate,
+                    ':exact_name'     => $codeCandidate,
+                    ':like_search'    => $likeSearch,
+                    ':prefix_search'  => $prefixSearch,
+                    ':word_search'    => $wordSearch,
                 ]);
-                $off = $stmt->fetch();
-                if ($off) {
+                $officeRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                foreach ($officeRows as $off) {
                     $code = trim($off['office_code'] ?? '');
                     $name = trim($off['office_name'] ?? '');
                     $displayTitle = $code !== '' ? $code : $name;
+                    $displaySubtitle = ($name !== '' && $name !== $displayTitle) ? $name : 'Dedicated Office Group Chat';
+
                     $channels[] = [
                         'conv_id'             => 'office_' . (int) $off['id'],
                         'channel_type'        => 'office_gc',
                         'title'               => $displayTitle,
-                        'subtitle'            => 'Dedicated Office Group Chat',
+                        'subtitle'            => $displaySubtitle,
                         'office_id'           => (int) $off['id'],
                         'office_name'         => $name,
                         'office_code'         => $code,
@@ -261,18 +289,30 @@ if ($isAdmin) {
             }
         }
 
-        $channelCount = count($channels);
-        $userLimit    = max(0, 10 - $channelCount);
-        $usersResult  = $userLimit > 0
-            ? UserResolver::searchUsersPaginated($adminQuery, 0, $userLimit, 0)
-            : ['users' => [], 'hasMore' => true];
+        $totalChannelCount = count($channels);
+        $hasMore = false;
 
-        $hasMore = !empty($usersResult['hasMore']);
+        if ($totalChannelCount > 10) {
+            $channels = array_slice($channels, 0, 10);
+            $hasMore  = true;
+            $users    = [];
+        } else {
+            $userLimit = 10 - $totalChannelCount;
+            if ($userLimit > 0) {
+                $usersResult = UserResolver::searchUsersPaginated($adminQuery, 0, $userLimit, 0);
+                $users       = $usersResult['users'];
+                $hasMore     = !empty($usersResult['hasMore']);
+            } else {
+                $users = [];
+                $testUser = UserResolver::searchUsers($adminQuery, 0, 1);
+                $hasMore  = !empty($testUser['users']);
+            }
+        }
 
         $adminSpyResponse = [
             'type'     => 'users',
             'channels' => $channels,
-            'users'    => $usersResult['users'],
+            'users'    => $users,
             'hasMore'  => $hasMore,
             'offset'   => 0,
             'limit'    => 10,

@@ -395,6 +395,18 @@
       const senderAvatarUrl = msgData.sender_avatar || (senderUser ? senderUser.avatar_url : null);
       const senderLabel = escapeHtml(displayName.toLowerCase());
 
+      let isSenderMoved = false;
+      let movedNoticeText = '';
+      if (activeAdminConv && activeAdminConv.startsWith('office_')) {
+        const spiedOfficeId = Number(activeAdminConv.replace('office_', ''));
+        const senderOfficeId = senderUser && senderUser.office_id !== undefined && senderUser.office_id !== null ? Number(senderUser.office_id) : 0;
+        if (senderOfficeId !== spiedOfficeId) {
+          isSenderMoved = true;
+          movedNoticeText = (senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+          container.classList.add('user-moved');
+        }
+      }
+
       let timeDisplay = '';
       if (msgData.created_at) {
         const d = new Date(msgData.created_at);
@@ -426,13 +438,17 @@
         }
       }
 
+      const bubbleContentHtml = isSenderMoved
+        ? `<div class="message-content" style="font-style:italic;opacity:0.85;">${escapeHtml(movedNoticeText)}</div>`
+        : `<div class="message-content">${escapeHtml(msgText)}</div>`;
+
       container.innerHTML = `
         <div class="message-avatar">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
         <div class="bubble-wrapper">
           <div class="message-click-timestamp">${escapeHtml(timeDisplay)}</div>
           ${replyQuoteHtml}
           <div class="message-bubble">
-            <div class="message-content">${escapeHtml(msgText)}</div>
+            ${bubbleContentHtml}
             <div class="message-info"><span class="message-sender">${senderLabel}</span></div>
           </div>
         </div>
@@ -972,26 +988,44 @@
                   container.classList.add('user-moved');
                   const mid = container.getAttribute('data-msg-id');
                   if (mid) changedMsgIds.add(mid);
-                  const contentEl = container.querySelector('.message-content');
+                  let contentEl = container.querySelector('.message-content');
+                  if (!contentEl) {
+                    let bubble = container.querySelector('.message-bubble');
+                    if (!bubble) {
+                      bubble = document.createElement('div');
+                      bubble.className = 'message-bubble';
+                      const bubbleWrapper = container.querySelector('.bubble-wrapper');
+                      if (bubbleWrapper) bubbleWrapper.appendChild(bubble);
+                      else container.appendChild(bubble);
+                    }
+                    contentEl = document.createElement('div');
+                    contentEl.className = 'message-content';
+                    bubble.insertBefore(contentEl, bubble.firstChild);
+                    if (!bubble.querySelector('.message-info')) {
+                      const info = document.createElement('div');
+                      info.className = 'message-info';
+                      const sender = document.createElement('span');
+                      sender.className = 'message-sender';
+                      const userObj = allUsersData.find(u => Number(u.account_id) === changedUserId);
+                      sender.textContent = userObj ? (userObj.full_name || userObj.username || '').toLowerCase() : 'user';
+                      info.appendChild(sender);
+                      bubble.appendChild(info);
+                    }
+                  }
                   if (contentEl) {
                     contentEl.textContent = noticeText;
                     contentEl.style.fontStyle = 'italic';
                     contentEl.style.opacity = '0.85';
                   }
-                  container.querySelectorAll('.chat-attachment-container, .reply-quote-image, img.chat-image, video, audio').forEach(el => el.remove());
+                  container.querySelectorAll('.chat-attachment-container, img.chat-image, video, audio, .message-media').forEach(el => el.remove());
                 });
 
                 if (changedMsgIds.size > 0) {
                   chatBox.querySelectorAll('.reply-quote[data-reply-to]').forEach(rq => {
                     const replyTo = rq.getAttribute('data-reply-to');
                     if (replyTo && changedMsgIds.has(replyTo)) {
-                      const textEl = rq.querySelector('.reply-quote-text');
-                      if (textEl) {
-                        textEl.textContent = noticeText;
-                        textEl.style.fontStyle = 'italic';
-                        textEl.style.opacity = '0.8';
-                      }
-                      rq.querySelectorAll('.reply-quote-image, .reply-quote-image-container').forEach(el => el.remove());
+                      rq.classList.remove('reply-quote-image-container');
+                      rq.innerHTML = `<div class="reply-quote-text" style="font-style:italic;opacity:0.8;">${escapeHtml(noticeText)}</div>`;
                     }
                   });
                 }
@@ -1014,26 +1048,44 @@
                 container.classList.add('user-moved');
                 const mid = container.getAttribute('data-msg-id');
                 if (mid) changedMsgIds.add(mid);
-                const contentEl = container.querySelector('.message-content');
+                let contentEl = container.querySelector('.message-content');
+                if (!contentEl) {
+                  let bubble = container.querySelector('.message-bubble');
+                  if (!bubble) {
+                    bubble = document.createElement('div');
+                    bubble.className = 'message-bubble';
+                    const bubbleWrapper = container.querySelector('.bubble-wrapper');
+                    if (bubbleWrapper) bubbleWrapper.appendChild(bubble);
+                    else container.appendChild(bubble);
+                  }
+                  contentEl = document.createElement('div');
+                  contentEl.className = 'message-content';
+                  bubble.insertBefore(contentEl, bubble.firstChild);
+                  if (!bubble.querySelector('.message-info')) {
+                    const info = document.createElement('div');
+                    info.className = 'message-info';
+                    const sender = document.createElement('span');
+                    sender.className = 'message-sender';
+                    const userObj = allUsersData.find(u => Number(u.account_id) === changedUserId);
+                    sender.textContent = userObj ? (userObj.full_name || userObj.username || '').toLowerCase() : 'user';
+                    info.appendChild(sender);
+                    bubble.appendChild(info);
+                  }
+                }
                 if (contentEl) {
                   contentEl.textContent = noticeText;
                   contentEl.style.fontStyle = 'italic';
                   contentEl.style.opacity = '0.85';
                 }
-                container.querySelectorAll('.chat-attachment-container, .reply-quote-image, img.chat-image, video, audio').forEach(el => el.remove());
+                container.querySelectorAll('.chat-attachment-container, img.chat-image, video, audio, .message-media').forEach(el => el.remove());
               });
 
               if (changedMsgIds.size > 0) {
                 chatBox.querySelectorAll('.reply-quote[data-reply-to]').forEach(rq => {
                   const replyTo = rq.getAttribute('data-reply-to');
                   if (replyTo && changedMsgIds.has(replyTo)) {
-                    const textEl = rq.querySelector('.reply-quote-text');
-                    if (textEl) {
-                      textEl.textContent = noticeText;
-                      textEl.style.fontStyle = 'italic';
-                      textEl.style.opacity = '0.8';
-                    }
-                    rq.querySelectorAll('.reply-quote-image, .reply-quote-image-container').forEach(el => el.remove());
+                    rq.classList.remove('reply-quote-image-container');
+                    rq.innerHTML = `<div class="reply-quote-text" style="font-style:italic;opacity:0.8;">${escapeHtml(noticeText)}</div>`;
                   }
                 });
               }

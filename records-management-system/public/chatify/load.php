@@ -260,6 +260,31 @@ for ($i = 0; $i < $msgCount; $i++) {
     }
     $isUserMoved = ($isOfficeGc && $targetOfficeId && $senderOfficeId !== $targetOfficeId);
 
+    // Reply quote — a small bubble showing what this message is replying
+    // to. Intentionally has NO sender name attached, just the quoted
+    // content (per product requirement), and disappears on its own if
+    // the original message was later removed/archived (reply_to_msg_uuid
+    // gets nulled out by the FK's ON DELETE SET NULL in that case).
+    $replyQuoteHtml = '';
+    if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
+        $replySenderStatus = false;
+        if ($isOfficeGc && $targetOfficeId && !empty($msg['reply_sender_id'])) {
+            $rSenderId = (int) $msg['reply_sender_id'];
+            if (!isset($senderInfoCache[$rSenderId])) {
+                $senderInfoCache[$rSenderId] = UserResolver::getUserInfo($rSenderId);
+            }
+            $rSenderInfo = $senderInfoCache[$rSenderId];
+            $rSenderOfficeId = isset($rSenderInfo['office_id']) ? (int) $rSenderInfo['office_id'] : 0;
+            if ($rSenderId === $myAccountId && $userOfficeId > 0 && $userOfficeId === $targetOfficeId) {
+                $rSenderOfficeId = $userOfficeId;
+            }
+            if ($rSenderOfficeId !== $targetOfficeId) {
+                $replySenderStatus = ($rSenderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+            }
+        }
+        $replyQuoteHtml = gcBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid'], $replySenderStatus);
+    }
+
     if ($isUserMoved) {
         $noticeText = ($senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
         $rawTimestamp = htmlspecialchars($msg['timestamp'] ?? '', ENT_QUOTES);
@@ -268,10 +293,12 @@ for ($i = 0; $i < $msgCount; $i++) {
         $html .= "<div class='message-avatar'>{$avatarInner}</div>";
         $html .= "<div class='bubble-wrapper'>";
         $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
+        $html .= $replyQuoteHtml;
         $html .= "<div class='message-bubble'>";
         $html .= "<div class='message-content' style='font-style:italic;opacity:0.85;'>{$noticeText}</div>";
         $html .= "<div class='message-info'><span class='message-sender'>{$senderLabel}{$adminBadge}</span></div>";
         $html .= "</div>"; // .message-bubble
+        $html .= Reactions::buildBadgesHtml($reactions[$msgId] ?? [], $myAccountId);
         $html .= "</div>"; // .bubble-wrapper
         $html .= "</div>"; // .message-container
         continue;
@@ -287,31 +314,6 @@ for ($i = 0; $i < $msgCount; $i++) {
         // Decrypt message content
         $content = safeDecrypt($msg['message'] ?? '');
         $contentEsc = htmlspecialchars($content, ENT_QUOTES);
-
-        // Reply quote — a small bubble showing what this message is replying
-        // to. Intentionally has NO sender name attached, just the quoted
-        // content (per product requirement), and disappears on its own if
-        // the original message was later removed/archived (reply_to_msg_uuid
-        // gets nulled out by the FK's ON DELETE SET NULL in that case).
-        $replyQuoteHtml = '';
-        if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
-            $replySenderStatus = false;
-            if ($isOfficeGc && $targetOfficeId && !empty($msg['reply_sender_id'])) {
-                $rSenderId = (int) $msg['reply_sender_id'];
-                if (!isset($senderInfoCache[$rSenderId])) {
-                    $senderInfoCache[$rSenderId] = UserResolver::getUserInfo($rSenderId);
-                }
-                $rSenderInfo = $senderInfoCache[$rSenderId];
-                $rSenderOfficeId = isset($rSenderInfo['office_id']) ? (int) $rSenderInfo['office_id'] : 0;
-                if ($rSenderId === $myAccountId && $userOfficeId > 0 && $userOfficeId === $targetOfficeId) {
-                    $rSenderOfficeId = $userOfficeId;
-                }
-                if ($rSenderOfficeId !== $targetOfficeId) {
-                    $replySenderStatus = ($rSenderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
-                }
-            }
-            $replyQuoteHtml = gcBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid'], $replySenderStatus);
-        }
 
         $html .= "<div class='bubble-wrapper'>";
         $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";

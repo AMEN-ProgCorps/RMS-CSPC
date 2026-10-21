@@ -693,12 +693,13 @@ wss.on('connection', (ws) => {
     if (data.type === 'message') {
       if (isRateLimited(state.accountId, 'message')) return;
 
-      const { chat_type, recipient_id, msg_uuid, message, created_at, has_upload, reply_to_msg_uuid, reply_snippet } = data;
-      log(`Broadcasting message event: type=${chat_type}, sender_id=${state.accountId}, msg_uuid=${msg_uuid || ''}, has_upload=${has_upload || false}`);
+      const { chat_type, recipient_id, msg_uuid, message, created_at, has_upload, reply_to_msg_uuid, reply_snippet, conv_id } = data;
+      log(`Broadcasting message event: type=${chat_type}, sender_id=${state.accountId}, msg_uuid=${msg_uuid || ''}, conv_id=${conv_id || ''}, has_upload=${has_upload || false}`);
 
       const payloadObj = {
         type: 'message',
         chat_type: chat_type || 'global',
+        conv_id: conv_id || null,
         sender_id: state.accountId,
         sender_name: state.name,
         sender_avatar: state.avatarUrl || null,
@@ -712,7 +713,7 @@ wss.on('connection', (ws) => {
       };
       const payloadStr = JSON.stringify(payloadObj);
 
-      if (chat_type === 'global') {
+      if (chat_type === 'global' || chat_type === 'office_gc') {
         broadcastToAll(payloadStr, state.accountId);
       } else if (chat_type === 'private') {
         // Recipient, any other session of the sender, and admin (1) for spymode

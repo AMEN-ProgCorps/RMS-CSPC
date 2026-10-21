@@ -3552,13 +3552,20 @@
           // Broadcast notification via WebSocket so other clients patch DOM.
           if (ws && ws.readyState === WebSocket.OPEN) {
             const wasEditing = !!capturedEditingMsgId;
+            const targetConvId = (typeof getActiveChannelConvId === 'function')
+              ? getActiveChannelConvId()
+              : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+            const isOffice = isGlobalChat && Boolean(targetConvId && targetConvId.startsWith('office_'));
+            const effectiveChatType = isGlobalChat ? (isOffice ? 'office_gc' : 'global') : 'private';
+
             if (wasEditing) {
               ws.send(JSON.stringify({
                 type: 'message_edited',
                 msg_uuid: capturedEditingMsgId,
                 message: message,
                 edit_count: newEditCount,
-                chat_type: isGlobalChat ? 'global' : 'private',
+                chat_type: effectiveChatType,
+                conv_id: isGlobalChat ? targetConvId : null,
                 recipient_id: activeDMAccountId || null
               }));
             } else {
@@ -3571,7 +3578,8 @@
               const replySnippet = activeReply ? activeReply.snippet : null;
               ws.send(JSON.stringify({
                 type: 'message',
-                chat_type: isGlobalChat ? 'global' : 'private',
+                chat_type: effectiveChatType,
+                conv_id: isGlobalChat ? targetConvId : null,
                 recipient_id: activeDMAccountId || null,
                 msg_uuid: (confirmedMsg && confirmedMsg.id) ? confirmedMsg.id : null,
                 message: message,

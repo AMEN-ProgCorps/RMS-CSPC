@@ -5380,27 +5380,30 @@
     }
 
     function applyIOSViewport() {
-      smoothKeepScrollAtBottom(250);
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
     }
 
     function resetIOSViewport() {
-      if (!userScrolledUp && isAtBottom()) {
-        smoothKeepScrollAtBottom(250);
-      }
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
     }
 
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', function() {
-        if (!userScrolledUp && isAtBottom()) {
-          smoothKeepScrollAtBottom(250);
-        }
+        if (window.scrollY !== 0) window.scrollTo(0, 0);
+      });
+      window.visualViewport.addEventListener('scroll', function() {
+        if (window.scrollY !== 0) window.scrollTo(0, 0);
       });
     }
 
-    messageInput.addEventListener('focus', function () {
-      if (!userScrolledUp && isAtBottom()) {
-        smoothKeepScrollAtBottom(350);
+    window.addEventListener('scroll', function() {
+      if (window.scrollY !== 0) {
+        window.scrollTo(0, 0);
       }
+    }, { passive: true });
+
+    messageInput.addEventListener('focus', function () {
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
     });
 
     messageInput.addEventListener('blur', function () {

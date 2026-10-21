@@ -693,12 +693,13 @@ wss.on('connection', (ws) => {
     if (data.type === 'message') {
       if (isRateLimited(state.accountId, 'message')) return;
 
-      const { chat_type, recipient_id, msg_uuid, message, created_at, has_upload, reply_to_msg_uuid, reply_snippet } = data;
-      log(`Broadcasting message event: type=${chat_type}, sender_id=${state.accountId}, msg_uuid=${msg_uuid || ''}, has_upload=${has_upload || false}`);
+      const { chat_type, recipient_id, msg_uuid, message, created_at, has_upload, reply_to_msg_uuid, reply_snippet, conv_id } = data;
+      log(`Broadcasting message event: type=${chat_type}, sender_id=${state.accountId}, msg_uuid=${msg_uuid || ''}, conv_id=${conv_id || ''}, has_upload=${has_upload || false}`);
 
       const payloadObj = {
         type: 'message',
         chat_type: chat_type || 'global',
+        conv_id: conv_id || null,
         sender_id: state.accountId,
         sender_name: state.name,
         sender_avatar: state.avatarUrl || null,
@@ -712,7 +713,7 @@ wss.on('connection', (ws) => {
       };
       const payloadStr = JSON.stringify(payloadObj);
 
-      if (chat_type === 'global') {
+      if (chat_type === 'global' || chat_type === 'office_gc') {
         broadcastToAll(payloadStr, state.accountId);
       } else if (chat_type === 'private') {
         // Recipient, any other session of the sender, and admin (1) for spymode
@@ -966,6 +967,12 @@ wss.on('connection', (ws) => {
       // Notify the sender's live socket(s) immediately, plus admin (1) for
       // spymode parity with the HTTP-triggered push in mark_read.php.
       broadcastToAccounts([targetId, 1], payloadStr);
+
+      // Durably persist in Postgres immediately via internal PHP endpoint so the read
+      // state is preserved even if the user closes/leaves the chat in under 150ms.
+      internalFetchPhp('/mark_read.php', { target_id: targetId }, state.accountId, (err) => {
+        if (err) logError('internalFetchPhp mark_read error:', err.message);
+      });
       return;
     }
 
@@ -999,6 +1006,7 @@ wss.on('connection', (ws) => {
         const payloadStr = JSON.stringify({
           type: 'chat_cleared',
           chat_type: 'private',
+          conv_id: data.conv_id || `${a}_${b}`,
           sender_id: state.accountId,
           recipient_id: recipient_id,
           user_a: a,
@@ -1013,6 +1021,7 @@ wss.on('connection', (ws) => {
         const payloadStr = JSON.stringify({
           type: 'chat_cleared',
           chat_type: 'admin_conv',
+          conv_id: data.conv_id || `${a}_${b}`,
           user_a: a,
           user_b: b
         });

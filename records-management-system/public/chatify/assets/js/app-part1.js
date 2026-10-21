@@ -27,6 +27,7 @@
     const cancelClear     = document.getElementById("cancelClear");
     const confirmClear    = document.getElementById("confirmClear");
     const scrollIndicator = document.getElementById("scrollIndicator");
+    window.replyJumpActive = false;
     const secretInput     = document.getElementById("secretInput");
     const secretError     = document.getElementById("secretError");
     const darkModeToggle  = document.getElementById("darkModeToggle");
@@ -248,7 +249,7 @@
       // even though the user hadn't scrolled away at all. That made replies
       // specifically prone to silently skipping the auto-scroll and just
       // showing the "new message" indicator instead.
-      const wasAtBottom = isAtBottom();
+      const wasAtBottom = isAtBottom() && !window.replyJumpActive;
 
       const isSentByMe = Number(msgData.sender_id) === wsConfig.accountId;
       const container = document.createElement('div');
@@ -342,10 +343,10 @@
       }
 
       applyAdminBadges();
-      if (wasAtBottom || isSentByMe) {
+      if ((wasAtBottom || isSentByMe) && !window.replyJumpActive) {
         scrollToBottom(true, true);
       } else {
-        showScrollIndicator(1);
+        showScrollIndicator(isSentByMe ? 0 : 1);
       }
       updateSeenIndicator();
     }
@@ -375,7 +376,7 @@
       // Captured BEFORE appendChild below — see the matching comment in
       // renderAndAppendWsMessage() above for why checking after append is
       // wrong (a taller incoming reply bubble skews the result).
-      const wasAtBottom = isAtBottom();
+      const wasAtBottom = isAtBottom() && !window.replyJumpActive;
 
       // Admin spy view always renders every message "received"-style,
       // regardless of who sent it — matches load_dm_admin.php's renderer.
@@ -394,6 +395,18 @@
       const initials = getInitials(displayName);
       const senderAvatarUrl = msgData.sender_avatar || (senderUser ? senderUser.avatar_url : null);
       const senderLabel = escapeHtml(displayName.toLowerCase());
+
+      let isSenderMoved = false;
+      let movedNoticeText = '';
+      if (activeAdminConv && activeAdminConv.startsWith('office_')) {
+        const spiedOfficeId = Number(activeAdminConv.replace('office_', ''));
+        const senderOfficeId = senderUser && senderUser.office_id !== undefined && senderUser.office_id !== null ? Number(senderUser.office_id) : 0;
+        if (senderOfficeId !== spiedOfficeId) {
+          isSenderMoved = true;
+          movedNoticeText = (senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+          container.classList.add('user-moved');
+        }
+      }
 
       let timeDisplay = '';
       if (msgData.created_at) {
@@ -426,13 +439,17 @@
         }
       }
 
+      const bubbleContentHtml = isSenderMoved
+        ? `<div class="message-content" style="font-style:italic;opacity:0.85;">${escapeHtml(movedNoticeText)}</div>`
+        : `<div class="message-content">${escapeHtml(msgText)}</div>`;
+
       container.innerHTML = `
         <div class="message-avatar">${avatarInnerHtml(senderAvatarUrl, initials)}</div>
         <div class="bubble-wrapper">
           <div class="message-click-timestamp">${escapeHtml(timeDisplay)}</div>
           ${replyQuoteHtml}
           <div class="message-bubble">
-            <div class="message-content">${escapeHtml(msgText)}</div>
+            ${bubbleContentHtml}
             <div class="message-info"><span class="message-sender">${senderLabel}</span></div>
           </div>
         </div>
@@ -454,7 +471,7 @@
       }
 
       applyAdminBadges();
-      if (wasAtBottom) {
+      if (wasAtBottom && !window.replyJumpActive) {
         scrollToBottom(true, true);
       } else {
         showScrollIndicator(1);
@@ -608,8 +625,12 @@
                 const sender = Number(data.sender_id);
                 if (sender !== wsConfig.accountId) {
                   if (data.has_upload) {
-                    isLoadingGC = false;
-                    loadGlobalChat(false);
+                    if (gcViewingOlder || window.replyJumpActive) {
+                      showScrollIndicator(1);
+                    } else {
+                      isLoadingGC = false;
+                      loadGlobalChat(false);
+                    }
                   } else {
                     renderAndAppendWsMessage(data);
                   }
@@ -658,7 +679,7 @@
                   // Incoming message from the other person — render it via WS
                   if (data.has_upload) {
                     if (typeof dmMessageCache !== 'undefined' && activeDM) dmMessageCache.delete(activeDM);
-                    if (dmViewingOlder) {
+                    if (dmViewingOlder || window.replyJumpActive) {
                       showScrollIndicator(1);
                     } else {
                       loadChatForced();
@@ -730,27 +751,41 @@
         } else if (data.type === 'message_read') {
           // The other participant just read up through data.last_msg_uuid —
           // update the Messenger-style "Seen" indicator instantly, no poll needed.
-          if (activeDM && activeDMAccountId === Number(data.reader_id)) {
+          const readerId = Number(data.reader_id);
+          const targetId = Number(data.target_id);
+
+          // Only process this read marker for our private DMs if the other participant was reading
+          // OUR conversation (i.e. target_id is OUR account).
+          // Otherwise (e.g. admin receiving audit broadcast when reader read someone else's chat),
+          // this is a foreign conversation and must NOT corrupt our DM's read marker!
+          if (targetId && wsConfig && Number(wsConfig.accountId) > 0 && targetId === Number(wsConfig.accountId)) {
+            const readerUser = allUsersData.find(u => Number(u.account_id) === readerId);
+            const readerUsername = (readerUser ? readerUser.username : null) || (activeDMAccountId === readerId ? activeDM : null);
             let incomingReadUpTo = data.last_msg_uuid || null;
-            if (incomingReadUpTo && (incomingReadUpTo !== dmReadUpTo || !chatBox.querySelector('.seen-indicator'))) {
-              dmReadUpTo = incomingReadUpTo;
-              dmReadUpToMap.set(activeDM, dmReadUpTo);
-              const cachedObj = dmMessageCache.get(activeDM);
+            if (incomingReadUpTo && readerUsername) {
+              dmReadUpToMap.set(readerUsername, incomingReadUpTo);
+              const cachedObj = dmMessageCache.get(readerUsername);
               if (cachedObj) {
-                cachedObj.readUpTo = dmReadUpTo;
-                if (cachedObj._raw) cachedObj._raw.readUpTo = dmReadUpTo;
+                cachedObj.readUpTo = incomingReadUpTo;
+                if (cachedObj._raw) cachedObj._raw.readUpTo = incomingReadUpTo;
               }
-              updateSeenIndicator();
+            }
+            if (activeDM && (activeDMAccountId === readerId || activeDM === readerUsername)) {
+              if (incomingReadUpTo && (incomingReadUpTo !== dmReadUpTo || !chatBox.querySelector('.seen-indicator'))) {
+                dmReadUpTo = incomingReadUpTo;
+                updateSeenIndicator();
+              }
             }
           }
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
 
+          const isGlobalClear = (data.chat_type === 'global') || (data.conv_id === 'global');
           const isOfficeClear = (data.chat_type === 'office_gc') || (data.conv_id && String(data.conv_id).startsWith('office_'));
-          const clearedConvId = data.conv_id || (isOfficeClear ? (data.office_id ? 'office_' + data.office_id : null) : 'global');
+          const clearedConvId = data.conv_id || (isOfficeClear ? (data.office_id ? 'office_' + data.office_id : null) : (isGlobalClear ? 'global' : null));
 
           // ── Case 1: Global Chat clear (super admin "/clear" in Global Chat) ──
-          if (clearedConvId === 'global' || data.chat_type === 'global') {
+          if (isGlobalClear) {
             globalChatCache = null;
             if (typeof globalChatPrefetchedData !== 'undefined') globalChatPrefetchedData = null;
             gcCursor = '';
@@ -799,8 +834,15 @@
             return;
           }
 
-          const _ca = Number(data.user_a);
-          const _cb = Number(data.user_b);
+          let _ca = Number(data.user_a || 0);
+          let _cb = Number(data.user_b || 0);
+          if ((!_ca || !_cb) && data.conv_id && typeof data.conv_id === 'string' && data.conv_id.includes('_')) {
+            const parts = data.conv_id.split('_').map(Number);
+            if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+              _ca = parts[0];
+              _cb = parts[1];
+            }
+          }
           const _senderId    = Number(data.sender_id    || 0);
           const _recipientId = Number(data.recipient_id || 0);
           const myId = wsConfig.accountId;
@@ -815,6 +857,15 @@
             _partnerId = (_senderId === myId) ? _recipientId
                        : (_recipientId === myId) ? _senderId
                        : (_senderId > 0 ? _senderId : _recipientId);
+          }
+
+          // Pre-capture partner username before splicing allUsersData
+          let partnerUsername = null;
+          if (_partnerId !== null && _partnerId > 0) {
+            const partnerUser = allUsersData.find(u => Number(u.account_id) === Number(_partnerId));
+            if (partnerUser) {
+              partnerUsername = partnerUser.username;
+            }
           }
 
           // ── 1. Immediately strip the cleared entry from the sidebar ──────────
@@ -832,18 +883,18 @@
           //       fetchUsers() to repaint. Abort any in-flight load_dm.php XHR
           //       so stale messages can't come back over the top. ───────────────
           const _currentDMIsCleared =
-            activeDM && (
+            (activeDM || activeDMAccountId) && (
+              // Match by conv_id
+              (data.conv_id && activeDMAccountId && myId &&
+                data.conv_id === `${Math.min(myId, activeDMAccountId)}_${Math.max(myId, activeDMAccountId)}`) ||
               // Match by account-ID pair (most reliable)
               (_ca > 0 && _cb > 0 && activeDMAccountId &&
                 ((_ca === myId && _cb === activeDMAccountId) ||
                  (_cb === myId && _ca === activeDMAccountId))) ||
               // Fallback 1: sender/recipient ID matches
               (_partnerId !== null && activeDMAccountId === _partnerId) ||
-              // Fallback 2: username match via allUsersData lookup
-              (_partnerId !== null && (() => {
-                const partnerUser = allUsersData.find(u => Number(u.account_id) === Number(_partnerId));
-                return partnerUser && partnerUser.username === activeDM;
-              })())
+              // Fallback 2: username match via pre-captured username or activeDM
+              (partnerUsername !== null && partnerUsername === activeDM)
             );
 
           const _currentAdminConvIsCleared =
@@ -853,15 +904,24 @@
                      (parts[0] === _cb && parts[1] === _ca);
             })();
 
-          if (_currentDMIsCleared || _currentAdminConvIsCleared) {
+          if (_currentAdminConvIsCleared) {
+            if (typeof adminConvXhr !== 'undefined' && adminConvXhr) {
+              adminConvXhr.abort();
+              adminConvXhr = null;
+            }
+            if (chatBox) {
+              chatBox.innerHTML = '<div class="empty-chat"></div>';
+            }
+            if (typeof loadAdminConv === 'function') {
+              loadAdminConv(activeAdminConv, false);
+            }
+          }
+
+          if (_currentDMIsCleared) {
             // Abort any in-flight chat XHR immediately so it can't overwrite
             if (typeof chatXhr !== 'undefined' && chatXhr) {
               chatXhr.abort();
               chatXhr = null;
-            }
-            if (typeof adminConvXhr !== 'undefined' && adminConvXhr) {
-              adminConvXhr.abort();
-              adminConvXhr = null;
             }
             // Wipe the pane now — resetToHome() will confirm it, but this
             // makes the clear visually instant without waiting for XHR round-trips.
@@ -972,26 +1032,44 @@
                   container.classList.add('user-moved');
                   const mid = container.getAttribute('data-msg-id');
                   if (mid) changedMsgIds.add(mid);
-                  const contentEl = container.querySelector('.message-content');
+                  let contentEl = container.querySelector('.message-content');
+                  if (!contentEl) {
+                    let bubble = container.querySelector('.message-bubble');
+                    if (!bubble) {
+                      bubble = document.createElement('div');
+                      bubble.className = 'message-bubble';
+                      const bubbleWrapper = container.querySelector('.bubble-wrapper');
+                      if (bubbleWrapper) bubbleWrapper.appendChild(bubble);
+                      else container.appendChild(bubble);
+                    }
+                    contentEl = document.createElement('div');
+                    contentEl.className = 'message-content';
+                    bubble.insertBefore(contentEl, bubble.firstChild);
+                    if (!bubble.querySelector('.message-info')) {
+                      const info = document.createElement('div');
+                      info.className = 'message-info';
+                      const sender = document.createElement('span');
+                      sender.className = 'message-sender';
+                      const userObj = allUsersData.find(u => Number(u.account_id) === changedUserId);
+                      sender.textContent = userObj ? (userObj.full_name || userObj.username || '').toLowerCase() : 'user';
+                      info.appendChild(sender);
+                      bubble.appendChild(info);
+                    }
+                  }
                   if (contentEl) {
                     contentEl.textContent = noticeText;
                     contentEl.style.fontStyle = 'italic';
                     contentEl.style.opacity = '0.85';
                   }
-                  container.querySelectorAll('.chat-attachment-container, .reply-quote-image, img.chat-image, video, audio').forEach(el => el.remove());
+                  container.querySelectorAll('.chat-attachment-container, img.chat-image, video, audio, .message-media').forEach(el => el.remove());
                 });
 
                 if (changedMsgIds.size > 0) {
                   chatBox.querySelectorAll('.reply-quote[data-reply-to]').forEach(rq => {
                     const replyTo = rq.getAttribute('data-reply-to');
                     if (replyTo && changedMsgIds.has(replyTo)) {
-                      const textEl = rq.querySelector('.reply-quote-text');
-                      if (textEl) {
-                        textEl.textContent = noticeText;
-                        textEl.style.fontStyle = 'italic';
-                        textEl.style.opacity = '0.8';
-                      }
-                      rq.querySelectorAll('.reply-quote-image, .reply-quote-image-container').forEach(el => el.remove());
+                      rq.classList.remove('reply-quote-image-container');
+                      rq.innerHTML = `<div class="reply-quote-text" style="font-style:italic;opacity:0.8;">${escapeHtml(noticeText)}</div>`;
                     }
                   });
                 }
@@ -1014,26 +1092,44 @@
                 container.classList.add('user-moved');
                 const mid = container.getAttribute('data-msg-id');
                 if (mid) changedMsgIds.add(mid);
-                const contentEl = container.querySelector('.message-content');
+                let contentEl = container.querySelector('.message-content');
+                if (!contentEl) {
+                  let bubble = container.querySelector('.message-bubble');
+                  if (!bubble) {
+                    bubble = document.createElement('div');
+                    bubble.className = 'message-bubble';
+                    const bubbleWrapper = container.querySelector('.bubble-wrapper');
+                    if (bubbleWrapper) bubbleWrapper.appendChild(bubble);
+                    else container.appendChild(bubble);
+                  }
+                  contentEl = document.createElement('div');
+                  contentEl.className = 'message-content';
+                  bubble.insertBefore(contentEl, bubble.firstChild);
+                  if (!bubble.querySelector('.message-info')) {
+                    const info = document.createElement('div');
+                    info.className = 'message-info';
+                    const sender = document.createElement('span');
+                    sender.className = 'message-sender';
+                    const userObj = allUsersData.find(u => Number(u.account_id) === changedUserId);
+                    sender.textContent = userObj ? (userObj.full_name || userObj.username || '').toLowerCase() : 'user';
+                    info.appendChild(sender);
+                    bubble.appendChild(info);
+                  }
+                }
                 if (contentEl) {
                   contentEl.textContent = noticeText;
                   contentEl.style.fontStyle = 'italic';
                   contentEl.style.opacity = '0.85';
                 }
-                container.querySelectorAll('.chat-attachment-container, .reply-quote-image, img.chat-image, video, audio').forEach(el => el.remove());
+                container.querySelectorAll('.chat-attachment-container, img.chat-image, video, audio, .message-media').forEach(el => el.remove());
               });
 
               if (changedMsgIds.size > 0) {
                 chatBox.querySelectorAll('.reply-quote[data-reply-to]').forEach(rq => {
                   const replyTo = rq.getAttribute('data-reply-to');
                   if (replyTo && changedMsgIds.has(replyTo)) {
-                    const textEl = rq.querySelector('.reply-quote-text');
-                    if (textEl) {
-                      textEl.textContent = noticeText;
-                      textEl.style.fontStyle = 'italic';
-                      textEl.style.opacity = '0.8';
-                    }
-                    rq.querySelectorAll('.reply-quote-image, .reply-quote-image-container').forEach(el => el.remove());
+                    rq.classList.remove('reply-quote-image-container');
+                    rq.innerHTML = `<div class="reply-quote-text" style="font-style:italic;opacity:0.8;">${escapeHtml(noticeText)}</div>`;
                   }
                 });
               }
@@ -1704,13 +1800,13 @@
 
     function cacheDmSnapshot(username, data) {
       if (!username || !data) return;
-      let readUpToVal = (typeof data.readUpTo !== 'undefined')
-        ? (data.readUpTo || null)
+      let readUpToVal = (typeof data.readUpTo !== 'undefined' && data.readUpTo !== null)
+        ? data.readUpTo
         : ((typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(username)) ? (dmReadUpToMap.get(username) || null) : null);
-      if (typeof dmReadUpToMap !== 'undefined') {
+      if (typeof dmReadUpToMap !== 'undefined' && readUpToVal !== null) {
         dmReadUpToMap.set(username, readUpToVal);
       }
-      if (typeof data === 'object' && data !== null) {
+      if (typeof data === 'object' && data !== null && readUpToVal !== null) {
         data.readUpTo = readUpToVal;
       }
       dmMessageCache.delete(username); // re-insert at the end = most-recently-used
@@ -2800,7 +2896,7 @@
         xhr.open('POST', 'mark_read.php', true);
         xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
         xhr.send('target_id=' + encodeURIComponent(targetId) + '&target_user=' + encodeURIComponent(targetUsername));
-      }, 150);
+      }, 50);
     }
 
     // Messenger-style "Seen" indicator: shown under the newest message WE sent
@@ -3022,15 +3118,16 @@
       chatBox.innerHTML = '';
       chatBox.scrollTop = 0;
       removePaginationBtn();
-      hideScrollIndicator();
+      window.replyJumpActive = false;
+      hideScrollIndicator(true);
       const _htp = document.getElementById('headerTypingPreview');
       if (_htp) { _htp.textContent = ''; _htp.classList.remove('active'); }
 
       dmCursor = (cached && cached.nextCursor) ? cached.nextCursor : '';
       dmHasMore = (cached && cached.hasMore) ? cached.hasMore : false;
-      dmReadUpTo = (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(u.username))
+      dmReadUpTo = (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(u.username) && dmReadUpToMap.get(u.username))
         ? dmReadUpToMap.get(u.username)
-        : ((cached && typeof cached.readUpTo !== 'undefined') ? cached.readUpTo : null);
+        : ((cached && typeof cached.readUpTo !== 'undefined' && cached.readUpTo) ? cached.readUpTo : null);
       if (dmReadUpTo && cached && cached._raw) {
         cached._raw.readUpTo = dmReadUpTo;
       }
@@ -3097,7 +3194,8 @@
       updateHeaderActiveStatus();
       isFirstLoad = true;
       chatFullyLoaded = false;
-      hideScrollIndicator();
+      window.replyJumpActive = false;
+      hideScrollIndicator(true);
       const _htpGc = document.getElementById('headerTypingPreview');
       if (_htpGc) { _htpGc.textContent = ''; _htpGc.classList.remove('active'); }
       if (localTypingTimeout) {
@@ -3176,7 +3274,8 @@
       updateHeaderActiveStatus();
       isFirstLoad = true;
       chatFullyLoaded = false;
-      hideScrollIndicator();
+      window.replyJumpActive = false;
+      hideScrollIndicator(true);
       const _htpGc = document.getElementById('headerTypingPreview');
       if (_htpGc) { _htpGc.textContent = ''; _htpGc.classList.remove('active'); }
       if (localTypingTimeout) {
@@ -4438,7 +4537,7 @@
     let adminConvXhr = null;          // track in-flight XHR so stale responses can be discarded
 
     function loadAdminConv(convId, isAutoPoll = false, loadOlderMode = false) {
-      if (isAutoPoll && !loadOlderMode && adminConvViewingOlder) return;
+      if (isAutoPoll && !loadOlderMode && (adminConvViewingOlder || window.replyJumpActive)) return;
       if (isLoadingAdminConv) {
         // For non-poll (explicit open) calls, abort any in-flight request and proceed
         if (!isAutoPoll && adminConvXhr) { adminConvXhr.abort(); adminConvXhr = null; isLoadingAdminConv = false; }
@@ -4446,7 +4545,7 @@
       }
       isLoadingAdminConv = true;
 
-      const wasAtBottom = isAtBottom();
+      const wasAtBottom = isAtBottom() && !window.replyJumpActive;
       const requestedConv = activeAdminConv;
       const cursor     = loadOlderMode ? adminConvCursor : '';
       const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
@@ -4579,12 +4678,14 @@
             if (isFirstLoad) {
               isFirstLoad = false;
               handleFirstLoadScroll();
-            } else if (wasAtBottom || !userScrolledUp) {
+            } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
               scrollToBottom(true, true);
-            } else if (userScrolledUp) {
+            } else if (userScrolledUp || window.replyJumpActive) {
               const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
               if (newlyAppendedCount > 0) {
                 showScrollIndicator(newlyAppendedCount);
+              } else if (window.replyJumpActive) {
+                showScrollIndicator(0);
               }
             }
           }
@@ -4620,12 +4721,14 @@
           isFirstLoad = false;
           handleFirstLoadScroll();
         } else if (!adminConvViewingOlder) {
-          if (wasAtBottom || !userScrolledUp) {
+          if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
             scrollToBottom(true, true);
           } else {
             chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
-            if (userScrolledUp && genuinelyNewCountF > 0) {
+            if ((userScrolledUp || window.replyJumpActive) && genuinelyNewCountF > 0) {
               showScrollIndicator(genuinelyNewCountF);
+            } else if (window.replyJumpActive) {
+              showScrollIndicator(0);
             }
           }
         }
@@ -4697,6 +4800,8 @@
 
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
       removePaginationBtn();
+      window.replyJumpActive = false;
+      hideScrollIndicator(true);
       renderAdminConvs();
       loadAdminConv(ch.conv_id, false);
 
@@ -4762,6 +4867,8 @@
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
       
       removePaginationBtn();
+      window.replyJumpActive = false;
+      hideScrollIndicator(true);
       renderAdminConvs();
       loadAdminConv(c.convId, false);
 

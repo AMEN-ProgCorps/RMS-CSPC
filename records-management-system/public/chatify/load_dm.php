@@ -7,10 +7,12 @@
 //   target_user (string, fallback — email of the other participant)
 //   before_uuid (string, optional) — msg_uuid of the oldest message shown;
 //                                     omit to load the latest messages.
+//   around_uuid (string, optional) — msg_uuid of a target message to jump to
+//                                     (used by reply-quote jump feature).
 //   limit       (int, optional)    — messages per page, default 50, max 100
 //
 // Returns JSON:
-//   { html: string, hasMore: bool, nextCursor: string|null }
+//   { html: string, hasMore: bool, nextCursor: string|null, jumpMode?: bool }
 //
 // Uses KEYSET (cursor) pagination — no OFFSET, no COUNT(*).
 // The DB returns rows newest-first; array_reverse() re-orders for display.
@@ -64,6 +66,7 @@ $requestedLimit = isset($_GET['limit']) ? (int) $_GET['limit'] : 50;
 $limit          = min(max(1, $requestedLimit), 100);
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 $sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (string) $_GET['since_uuid']  : null;
+$aroundUuid = isset($_GET['around_uuid']) && $_GET['around_uuid'] !== '' ? (string) $_GET['around_uuid'] : null;
 
 // ── Load data ────────────────────────────────────────────────────────────────────
 $convId = ConversationManager::convId($myAccountId, $targetId);
@@ -78,7 +81,14 @@ $convId = ConversationManager::convId($myAccountId, $targetId);
 // read (via mark_read.php / markRead()), and it only does so when
 // `!document.hidden`, i.e. when the user is genuinely viewing the chat.
 
-if ($sinceUuid !== null) {
+$jumpMode = false;
+if ($aroundUuid !== null) {
+    // Jump-to-message mode: load a window ending at (and including) $aroundUuid.
+    $around      = ConversationManager::loadAroundUuid($convId, $aroundUuid, $limit);
+    $rawMessages = $around['rows'];   // already chronological
+    $hasMore     = $around['hasMore'];
+    $jumpMode    = true;
+} elseif ($sinceUuid !== null) {
     // Incremental update: fetch only messages created AFTER sinceUuid
     $rawMessages = ConversationManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
     $hasMore     = false;
@@ -428,4 +438,6 @@ echo json_encode([
     'hasMore'    => $hasMore,
     'nextCursor' => $nextCursor,   // pass as before_uuid for next "load older" request
     'readUpTo'   => $readUpTo,     // other participant's last-read msg_uuid, or null
+    'jumpMode'   => $jumpMode,     // true when fetched via around_uuid (reply-quote jump)
+    'jumpTarget' => $aroundUuid,   // the UUID the client should scroll+blink to
 ]);

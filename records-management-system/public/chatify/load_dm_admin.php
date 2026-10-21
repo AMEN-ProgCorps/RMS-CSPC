@@ -48,9 +48,16 @@ $requestedLimit = isset($_GET['limit']) ? (int) $_GET['limit'] : 50;
 $limit          = min(max(1, $requestedLimit), 100);
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 $sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (string) $_GET['since_uuid']  : null;
+$aroundUuid = isset($_GET['around_uuid']) && $_GET['around_uuid'] !== '' ? (string) $_GET['around_uuid'] : null;
 
+$jumpMode = false;
 if ($isChannel) {
-    if ($sinceUuid !== null) {
+    if ($aroundUuid !== null) {
+        $around      = GlobalChatManager::loadAroundUuid($aroundUuid, $limit, $convId);
+        $rawMessages = $around['rows'];
+        $hasMore     = $around['hasMore'];
+        $jumpMode    = true;
+    } elseif ($sinceUuid !== null) {
         $rawMessages = GlobalChatManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
         $hasMore     = false;
     } else {
@@ -65,7 +72,12 @@ if ($isChannel) {
     $pageUuids  = array_column($rawMessages, 'id');
     $reactions  = GlobalChatManager::loadReactions($pageUuids, $convId);
 } else {
-    if ($sinceUuid !== null) {
+    if ($aroundUuid !== null) {
+        $around      = ConversationManager::loadAroundUuid($convId, $aroundUuid, $limit);
+        $rawMessages = $around['rows'];
+        $hasMore     = $around['hasMore'];
+        $jumpMode    = true;
+    } elseif ($sinceUuid !== null) {
         $rawMessages = ConversationManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
         $hasMore     = false;
     } else {
@@ -229,46 +241,37 @@ for ($i = 0; $i < $msgCount; $i++) {
     }
     $isUserMoved = ($isOfficeGc && $targetOfficeId && $senderOfficeId !== $targetOfficeId);
 
+    // Build reply quote if this message is a reply to another message
+    $replyQuoteHtml = '';
+    if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
+        $replySenderStatus = false;
+        if ($isOfficeGc && $targetOfficeId && !empty($msg['reply_sender_id'])) {
+            $rSenderId = (int) $msg['reply_sender_id'];
+            if (!isset($senderInfoCache[$rSenderId])) {
+                $senderInfoCache[$rSenderId] = UserResolver::getUserInfo($rSenderId);
+            }
+            $rSenderInfo = $senderInfoCache[$rSenderId];
+            $rSenderOfficeId = isset($rSenderInfo['office_id']) ? (int) $rSenderInfo['office_id'] : 0;
+            if ($rSenderId === $myAccountId && $userOfficeId > 0 && $userOfficeId === $targetOfficeId) {
+                $rSenderOfficeId = $userOfficeId;
+            }
+            if ($rSenderOfficeId !== $targetOfficeId) {
+                $replySenderStatus = ($rSenderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+            }
+        }
+        $replyQuoteHtml = adminBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid'], $replySenderStatus);
+    }
+
     if ($isUserMoved) {
         $noticeText = ($senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+        $bodyHtml .= $replyQuoteHtml;
         $bodyHtml .= "<div class='message-bubble'>";
         $bodyHtml .= "<div class='message-content' style='font-style:italic;opacity:0.85;'>{$noticeText}</div>";
         $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
         $bodyHtml .= "</div>";
-
-        $html .= "<div class='message-container received user-moved' data-msg-id='{$msgId}' data-sender-id='{$senderId}'>";
-        $html .= "<div class='message-avatar'>{$avatarInner}</div>";
-        $html .= "<div class='bubble-wrapper'>";
-        $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
-        $html .= $bodyHtml;
-        $html .= "</div>";
-        $html .= "</div>";
-        continue;
-    }
-
-    if ($type === 'text') {
+    } elseif ($type === 'text') {
         $content = safeDecrypt($msg['message'] ?? '');
         $contentEsc = htmlspecialchars($content, ENT_QUOTES);
-
-        $replyQuoteHtml = '';
-        if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
-            $replySenderStatus = false;
-            if ($isOfficeGc && $targetOfficeId && !empty($msg['reply_sender_id'])) {
-                $rSenderId = (int) $msg['reply_sender_id'];
-                if (!isset($senderInfoCache[$rSenderId])) {
-                    $senderInfoCache[$rSenderId] = UserResolver::getUserInfo($rSenderId);
-                }
-                $rSenderInfo = $senderInfoCache[$rSenderId];
-                $rSenderOfficeId = isset($rSenderInfo['office_id']) ? (int) $rSenderInfo['office_id'] : 0;
-                if ($rSenderId === $myAccountId && $userOfficeId > 0 && $userOfficeId === $targetOfficeId) {
-                    $rSenderOfficeId = $userOfficeId;
-                }
-                if ($rSenderOfficeId !== $targetOfficeId) {
-                    $replySenderStatus = ($rSenderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
-                }
-            }
-            $replyQuoteHtml = adminBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid'], $replySenderStatus);
-        }
 
         $bodyHtml .= $replyQuoteHtml;
         $bodyHtml .= "<div class='message-bubble'>";
@@ -382,12 +385,13 @@ for ($i = 0; $i < $msgCount; $i++) {
     $rawTimestamp = htmlspecialchars($msg['timestamp'] ?? '', ENT_QUOTES);
     $replyToAttr = !empty($msg['reply_to_msg_uuid']) ? " data-reply-to='" . htmlspecialchars($msg['reply_to_msg_uuid'], ENT_QUOTES) . "'" : '';
     $editCount = (int)($msg['edit_count'] ?? 0);
-    $html .= "<div class='message-container received' data-msg-id='{$msgId}' data-sender-id='{$senderId}' data-created-at='{$rawTimestamp}' data-edit-count='{$editCount}'{$replyToAttr}>";
+    $userMovedClass = $isUserMoved ? ' user-moved' : '';
+    $html .= "<div class='message-container received{$userMovedClass}' data-msg-id='{$msgId}' data-sender-id='{$senderId}' data-created-at='{$rawTimestamp}' data-edit-count='{$editCount}'{$replyToAttr}>";
     $html .= "<div class='message-avatar'>{$avatarInner}</div>";
     $html .= "<div class='bubble-wrapper'>";
     $tsClass = ($type !== 'text') ? 'message-click-timestamp show-timestamp' : 'message-click-timestamp';
     $html .= "<div class='{$tsClass}'>{$fullTimeDisplay}</div>";
-    if (!empty($msg['is_edited'])) {
+    if (!empty($msg['is_edited']) && !$isUserMoved) {
         $html .= "<div class='message-edited-label' style='font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;'>edited</div>";
     }
     $html .= $bodyHtml;
@@ -425,4 +429,6 @@ echo json_encode([
     'html'       => $html,
     'hasMore'    => $hasMore,
     'nextCursor' => $nextCursor,   // pass as before_uuid for next "load older" request
+    'jumpMode'   => $jumpMode,     // true when fetched via around_uuid (reply-quote jump)
+    'jumpTarget' => $aroundUuid,   // the UUID the client should scroll+blink to
 ]);

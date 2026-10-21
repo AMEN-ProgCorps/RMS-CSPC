@@ -277,6 +277,78 @@ class ConversationManager
     }
 
     /**
+     * Load a window of private-conversation messages centred around a specific
+     * message UUID.  Used by the "jump to quoted message" feature when the
+     * target is not in the currently rendered window.
+     *
+     * @param  string $convId
+     * @param  string $aroundUuid  msg_uuid of the message to anchor on.
+     * @param  int    $limit       Total messages to return (default 50).
+     * @return array{ rows: array, hasMore: bool, nextCursor: string|null }
+     */
+    public static function loadAroundUuid(string $convId, string $aroundUuid, int $limit = 50): array
+    {
+        try {
+            $pdo = Database::getConnection();
+            self::ensureMessageStatusColumn($pdo);
+
+            // Resolve anchor row
+            $cur = $pdo->prepare(
+                'SELECT created_at, id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1'
+            );
+            $cur->execute([':uuid' => $aroundUuid]);
+            $curRow = $cur->fetch();
+
+            if (!$curRow) {
+                $rows = self::loadRaw($convId, $limit, null);
+                return [
+                    'rows'       => array_reverse($rows),
+                    'hasMore'    => false,
+                    'nextCursor' => !empty($rows) ? $rows[count($rows) - 1]['id'] : null,
+                ];
+            }
+
+            $stmt = $pdo->prepare(
+                'SELECT m.msg_uuid AS id,
+                        m.sender_id,
+                        m.receiver_id,
+                        m.message,
+                        m.msg_type AS type,
+                        m.is_edited,
+                        m.edit_count,
+                        m.reply_to_msg_uuid,
+                        r.message AS reply_message,
+                        r.msg_type AS reply_msg_type,
+                        to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
+                 FROM chat_messages m
+                 LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
+                 WHERE m.conv_id = :conv_id
+                   AND (m.created_at, m.id) <= (:cur_ts, :cur_id)
+                   AND m.status = \'active\'
+                 ORDER BY m.created_at DESC, m.id DESC
+                 LIMIT :lim'
+            );
+            $stmt->bindValue(':conv_id', $convId);
+            $stmt->bindValue(':cur_ts',  $curRow['created_at']);
+            $stmt->bindValue(':cur_id',  (int) $curRow['id'], PDO::PARAM_INT);
+            $stmt->bindValue(':lim',     $limit + 1, PDO::PARAM_INT);
+            $stmt->execute();
+            $rows = $stmt->fetchAll() ?: [];
+
+            $hasMore = count($rows) > $limit;
+            if ($hasMore) array_pop($rows);
+
+            $rows = array_reverse($rows);
+            $nextCursor = !empty($rows) ? $rows[0]['id'] : null;
+
+            return ['rows' => $rows, 'hasMore' => $hasMore, 'nextCursor' => $nextCursor];
+        } catch (PDOException $e) {
+            error_log('ConversationManager::loadAroundUuid() — ' . $e->getMessage());
+            return ['rows' => [], 'hasMore' => false, 'nextCursor' => null];
+        }
+    }
+
+    /**
      * Load messages newer than a given message UUID for incremental UI updates.
      */
     public static function loadIncrementalRaw(

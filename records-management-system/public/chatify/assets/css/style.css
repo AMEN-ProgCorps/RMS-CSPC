@@ -1281,6 +1281,7 @@
       contain: layout style;
       overflow: visible;  /* Allow reaction badges and swipe icons to render outside bounds without clipping */
       position: relative; /* anchors the swipe-to-reply icon revealed underneath the bubble */
+      -webkit-tap-highlight-color: transparent;
     }
 
     /* ── Swipe-to-reply (mobile) ──────────────────────────────────────── */
@@ -1434,6 +1435,16 @@
       border-radius: 16px;
       margin-bottom: -12px;
       box-shadow: 0 1px 2px var(--shadow-color);
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      transition: opacity 0.15s ease, transform 0.12s ease;
+    }
+    .reply-quote:hover {
+      opacity: 0.9 !important;
+    }
+    .reply-quote:active {
+      transform: scale(0.97);
     }
     .sent .reply-quote {
       background: var(--bg-bubble-sent);
@@ -1502,6 +1513,30 @@
     .reply-quote-image-container + .message-bubble {
       position: relative;
       z-index: 2;
+    }
+
+    /* ── Reply target jump & blink animation ────────────────────────────── */
+    @keyframes replyTargetBlinkAnim {
+      0%, 100% {
+        opacity: 1;
+      }
+      20% {
+        opacity: 0.2;
+      }
+      40% {
+        opacity: 1;
+      }
+      60% {
+        opacity: 0.2;
+      }
+      80% {
+        opacity: 1;
+      }
+    }
+
+    .message-container.reply-target-blink {
+      animation: replyTargetBlinkAnim 1.2s ease-in-out forwards;
+      z-index: 10;
     }
     /* Reply banner thumbnail preview (shown above input when replying to image) */
     #replyBannerSnippet img.reply-banner-img {
@@ -1762,6 +1797,7 @@
       -moz-user-select: none;
       user-select: none;
       -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
       touch-action: manipulation; /* eliminates 300ms tap delay on mobile */
     }
 
@@ -1802,6 +1838,7 @@
       -moz-user-select: none;
       user-select: none;
       -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
       touch-action: manipulation; /* eliminates 300ms tap delay on mobile */
     }
 

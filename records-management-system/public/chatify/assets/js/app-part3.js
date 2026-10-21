@@ -563,7 +563,7 @@
       // Never snap or jump scroll position while the user is actively touch-dragging or scrolling
       if (isUserScrollingOrTouching && !force) return;
 
-      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+      const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
       if (viewingOlder && !force) return;
 
       cancelActiveScrollAnimation();
@@ -653,36 +653,40 @@
     }
 
     function showScrollIndicator(newCount = 0) {
-      if (!chatBox || !chatFullyLoaded || isMobileVirtualKeyboardActive()) {
+      if (!chatBox) return;
+      if (!window.replyJumpActive && (!chatFullyLoaded || isMobileVirtualKeyboardActive())) {
         hideScrollIndicator();
         return;
       }
 
+      const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
+
       const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
-      if (distance <= 100 && newCount === 0) {
+      if (!viewingOlder && distance <= 100 && newCount === 0) {
         hideScrollIndicator();
         return;
       }
 
       if (newCount > 0) {
         unreadCount += newCount;
-        unreadBadge.textContent = unreadCount;
+        unreadBadge.textContent = unreadCount > 99 ? '99+' : unreadCount;
         scrollIndicatorText.textContent = unreadCount === 1 ? 'new message' : 'new messages';
         scrollIndicator.classList.add('has-unread');
-      } else if (!scrollIndicator.classList.contains('visible')) {
-        if (!scrollIndicator.classList.contains('has-unread')) {
-          scrollIndicatorText.textContent = 'Go to bottom';
-        }
+      } else if (unreadCount === 0) {
+        scrollIndicator.classList.remove('has-unread');
+        unreadBadge.textContent = '';
+        scrollIndicatorText.textContent = 'Go to bottom';
       }
 
-      if (distance > 200 || scrollIndicator.classList.contains('has-unread')) {
+      if (viewingOlder || distance > 150 || scrollIndicator.classList.contains('has-unread')) {
         scrollIndicator.classList.add('visible');
       } else {
         scrollIndicator.classList.remove('visible');
       }
     }
 
-    function hideScrollIndicator() {
+    function hideScrollIndicator(force = false) {
+      if (window.replyJumpActive && !force) return;
       scrollIndicator.classList.remove('visible', 'has-unread');
       unreadCount = 0;
       unreadBadge.textContent = '';
@@ -783,10 +787,9 @@
       return false;
     }
 
-    // Event delegation for double click to edit chat message
-    chatBox.addEventListener('dblclick', function (e) {
-      const container = e.target.closest('.message-container.sent');
-      if (!container) return; // only edit messages sent by you
+    // Handler to open edit mode for a message container
+    function triggerEditForContainer(container) {
+      if (!container || !container.classList.contains('sent')) return; // only edit messages sent by you
       
       const msgId = container.getAttribute('data-msg-id');
       if (!msgId) return;
@@ -808,12 +811,13 @@
       const contentEl = container.querySelector('.message-bubble .message-content');
       if (!contentEl) return;
       
-      // If it contains an attachment (like an anchor link or image or audio), do not edit.
-      // Scoped to .bubble-wrapper (not the whole .message-container) so the
-      // sender's own avatar <img> — rendered separately in .message-avatar —
-      // is never mistaken for an image/file attachment.
+      // If it contains a real attachment (like an anchor link or uploaded image or audio), do not edit.
+      // Exclude img.reply-quote-image so messages replying to an image can still be edited!
       const bubbleWrapperEl = container.querySelector('.bubble-wrapper');
-      if (contentEl.querySelector('a') || (bubbleWrapperEl && bubbleWrapperEl.querySelector('img, audio'))) {
+      const hasRealAttachment = container.querySelector('.message-media, .chat-attachment-container') ||
+                                contentEl.querySelector('a') ||
+                                (bubbleWrapperEl && bubbleWrapperEl.querySelector('img:not(.reply-quote-image), audio, video'));
+      if (hasRealAttachment) {
         return;
       }
       
@@ -846,6 +850,268 @@
       scrollToBottom(true, true);
 
       messageInput.focus({ preventScroll: true });
+    }
+
+    // Event delegation for double click to edit chat message
+    chatBox.addEventListener('dblclick', function (e) {
+      const container = e.target.closest('.message-container.sent');
+      if (!container) return;
+      if (e.target.closest('.reply-quote')) return;
+      triggerEditForContainer(container);
+    });
+
+    // Mobile double-tap on message bubble to edit
+    let lastMsgTapTime = 0;
+    let lastMsgTapContainer = null;
+    let lastMsgTapX = 0;
+    let lastMsgTapY = 0;
+
+    chatBox.addEventListener('touchend', function (e) {
+      if (e.changedTouches.length !== 1) return;
+      const touch = e.changedTouches[0];
+      const container = e.target.closest('.message-container.sent');
+      if (!container) {
+        lastMsgTapTime = 0;
+        lastMsgTapContainer = null;
+        return;
+      }
+
+      // Do not trigger edit if tapped directly on a link, reply quote, reaction badge, or media
+      if (e.target.closest('a, .reply-quote, .reaction-badge, .reaction-picker-btn, .chat-viewable-image')) {
+        return;
+      }
+
+      const now = Date.now();
+      const dist = Math.hypot(touch.clientX - lastMsgTapX, touch.clientY - lastMsgTapY);
+
+      if (now - lastMsgTapTime < 350 && container === lastMsgTapContainer && dist < 30) {
+        e.preventDefault();
+        lastMsgTapTime = 0;
+        lastMsgTapContainer = null;
+        triggerEditForContainer(container);
+      } else {
+        lastMsgTapTime = now;
+        lastMsgTapContainer = container;
+        lastMsgTapX = touch.clientX;
+        lastMsgTapY = touch.clientY;
+      }
+    }, { passive: false });
+
+    // Click on a reply quote (text quote or image quote): scroll to original quoted message and blink it AFTER arrival.
+    // Uses IntersectionObserver so the blink fires only once the target is truly visible.
+    // WeakMap tracks the active remove-timer per element so rapid clicks always restart cleanly.
+    const blinkTimers = new WeakMap();
+
+    // Cleans up any pending blink state for a given element (observer + timers).
+    // activeScrollObservers maps element → { observer, safetyTimer, fired } so a
+    // new click cancels any in-flight scroll+observe cycle for the same element.
+    const activeScrollObservers = new WeakMap();
+
+    function triggerBlinkOn(el) {
+      // Cancel any pending remove-timer from a previous blink on this element
+      const prev = blinkTimers.get(el);
+      if (prev) clearTimeout(prev);
+
+      el.classList.remove('reply-target-blink');
+      void el.offsetWidth; // force reflow so animation restarts
+      el.classList.add('reply-target-blink');
+
+      const t = setTimeout(function() {
+        el.classList.remove('reply-target-blink');
+        blinkTimers.delete(el);
+      }, 1400);
+      blinkTimers.set(el, t);
+    }
+
+    function cancelScrollObserve(el) {
+      const state = activeScrollObservers.get(el);
+      if (!state) return;
+      state.fired = true;                    // prevent late IO/safety callbacks
+      if (state.safetyTimer) clearTimeout(state.safetyTimer);
+      try { state.observer.disconnect(); } catch (_) {}
+      activeScrollObservers.delete(el);
+    }
+
+    // Scroll chatBox to the target element then blink it once it's visible.
+    function scrollAndBlinkTarget(targetMsg) {
+      cancelScrollObserve(targetMsg);
+
+      window.replyJumpActive = true;
+      shouldAutoScroll = false;
+      userScrolledUp   = true;
+
+      const chatRect   = chatBox.getBoundingClientRect();
+      const targetRect = targetMsg.getBoundingClientRect();
+      const isVisible  =
+        targetRect.top    >= chatRect.top    + 40 &&
+        targetRect.bottom <= chatRect.bottom - 40;
+
+      if (isVisible) {
+        triggerBlinkOn(targetMsg);
+        showScrollIndicator(0);
+        return;
+      }
+
+      const state = { observer: null, safetyTimer: null, fired: false };
+      activeScrollObservers.set(targetMsg, state);
+
+      const finish = function() {
+        if (state.fired) return;
+        state.fired = true;
+        try { state.observer.disconnect(); } catch (_) {}
+        if (state.safetyTimer) clearTimeout(state.safetyTimer);
+        activeScrollObservers.delete(targetMsg);
+        triggerBlinkOn(targetMsg);
+        showScrollIndicator(0);
+      };
+
+      state.observer = new IntersectionObserver(function(entries) {
+        if (entries[0].isIntersecting) finish();
+      }, {
+        root: chatBox,
+        threshold: 0.35
+      });
+
+      state.observer.observe(targetMsg);
+      state.safetyTimer = setTimeout(finish, 900);
+      targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      // Always show the down arrow right away
+      showScrollIndicator(0);
+    }
+
+    // Build the URL for an around_uuid jump fetch based on which chat type is active.
+    function buildAroundUuidUrl(aroundUuid) {
+      const limit = typeof BACKREAD_BATCH !== 'undefined' ? BACKREAD_BATCH : 50;
+      if (activeAdminConv) {
+        return 'load_dm_admin.php?conv_id=' + encodeURIComponent(activeAdminConv)
+             + '&around_uuid=' + encodeURIComponent(aroundUuid)
+             + '&limit=' + limit;
+      }
+      if (isGlobalChat) {
+        const convId = (typeof getActiveChannelConvId === 'function')
+          ? getActiveChannelConvId()
+          : (window.activeChannel === 'office' && window.currentOfficeInfo && window.currentOfficeInfo.conv_id
+              ? window.currentOfficeInfo.conv_id
+              : 'global');
+        return 'load.php?around_uuid=' + encodeURIComponent(aroundUuid)
+             + '&conv_id=' + encodeURIComponent(convId)
+             + '&limit=' + limit;
+      }
+      if (activeDM && activeDMAccountId) {
+        return 'load_dm.php?target_id=' + encodeURIComponent(activeDMAccountId)
+             + '&target_user=' + encodeURIComponent(activeDM)
+             + '&around_uuid=' + encodeURIComponent(aroundUuid)
+             + '&limit=' + limit;
+      }
+      return null;
+    }
+
+    // Replace the current chat window with a jump-fetched batch, then scroll+blink.
+    // Returns false if a fetch cannot be made (no active chat), true otherwise.
+    let jumpFetchInFlight = false;
+    function jumpToUnloadedMessage(aroundUuid) {
+      if (jumpFetchInFlight) return;
+      const url = buildAroundUuidUrl(aroundUuid);
+      if (!url) return;
+
+      jumpFetchInFlight = true;
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.onload = function() {
+        jumpFetchInFlight = false;
+        if (this.status !== 200) return;
+        let data;
+        try { data = JSON.parse(this.responseText); } catch(e) { return; }
+        const newHtml = data.html || '';
+        if (!newHtml.trim()) return;
+
+        // Replace current chat window content (keep sending-overlay placeholders)
+        const sendingPlaceholders = Array.from(chatBox.querySelectorAll('[data-sending-uid],[data-upload-uid]'));
+        chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
+
+        const temp = document.createElement('div');
+        temp.innerHTML = newHtml;
+        const newItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
+        const frag = document.createDocumentFragment();
+        newItems.forEach(el => frag.appendChild(el));
+        // Insert before any pending sending placeholders
+        const firstPlaceholder = sendingPlaceholders.find(el => chatBox.contains(el));
+        if (firstPlaceholder) {
+          chatBox.insertBefore(frag, firstPlaceholder);
+        } else {
+          chatBox.appendChild(frag);
+        }
+
+        // Update pagination state so load-older still works from this new window
+        const cursor = data.nextCursor || '';
+        if (activeAdminConv) {
+          if (typeof adminConvCursor !== 'undefined')  adminConvCursor  = cursor;
+          if (typeof adminConvHasMore !== 'undefined') adminConvHasMore = data.hasMore || false;
+          if (typeof adminConvViewingOlder !== 'undefined') adminConvViewingOlder = true;
+        } else if (isGlobalChat) {
+          gcCursor       = cursor;
+          gcHasMore      = data.hasMore || false;
+          gcViewingOlder = true;
+        } else if (activeDM) {
+          if (typeof dmCursor !== 'undefined')       dmCursor       = cursor;
+          if (typeof dmHasMore !== 'undefined')      dmHasMore      = data.hasMore || false;
+          if (typeof dmViewingOlder !== 'undefined') dmViewingOlder = true;
+        }
+
+        shouldAutoScroll = false;
+        userScrolledUp   = true;
+
+        if (data.hasMore) {
+          if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
+        } else {
+          showNoMoreOlderNotice();
+        }
+
+        applyAdminBadges();
+        applyEmojiOnly();
+        attachImageLoadListeners();
+
+        // Always show the arrow down / "Go to bottom" button since we are now in an older message window
+        showScrollIndicator(0);
+
+        // Now scroll+blink the target
+        const targetMsg = chatBox.querySelector(`.message-container[data-msg-id="${aroundUuid}"]`);
+        if (targetMsg) {
+          // Use rAF so the DOM has been painted before we measure positions
+          requestAnimationFrame(function() {
+            scrollAndBlinkTarget(targetMsg);
+            showScrollIndicator(0);
+          });
+        } else {
+          showScrollIndicator(0);
+        }
+      };
+      xhr.onerror = function() { jumpFetchInFlight = false; };
+      xhr.send();
+    }
+
+    chatBox.addEventListener('click', function(e) {
+      if (typeof longPressJustFired !== 'undefined' && longPressJustFired) return;
+      const rq = e.target.closest('.reply-quote[data-reply-to]');
+      if (!rq) return;
+
+      const replyToMsgId = rq.getAttribute('data-reply-to');
+      if (!replyToMsgId) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      window.replyJumpActive = true;
+      const targetMsg = chatBox.querySelector(`.message-container[data-msg-id="${replyToMsgId}"]`);
+      if (targetMsg) {
+        // Message is in the DOM — scroll+blink in place
+        scrollAndBlinkTarget(targetMsg);
+        showScrollIndicator(0);
+      } else {
+        // Message not loaded yet — fetch a window centred on it
+        jumpToUnloadedMessage(replyToMsgId);
+      }
     });
 
     // X cancel-edit button
@@ -1674,7 +1940,7 @@
     // Monitor scroll position
     chatBox.addEventListener('scroll', function() {
       const atBottom = isAtBottom();
-      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+      const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
       
       if (atBottom && !viewingOlder) {
         shouldAutoScroll = true;
@@ -1691,9 +1957,9 @@
           // so the user can easily jump back to latest messages anytime.
           showScrollIndicator(0);
         } else if (chatFullyLoaded && !isMobileVirtualKeyboardActive()) {
-          // Show scroll button when initial load is done AND user has scrolled up > 200px away from bottom
+          // Show scroll button when initial load is done AND user has scrolled up away from bottom
           const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
-          if (distance > 200) {
+          if (distance > 150) {
             const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
             if (hasMessages) {
               showScrollIndicator(0);
@@ -1703,7 +1969,7 @@
           }
         } else if (chatFullyLoaded) {
           const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
-          if (distance <= 100) {
+          if (distance <= 100 && !viewingOlder) {
             hideScrollIndicator();
           }
         }
@@ -1714,7 +1980,7 @@
     chatBox.addEventListener('load', function(event) {
       if (isUserScrollingOrTouching) return;
       if (event.target.tagName === 'IMG') {
-        const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+        const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
         if (viewingOlder) return; // Never auto-scroll to bottom when user is viewing older messages
         if (shouldAutoScroll || !userScrolledUp || isAtBottom()) {
           scrollToBottom(true, true);
@@ -1886,14 +2152,15 @@
       sessionStorage.removeItem('chatScrollHeight_' + activeKey);
     }
 
-    // Click scroll indicator to go to bottom
-    scrollIndicator.addEventListener('click', function() {
+    // Return to the latest live conversation at the bottom.
+    // If user was viewing older history (e.g. jumped or backread), cleans up
+    // stale cursor state, clears older messages, and reloads the latest batch.
+    function returnToLatestChat() {
+      window.replyJumpActive = false;
       shouldAutoScroll = true;
       userScrolledUp = false;
+      hideScrollIndicator(true);
 
-      // If the user has loaded an older window, "Go to bottom" snaps back to
-      // the latest INITIAL_LOAD messages instead of just scrolling within the
-      // (now stale) older batch that's on screen.
       if (isGlobalChat && gcViewingOlder) {
         gcViewingOlder = false;
         gcCursor = '';
@@ -1904,7 +2171,7 @@
         isFirstLoad = true;
         chatFullyLoaded = false;
         loadGlobalChat(false, false);
-        return;
+        return true;
       }
       if (!isGlobalChat && activeAdminConv && adminConvViewingOlder) {
         adminConvViewingOlder = false;
@@ -1915,7 +2182,7 @@
         isFirstLoad = true;
         chatFullyLoaded = false;
         loadAdminConv(activeAdminConv, false, false);
-        return;
+        return true;
       }
       if (!isGlobalChat && !activeAdminConv && activeDM && dmViewingOlder) {
         dmViewingOlder = false;
@@ -1929,10 +2196,26 @@
         isFirstLoad = true;
         chatFullyLoaded = false;
         loadChat(false, false, true);
-        return;
+        return true;
       }
 
-      scrollToBottom(true);
+      scrollToBottom(true, true);
+      hideScrollIndicator(true);
+      if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) {
+        markRead(activeDM);
+      }
+      return false;
+    }
+
+    // Click scroll indicator to go to bottom
+    scrollIndicator.addEventListener('click', function() {
+      returnToLatestChat();
+    });
+    scrollIndicator.addEventListener('keydown', function(e) {
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        returnToLatestChat();
+      }
     });
 
     // ── Auto-load older messages on backread (replaces the old floating
@@ -2206,12 +2489,14 @@
           if (isFirstLoad) {
             isFirstLoad = false;
             handleFirstLoadScroll();
-          } else if (wasAtBottom || !userScrolledUp) {
+          } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
             scrollToBottom(true, true);
-          } else if (userScrolledUp) {
+          } else if (userScrolledUp || window.replyJumpActive) {
             const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
             if (newlyAppendedCount > 0) {
               showScrollIndicator(newlyAppendedCount);
+            } else if (window.replyJumpActive) {
+              showScrollIndicator(0);
             }
           }
         }
@@ -2245,12 +2530,14 @@
         isFirstLoad = false;
         handleFirstLoadScroll();
       } else if (!gcViewingOlder) {
-        if (wasAtBottom || !userScrolledUp) {
+        if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
           scrollToBottom(true, true);
         } else {
           chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
-          if (userScrolledUp && genuinelyNewCount > 0) {
+          if ((userScrolledUp || window.replyJumpActive) && genuinelyNewCount > 0) {
             showScrollIndicator(genuinelyNewCount);
+          } else if (window.replyJumpActive) {
+            showScrollIndicator(0);
           }
         }
       }
@@ -2333,7 +2620,7 @@
     function loadGlobalChat(isAutoPoll = false, loadOlderMode = false, force = false) {
       if (!isGlobalChat) return;
       if (isLoadingGC && !force) return;
-      if (isAutoPoll && !loadOlderMode && gcViewingOlder) return;
+      if (isAutoPoll && !loadOlderMode && (gcViewingOlder || window.replyJumpActive)) return;
 
       if (!loadOlderMode && !isAutoPoll) {
         if (globalChatPrefetchedData) {
@@ -2403,12 +2690,20 @@
           if (cachedObj._raw) cachedObj._raw.readUpTo = data.readUpTo;
         }
       } else {
-        dmReadUpTo = null;
-        if (typeof dmReadUpToMap !== 'undefined') dmReadUpToMap.set(requestedUser, null);
-        const cachedObj = typeof dmMessageCache !== 'undefined' ? dmMessageCache.get(requestedUser) : null;
-        if (cachedObj) {
-          cachedObj.readUpTo = null;
-          if (cachedObj._raw) cachedObj._raw.readUpTo = null;
+        const existingMarker = (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(requestedUser))
+          ? dmReadUpToMap.get(requestedUser)
+          : null;
+        if (existingMarker) {
+          dmReadUpTo = existingMarker;
+          if (typeof data === 'object' && data !== null) data.readUpTo = existingMarker;
+        } else {
+          dmReadUpTo = null;
+          if (typeof dmReadUpToMap !== 'undefined') dmReadUpToMap.set(requestedUser, null);
+          const cachedObj = typeof dmMessageCache !== 'undefined' ? dmMessageCache.get(requestedUser) : null;
+          if (cachedObj) {
+            cachedObj.readUpTo = null;
+            if (cachedObj._raw) cachedObj._raw.readUpTo = null;
+          }
         }
       }
 
@@ -2534,12 +2829,14 @@
           if (isFirstLoad) {
             isFirstLoad = false;
             handleFirstLoadScroll();
-          } else if (wasAtBottom || !userScrolledUp) {
+          } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
             scrollToBottom(true, true);
-          } else if (userScrolledUp) {
+          } else if (userScrolledUp || window.replyJumpActive) {
             const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
             if (newlyAppendedCount > 0) {
               showScrollIndicator(newlyAppendedCount);
+            } else if (window.replyJumpActive) {
+              showScrollIndicator(0);
             }
           }
         }
@@ -2575,12 +2872,14 @@
         isFirstLoad = false;
         handleFirstLoadScroll();
       } else if (!dmViewingOlder) {
-        if (wasAtBottom || !userScrolledUp) {
+        if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
           scrollToBottom(true, true);
         } else {
           chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
-          if (userScrolledUp && genuinelyNewCountF > 0) {
+          if ((userScrolledUp || window.replyJumpActive) && genuinelyNewCountF > 0) {
             showScrollIndicator(genuinelyNewCountF);
+          } else if (window.replyJumpActive) {
+            showScrollIndicator(0);
           }
         }
       }
@@ -2591,7 +2890,7 @@
     function loadChat(isAutoPoll = false, loadOlderMode = false, force = false) {
       if (isAdminAllChatsView || activeAdminConv) return;
       if (!activeDM) return;
-      if (isAutoPoll && !loadOlderMode && dmViewingOlder) return;
+      if (isAutoPoll && !loadOlderMode && (dmViewingOlder || window.replyJumpActive)) return;
 
       // Consume preloaded snapshot from hover cache if available on initial open for instant paint,
       // but do NOT return early so we still perform background fetch from load_dm.php to reconcile new messages.
@@ -2733,7 +3032,8 @@
         if (this.status === 200) {
           shouldAutoScroll = true;
           userScrolledUp = false;
-          hideScrollIndicator();
+          window.replyJumpActive = false;
+          hideScrollIndicator(true);
           // Capture conv identifiers before resetToHome() nulls them
           const clearedDM       = activeDM;
           if (clearedDM) dmMessageCache.delete(clearedDM); // this conversation's snapshot is now stale
@@ -2752,22 +3052,23 @@
             chatFullyLoaded = false;
             isLoadingGC = false;
             loadGlobalChat(false, false, true);
+          } else if (clearedAdminConv) {
+            if (clearedAdminConv === 'global' || clearedAdminConv.startsWith('office_')) {
+              chatBox.innerHTML = '<div class="empty-chat"></div>';
+              isFirstLoad = true;
+              chatFullyLoaded = false;
+              isLoadingAdminConv = false;
+              loadAdminConv(clearedAdminConv, false);
+            } else {
+              chatBox.innerHTML = '<div class="empty-chat"></div>';
+              loadAdminConv(clearedAdminConv, false);
+              fetchUsers();
+            }
           } else if (typeof resetToHome === 'function') {
             resetToHome();
           } else {
             if (clearedDM) {
               loadChat();
-            } else if (clearedAdminConv) {
-              if (clearedAdminConv === 'global' || clearedAdminConv.startsWith('office_')) {
-                chatBox.innerHTML = '<div class="empty-chat"></div>';
-                isFirstLoad = true;
-                chatFullyLoaded = false;
-                isLoadingAdminConv = false;
-                loadAdminConv(clearedAdminConv, false);
-              } else {
-                loadAdminConv(clearedAdminConv, false);
-                fetchUsers();
-              }
             }
           }
 
@@ -2792,6 +3093,7 @@
                 type: 'chat_cleared',
                 chat_type: 'private',
                 recipient_id: clearedDMAccId,
+                conv_id: `${Math.min(myId, clearedDMAccId)}_${Math.max(myId, clearedDMAccId)}`,
                 user_a: Math.min(myId, clearedDMAccId),
                 user_b: Math.max(myId, clearedDMAccId)
               }));
@@ -2810,6 +3112,7 @@
                 ws.send(JSON.stringify({
                   type: 'chat_cleared',
                   chat_type: 'admin_conv',
+                  conv_id: clearedAdminConv,
                   user_a: clearedParts[0],
                   user_b: clearedParts[1]
                 }));
@@ -3242,6 +3545,8 @@
       const activeReply = (replyState && !editingMsgId) ? replyState : null;
       hideReplyBanner();
 
+      const wasViewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+
       // Disable send button momentarily to prevent double-tap
       isSending = true;
       sendButton.classList.add('sending');
@@ -3296,13 +3601,15 @@
         const overlay3 = getSendingOverlay();
         if (overlay3) overlay3.appendChild(sendingBubble);
         else chatBox.appendChild(sendingBubble);
-        shouldAutoScroll = true;
-        userScrolledUp = false;
-        // Always scroll for the user's own outgoing message — isAtBottom() can read
-        // stale while the virtual keyboard is open (viewport/chatBox height is still
-        // reflowing), which silently blocked this scroll and left the new message
-        // hidden below the fold when the keyboard was up.
-        scrollToBottom(true, true);
+        if (!window.replyJumpActive) {
+          shouldAutoScroll = true;
+          userScrolledUp = false;
+          // Always scroll for the user's own outgoing message — isAtBottom() can read
+          // stale while the virtual keyboard is open (viewport/chatBox height is still
+          // reflowing), which silently blocked this scroll and left the new message
+          // hidden below the fold when the keyboard was up.
+          scrollToBottom(true, true);
+        }
       }
 
       const xhr = new XMLHttpRequest();
@@ -3460,91 +3767,105 @@
             hideEditBanner();
           }
 
-          // Convert optimistic sending bubble in-place immediately without full chat reload
+          // Convert optimistic sending bubble in-place immediately without full chat reload.
+          // If the user was viewing older history (e.g. jumped to a distant reply),
+          // returning to latest chat resets the view and snaps cleanly to the live bottom.
           if (!editingMsgId && sendIndId) {
-            const sendingBubble = document.getElementById(sendIndId);
-            if (sendingBubble) {
-              if (confirmedMsg && confirmedMsg.id) {
-                const existingInChatBox = chatBox.querySelector(`.message-container[data-msg-id="${confirmedMsg.id}"]`);
-                if (existingInChatBox) {
-                  if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
-                  updateSeenIndicator();
-                } else {
-                  sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
-                  sendingBubble.setAttribute('data-created-at', new Date().toISOString());
-                  sendingBubble.setAttribute('data-edit-count', '0');
-                  const replyUuid = (confirmedMsg && confirmedMsg.reply_to_msg_uuid) ? confirmedMsg.reply_to_msg_uuid : (activeReply ? activeReply.msgId : null);
-                  if (replyUuid) {
-                    sendingBubble.setAttribute('data-reply-to', replyUuid);
-                  }
-                  sendingBubble.removeAttribute('id');
-                  sendingBubble.removeAttribute('data-sending-uid');
-                
-                // Move from floating sending overlay to main chatBox if needed
-                if (sendingBubble.parentNode && sendingBubble.parentNode !== chatBox) {
-                  sendingBubble.parentNode.removeChild(sendingBubble);
-                  chatBox.appendChild(sendingBubble);
-                }
-
-                const msgContent = confirmedMsg.plaintext || message;
-                const d = new Date();
-                const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric' });
-                const timeStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true });
-                const fullTimeDisplay = `${dateStr} at ${timeStr}`;
-                const senderLabel = (name || 'you').toLowerCase();
-
-                sendingBubble.className = 'message-container sent';
-                const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
-                const replyQuoteHtml = (() => {
-                  let snippetText = (confirmedMsg && (confirmedMsg.reply_snippet || confirmedMsg.reply_message))
-                    ? (confirmedMsg.reply_snippet || confirmedMsg.reply_message)
-                    : (activeReply && activeReply.snippet ? activeReply.snippet : '');
-                  if (!snippetText && replyUuid) {
-                    const targetContainer = chatBox.querySelector(`.message-container[data-msg-id="${replyUuid}"]`);
-                    if (targetContainer && typeof getReplySnippet === 'function') {
-                      snippetText = getReplySnippet(targetContainer);
+            if (wasViewingOlder) {
+              if (typeof clearSendingOverlay === 'function') clearSendingOverlay();
+              const ind = document.getElementById(sendIndId);
+              if (ind && ind.parentNode) ind.parentNode.removeChild(ind);
+              returnToLatestChat();
+            } else {
+              const sendingBubble = document.getElementById(sendIndId);
+              if (sendingBubble) {
+                if (confirmedMsg && confirmedMsg.id) {
+                  const existingInChatBox = chatBox.querySelector(`.message-container[data-msg-id="${confirmedMsg.id}"]`);
+                  if (existingInChatBox) {
+                    if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
+                    updateSeenIndicator();
+                  } else {
+                    sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
+                    sendingBubble.setAttribute('data-created-at', new Date().toISOString());
+                    sendingBubble.setAttribute('data-edit-count', '0');
+                    const replyUuid = (confirmedMsg && confirmedMsg.reply_to_msg_uuid) ? confirmedMsg.reply_to_msg_uuid : (activeReply ? activeReply.msgId : null);
+                    if (replyUuid) {
+                      sendingBubble.setAttribute('data-reply-to', replyUuid);
                     }
+                    sendingBubble.removeAttribute('id');
+                    sendingBubble.removeAttribute('data-sending-uid');
+                  
+                  // Move from floating sending overlay to main chatBox if needed
+                  if (sendingBubble.parentNode && sendingBubble.parentNode !== chatBox) {
+                    sendingBubble.parentNode.removeChild(sendingBubble);
+                    chatBox.appendChild(sendingBubble);
                   }
-                  if (!replyUuid || !snippetText) return '';
-                  if (String(snippetText).startsWith('image:')) {
-                    const imgFile = String(snippetText).slice(6);
-                    const imgSrc  = 'uploads/' + imgFile;
-                    return `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(replyUuid)}"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
-                  }
-                  return `<div class="reply-quote" data-reply-to="${escapeHtml(replyUuid)}"><div class="reply-quote-text">${escapeHtml(truncateForReply(snippetText, 120))}</div></div>`;
-                })();
-                sendingBubble.innerHTML = `
-                  <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
-                  <div class="bubble-wrapper">
-                    <div class="message-click-timestamp">${fullTimeDisplay}</div>
-                    ${replyQuoteHtml}
-                    <div class="message-bubble${emojiOnlyClass}">
-                      <div class="message-content">${escapeHtml(msgContent)}</div>
+
+                  const msgContent = confirmedMsg.plaintext || message;
+                  const d = new Date();
+                  const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric' });
+                  const timeStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true });
+                  const fullTimeDisplay = `${dateStr} at ${timeStr}`;
+                  const senderLabel = (name || 'you').toLowerCase();
+
+                  sendingBubble.className = 'message-container sent';
+                  const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
+                  const replyQuoteHtml = (() => {
+                    let snippetText = (confirmedMsg && (confirmedMsg.reply_snippet || confirmedMsg.reply_message))
+                      ? (confirmedMsg.reply_snippet || confirmedMsg.reply_message)
+                      : (activeReply && activeReply.snippet ? activeReply.snippet : '');
+                    if (!snippetText && replyUuid) {
+                      const targetContainer = chatBox.querySelector(`.message-container[data-msg-id="${replyUuid}"]`);
+                      if (targetContainer && typeof getReplySnippet === 'function') {
+                        snippetText = getReplySnippet(targetContainer);
+                      }
+                    }
+                    if (!replyUuid || !snippetText) return '';
+                    if (String(snippetText).startsWith('image:')) {
+                      const imgFile = String(snippetText).slice(6);
+                      const imgSrc  = 'uploads/' + imgFile;
+                      return `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(replyUuid)}"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
+                    }
+                    return `<div class="reply-quote" data-reply-to="${escapeHtml(replyUuid)}"><div class="reply-quote-text">${escapeHtml(truncateForReply(snippetText, 120))}</div></div>`;
+                  })();
+                  sendingBubble.innerHTML = `
+                    <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
+                    <div class="bubble-wrapper">
+                      <div class="message-click-timestamp">${fullTimeDisplay}</div>
+                      ${replyQuoteHtml}
+                      <div class="message-bubble${emojiOnlyClass}">
+                        <div class="message-content">${escapeHtml(msgContent)}</div>
+                      </div>
                     </div>
-                  </div>
-                `;
-                  const contentEl = sendingBubble.querySelector('.message-content');
-                  if (contentEl) {
-                    linkifyContent(contentEl);
-                    applyReadMoreToElement(contentEl);
+                  `;
+                    const contentEl = sendingBubble.querySelector('.message-content');
+                    if (contentEl) {
+                      linkifyContent(contentEl);
+                      applyReadMoreToElement(contentEl);
+                    }
+                    applyAdminBadges();
+                    // The optimistic bubble just became a real, permanent
+                    // .message-container inside chatBox — cap the window at
+                    // MAX_WINDOW just like any other real-time append.
+                    if (!gcViewingOlder && !dmViewingOlder) {
+                      const trimmed = trimChatMessages(MAX_WINDOW);
+                      if (trimmed) refreshCursorAfterTopTrim();
+                    }
+                    // Always scroll for the user's own confirmed message — see note
+                    // above the optimistic-bubble scroll for why isAtBottom() is
+                    // unreliable while the virtual keyboard is open.
+                    if (!window.replyJumpActive) {
+                      scrollToBottom(true, true);
+                      hideScrollIndicator();
+                    } else {
+                      showScrollIndicator(0);
+                    }
+                    updateSeenIndicator();
                   }
-                  applyAdminBadges();
-                  // The optimistic bubble just became a real, permanent
-                  // .message-container inside chatBox — cap the window at
-                  // MAX_WINDOW just like any other real-time append.
-                  if (!gcViewingOlder && !dmViewingOlder) {
-                    const trimmed = trimChatMessages(MAX_WINDOW);
-                    if (trimmed) refreshCursorAfterTopTrim();
-                  }
-                  // Always scroll for the user's own confirmed message — see note
-                  // above the optimistic-bubble scroll for why isAtBottom() is
-                  // unreliable while the virtual keyboard is open.
-                  scrollToBottom(true, true);
-                  updateSeenIndicator();
+                } else {
+                  // If confirmedMsg is missing or invalid, remove the optimistic sending bubble so it doesn't float stuck!
+                  if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
                 }
-              } else {
-                // If confirmedMsg is missing or invalid, remove the optimistic sending bubble so it doesn't float stuck!
-                if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
               }
             }
           }
@@ -3552,13 +3873,20 @@
           // Broadcast notification via WebSocket so other clients patch DOM.
           if (ws && ws.readyState === WebSocket.OPEN) {
             const wasEditing = !!capturedEditingMsgId;
+            const targetConvId = (typeof getActiveChannelConvId === 'function')
+              ? getActiveChannelConvId()
+              : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+            const isOffice = isGlobalChat && Boolean(targetConvId && targetConvId.startsWith('office_'));
+            const effectiveChatType = isGlobalChat ? (isOffice ? 'office_gc' : 'global') : 'private';
+
             if (wasEditing) {
               ws.send(JSON.stringify({
                 type: 'message_edited',
                 msg_uuid: capturedEditingMsgId,
                 message: message,
                 edit_count: newEditCount,
-                chat_type: isGlobalChat ? 'global' : 'private',
+                chat_type: effectiveChatType,
+                conv_id: isGlobalChat ? targetConvId : null,
                 recipient_id: activeDMAccountId || null
               }));
             } else {
@@ -3571,7 +3899,8 @@
               const replySnippet = activeReply ? activeReply.snippet : null;
               ws.send(JSON.stringify({
                 type: 'message',
-                chat_type: isGlobalChat ? 'global' : 'private',
+                chat_type: effectiveChatType,
+                conv_id: isGlobalChat ? targetConvId : null,
                 recipient_id: activeDMAccountId || null,
                 msg_uuid: (confirmedMsg && confirmedMsg.id) ? confirmedMsg.id : null,
                 message: message,
@@ -3586,8 +3915,12 @@
           // Fallback only if confirmedMsg missing (optimistic bubble already converted above)
           if (!confirmedMsg) {
             if (typeof clearSendingOverlay === 'function') clearSendingOverlay();
-            if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
-            else loadChatForced();
+            if (wasViewingOlder) {
+              returnToLatestChat();
+            } else {
+              if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
+              else loadChatForced();
+            }
           }
 
           // Bump the conversation to the top of the sidebar after a successful send.
@@ -4513,12 +4846,10 @@
         }
       }
       
-      // Press Space or Enter when scroll indicator is visible to scroll to bottom
-      if ((e.key === ' ' || e.key === 'Enter') && scrollIndicator.classList.contains('visible')) {
+      // Press Space or Enter only when scroll indicator itself is focused and visible
+      if ((e.key === ' ' || e.key === 'Enter') && document.activeElement === scrollIndicator && scrollIndicator.classList.contains('visible')) {
         e.preventDefault();
-        shouldAutoScroll = true;
-        userScrolledUp = false;
-        scrollToBottom(true);
+        returnToLatestChat();
       }
       
       // Prevent clear chat shortcuts for non-admins
@@ -5306,11 +5637,16 @@
           if (this.status === 200) {
             let resData = null;
             try { resData = JSON.parse(this.responseText); } catch(e) {}
-            if (isGlobalChat) {
-              isLoadingGC = false;
-              loadGlobalChat(false);
-            } else if (activeDM) {
-              loadChatForced();
+            const wasViewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+            if (wasViewingOlder) {
+              returnToLatestChat();
+            } else {
+              if (isGlobalChat) {
+                isLoadingGC = false;
+                loadGlobalChat(false);
+              } else if (activeDM) {
+                loadChatForced();
+              }
             }
           } else {
             showUploadErrorModal('Failed to save uploaded file message.');
@@ -5350,61 +5686,78 @@
     var iosFooter          = document.querySelector('.input-area');
     var iosBlurSuppressed  = false; // true while we're about to refocus after send
 
-    let keyboardAnimRaf = null;
+    let lastViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    let isKeyboardOpen = false;
+    let keyboardOpening = false;
+    let wasNearBottomOnFocus = true;
+    let keyboardOpenTimer = null;
 
-    function smoothKeepScrollAtBottom(durationMs = 400) {
-      if (!chatBox) return;
-      userScrolledUp = false;
-      shouldAutoScroll = true;
-      hideScrollIndicator();
+    function handleKeyboardResize(currentHeight) {
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+      const diff = lastViewportHeight - currentHeight;
 
-      if (keyboardAnimRaf) {
-        cancelAnimationFrame(keyboardAnimRaf);
-        keyboardAnimRaf = null;
-      }
-
-      const startTime = performance.now();
-
-      function step(now) {
-        if (!chatBox) return;
-        chatBox.scrollTop = chatBox.scrollHeight;
-        if (now - startTime < durationMs) {
-          keyboardAnimRaf = requestAnimationFrame(step);
-        } else {
-          keyboardAnimRaf = null;
+      // Keyboard opening/extending: viewport shrinks by > 60px
+      if (diff > 60 || (keyboardOpening && diff > 20)) {
+        isKeyboardOpen = true;
+        keyboardOpening = false;
+        if (wasNearBottomOnFocus && chatBox) {
           chatBox.scrollTop = chatBox.scrollHeight;
         }
+        if (keyboardOpenTimer) clearTimeout(keyboardOpenTimer);
+        keyboardOpenTimer = setTimeout(function() {
+          if (isKeyboardOpen && wasNearBottomOnFocus && chatBox) {
+            chatBox.scrollTop = chatBox.scrollHeight;
+          }
+        }, 200);
+      } else if (diff < -60) {
+        // Keyboard closing/retracting: viewport expands
+        isKeyboardOpen = false;
+        keyboardOpening = false;
+        if (keyboardOpenTimer) clearTimeout(keyboardOpenTimer);
       }
 
-      keyboardAnimRaf = requestAnimationFrame(step);
-    }
-
-    function applyIOSViewport() {
-      smoothKeepScrollAtBottom(250);
-    }
-
-    function resetIOSViewport() {
-      if (!userScrolledUp && isAtBottom()) {
-        smoothKeepScrollAtBottom(250);
-      }
+      lastViewportHeight = currentHeight;
     }
 
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', function() {
-        if (!userScrolledUp && isAtBottom()) {
-          smoothKeepScrollAtBottom(250);
-        }
+        handleKeyboardResize(window.visualViewport.height);
+      });
+      window.visualViewport.addEventListener('scroll', function() {
+        if (window.scrollY !== 0) window.scrollTo(0, 0);
       });
     }
 
-    messageInput.addEventListener('focus', function () {
-      if (!userScrolledUp && isAtBottom()) {
-        smoothKeepScrollAtBottom(350);
+    window.addEventListener('resize', function() {
+      if (!window.visualViewport) {
+        handleKeyboardResize(window.innerHeight);
       }
     });
 
+    window.addEventListener('scroll', function() {
+      if (window.scrollY !== 0) {
+        window.scrollTo(0, 0);
+      }
+    }, { passive: true });
+
+    messageInput.addEventListener('focus', function () {
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+      if (!isKeyboardOpen) {
+        keyboardOpening = true;
+        wasNearBottomOnFocus = !userScrolledUp || (typeof isAtBottom === 'function' ? isAtBottom(120) : true);
+        setTimeout(function() {
+          if (keyboardOpening && wasNearBottomOnFocus && chatBox) {
+            chatBox.scrollTop = chatBox.scrollHeight;
+          }
+        }, 120);
+      }
+      // When isKeyboardOpen is already true, do not touch scroll so the chat UI stays steady!
+    });
+
     messageInput.addEventListener('blur', function () {
-      // Intentionally do not force scroll on blur: keeps conversation steady when tapping Read More or scrolling
+      keyboardOpening = false;
+      isKeyboardOpen = false;
+      if (keyboardOpenTimer) clearTimeout(keyboardOpenTimer);
     });
 
     // ── Mobile keyboard: keep input-area always above the virtual keyboard ──

@@ -26,9 +26,15 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     public array $flows = [];
     public string $userOfficeCode = '';
     public string $rateLimitError = '';
+    public bool $canReceivingOffice = false;
+    public bool $canTransactionFlow = false;
 
     public function getHasHubProperty(): bool
     {
+        if (!$this->canTransactionFlow && $this->canReceivingOffice) {
+            return in_array('ALL', $this->free_flow_receiving_offices) || count($this->free_flow_receiving_offices) > 1;
+        }
+
         return in_array('[HUB]', $this->flow_offices) 
             || in_array('[HUB]', $this->customFlowSequence);
     }
@@ -78,6 +84,80 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
     {
         $this->free_flow_receiving_offices = [];
         $this->receiving_search = '';
+    }
+
+    // Office Hub Selection Modal (Office Collective Style)
+    public bool $showHubModal = false;
+    public string $hubModalSearch = '';
+    public array $hubModalTempSelected = [];
+
+    public function openHubModal(): void
+    {
+        $this->hubModalTempSelected = $this->free_flow_receiving_offices;
+        $this->hubModalSearch = '';
+        $this->showHubModal = true;
+    }
+
+    public function closeHubModal(): void
+    {
+        $this->showHubModal = false;
+        $this->hubModalSearch = '';
+    }
+
+    public function toggleHubModalOffice(string $officeCode): void
+    {
+        if ($officeCode === $this->userOfficeCode || in_array($officeCode, ['ORIGIN', '[H]', '[HUB]'])) {
+            return;
+        }
+
+        if (in_array('ALL', $this->hubModalTempSelected)) {
+            $allActive = collect($this->offices)
+                ->pluck('office_code')
+                ->filter(fn($c) => $c !== $this->userOfficeCode && !in_array($c, ['ORIGIN', '[H]', '[HUB]', 'ALL']))
+                ->toArray();
+            $this->hubModalTempSelected = array_values(array_diff($allActive, [$officeCode]));
+            return;
+        }
+
+        if (in_array($officeCode, $this->hubModalTempSelected)) {
+            $this->hubModalTempSelected = array_values(array_diff($this->hubModalTempSelected, [$officeCode]));
+        } else {
+            $this->hubModalTempSelected[] = $officeCode;
+        }
+    }
+
+    public function selectAllHubModalOffices(): void
+    {
+        $this->hubModalTempSelected = ['ALL'];
+    }
+
+    public function clearHubModalOffices(): void
+    {
+        $this->hubModalTempSelected = [];
+    }
+
+    public function applyHubModal(): void
+    {
+        $this->free_flow_receiving_offices = $this->hubModalTempSelected;
+
+        // Auto-add to Copy Furnished
+        if (in_array('ALL', $this->free_flow_receiving_offices)) {
+            $this->cf_selected_offices = ['ALL'];
+            $this->copy_furnished = 'Yes';
+        } else {
+            $this->cf_selected_offices = array_values(array_filter($this->cf_selected_offices, fn($c) => $c !== 'ALL'));
+            foreach ($this->free_flow_receiving_offices as $c) {
+                if (!in_array($c, $this->cf_selected_offices)) {
+                    $this->cf_selected_offices[] = $c;
+                }
+            }
+            if (count($this->free_flow_receiving_offices) > 0) {
+                $this->copy_furnished = 'Yes';
+            }
+        }
+
+        $this->showHubModal = false;
+        $this->hubModalSearch = '';
     }
 
     public function selectAllCfOffices(): void
@@ -226,6 +306,20 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
         $perms = auth()->user()?->permissions;
         if ($perms && !$perms->is_sadm && !$perms->can_dts_use_issuance) {
             abort(403, 'Unauthorized access to Issuance transactions.');
+        }
+
+        $isSadm = (bool) ($perms?->is_sadm ?? false);
+        $this->canReceivingOffice = $isSadm || (bool) ($perms?->can_dts_issuance_receiving_office ?? false);
+        $this->canTransactionFlow = $isSadm || (bool) ($perms?->can_dts_issuance_transaction_flow ?? false);
+
+        // Fallback for roles where sub-clearances are not yet assigned
+        if (!$this->canReceivingOffice && !$this->canTransactionFlow) {
+            if ($isSadm || (bool) ($perms?->can_dts_use_issuance ?? false)) {
+                $this->canReceivingOffice = true;
+                $this->canTransactionFlow = true;
+            } else {
+                abort(403, 'Unauthorized access to Issuance: No clearance for Receiving Office or Transaction Flow.');
+            }
         }
 
         $this->userOfficeCode = auth()->user()?->details?->office?->office_code 
@@ -811,18 +905,21 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             'issuance_type' => 'required|string|in:NM,AM,EM,TO,OM,TR,EN,DES,TA,AO',
             'seq_number' => 'required|string|max:50',
             'subject' => 'required|string|max:500',
-            'transaction_flow' => 'required|string|exists:dts_transaction_flow,flow_code',
             'copy_furnished' => 'required|string|in:Yes,No',
             'cf_selected_offices' => 'nullable|array',
         ];
 
-        if ($this->hasHub) {
+        if ($this->canTransactionFlow) {
+            $rules['transaction_flow'] = 'required|string|exists:dts_transaction_flow,flow_code';
+        }
+
+        if ($this->hasHub || (!$this->canTransactionFlow && $this->canReceivingOffice)) {
             $rules['free_flow_receiving_offices'] = 'required|array|min:1';
         }
 
         $this->validate($rules, [
-            'free_flow_receiving_offices.required' => 'Please select at least one receiving office for the Office Hub [HUB].',
-            'free_flow_receiving_offices.min' => 'Please select at least one receiving office for the Office Hub [HUB].',
+            'free_flow_receiving_offices.required' => 'Please select at least one receiving office.',
+            'free_flow_receiving_offices.min' => 'Please select at least one receiving office.',
         ]);
 
         $originOfficeCode = $this->userOfficeCode;
@@ -835,11 +932,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             }
         }
 
-        $flowError = $this->validateTransactionFlow($originOfficeCode, $clusterHead);
-        if ($flowError) {
-            $this->addError('transaction_flow', $flowError);
-            $this->toastMessage = $flowError;
-            return;
+        if ($this->canTransactionFlow) {
+            $flowError = $this->validateTransactionFlow($originOfficeCode, $clusterHead);
+            if ($flowError) {
+                $this->addError('transaction_flow', $flowError);
+                $this->toastMessage = $flowError;
+                return;
+            }
         }
 
         DB::beginTransaction();
@@ -918,7 +1017,19 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             $transactionId = 'TRANS-' . strtoupper(Str::random(10));
             $originOfficeCode = $this->userOfficeCode;
 
-            $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transaction_flow)->first();
+            $isHubBroadcast = in_array('ALL', $this->free_flow_receiving_offices) || count($this->free_flow_receiving_offices) > 1;
+
+            if (!$this->canTransactionFlow && $this->canReceivingOffice) {
+                if ($isHubBroadcast) {
+                    $this->flow_offices = ['ORIGIN', '[HUB]', 'ORIGIN'];
+                } else {
+                    $singleRecipient = $this->free_flow_receiving_offices[0] ?? null;
+                    $this->flow_offices = ['ORIGIN', $singleRecipient, 'ORIGIN'];
+                }
+                $flow = null;
+            } else {
+                $flow = DB::table('dts_transaction_flow')->where('flow_code', $this->transaction_flow)->first();
+            }
             
             $originOffice = DB::table('sys_office')->where('office_code', $originOfficeCode)->first();
             $clusterHead = null;
@@ -962,9 +1073,13 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
             $maxId = DB::table('dts_transaction_flow')->max('id') ?? 0;
             $newFlowId = $maxId + 1;
 
+            $flowName = (!$this->canTransactionFlow && $this->canReceivingOffice)
+                ? ($isHubBroadcast ? 'Hub Broadcast Flow for ' . $controlNumber : 'Linear Flow to ' . ($this->free_flow_receiving_offices[0] ?? 'Unit') . ' for ' . $controlNumber)
+                : ('Flow for ' . $controlNumber . ' (' . $flowCode . ')');
+
             DB::table('dts_transaction_flow')->insert([
                 'flow_code' => $flowCode,
-                'flow_name' => 'Flow for ' . $controlNumber . ' (' . $flowCode . ')',
+                'flow_name' => $flowName,
                 'id' => $newFlowId,
                 'is_active' => 1,
                 'added_by' => auth()->id() ?? 1,
@@ -1347,49 +1462,66 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                     </div>
                 </div>
 
-                <!-- Transaction Path field -->
-                <div class="form-row">
-                    <div class="form-col viewpath-wrapper">
-                        <label class="input-label">Transaction Flow / Path</label>
-                        <div style="display: flex; gap: 8px; align-items: center;">
-                            <select wire:model.live="transaction_flow" class="select-input" style="flex: 1;">
-                                <option value="">Select Path</option>
-                                @foreach($flows as $flow)
-                                    <option value="{{ $flow['flow_code'] }}">{{ $flow['flow_name'] }} ({{ $flow['flow_code'] }})</option>
-                                @endforeach
-                            </select>
-                            <button type="button" wire:click="openFlowDiagram" class="btn-primary" style="padding: 0 16px; height: 38px; font-size: 12px; font-weight: 600; background-color: #4b5563; border-radius: 4px;" {{ empty($transaction_flow) ? 'disabled' : '' }}>
-                                View Flow Diagram
-                            </button>
-                        </div>
-                        @error('transaction_flow')
-                            <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
-                        @enderror
-                        @if(empty($transaction_flow))
-                            <a href="#" wire:click.prevent="openCustomFlowCreator" style="font-size: 11.5px; color: #2563eb; text-decoration: none; font-weight: 600; margin-top: 4px; display: inline-block;">Flow Can't be found?</a>
-                        @endif
-                    </div>
-                </div>
-
-                <!-- DYNAMIC OFFICE HUB [HUB] RECEIVING BOX (Visible only when [HUB] is in flow) -->
-                @if($this->hasHub)
+                @if($canTransactionFlow)
+                    <!-- Transaction Path field -->
                     <div class="form-row">
-                        <div class="form-col" style="max-width: 550px; padding: 16px; border: 1.5px solid #93c5fd; border-radius: 8px; background-color: #eff6ff; margin-bottom: 16px;">
-                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-                                <span style="background: #2563eb; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">
-                                    <i class="fa-solid fa-bolt"></i> [HUB] Office Hub
-                                </span>
-                                <span style="font-size: 12px; color: #1e40af; font-weight: 600;">Multi-Mode Broadcast Recipients</span>
+                        <div class="form-col viewpath-wrapper">
+                            <label class="input-label">Transaction Flow / Path</label>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <select wire:model.live="transaction_flow" class="select-input" style="flex: 1;">
+                                    <option value="">Select Path</option>
+                                    @foreach($flows as $flow)
+                                        <option value="{{ $flow['flow_code'] }}">{{ $flow['flow_name'] }} ({{ $flow['flow_code'] }})</option>
+                                    @endforeach
+                                </select>
+                                <button type="button" wire:click="openFlowDiagram" class="btn-primary" style="padding: 0 16px; height: 38px; font-size: 12px; font-weight: 600; background-color: #4b5563; border-radius: 4px;" {{ empty($transaction_flow) ? 'disabled' : '' }}>
+                                    View Flow Diagram
+                                </button>
+                            </div>
+                            @error('transaction_flow')
+                                <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                            @enderror
+                            @if(empty($transaction_flow))
+                                <a href="#" wire:click.prevent="openCustomFlowCreator" style="font-size: 11.5px; color: #2563eb; text-decoration: none; font-weight: 600; margin-top: 4px; display: inline-block;">Flow Can't be found?</a>
+                            @endif
+                        </div>
+                    </div>
+                @endif
+
+                @if(!$canTransactionFlow && $canReceivingOffice)
+                    <!-- DEDICATED RECEIVING OFFICE(S) BOX (When Transaction Flow clearance is disabled) -->
+                    <div class="form-row">
+                        <div class="form-col" style="max-width: 580px; padding: 18px; border: 1.5px solid #93c5fd; border-radius: 10px; background-color: #eff6ff; margin-bottom: 16px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="background: #2563eb; color: #fff; padding: 3px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">
+                                        <i class="fa-solid fa-building-circle-arrow-right"></i> Receiving Office(s)
+                                    </span>
+                                    <span style="font-size: 12px; color: #1e40af; font-weight: 600;">
+                                        {{ (in_array('ALL', $free_flow_receiving_offices) || count($free_flow_receiving_offices) > 1) ? 'Multi-Office Broadcast (Hub Mode)' : (count($free_flow_receiving_offices) === 1 ? 'Direct Linear Route' : 'Designate Recipient(s)') }}
+                                    </span>
+                                </div>
                             </div>
 
-                            <p style="font-size: 11.5px; color: #3b82f6; margin-top: 0; margin-bottom: 10px; line-height: 1.4;">
-                                When this transaction reaches the <strong>[HUB]</strong> stage in the routing sequence, it will broadcast simultaneously to all designated receiving offices below.
+                            <p style="font-size: 11.5px; color: #3b82f6; margin-top: 0; margin-bottom: 12px; line-height: 1.4;">
+                                Select a single unit for direct routing (<code>ORIGIN &rarr; Unit &rarr; ORIGIN</code>), or choose multiple units / <strong>"Select All Units"</strong> to broadcast across offices simultaneously.
                             </p>
 
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                <label class="input-label" style="margin: 0; font-weight: 700; color: #0f172a;">
-                                    Receiving Offices for [HUB] <span style="color: #dc2626;">*</span>
-                                </label>
+                            <!-- Office Hub Trigger Button (Office Collective Style) -->
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+                                <button type="button" wire:click="openHubModal" class="ia-btn ia-btn-collective {{ (count($free_flow_receiving_offices) > 0) ? 'is-active' : '' }}" style="display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px; font-size: 12.5px; font-weight: 700; border-radius: 8px; cursor: pointer; background: {{ (count($free_flow_receiving_offices) > 0) ? '#eff6ff' : '#ffffff' }}; color: {{ (count($free_flow_receiving_offices) > 0) ? '#1d4ed8' : '#334155' }}; border: 1.5px solid {{ (count($free_flow_receiving_offices) > 0) ? '#93c5fd' : '#cbd5e1' }}; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"></path>
+                                        <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"></path>
+                                        <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"></path>
+                                        <path d="M10 6h4"></path>
+                                        <path d="M10 10h4"></path>
+                                        <path d="M10 14h4"></path>
+                                        <path d="M10 18h4"></path>
+                                    </svg>
+                                    <span>Office Hub [ {{ in_array('ALL', $free_flow_receiving_offices) ? 'All Offices' : count($free_flow_receiving_offices) }} selected ]</span>
+                                </button>
+
                                 <div style="display: flex; gap: 8px;">
                                     <button type="button" wire:click="selectAllReceivingOffices" style="background: none; border: none; font-size: 11.5px; color: #2563eb; font-weight: 600; cursor: pointer; text-decoration: underline;">Select All Units</button>
                                     @if(count($free_flow_receiving_offices) > 0)
@@ -1399,7 +1531,7 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                             </div>
                             
                             @if(count($free_flow_receiving_offices) > 0)
-                                <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
+                                <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px;">
                                     @foreach($free_flow_receiving_offices as $index => $code)
                                         @php
                                             $rList = array_merge([
@@ -1416,57 +1548,73 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
                                 </div>
                             @endif
 
-                            <div style="position: relative;">
-                                <input type="text" 
-                                    wire:model.live="receiving_search" 
-                                    class="text-input" 
-                                    placeholder="Search office code or name to add to [HUB]..." 
-                                    style="width: 100%; font-size: 12.5px; padding: 7px 10px; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff;"
-                                >
-                                
-                                @if(!empty($receiving_search))
-                                    @php
-                                        $userOfficeCode = $this->userOfficeCode;
-                                        $rList = array_merge([
-                                            ['office_code' => 'ALL', 'office_name' => 'All Offices / Units']
-                                        ], $offices);
-
-                                        $filteredReceiving = array_filter($rList, function($office) use ($free_flow_receiving_offices, $userOfficeCode) {
-                                            return !in_array($office['office_code'], $free_flow_receiving_offices) && $office['office_code'] !== $userOfficeCode && !in_array($office['office_code'], ['ORIGIN', '[H]', '[HUB]']);
-                                        });
-                                        
-                                        $searchLower = strtolower($receiving_search);
-                                        $filteredReceiving = array_filter($filteredReceiving, function($office) use ($searchLower) {
-                                            return str_contains(strtolower($office['office_code']), $searchLower) ||
-                                                   str_contains(strtolower($office['office_name']), $searchLower);
-                                        });
-                                    @endphp
-
-                                    <div class="dts-custom-dropdown" style="top: 38px;">
-                                        @if(count($filteredReceiving) > 0)
-                                            @foreach($filteredReceiving as $office)
-                                                <button type="button" 
-                                                    class="dts-dropdown-item"
-                                                    wire:click="selectFreeFlowOffice('{{ $office['office_code'] }}')" 
-                                                    style="width: 100%; text-align: left; border: none; background: none; font-size: 12px; display: block;"
-                                                >
-                                                    <strong>{{ $office['office_code'] }}</strong> - {{ $office['office_name'] }}
-                                                </button>
-                                            @endforeach
-                                        @else
-                                            <div class="dts-dropdown-empty" style="padding: 8px 12px; font-size: 12px;">
-                                                No matching offices found.
-                                            </div>
-                                        @endif
-                                    </div>
-                                @endif
-                            </div>
                             @error('free_flow_receiving_offices')
-                                <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 4px; display: block;">{{ $message }}</span>
+                                <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 6px; display: block;">{{ $message }}</span>
                             @enderror
                         </div>
                     </div>
-                @else
+                @elseif($this->hasHub)
+                    <!-- DYNAMIC OFFICE HUB [HUB] RECEIVING BOX (Visible only when [HUB] is in flow) -->
+                    <div class="form-row">
+                        <div class="form-col" style="max-width: 580px; padding: 18px; border: 1.5px solid #93c5fd; border-radius: 10px; background-color: #eff6ff; margin-bottom: 16px;">
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                                <span style="background: #2563eb; color: #fff; padding: 3px 9px; border-radius: 6px; font-size: 11px; font-weight: 700;">
+                                    <i class="fa-solid fa-bolt"></i> [HUB] Office Hub
+                                </span>
+                                <span style="font-size: 12px; color: #1e40af; font-weight: 600;">Multi-Mode Broadcast Recipients</span>
+                            </div>
+
+                            <p style="font-size: 11.5px; color: #3b82f6; margin-top: 0; margin-bottom: 12px; line-height: 1.4;">
+                                When this transaction reaches the <strong>[HUB]</strong> stage in the routing sequence, it will broadcast simultaneously to all designated receiving offices below.
+                            </p>
+
+                            <!-- Office Hub Trigger Button (Office Collective Style) -->
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+                                <button type="button" wire:click="openHubModal" class="ia-btn ia-btn-collective {{ (count($free_flow_receiving_offices) > 0) ? 'is-active' : '' }}" style="display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px; font-size: 12.5px; font-weight: 700; border-radius: 8px; cursor: pointer; background: {{ (count($free_flow_receiving_offices) > 0) ? '#eff6ff' : '#ffffff' }}; color: {{ (count($free_flow_receiving_offices) > 0) ? '#1d4ed8' : '#334155' }}; border: 1.5px solid {{ (count($free_flow_receiving_offices) > 0) ? '#93c5fd' : '#cbd5e1' }}; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"></path>
+                                        <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"></path>
+                                        <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"></path>
+                                        <path d="M10 6h4"></path>
+                                        <path d="M10 10h4"></path>
+                                        <path d="M10 14h4"></path>
+                                        <path d="M10 18h4"></path>
+                                    </svg>
+                                    <span>Office Hub [ {{ in_array('ALL', $free_flow_receiving_offices) ? 'All Offices' : count($free_flow_receiving_offices) }} selected ]</span>
+                                </button>
+
+                                <div style="display: flex; gap: 8px;">
+                                    <button type="button" wire:click="selectAllReceivingOffices" style="background: none; border: none; font-size: 11.5px; color: #2563eb; font-weight: 600; cursor: pointer; text-decoration: underline;">Select All Units</button>
+                                    @if(count($free_flow_receiving_offices) > 0)
+                                        <button type="button" wire:click="clearReceivingOffices" style="background: none; border: none; font-size: 11.5px; color: #dc2626; font-weight: 600; cursor: pointer; text-decoration: underline;">Clear</button>
+                                    @endif
+                                </div>
+                            </div>
+                            
+                            @if(count($free_flow_receiving_offices) > 0)
+                                <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px;">
+                                    @foreach($free_flow_receiving_offices as $index => $code)
+                                        @php
+                                            $rList = array_merge([
+                                                ['office_code' => 'ALL', 'office_name' => 'All Offices / Units']
+                                            ], $offices);
+                                            $officeName = collect($rList)->firstWhere('office_code', $code)['office_name'] ?? $code;
+                                        @endphp
+                                        <span class="badge" style="display: inline-flex; align-items: center; gap: 6px; background-color: #ffffff; color: #1e40af; border: 1px solid #bfdbfe; padding: 4px 10px; border-radius: 6px; font-size: 11.5px; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                                            <i class="fa-solid fa-building" style="font-size: 10px; color: #3b82f6;"></i>
+                                            {{ $officeName }}
+                                            <button type="button" wire:click="removeFreeFlowOffice({{ $index }})" style="border: none; background: none; color: #64748b; cursor: pointer; font-weight: bold; font-size: 13px; padding: 0 2px; line-height: 1;">&times;</button>
+                                        </span>
+                                    @endforeach
+                                </div>
+                            @endif
+
+                            @error('free_flow_receiving_offices')
+                                <span class="error-msg" style="color: #dc2626; font-size: 12px; margin-top: 6px; display: block;">{{ $message }}</span>
+                            @enderror
+                        </div>
+                    </div>
+                @elseif($canReceivingOffice)
                     <!-- Optional Single Receiving Office when no [HUB] in flow -->
                     <div class="form-row">
                         <div class="form-col small-input">
@@ -2040,4 +2188,12 @@ new #[Layout('layouts.dts')] #[Title('Document Tracking System - Create Issuance
 
     <!-- Dynamic QR Code Print Modal -->
     @include('components.dts.qr-print-modal')
+
+    <!-- Office Hub Selection Modal -->
+    <x-dts.hub-collective-modal 
+        :show="$showHubModal" 
+        :search="$hubModalSearch" 
+        :selected="$hubModalTempSelected" 
+        :offices="$offices" 
+    />
 </div>

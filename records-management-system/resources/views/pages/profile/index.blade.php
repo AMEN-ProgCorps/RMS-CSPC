@@ -83,6 +83,8 @@ new #[Layout('layouts.profile')] #[Title('Profile Manager - Details')] class ext
                 'can_dts_use_external'           => 'Access External Transactions',
                 'can_dts_use_application'        => 'Access Application Letters',
                 'can_dts_use_issuance'           => 'Access Issuances',
+                'can_dts_issuance_receiving_office' => 'Issuance: Receiving Office',
+                'can_dts_issuance_transaction_flow' => 'Issuance: Transaction Flow',
                 'can_dts_user_received'          => 'Receive Documents',
                 'can_dts_forward_to_other_office'=> 'Forward Transaction to Other office',
                 'can_dts_modify_transaction'     => 'Modify Transactions',

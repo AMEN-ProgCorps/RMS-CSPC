@@ -86,6 +86,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
     public bool $canDtsUseExternal = false;
     public bool $canDtsUseApplication = false;
     public bool $canDtsUseIssuance = false;
+    public bool $canDtsIssuanceReceivingOffice = false;
+    public bool $canDtsIssuanceTransactionFlow = false;
     public bool $canDtsUserReceived = false;
     public bool $canDtsForwardOtherOffice = false;
     public bool $canDtsModifyTransaction = false;
@@ -170,6 +172,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canDtsUseExternal = false;
         $this->canDtsUseApplication = false;
         $this->canDtsUseIssuance = false;
+        $this->canDtsIssuanceReceivingOffice = false;
+        $this->canDtsIssuanceTransactionFlow = false;
         $this->canDtsUserReceived = false;
         $this->canDtsForwardOtherOffice = false;
         $this->canDtsModifyTransaction = false;
@@ -237,6 +241,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                 $this->canDtsUseExternal = (bool) $perms->can_dts_use_external;
                 $this->canDtsUseApplication = (bool) $perms->can_dts_use_application;
                 $this->canDtsUseIssuance = (bool) $perms->can_dts_use_issuance;
+                $this->canDtsIssuanceReceivingOffice = (bool) ($perms->can_dts_issuance_receiving_office ?? false);
+                $this->canDtsIssuanceTransactionFlow = (bool) ($perms->can_dts_issuance_transaction_flow ?? false);
                 $this->canDtsUserReceived = (bool) $perms->can_dts_user_received;
                 $this->canDtsForwardOtherOffice = (bool) ($perms->can_dts_forward_to_other_office ?? false);
                 $this->canDtsModifyTransaction = (bool) $perms->can_dts_modify_transaction;
@@ -463,6 +469,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $perms->can_dts_use_external = $this->canDtsUseExternal;
         $perms->can_dts_use_application = $this->canDtsUseApplication;
         $perms->can_dts_use_issuance = $this->canDtsUseIssuance;
+        $perms->can_dts_issuance_receiving_office = $this->canDtsIssuanceReceivingOffice;
+        $perms->can_dts_issuance_transaction_flow = $this->canDtsIssuanceTransactionFlow;
         $perms->can_dts_user_received = $this->canDtsUserReceived;
         $perms->can_dts_forward_to_other_office = $this->canDtsForwardOtherOffice;
         $perms->can_dts_modify_transaction = $this->canDtsModifyTransaction;
@@ -657,9 +665,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         $this->canDtsUseExternal = true;
         $this->canDtsUseApplication = true;
         $this->canDtsUseIssuance = true;
+        $this->canDtsIssuanceReceivingOffice = true;
+        $this->canDtsIssuanceTransactionFlow = true;
         $this->canDtsUserReceived = true;
         $this->canDtsForwardOtherOffice = true;
         $this->canDtsModifyTransaction = true;
+        $this->canDtsModifyControlNo = true;
     }
 
     /**
@@ -688,6 +699,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
             'canDtsUseExternal',
             'canDtsUseApplication',
             'canDtsUseIssuance',
+            'canDtsIssuanceReceivingOffice',
+            'canDtsIssuanceTransactionFlow',
             'canDtsUserReceived',
             'canDtsForwardOtherOffice',
             'canDtsModifyTransaction',
@@ -696,6 +709,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
         if (in_array($name, $permissionProperties) && !$value && $this->isSadm) {
             $this->isSadm = false;
             $this->isAdmin = true;
+        }
+    }
+
+    public function updatedCanDtsUseIssuance($value): void
+    {
+        if ($value) {
+            $this->canDtsIssuanceReceivingOffice = true;
+            $this->canDtsIssuanceTransactionFlow = true;
+        } else {
+            $this->canDtsIssuanceReceivingOffice = false;
+            $this->canDtsIssuanceTransactionFlow = false;
         }
     }
 
@@ -1116,7 +1140,29 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                             <span class="permission-toggle-desc">Clearance to create, list, and filter Issuance Transactions.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canDtsUseIssuance">
+                                            <input type="checkbox" wire:model.live="canDtsUseIssuance">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Issuance Receiving Office Clearance -->
+                                    <div class="permission-toggle-row" style="{{ !$canDtsUseIssuance ? 'opacity: 0.6;' : '' }}">
+                                        <div class="permission-toggle-info" style="padding-left: 14px;">
+                                            <span class="permission-toggle-title">Issuance - Receiving Office</span>
+                                            <span class="permission-toggle-desc">Clearance to route issuances using Receiving Office(s) and Hub broadcast.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsIssuanceReceivingOffice" {{ !$canDtsUseIssuance ? 'disabled' : '' }}>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                    <!-- Issuance Transaction Flow Clearance -->
+                                    <div class="permission-toggle-row" style="{{ !$canDtsUseIssuance ? 'opacity: 0.6;' : '' }}">
+                                        <div class="permission-toggle-info" style="padding-left: 14px;">
+                                            <span class="permission-toggle-title">Issuance - Transaction Flow</span>
+                                            <span class="permission-toggle-desc">Clearance to route issuances using Transaction Flow / Path sequences.</span>
+                                        </div>
+                                        <label class="switch">
+                                            <input type="checkbox" wire:model="canDtsIssuanceTransactionFlow" {{ !$canDtsUseIssuance ? 'disabled' : '' }}>
                                             <span class="slider"></span>
                                         </label>
                                     </div>
@@ -1154,13 +1200,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Roles')] class extends C
                                         </label>
                                     </div>
                                     <!-- Modify Control Number on Create -->
-                                    <div class="permission-toggle-row" style="{{ (!$isSadm && !$isAdmin) ? 'opacity: 0.5; transition: opacity 0.2s ease;' : '' }}">
+                                    <div class="permission-toggle-row">
                                         <div class="permission-toggle-info">
                                             <span class="permission-toggle-title">Modify Control Number</span>
                                             <span class="permission-toggle-desc">Allows user to see and manually edit the control number on the create transaction form. When disabled, control numbers are auto-generated.</span>
                                         </div>
                                         <label class="switch">
-                                            <input type="checkbox" wire:model="canDtsModifyControlNo" {{ (!$isSadm && !$isAdmin) ? 'disabled' : '' }}>
+                                            <input type="checkbox" wire:model="canDtsModifyControlNo">
                                             <span class="slider"></span>
                                         </label>
                                     </div>

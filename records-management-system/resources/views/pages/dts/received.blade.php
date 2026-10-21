@@ -34,6 +34,74 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
     public string $forwardToOfficeCode = '';
     public string $notes = '';
 
+    // Forward HUB Selection Modal State
+    public bool $showForwardHubModal = false;
+    public string $forwardHubSearch = '';
+    public array $forwardHubOffices = [];
+    public array $forwardHubTempSelected = [];
+
+    public function openForwardHubModal(): void
+    {
+        $this->forwardHubTempSelected = $this->forwardHubOffices;
+        $this->forwardHubSearch = '';
+        $this->showForwardHubModal = true;
+    }
+
+    public function closeForwardHubModal(): void
+    {
+        $this->showForwardHubModal = false;
+        $this->forwardHubSearch = '';
+    }
+
+    public function toggleForwardHubOffice(string $officeCode): void
+    {
+        $userOfficeCode = auth()->user()?->details?->office?->office_code 
+            ?? \App\Services\DocumentStorageService::resolveOfficeCode(auth()->user());
+
+        if ($officeCode === $userOfficeCode || in_array($officeCode, ['ORIGIN', '[H]', '[HUB]'])) {
+            return;
+        }
+
+        if (in_array('ALL', $this->forwardHubTempSelected)) {
+            $allActive = collect($this->availableTargetOffices)
+                ->pluck('office_code')
+                ->filter(fn($c) => $c !== $userOfficeCode && !in_array($c, ['ORIGIN', '[H]', '[HUB]', 'ALL']))
+                ->toArray();
+            $this->forwardHubTempSelected = array_values(array_diff($allActive, [$officeCode]));
+            return;
+        }
+
+        if (in_array($officeCode, $this->forwardHubTempSelected)) {
+            $this->forwardHubTempSelected = array_values(array_diff($this->forwardHubTempSelected, [$officeCode]));
+        } else {
+            $this->forwardHubTempSelected[] = $officeCode;
+        }
+    }
+
+    public function selectAllForwardHubOffices(): void
+    {
+        $this->forwardHubTempSelected = ['ALL'];
+    }
+
+    public function clearForwardHubOffices(): void
+    {
+        $this->forwardHubTempSelected = [];
+    }
+
+    public function applyForwardHubModal(): void
+    {
+        $this->forwardHubOffices = $this->forwardHubTempSelected;
+        $this->showForwardHubModal = false;
+        $this->forwardHubSearch = '';
+    }
+
+    public function removeForwardHubOffice(int $index): void
+    {
+        if (isset($this->forwardHubOffices[$index])) {
+            array_splice($this->forwardHubOffices, $index, 1);
+        }
+    }
+
     public function mount(): void
     {
         $perms = auth()->user()?->permissions;
@@ -157,6 +225,9 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
         $this->forwardTransId = $transactionId;
         $this->forwardTransData = $tData;
         $this->forwardToOfficeCode = '';
+        $this->forwardHubOffices = [];
+        $this->forwardHubTempSelected = [];
+        $this->showForwardHubModal = false;
         $this->actionNeeded = $this->actionOptions[0] ?? 'For Approval';
         $this->showForwardModal = true;
     }
@@ -167,6 +238,9 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
         $this->forwardTransId = '';
         $this->forwardTransData = [];
         $this->forwardToOfficeCode = '';
+        $this->forwardHubOffices = [];
+        $this->forwardHubTempSelected = [];
+        $this->showForwardHubModal = false;
     }
 
     public function confirmForward(): void
@@ -182,12 +256,18 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                 return;
             }
 
+            if ($this->forwardToOfficeCode === '[HUB]' && empty($this->forwardHubOffices)) {
+                $this->errorMessage = 'Please select at least one recipient office for Office Hub broadcast.';
+                return;
+            }
+
             try {
                 $result = \App\Services\DtsRoutingService::forwardToOtherOffice(
                     $this->forwardTransId,
                     $this->forwardToOfficeCode,
                     $this->notes,
-                    auth()->id()
+                    auth()->id(),
+                    $this->forwardHubOffices
                 );
                 $this->successMessage = "Transaction '{$result['control_number']}' has been forwarded to {$result['target_office_name']}!";
                 $this->closeForwardModal();
@@ -711,12 +791,50 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
                         <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #1e40af; margin-bottom: 6px;">
                             <i class="fa-solid fa-building-circle-arrow-right"></i> Destination Office:
                         </label>
-                        <select wire:model="forwardToOfficeCode" style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #93c5fd; font-size: 0.875rem; background: #ffffff;">
+                        <select wire:model.live="forwardToOfficeCode" style="width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #93c5fd; font-size: 0.875rem; background: #ffffff;">
                             <option value="">-- Select Office to Forward To --</option>
                             @foreach($this->availableTargetOffices as $office)
                                 <option value="{{ $office->office_code }}">{{ $office->office_name }} ({{ $office->office_code }})</option>
                             @endforeach
                         </select>
+
+                        @if($forwardToOfficeCode === '[HUB]')
+                            <div style="margin-top: 10px; padding: 10px; background: #ffffff; border: 1px dashed #3b82f6; border-radius: 6px;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                                    <span style="font-size: 12px; font-weight: 700; color: #1e40af;">
+                                        <i class="fa-solid fa-layer-group"></i> Office Hub Broadcast Recipients:
+                                    </span>
+                                    <button type="button" 
+                                            wire:click="openForwardHubModal" 
+                                            style="background: #2563eb; color: #ffffff; border: none; border-radius: 6px; padding: 5px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                        <i class="fa-solid fa-plus-circle"></i> Office Hub [ {{ in_array('ALL', $forwardHubOffices) ? 'ALL' : count($forwardHubOffices) }} selected ]
+                                    </button>
+                                </div>
+
+                                @if(empty($forwardHubOffices))
+                                    <div style="font-size: 12px; color: #dc2626; font-style: italic;">
+                                        ⚠️ Click "Office Hub" above to select destination offices for broadcast forwarding.
+                                    </div>
+                                @else
+                                    <div style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow-y: auto;">
+                                        @if(in_array('ALL', $forwardHubOffices))
+                                            <span style="display: inline-flex; align-items: center; gap: 6px; background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; padding: 3px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 700;">
+                                                <i class="fa-solid fa-globe"></i> ALL ACTIVE OFFICES
+                                                <button type="button" wire:click="clearForwardHubOffices" style="background: none; border: none; color: #dc2626; cursor: pointer; font-size: 12px; line-height: 1; padding: 0;">&times;</button>
+                                            </span>
+                                        @else
+                                            @foreach($forwardHubOffices as $idx => $fCode)
+                                                <span style="display: inline-flex; align-items: center; gap: 5px; background: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; padding: 3px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 600;">
+                                                    <strong>{{ $fCode }}</strong>
+                                                    <button type="button" wire:click="removeForwardHubOffice({{ $idx }})" style="background: none; border: none; color: #dc2626; cursor: pointer; font-size: 12px; line-height: 1; padding: 0;">&times;</button>
+                                                </span>
+                                            @endforeach
+                                        @endif
+                                    </div>
+                                @endif
+                            </div>
+                        @endif
+
                         <div style="font-size: 11px; color: #3b82f6; margin-top: 5px;">
                             This will route the transaction to this office and insert it directly into the active routing sequence flow.
                         </div>
@@ -739,4 +857,18 @@ new #[Layout('layouts.dts')] #[Title('Received Transactions - Document Tracking 
             </div>
         </div>
     @endif
+
+    <!-- Office Hub Collective Modal for Forwarding -->
+    <x-dts.hub-collective-modal 
+        :show="$showForwardHubModal" 
+        :search="$forwardHubSearch" 
+        :selected="$forwardHubTempSelected" 
+        :offices="$this->availableTargetOffices"
+        wireClose="closeForwardHubModal"
+        wireToggle="toggleForwardHubOffice"
+        wireSelectAll="selectAllForwardHubOffices"
+        wireClear="clearForwardHubOffices"
+        wireApply="applyForwardHubModal"
+        wireSearch="forwardHubSearch"
+    />
 </div>

@@ -1006,6 +1006,7 @@ wss.on('connection', (ws) => {
         const payloadStr = JSON.stringify({
           type: 'chat_cleared',
           chat_type: 'private',
+          conv_id: data.conv_id || `${a}_${b}`,
           sender_id: state.accountId,
           recipient_id: recipient_id,
           user_a: a,
@@ -1020,6 +1021,7 @@ wss.on('connection', (ws) => {
         const payloadStr = JSON.stringify({
           type: 'chat_cleared',
           chat_type: 'admin_conv',
+          conv_id: data.conv_id || `${a}_${b}`,
           user_a: a,
           user_b: b
         });

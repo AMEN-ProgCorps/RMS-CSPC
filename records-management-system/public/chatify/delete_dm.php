@@ -126,6 +126,7 @@ if ($deleted) {
     $clearRecipients = array_values(array_unique(array_merge([$userA, $userB], Auth::getAllSuperAdminIds())));
     WsPush::push($clearRecipients, 'chat_cleared', [
         'chat_type'    => 'private',
+        'conv_id'      => $convId,
         'sender_id'    => $myAccountId,
         'recipient_id' => ($myAccountId === $userA ? $userB : $userA),
         'user_a'       => $userA,

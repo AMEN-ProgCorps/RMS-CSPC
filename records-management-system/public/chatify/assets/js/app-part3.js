@@ -3052,22 +3052,23 @@
             chatFullyLoaded = false;
             isLoadingGC = false;
             loadGlobalChat(false, false, true);
+          } else if (clearedAdminConv) {
+            if (clearedAdminConv === 'global' || clearedAdminConv.startsWith('office_')) {
+              chatBox.innerHTML = '<div class="empty-chat"></div>';
+              isFirstLoad = true;
+              chatFullyLoaded = false;
+              isLoadingAdminConv = false;
+              loadAdminConv(clearedAdminConv, false);
+            } else {
+              chatBox.innerHTML = '<div class="empty-chat"></div>';
+              loadAdminConv(clearedAdminConv, false);
+              fetchUsers();
+            }
           } else if (typeof resetToHome === 'function') {
             resetToHome();
           } else {
             if (clearedDM) {
               loadChat();
-            } else if (clearedAdminConv) {
-              if (clearedAdminConv === 'global' || clearedAdminConv.startsWith('office_')) {
-                chatBox.innerHTML = '<div class="empty-chat"></div>';
-                isFirstLoad = true;
-                chatFullyLoaded = false;
-                isLoadingAdminConv = false;
-                loadAdminConv(clearedAdminConv, false);
-              } else {
-                loadAdminConv(clearedAdminConv, false);
-                fetchUsers();
-              }
             }
           }
 
@@ -3092,6 +3093,7 @@
                 type: 'chat_cleared',
                 chat_type: 'private',
                 recipient_id: clearedDMAccId,
+                conv_id: `${Math.min(myId, clearedDMAccId)}_${Math.max(myId, clearedDMAccId)}`,
                 user_a: Math.min(myId, clearedDMAccId),
                 user_b: Math.max(myId, clearedDMAccId)
               }));
@@ -3110,6 +3112,7 @@
                 ws.send(JSON.stringify({
                   type: 'chat_cleared',
                   chat_type: 'admin_conv',
+                  conv_id: clearedAdminConv,
                   user_a: clearedParts[0],
                   user_b: clearedParts[1]
                 }));

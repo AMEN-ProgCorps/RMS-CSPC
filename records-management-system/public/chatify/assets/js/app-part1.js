@@ -780,11 +780,12 @@
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
 
+          const isGlobalClear = (data.chat_type === 'global') || (data.conv_id === 'global');
           const isOfficeClear = (data.chat_type === 'office_gc') || (data.conv_id && String(data.conv_id).startsWith('office_'));
-          const clearedConvId = data.conv_id || (isOfficeClear ? (data.office_id ? 'office_' + data.office_id : null) : 'global');
+          const clearedConvId = data.conv_id || (isOfficeClear ? (data.office_id ? 'office_' + data.office_id : null) : (isGlobalClear ? 'global' : null));
 
           // ── Case 1: Global Chat clear (super admin "/clear" in Global Chat) ──
-          if (clearedConvId === 'global' || data.chat_type === 'global') {
+          if (isGlobalClear) {
             globalChatCache = null;
             if (typeof globalChatPrefetchedData !== 'undefined') globalChatPrefetchedData = null;
             gcCursor = '';
@@ -833,8 +834,15 @@
             return;
           }
 
-          const _ca = Number(data.user_a);
-          const _cb = Number(data.user_b);
+          let _ca = Number(data.user_a || 0);
+          let _cb = Number(data.user_b || 0);
+          if ((!_ca || !_cb) && data.conv_id && typeof data.conv_id === 'string' && data.conv_id.includes('_')) {
+            const parts = data.conv_id.split('_').map(Number);
+            if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+              _ca = parts[0];
+              _cb = parts[1];
+            }
+          }
           const _senderId    = Number(data.sender_id    || 0);
           const _recipientId = Number(data.recipient_id || 0);
           const myId = wsConfig.accountId;
@@ -849,6 +857,15 @@
             _partnerId = (_senderId === myId) ? _recipientId
                        : (_recipientId === myId) ? _senderId
                        : (_senderId > 0 ? _senderId : _recipientId);
+          }
+
+          // Pre-capture partner username before splicing allUsersData
+          let partnerUsername = null;
+          if (_partnerId !== null && _partnerId > 0) {
+            const partnerUser = allUsersData.find(u => Number(u.account_id) === Number(_partnerId));
+            if (partnerUser) {
+              partnerUsername = partnerUser.username;
+            }
           }
 
           // ── 1. Immediately strip the cleared entry from the sidebar ──────────
@@ -866,18 +883,18 @@
           //       fetchUsers() to repaint. Abort any in-flight load_dm.php XHR
           //       so stale messages can't come back over the top. ───────────────
           const _currentDMIsCleared =
-            activeDM && (
+            (activeDM || activeDMAccountId) && (
+              // Match by conv_id
+              (data.conv_id && activeDMAccountId && myId &&
+                data.conv_id === `${Math.min(myId, activeDMAccountId)}_${Math.max(myId, activeDMAccountId)}`) ||
               // Match by account-ID pair (most reliable)
               (_ca > 0 && _cb > 0 && activeDMAccountId &&
                 ((_ca === myId && _cb === activeDMAccountId) ||
                  (_cb === myId && _ca === activeDMAccountId))) ||
               // Fallback 1: sender/recipient ID matches
               (_partnerId !== null && activeDMAccountId === _partnerId) ||
-              // Fallback 2: username match via allUsersData lookup
-              (_partnerId !== null && (() => {
-                const partnerUser = allUsersData.find(u => Number(u.account_id) === Number(_partnerId));
-                return partnerUser && partnerUser.username === activeDM;
-              })())
+              // Fallback 2: username match via pre-captured username or activeDM
+              (partnerUsername !== null && partnerUsername === activeDM)
             );
 
           const _currentAdminConvIsCleared =
@@ -887,15 +904,24 @@
                      (parts[0] === _cb && parts[1] === _ca);
             })();
 
-          if (_currentDMIsCleared || _currentAdminConvIsCleared) {
+          if (_currentAdminConvIsCleared) {
+            if (typeof adminConvXhr !== 'undefined' && adminConvXhr) {
+              adminConvXhr.abort();
+              adminConvXhr = null;
+            }
+            if (chatBox) {
+              chatBox.innerHTML = '<div class="empty-chat"></div>';
+            }
+            if (typeof loadAdminConv === 'function') {
+              loadAdminConv(activeAdminConv, false);
+            }
+          }
+
+          if (_currentDMIsCleared) {
             // Abort any in-flight chat XHR immediately so it can't overwrite
             if (typeof chatXhr !== 'undefined' && chatXhr) {
               chatXhr.abort();
               chatXhr = null;
-            }
-            if (typeof adminConvXhr !== 'undefined' && adminConvXhr) {
-              adminConvXhr.abort();
-              adminConvXhr = null;
             }
             // Wipe the pane now — resetToHome() will confirm it, but this
             // makes the clear visually instant without waiting for XHR round-trips.

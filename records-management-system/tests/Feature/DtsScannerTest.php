@@ -20,6 +20,7 @@ class DtsScannerTest extends TestCase
     private string $accDetailsTable;
     private string $condDetailsTable;
     private string $logsTable;
+    private User $testUser;
 
     protected function setUp(): void
     {
@@ -29,6 +30,7 @@ class DtsScannerTest extends TestCase
         $this->accDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
         $this->condDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_condition_details') ? 'sys_condition_details' : 'condition_details';
         $this->logsTable = \Illuminate\Support\Facades\Schema::hasTable('dts_transaction_logs') ? 'dts_transaction_logs' : 'sub_document_tracking_system_logs';
+        $accTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
 
         // 1. Create a test office
         $this->officeId = DB::table($this->officeTable)->insertGetId([
@@ -36,10 +38,27 @@ class DtsScannerTest extends TestCase
             'office_code' => $this->myOfficeCode,
         ]);
 
-        // 2. Setup user 1 account_details and office mapping
+        // 2. Resolve or create test user
+        $user = User::first();
+        if (!$user) {
+            $uId = DB::table($accTable)->insertGetId([
+                'username' => 'test_scanner_admin',
+                'password' => bcrypt('secret123'),
+                'account_role' => 999,
+                'account_status' => 1,
+                'account_active' => true,
+                'date_created' => now(),
+                'date_updated' => now(),
+            ]);
+            $user = User::find($uId);
+        }
+
+        $this->testUser = $user;
+
+        // 3. Setup account_details and office mapping
         DB::table($this->accDetailsTable)
             ->updateOrInsert(
-                ['account_id' => 1],
+                ['account_id' => $user->id],
                 [
                     'first_name' => 'Admin',
                     'last_name' => 'User',
@@ -48,9 +67,8 @@ class DtsScannerTest extends TestCase
                 ]
             );
 
-        // 3. Ensure user 1 has DTS receive permissions
-        $user = User::find(1);
-        if ($user && $user->account_role) {
+        // 4. Ensure test user has DTS receive permissions
+        if ($user->account_role) {
             DB::table($this->condDetailsTable)
                 ->where('key_id', $user->account_role)
                 ->update([
@@ -61,9 +79,7 @@ class DtsScannerTest extends TestCase
         }
 
         // Authenticate
-        if ($user) {
-            Auth::login($user);
-        }
+        Auth::login($this->testUser);
     }
 
     private function createRequestor(string $name = 'Tester User', ?string $office = null): int
@@ -93,7 +109,7 @@ class DtsScannerTest extends TestCase
      */
     public function test_scanner_loads_transaction_at_user_office()
     {
-        $user = User::find(1);
+        $user = $this->testUser;
         Auth::login($user);
 
         // Setup test predefined flow
@@ -102,7 +118,7 @@ class DtsScannerTest extends TestCase
             'id' => $flowId,
             'flow_name' => 'Scan Test Flow',
             'flow_code' => 'FLOW-SCAN-TEST',
-            'added_by' => 1,
+            'added_by' => $user->id,
             'date_added' => now(),
             'flow_use' => 'internal',
             'is_active' => true,
@@ -155,7 +171,7 @@ class DtsScannerTest extends TestCase
         DB::table('dts_transaction_details')->insert([
             'id' => 'TRANS-SCAN-1',
             'type' => 'internal',
-            'created_by' => 1,
+            'created_by' => $user->id,
             'originated_from' => $this->myOfficeCode,
             'current_office_hold' => $this->myOfficeCode,
             'status' => 'ongoing',
@@ -188,7 +204,7 @@ class DtsScannerTest extends TestCase
      */
     public function test_scanner_warns_on_transaction_at_other_office()
     {
-        $user = User::find(1);
+        $user = $this->testUser;
         Auth::login($user);
 
         // Setup other office first
@@ -203,7 +219,7 @@ class DtsScannerTest extends TestCase
             'id' => $flowId,
             'flow_name' => 'Scan Test Flow 2',
             'flow_code' => 'FLOW-SCAN-TEST-2',
-            'added_by' => 1,
+            'added_by' => $user->id,
             'date_added' => now(),
             'flow_use' => 'internal',
             'is_active' => true,
@@ -245,7 +261,7 @@ class DtsScannerTest extends TestCase
         DB::table('dts_transaction_details')->insert([
             'id' => 'TRANS-SCAN-2',
             'type' => 'internal',
-            'created_by' => 1,
+            'created_by' => $user->id,
             'originated_from' => 'OTHER-OFF',
             'current_office_hold' => 'OTHER-OFF',
             'status' => 'ongoing',
@@ -267,7 +283,7 @@ class DtsScannerTest extends TestCase
      */
     public function test_proceed_transaction_moves_forward_and_flags_scanned_id()
     {
-        $user = User::find(1);
+        $user = $this->testUser;
         Auth::login($user);
 
         // Setup test predefined flow
@@ -276,7 +292,7 @@ class DtsScannerTest extends TestCase
             'id' => $flowId,
             'flow_name' => 'Scan Test Flow 3',
             'flow_code' => 'FLOW-SCAN-TEST-3',
-            'added_by' => 1,
+            'added_by' => $user->id,
             'date_added' => now(),
             'flow_use' => 'internal',
             'is_active' => true,
@@ -329,7 +345,7 @@ class DtsScannerTest extends TestCase
         DB::table('dts_transaction_details')->insert([
             'id' => 'TRANS-SCAN-3',
             'type' => 'internal',
-            'created_by' => 1,
+            'created_by' => $user->id,
             'originated_from' => $this->myOfficeCode,
             'current_office_hold' => $this->myOfficeCode,
             'status' => 'ongoing',
@@ -381,7 +397,7 @@ class DtsScannerTest extends TestCase
      */
     public function test_scanner_rejects_completed_transaction()
     {
-        $user = User::find(1);
+        $user = $this->testUser;
         Auth::login($user);
 
         $flowId = 994;
@@ -390,7 +406,7 @@ class DtsScannerTest extends TestCase
             [
                 'id' => $flowId,
                 'flow_name' => 'Scan Test Flow',
-                'added_by' => 1,
+                'added_by' => $user->id,
                 'date_added' => now(),
                 'flow_use' => 'internal',
                 'is_active' => true,
@@ -417,7 +433,7 @@ class DtsScannerTest extends TestCase
         DB::table('dts_transaction_details')->insert([
             'id' => 'TRANS-SCAN-COMP',
             'type' => 'internal',
-            'created_by' => 1,
+            'created_by' => $user->id,
             'originated_from' => $this->myOfficeCode,
             'current_office_hold' => $this->myOfficeCode,
             'status' => 'completed',
@@ -440,7 +456,7 @@ class DtsScannerTest extends TestCase
      */
     public function test_scanner_rejects_unregistered_qr_code()
     {
-        $user = User::find(1);
+        $user = $this->testUser;
         Auth::login($user);
 
         Volt::test('pages.dts.scanner')
@@ -455,7 +471,7 @@ class DtsScannerTest extends TestCase
      */
     public function test_scanner_blocks_duplicate_receive()
     {
-        $user = User::find(1);
+        $user = $this->testUser;
         Auth::login($user);
 
         $flowId = 995;
@@ -463,7 +479,7 @@ class DtsScannerTest extends TestCase
             'id' => $flowId,
             'flow_name' => 'Scan Test Flow 5',
             'flow_code' => 'FLOW-SCAN-TEST-5',
-            'added_by' => 1,
+            'added_by' => $user->id,
             'date_added' => now(),
             'flow_use' => 'internal',
             'is_active' => true,
@@ -513,7 +529,7 @@ class DtsScannerTest extends TestCase
         DB::table('dts_transaction_details')->insert([
             'id' => 'TRANS-SCAN-5',
             'type' => 'internal',
-            'created_by' => 1,
+            'created_by' => $user->id,
             'originated_from' => $this->myOfficeCode,
             'current_office_hold' => $this->myOfficeCode,
             'status' => 'ongoing',
@@ -577,7 +593,7 @@ class DtsScannerTest extends TestCase
      */
     public function test_portal_page_shows_scanner_shortcut_based_on_permissions()
     {
-        $user = User::find(1);
+        $user = $this->testUser;
         Auth::login($user);
 
         // Ensure subsystems are active

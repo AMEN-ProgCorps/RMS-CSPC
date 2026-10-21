@@ -163,8 +163,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $user = Auth::user();
         $perms = $user?->permissions;
         // Access clearance check
-        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_access_form_2 ?? true))) {
-            redirect()->route('rdp')->send();
+        if (!$perms || (!(bool)($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true))) {
+            $this->redirectRoute('rdp');
             return;
         }
         $details = $user?->details;
@@ -185,6 +185,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
     public function openPrintModal(array $specificIds = []): void
     {
+        $perms = Auth::user()?->permissions;
+        if (!($perms->is_sadm ?? false) && !(bool)($perms->can_rdp_generate_reports ?? true)) {
+            $this->errorMessage = 'You do not have clearance to print NAP Form 2.';
+            return;
+        }
         if (!empty($specificIds)) {
             $this->selectedIds = array_map('strval', $specificIds);
         }
@@ -201,7 +206,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         if ($value) {
             $user = Auth::user();
             $perms = $user?->permissions;
-            $isSadm = (bool)($perms->is_sadm ?? false);
+            $canViewAll = (bool)($perms->is_sadm ?? false) || (bool)($perms->is_admin ?? false) || (bool)($perms->can_access_rdp_admin ?? false) || (bool)($perms->rdp_view_all_files ?? false);
             $userOffice = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
 
             $query = DB::table('rdp_record_series')
@@ -211,7 +216,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                       ->orWhereNull('rdp_record_series.is_verified');
                 });
 
-            if (!$isSadm) {
+            if (!$canViewAll) {
                 $query->where('rdp_record_series.recorded_at_office', $userOffice ?: '___NONE___');
             } elseif (!empty($this->officeFilter)) {
                 $query->where('rdp_record_series.recorded_at_office', $this->officeFilter);
@@ -313,8 +318,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 $officeTbl = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
                 $userOffice = DB::table($officeTbl)->where('id', $user->details->office_id)->value('office_code');
             }
-            $isOtherOffice = !empty($userOffice) && !empty($record->recorded_at_office) && ($record->recorded_at_office !== $userOffice);
-            $this->canEditDescription = $isSadm || (!$isOtherOffice ? (bool)($perms->can_rdp_modify_form_2 ?? true) : ((bool)($perms->can_rdp_modify_form_2 ?? true) && (bool)($perms->can_rdp_edit_others_form_2 ?? false)));
+            $this->canEditDescription = $isSadm || (bool)($perms->can_rdp_modify_series ?? true);
             $this->canCancelRecord = $this->canEditDescription;
 
             $this->editingSeriesId = $record->id;
@@ -603,7 +607,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     {
         $user = Auth::user();
         $perms = $user?->permissions;
-        $isSadm = (bool)($perms->is_sadm ?? false);
+        $canViewAll = (bool)($perms->is_sadm ?? false) || (bool)($perms->is_admin ?? false) || (bool)($perms->can_access_rdp_admin ?? false) || (bool)($perms->rdp_view_all_files ?? false);
+        $isSadm = $canViewAll;
         $userOffice = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
 
         $query = DB::table('rdp_record_series')
@@ -627,8 +632,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
               ->orWhereNull('rdp_record_series.is_verified');
         });
 
-        // Strict office scoping: non-sadm is locked to their office; sadm respects officeFilter
-        if (!$isSadm) {
+        // Strict office scoping: non-authorized users locked to their office; authorized users respect officeFilter
+        if (!$canViewAll) {
             $query->where('rdp_record_series.recorded_at_office', $userOffice ?: '___NONE___');
         } elseif (!empty($this->officeFilter)) {
             $query->where('rdp_record_series.recorded_at_office', $this->officeFilter);
@@ -707,17 +712,22 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $permanentCount = count(array_filter($treeOrdered, fn($i) => $i->effective_is_permanent || strtolower(trim($i->effective_total ?? '')) === 'permanent'));
         $temporaryCount = $totalCount - $permanentCount;
 
+        $allSelectableRecordIds = array_values(array_filter(array_map(function($item) {
+            return empty($item->is_parent_context) ? (string)$item->id : null;
+        }, $treeOrdered)));
+
         $officesList = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office')->where('is_active', true)->orderBy('office_name')->get();
 
         return [
-            'recordSeriesList' => array_values($treeOrdered),
-            'printItems'       => $printItems,
-            'officesList'      => $officesList,
-            'totalCount'       => $totalCount,
-            'permanentCount'   => $permanentCount,
-            'temporaryCount'   => $temporaryCount,
-            'isSadm'           => $isSadm,
-            'userOffice'       => $userOffice,
+            'recordSeriesList'       => array_values($treeOrdered),
+            'allSelectableRecordIds' => $allSelectableRecordIds,
+            'printItems'             => $printItems,
+            'officesList'            => $officesList,
+            'totalCount'             => $totalCount,
+            'permanentCount'         => $permanentCount,
+            'temporaryCount'         => $temporaryCount,
+            'isSadm'                 => $isSadm,
+            'userOffice'             => $userOffice,
         ];
     }
 };
@@ -727,12 +737,87 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
     @vite(['resources/css/admin/console.css'])
 @endpush
 
-<div class="nap-page-container" style="padding: 24px; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
+<div class="nap-page-container" 
+     style="padding: 24px; min-height: 100vh; font-family: 'Inter', system-ui, -apple-system, sans-serif;"
+     x-data="{
+        printModalOpen: @json($showPrintModal),
+        selectedIds: @entangle('selectedIds'),
+        allSelectableIds: @js($allSelectableRecordIds ?? []),
+        collapsedRoots: {},
+        allRootsCollapsed: false,
+
+        isSelected(id) {
+            return this.selectedIds.includes(String(id));
+        },
+        toggleId(id) {
+            const strId = String(id);
+            if (this.selectedIds.includes(strId)) {
+                this.selectedIds = this.selectedIds.filter(item => item !== strId);
+            } else {
+                this.selectedIds = [...this.selectedIds, strId];
+            }
+            if (this.$wire) {
+                this.$wire.set('selectedIds', this.selectedIds, false);
+            }
+        },
+        isAllSelected() {
+            if (!this.allSelectableIds || !this.allSelectableIds.length) return false;
+            return this.allSelectableIds.every(id => this.selectedIds.includes(id));
+        },
+        toggleSelectAll() {
+            if (this.isAllSelected()) {
+                this.selectedIds = [];
+            } else {
+                this.selectedIds = [...this.allSelectableIds];
+            }
+            if (this.$wire) {
+                this.$wire.set('selectedIds', this.selectedIds, false);
+            }
+        },
+        clearSelection() {
+            this.selectedIds = [];
+            if (this.$wire) {
+                this.$wire.set('selectedIds', [], false);
+            }
+        },
+        openPrintModal() {
+            this.printModalOpen = true;
+            if (this.$wire) {
+                this.$wire.set('selectedIds', this.selectedIds, false);
+                this.$wire.call('openPrintModal');
+            }
+        },
+        closePrintModal() {
+            this.printModalOpen = false;
+            if (this.$wire) {
+                this.$wire.call('closePrintModal');
+            }
+        },
+        toggleRoot(key) {
+            this.collapsedRoots[key] = !this.isRootCollapsed(key);
+        },
+        isRootCollapsed(key) {
+            if (this.collapsedRoots[key] !== undefined) {
+                return this.collapsedRoots[key];
+            }
+            return this.allRootsCollapsed;
+        },
+        collapseAll() {
+            this.allRootsCollapsed = true;
+            this.collapsedRoots = {};
+        },
+        expandAll() {
+            this.allRootsCollapsed = false;
+            this.collapsedRoots = {};
+        }
+     }">
     <style>
         .nap-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); margin-bottom: 24px; }
         .nap-table { width: 100%; border-collapse: collapse; font-size: 13.5px; text-align: left; }
         .nap-table th { background: #f1f5f9; padding: 10px 12px; font-weight: 700; color: #334155; border-bottom: 2px solid #cbd5e1; }
         .nap-table td { padding: 11px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; color: #0f172a; }
+        .nap-table tr.is-selected td { background: #eff6ff !important; }
+        [x-cloak] { display: none !important; }
         .nap-btn { padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; border: none; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
         .nap-btn-primary { background: #2563eb; color: #ffffff; }
         .nap-btn-primary:hover { background: #1d4ed8; }
@@ -874,8 +959,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             font-family: Arial, Helvetica, sans-serif; 
             font-size: 10px;
             position: relative; 
-            display: flex;
-            flex-direction: column;
+            overflow: hidden;
         }
 
         @media print {
@@ -883,7 +967,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             header, #navigation, .navigation, nav, .top-nav-tabs-wrapper, .dcs-top-tabs-host, .chatify-floating-widget, .no-print, .nap-page-header, footer { display: none !important; }
             .modal-overlay { position: static !important; background: none !important; padding: 0 !important; display: block !important; }
             .modal-content { background: none !important; max-width: 100% !important; max-height: none !important; padding: 0 !important; box-shadow: none !important; overflow: visible !important; }
-            .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; margin-bottom: 0 !important; page-break-after: always; break-after: page; }
+            .print-sheet { box-shadow: none !important; padding: 0 !important; width: 100% !important; margin-bottom: 0 !important; page-break-after: always; break-after: page; overflow: visible !important; }
             .print-sheet:last-child { page-break-after: auto; break-after: auto; }
             @page { size: portrait; margin: 0.4in; }
         }
@@ -896,38 +980,21 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             <p class="nap-page-subtitle">Schedule of custom and unverified record series added by your office.</p>
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
-            <button type="button" wire:click="openPrintModal" class="nap-btn nap-btn-secondary" style="background: #ffffff; border: 1px solid #cbd5e1; color: #0f172a; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                Print Preview @if(count($selectedIds) > 0) ({{ count($selectedIds) }}) @endif
+            <button type="button" @click="openPrintModal()" class="nap-btn nap-btn-secondary" style="background: #ffffff; border: 1px solid #cbd5e1; color: #0f172a; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                <span>Print Preview</span>
+                <span x-show="selectedIds.length > 0" x-text="'(' + selectedIds.length + ')'"></span>
             </button>
-            <button type="button" wire:click="openClusterModal" class="nap-btn nap-btn-primary" {{ empty($selectedIds) ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : '' }}>
-                Create RDS Form ({{ count($selectedIds) }})
+            <button type="button" wire:click="openClusterModal" class="nap-btn nap-btn-primary" 
+                    :disabled="selectedIds.length === 0" 
+                    :style="selectedIds.length === 0 ? 'opacity: 0.5; cursor: not-allowed;' : ''">
+                Create RDS Form (<span x-text="selectedIds.length"></span>)
             </button>
         </div>
     </div>
 
     <!-- Filters & Table Card -->
-    <div class="nap-card" x-data="{
-        collapsedRoots: {},
-        allRootsCollapsed: false,
-        
-        toggleRoot(key) {
-            this.collapsedRoots[key] = !this.isRootCollapsed(key);
-        },
-        isRootCollapsed(key) {
-            if (this.collapsedRoots[key] !== undefined) {
-                return this.collapsedRoots[key];
-            }
-            return this.allRootsCollapsed;
-        },
-        collapseAll() {
-            this.allRootsCollapsed = true;
-            this.collapsedRoots = {};
-        },
-        expandAll() {
-            this.allRootsCollapsed = false;
-            this.collapsedRoots = {};
-        }
-    }">
+    <div class="nap-card">
         <div style="display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 20px;">
             <div style="display: flex; gap: 12px; flex-wrap: wrap; flex: 1; align-items: center;">
                 <input type="text" wire:model.live.debounce.300ms="search" placeholder="Search series title, remarks..." class="nap-input nap-search-input">
@@ -940,7 +1007,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
 
                 @if($isSadm)
                     <select wire:model.live="officeFilter" class="nap-input nap-select-input">
-                        <option value="">All Offices (Super Admin)</option>
+                        <option value="">All Offices</option>
                         @foreach($officesList as $off)
                             <option value="{{ $off->office_code }}">{{ $off->office_name }} ({{ $off->office_code }})</option>
                         @endforeach
@@ -954,11 +1021,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                     </div>
                 @endif
 
-                @if($search || $retentionFilter || ($isSadm && !empty($officeFilter) && $officeFilter !== $userOffice) || count($selectedIds) > 0)
-                    <button type="button" wire:click="clearFilters" class="nap-btn nap-btn-secondary">
-                        Reset Filters
-                    </button>
-                @endif
+                <button type="button" 
+                        wire:click="clearFilters" 
+                        @click="clearSelection()" 
+                        x-show="@js(!empty($search) || !empty($retentionFilter) || ($isSadm && !empty($officeFilter) && $officeFilter !== $userOffice)) || selectedIds.length > 0"
+                        class="nap-btn nap-btn-secondary">
+                    Reset Filters
+                </button>
 
                 <div style="display: inline-flex; gap: 8px; align-items: center; margin-left: 4px;">
                     <button type="button" @click="expandAll()" class="nap-btn nap-btn-secondary" style="padding: 7px 12px; font-size: 12px;" title="Expand all parent series">
@@ -976,11 +1045,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 </div>
             </div>
 
-            @if(count($selectedIds) > 0)
-                <div style="font-size: 13px; font-weight: 700; color: #2563eb;">
-                    {{ count($selectedIds) }} record series selected
+            <div x-show="selectedIds.length > 0" style="display: flex; align-items: center; gap: 8px;">
+                <div style="font-size: 12px; font-weight: 700; color: #2563eb; background: #eff6ff; border: 1px solid #bfdbfe; padding: 6px 12px; border-radius: 6px; display: inline-flex; align-items: center; gap: 6px;">
+                    <span x-text="selectedIds.length + ' record series selected'"></span>
+                    <button type="button" @click="clearSelection()" style="background: none; border: none; color: #64748b; font-size: 14px; cursor: pointer; padding: 0 2px;" title="Clear selection">&times;</button>
                 </div>
-            @endif
+            </div>
         </div>
 
         <div style="overflow-x: auto;">
@@ -989,7 +1059,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                     <tr>
                         <th rowspan="2" style="width: 56px; text-align: center; vertical-align: middle; padding: 8px 4px;">
                             <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                                <input type="checkbox" wire:model.live="selectAll" style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select / Deselect All">
+                                <input type="checkbox" 
+                                       :checked="isAllSelected()" 
+                                       @change="toggleSelectAll()" 
+                                       style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" 
+                                       title="Select / Deselect All">
                                 <span style="width: 20px; height: 20px; display: inline-block;"></span>
                             </div>
                         </th>
@@ -1025,12 +1099,17 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                             </tr>
                             @php $prevOfficeName = $currentOfficeName; @endphp
                         @endif
-                        <tr style="{{ $isParentCtx ? 'background: #f8fafc;' : (in_array($itemIdStr, $selectedIds) ? 'background: #eff6ff;' : '') }}"
+                        <tr :class="{ 'is-selected': isSelected('{{ $itemIdStr }}') }"
+                            style="{{ $isParentCtx ? 'background: #f8fafc;' : '' }}"
                             @if(!$isRoot) x-show="!isRootCollapsed('root-{{ $item->root_id }}')" @endif>
                             <td style="text-align: center; padding: 6px 4px; white-space: nowrap;">
                                 <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
                                     @if(!$isParentCtx)
-                                        <input type="checkbox" wire:model.live="selectedIds" value="{{ $item->id }}" style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" title="Select record series">
+                                        <input type="checkbox" 
+                                               :checked="isSelected('{{ $itemIdStr }}')" 
+                                               @click.stop="toggleId('{{ $itemIdStr }}')" 
+                                               style="width: 15px; height: 15px; cursor: pointer; accent-color: #2563eb;" 
+                                               title="Select record series">
                                     @else
                                         <span style="font-size: 11px; color: #94a3b8; width: 15px; display: inline-block; text-align: center;">—</span>
                                     @endif
@@ -1344,7 +1423,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             }
             $totalPages = count($dataPages) + 1; // Last page is dedicated Signatures & NAP Approval Sheet
         @endphp
-        <div class="modal-overlay" wire:click.self="closePrintModal">
+        <div class="modal-overlay" 
+             x-show="printModalOpen"
+             x-cloak
+             @click.self="closePrintModal()"
+             @keydown.escape.window="closePrintModal()">
             <div class="modal-content">
                 <!-- Modal Toolbar (Preview Only — No Printing Here) -->
                 <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -1355,14 +1438,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                         </div>
                         <div style="color: #cbd5e1; font-size: 12px; margin-top: 2px;">
                             @if($hasSelection)
-                                Showing schedule document preview ({{ count($selectedIds) }} records selected). Official printing is available once created in Pending / List.
+                                Showing schedule document preview (<span x-text="selectedIds.length"></span> records selected). Official printing is available once created in Pending / List.
                             @else
                                 Official NAP Form 2 Blank Template Preview. Official printing is available once created in Pending / List.
                             @endif
                         </div>
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <button type="button" wire:click="closePrintModal" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+                        <button type="button" @click="closePrintModal()" class="nap-btn nap-btn-secondary" style="background: #ffffff; color: #0f172a; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
                             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                             <span>Close Preview</span>
                         </button>
@@ -1374,7 +1457,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 @foreach($dataPages as $pageIndex => $pageItems)
                     @php
                         $pageNumber = $pageIndex + 1;
-                        $fillerHeight = empty($pageItems) ? 880 : max(40, 880 - (count($pageItems) * 26));
+                        $fillerHeight = empty($pageItems) ? 660 : max(40, 660 - (count($pageItems) * 26));
                     @endphp
                     <div class="print-sheet">
                         <!-- Top Form Identifier -->
@@ -1414,7 +1497,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                         </table>
 
                         <!-- Data Table (Boxes 5 - 8) -->
-                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-top: none; font-family: Arial, sans-serif; font-size: 9px; table-layout: fixed; flex-grow: 1;">
+                        <table style="width: 100%; border-collapse: collapse; border: 2px solid #000; border-top: none; font-family: Arial, sans-serif; font-size: 9px; table-layout: fixed;">
                             <thead>
                                 <tr style="background: #ffffff;">
                                     <th rowspan="2" style="width: 11%; border: 1px solid #000; border-top: 2px solid #000; padding: 6px 4px; text-align: center; font-weight: bold; vertical-align: middle;">
@@ -1486,7 +1569,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                         </table>
 
                         <!-- Bottom Statutory Notice -->
-                        <div style="border-top: 2px solid #000; padding-top: 6px; margin-top: 0; font-family: Arial, sans-serif; font-size: 8px; line-height: 1.35; text-align: justify;">
+                        <div style="padding-top: 6px; margin-top: 0; font-family: Arial, sans-serif; font-size: 8px; line-height: 1.35; text-align: justify;">
                             <strong>IMPORTANT:</strong> Pursuant to Section 18, Article III, RA 9470 s. 2007, "No government department, bureau, agency and instrumentality shall dispose of, destroy or authorize the disposal or destruction of any public records, which are in the custody or under its control except with the prior written authority of the executive director."
                         </div>
 
@@ -1575,11 +1658,11 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                     </table>
 
                     <!-- NAP Accomplishment Section -->
-                    <div style="border: 2px solid #000; margin-top: 14px; font-family: Arial, sans-serif; font-size: 9.5px; flex-grow: 1; display: flex; flex-direction: column;">
+                    <div style="border: 2px solid #000; margin-top: 14px; font-family: Arial, sans-serif; font-size: 9.5px; min-height: 480px; display: flex; flex-direction: column;">
                         <div style="border-bottom: 2px solid #000; padding: 6px; text-align: center; font-weight: bold; font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase;">
                             TO BE ACCOMPLISHED BY THE NATIONAL ARCHIVES OF THE PHILIPPINES
                         </div>
-                        <div style="padding: 16px 20px; flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between;">
+                        <div style="padding: 16px 20px; flex: 1; display: flex; flex-direction: column; justify-content: space-between;">
                             <div>
                                 <div style="margin-bottom: 14px; font-size: 9.5px;">This Records Disposition Schedule</div>
                                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding-left: 20px;">

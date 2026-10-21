@@ -10,6 +10,8 @@
 
 require_once __DIR__ . '/bootstrap.php';
 
+ob_start();
+
 session_start();
 Auth::require();
 session_write_close(); // Release session lock — uploads can take a while
@@ -123,7 +125,13 @@ for ($i = 0; $i < $total; $i++) {
 }
 
 $response['success'] = count($response['uploaded']) > 0;
+if (ob_get_length()) {
+    ob_clean();
+}
 echo json_encode($response);
+if (function_exists('fastcgi_finish_request')) {
+    fastcgi_finish_request();
+}
 
 // ── Audit log (fire-and-forget) ───────────────────────────────────────────────
 if ($response['success']) {

@@ -2,20 +2,43 @@
 // load_dm_admin.php — Admin-only: view conversation between any two users
 require_once __DIR__ . '/bootstrap.php';
 
-session_start();
-Auth::require();
+$internalSecret = $_SERVER['HTTP_X_INTERNAL_SECRET'] ?? '';
+$internalAccId  = (int) ($_SERVER['HTTP_X_INTERNAL_ACCOUNT_ID'] ?? 0);
 
-if (!Auth::isAdmin()) {
-    http_response_code(403);
-    die('Forbidden');
+if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret) && $internalAccId > 0) {
+    $myAccountId = $internalAccId;
+    $userOfficeId = (int) ($_SESSION['office_id'] ?? 0);
+    if ($userOfficeId <= 0) {
+        $userInfo = UserResolver::getUserInfo($myAccountId);
+        $userOfficeId = (int) ($userInfo['office_id'] ?? 0);
+    }
+} else {
+    session_start();
+    Auth::require();
+
+    if (!Auth::isAdmin()) {
+        http_response_code(403);
+        die('Forbidden');
+    }
+
+    $myAccountId = Auth::accountId();
+    $userOfficeId = (int) ($_SESSION['office_id'] ?? 0);
+    if ($userOfficeId <= 0 && $myAccountId > 0) {
+        $userInfo = UserResolver::getUserInfo($myAccountId);
+        $userOfficeId = (int) ($userInfo['office_id'] ?? 0);
+    }
+
+    session_write_close();
 }
-
-session_write_close();
 
 $convId = preg_replace('/[^a-z0-9_]/', '', strtolower(trim($_GET['conv_id'] ?? '')));
-if (empty($convId) || !preg_match('/^\d+_\d+$/', $convId)) {
+if (empty($convId) || !preg_match('/^(\d+_\d+|global|office_\d+)$/', $convId)) {
     die('Invalid conv_id');
 }
+
+$isChannel      = ($convId === 'global' || str_starts_with($convId, 'office_'));
+$isOfficeGc     = str_starts_with($convId, 'office_');
+$targetOfficeId = $isOfficeGc ? OfficeChatManager::parseOfficeId($convId) : null;
 
 // ── Pagination & Incremental Fetching ──────────────────────────────────────────
 // INITIAL_LOAD = 100 (first open), BACKREAD_BATCH = 50 (scroll-up fetches).
@@ -26,28 +49,46 @@ $limit          = min(max(1, $requestedLimit), 100);
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 $sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (string) $_GET['since_uuid']  : null;
 
-if ($sinceUuid !== null) {
-    $rawMessages = ConversationManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
-    $hasMore     = false;
+if ($isChannel) {
+    if ($sinceUuid !== null) {
+        $rawMessages = GlobalChatManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
+        $hasMore     = false;
+    } else {
+        $rawMessages = GlobalChatManager::loadRaw($limit + 1, $beforeUuid, $convId);
+        $hasMore     = count($rawMessages) > $limit;
+        if ($hasMore) {
+            array_pop($rawMessages);
+        }
+        $rawMessages = array_reverse($rawMessages);
+    }
+    $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
+    $pageUuids  = array_column($rawMessages, 'id');
+    $reactions  = GlobalChatManager::loadReactions($pageUuids, $convId);
 } else {
-    // Fetch limit+1 rows so we can detect hasMore without a separate COUNT(*).
-    $rawMessages = ConversationManager::loadRaw($convId, $limit + 1, $beforeUuid);
-    $hasMore     = count($rawMessages) > $limit;
-    if ($hasMore) {
-        array_pop($rawMessages); // discard the extra sentinel row
+    if ($sinceUuid !== null) {
+        $rawMessages = ConversationManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
+        $hasMore     = false;
+    } else {
+        // Fetch limit+1 rows so we can detect hasMore without a separate COUNT(*).
+        $rawMessages = ConversationManager::loadRaw($convId, $limit + 1, $beforeUuid);
+        $hasMore     = count($rawMessages) > $limit;
+        if ($hasMore) {
+            array_pop($rawMessages); // discard the extra sentinel row
+        }
+
+        // DB returns newest-first; flip for chronological display.
+        $rawMessages = array_reverse($rawMessages);
     }
 
-    // DB returns newest-first; flip for chronological display.
-    $rawMessages = array_reverse($rawMessages);
+    // Cursor for the next "load older" request.
+    $nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
+
+    $pageUuids = array_column($rawMessages, 'id');
+    $reactions = ConversationManager::loadReactions($convId, $pageUuids);
 }
 
-// Cursor for the next "load older" request.
-$nextCursor = !empty($rawMessages) ? $rawMessages[0]['id'] : null;
-
-$pageUuids = array_column($rawMessages, 'id');
-$reactions = ConversationManager::loadReactions($convId, $pageUuids);
-
 $nameMap = [];
+$senderInfoCache = [];
 
 $imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
 $audioExts = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'opus'];
@@ -99,7 +140,7 @@ function adminGetInitials(string $name): string
  * the small quoted bubble shown above a reply's own message-content, so the
  * admin spy view shows who-replied-to-what just like the regular DM view.
  */
-function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType, ?string $replyToUuid = null): string
+function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyType, ?string $replyToUuid = null, $replySenderStatus = false): string
 {
     global $uploadsDir, $imageExts;
 
@@ -108,6 +149,11 @@ function adminBuildReplyQuoteHtml(?string $encryptedReplyMessage, string $replyT
     }
 
     $replyToAttr = $replyToUuid ? " data-reply-to='" . htmlspecialchars($replyToUuid, ENT_QUOTES) . "'" : '';
+
+    if (!empty($replySenderStatus)) {
+        $noticeText = is_string($replySenderStatus) ? $replySenderStatus : 'This user has been moved to other office';
+        return "<div class='reply-quote'{$replyToAttr}><div class='reply-quote-text' style='font-style:italic;opacity:0.8;'>{$noticeText}</div></div>";
+    }
 
     if ($replyType === 'upload') {
         $rawPayload = safeDecrypt($encryptedReplyMessage);
@@ -172,13 +218,56 @@ for ($i = 0; $i < $msgCount; $i++) {
     $senderLabel = htmlspecialchars(strtolower($senderName), ENT_QUOTES);
     $bodyHtml    = '';
 
+    // Check if sender has been moved to another office or has no office assigned
+    if (!isset($senderInfoCache[$senderId])) {
+        $senderInfoCache[$senderId] = UserResolver::getUserInfo($senderId);
+    }
+    $senderInfo = $senderInfoCache[$senderId];
+    $senderOfficeId = isset($senderInfo['office_id']) ? (int) $senderInfo['office_id'] : 0;
+    if ($senderId === $myAccountId && $userOfficeId > 0 && $userOfficeId === $targetOfficeId) {
+        $senderOfficeId = $userOfficeId;
+    }
+    $isUserMoved = ($isOfficeGc && $targetOfficeId && $senderOfficeId !== $targetOfficeId);
+
+    if ($isUserMoved) {
+        $noticeText = ($senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+        $bodyHtml .= "<div class='message-bubble'>";
+        $bodyHtml .= "<div class='message-content' style='font-style:italic;opacity:0.85;'>{$noticeText}</div>";
+        $bodyHtml .= "<div class='message-info'><span class='message-sender'>{$senderLabel}</span></div>";
+        $bodyHtml .= "</div>";
+
+        $html .= "<div class='message-container received user-moved' data-msg-id='{$msgId}' data-sender-id='{$senderId}'>";
+        $html .= "<div class='message-avatar'>{$avatarInner}</div>";
+        $html .= "<div class='bubble-wrapper'>";
+        $html .= "<div class='message-click-timestamp'>{$fullTimeDisplay}</div>";
+        $html .= $bodyHtml;
+        $html .= "</div>";
+        $html .= "</div>";
+        continue;
+    }
+
     if ($type === 'text') {
         $content = safeDecrypt($msg['message'] ?? '');
         $contentEsc = htmlspecialchars($content, ENT_QUOTES);
 
         $replyQuoteHtml = '';
         if (!empty($msg['reply_to_msg_uuid']) && isset($msg['reply_message'])) {
-            $replyQuoteHtml = adminBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid']);
+            $replySenderStatus = false;
+            if ($isOfficeGc && $targetOfficeId && !empty($msg['reply_sender_id'])) {
+                $rSenderId = (int) $msg['reply_sender_id'];
+                if (!isset($senderInfoCache[$rSenderId])) {
+                    $senderInfoCache[$rSenderId] = UserResolver::getUserInfo($rSenderId);
+                }
+                $rSenderInfo = $senderInfoCache[$rSenderId];
+                $rSenderOfficeId = isset($rSenderInfo['office_id']) ? (int) $rSenderInfo['office_id'] : 0;
+                if ($rSenderId === $myAccountId && $userOfficeId > 0 && $userOfficeId === $targetOfficeId) {
+                    $rSenderOfficeId = $userOfficeId;
+                }
+                if ($rSenderOfficeId !== $targetOfficeId) {
+                    $replySenderStatus = ($rSenderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+                }
+            }
+            $replyQuoteHtml = adminBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid'], $replySenderStatus);
         }
 
         $bodyHtml .= $replyQuoteHtml;
@@ -302,15 +391,32 @@ for ($i = 0; $i < $msgCount; $i++) {
         $html .= "<div class='message-edited-label' style='font-size:10px;color:var(--text-secondary);opacity:0.8;margin-bottom:2px;font-style:italic;'>edited</div>";
     }
     $html .= $bodyHtml;
-    $html .= Reactions::buildBadgesHtml($reactions[$msgId] ?? [], Auth::accountId());
+    $html .= Reactions::buildBadgesHtml($reactions[$msgId] ?? [], $myAccountId);
     $html .= "</div>"; // .bubble-wrapper
     $html .= "</div>"; // .message-container
 }
 
 // ── Empty state ───────────────────────────────────────────────────────────────
 if ($html === '') {
+    $chatTitle     = 'Global Chat';
+    $emptySubtitle = 'No messages yet. Send a message to get the conversation started!';
+    if ($isOfficeGc && $targetOfficeId) {
+        $off = OfficeChatManager::getOfficeDetails($targetOfficeId);
+        $offCode = trim($off['office_code'] ?? '');
+        $chatTitle = $off ? htmlspecialchars($offCode !== '' ? $offCode : $off['office_name'], ENT_QUOTES) : 'Office Group Chat';
+        $emptySubtitle = 'No messages yet. Say hello to your office team!';
+    } elseif (!$isChannel) {
+        $chatTitle     = 'Conversation';
+        $emptySubtitle = 'No messages yet.';
+    }
     $html = "<div class='empty-chat'>
-                <p>No messages yet.</p>
+                <div class='chat-icon'>
+                    <svg viewBox='0 0 24 24'>
+                        <path d='M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z'/>
+                    </svg>
+                </div>
+                <h3>{$chatTitle}</h3>
+                <p>{$emptySubtitle}</p>
             </div>";
 }
 

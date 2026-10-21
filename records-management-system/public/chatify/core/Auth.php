@@ -54,6 +54,19 @@ class Auth
                 } catch (Throwable $e) {
                     return false;
                 }
+            } else {
+                try {
+                    $pdo = Database::getConnection();
+                    $stmt = $pdo->prepare('SELECT office_id FROM ' . Database::t('account_details') . ' WHERE account_id = :id LIMIT 1');
+                    $stmt->execute([':id' => $laravelUserId]);
+                    $dbOfficeId = $stmt->fetchColumn();
+                    $freshOfficeId = ($dbOfficeId !== false && $dbOfficeId !== null && (int)$dbOfficeId > 0) ? (int)$dbOfficeId : null;
+                    if (($_SESSION['office_id'] ?? null) !== $freshOfficeId) {
+                        $_SESSION['office_id'] = $freshOfficeId;
+                    }
+                } catch (Throwable $e) {
+                    // Non-fatal
+                }
             }
         } else {
             // No active Laravel session -> invalidate local session immediately
@@ -88,11 +101,94 @@ class Auth
     }
 
     /**
-     * Return true if the current user is the admin (account_id = 1).
+     * Return true if the current user (or specified account_id) is a Super Admin.
+     * Evaluates whether the account has account_id = 1, is_sadm = true in role permissions,
+     * or has a Super Admin role assigned.
      */
-    public static function isAdmin(): bool
+    public static function isAdmin(?int $accountId = null): bool
     {
-        return self::accountId() === 1;
+        $id = $accountId ?? self::accountId();
+        if ($id <= 0) {
+            return false;
+        }
+        if ($accountId === null && isset($_SESSION['is_admin'])) {
+            return (bool) $_SESSION['is_admin'];
+        }
+        return self::checkIsAdmin($id);
+    }
+
+    /**
+     * Check if a specific account_id has Super Admin privileges.
+     */
+    public static function checkIsAdmin(int $accountId): bool
+    {
+        if ($accountId <= 0) {
+            return false;
+        }
+        if ($accountId === 1) {
+            return true;
+        }
+        try {
+            $pdo = Database::getConnection();
+            $tblAcc  = Database::t('account');
+            $tblRole = Database::t('condition_key');
+            $tblPerm = Database::t('condition_details');
+            $stmt = $pdo->prepare("
+                SELECT cd.is_sadm, ck.key_name
+                FROM {$tblAcc} a
+                LEFT JOIN {$tblRole} ck ON ck.id = a.account_role
+                LEFT JOIN {$tblPerm} cd ON cd.key_id = ck.modifier_key
+                WHERE a.id = :id
+                LIMIT 1
+            ");
+            $stmt->execute([':id' => $accountId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
+                return false;
+            }
+            if (!empty($row['is_sadm']) || in_array($row['is_sadm'], [true, 1, '1', 't', 'true'], true)) {
+                return true;
+            }
+            if (!empty($row['key_name']) && strtolower(trim($row['key_name'])) === 'super admin') {
+                return true;
+            }
+            return false;
+        } catch (Throwable $e) {
+            return $accountId === 1;
+        }
+    }
+
+    /**
+     * Return all account IDs that have Super Admin privileges.
+     * Always includes account_id = 1.
+     *
+     * @return int[]
+     */
+    public static function getAllSuperAdminIds(): array
+    {
+        try {
+            $pdo = Database::getConnection();
+            $tblAcc  = Database::t('account');
+            $tblRole = Database::t('condition_key');
+            $tblPerm = Database::t('condition_details');
+            $stmt = $pdo->query("
+                SELECT DISTINCT a.id
+                FROM {$tblAcc} a
+                LEFT JOIN {$tblRole} ck ON ck.id = a.account_role
+                LEFT JOIN {$tblPerm} cd ON cd.key_id = ck.modifier_key
+                WHERE a.id = 1 
+                   OR cd.is_sadm = TRUE 
+                   OR LOWER(ck.key_name) = 'super admin'
+            ");
+            $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            $ids = array_map('intval', $rows);
+            if (!in_array(1, $ids, true)) {
+                $ids[] = 1;
+            }
+            return array_values(array_unique($ids));
+        } catch (Throwable $e) {
+            return [1];
+        }
     }
 
     /**
@@ -225,7 +321,7 @@ class Auth
         $_SESSION['ghostlan_admin']     = true;
         $_SESSION['username']           = $email;
         $_SESSION['name']               = $fullName;
-        $_SESSION['is_admin']           = false;
+        $_SESSION['is_admin']           = self::checkIsAdmin((int) $userRow['account_id']);
         $_SESSION['login_time']         = time();
 
     }

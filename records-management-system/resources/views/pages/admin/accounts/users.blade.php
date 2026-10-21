@@ -510,6 +510,17 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 }
             });
 
+            // Real-time broadcast to Chatify so all user directories, sidebars, and office GC member modals refresh immediately
+            try {
+                if (file_exists(public_path('chatify/core/WsPush.php'))) {
+                    require_once public_path('chatify/bootstrap.php');
+                    \WsPush::broadcast('users_changed', [
+                        'account_id' => $this->selectedUserId,
+                        'office_id'  => $this->officeId,
+                    ]);
+                }
+            } catch (\Throwable) {}
+
             if ($this->selectedUserId === auth()->id()) {
                 session()->flash('success', 'User account details updated successfully!');
                 $this->js('window.location.reload();');
@@ -574,6 +585,16 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Users')] class extends C
                 $this->cancelSelection();
                 $this->successMessage = 'User account soft-deleted successfully!';
             });
+
+            // Real-time broadcast to Chatify so all user directories, sidebars, and office GC member modals refresh immediately
+            try {
+                if (file_exists(public_path('chatify/core/WsPush.php'))) {
+                    require_once public_path('chatify/bootstrap.php');
+                    \WsPush::broadcast('users_changed', [
+                        'account_id' => $this->selectedUserId,
+                    ]);
+                }
+            } catch (\Throwable) {}
         } catch (\Exception $e) {
             $this->errorMessage = 'Failed to delete user: ' . $e->getMessage();
         }

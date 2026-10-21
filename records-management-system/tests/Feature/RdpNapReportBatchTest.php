@@ -19,10 +19,10 @@ class RdpNapReportBatchTest extends TestCase
         DB::table('sys_condition_details')->updateOrInsert(
             ['key_id' => 999],
             [
-                'is_sadm'               => true,
-                'can_access_rdp'        => true,
-                'can_rdp_access_form_1' => true,
-                'can_rdp_access_form_3' => true,
+                'is_sadm'                   => true,
+                'can_access_rdp'            => true,
+                'can_rdp_generate_reports'  => true,
+                'can_rdp_modify_series'     => true,
             ]
         );
 

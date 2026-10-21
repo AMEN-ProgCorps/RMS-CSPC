@@ -174,6 +174,11 @@
                     'url' => route('rdp.received-documents.dcs'),
                     'active' => request()->routeIs('rdp.received-documents.dcs'),
                 ],
+                [
+                    'label' => 'Record Requests',
+                    'url' => route('rdp.received-documents.record-requests'),
+                    'active' => request()->routeIs('rdp.received-documents.record-requests'),
+                ],
             ];
         }
         // 2. Add Records Section
@@ -244,6 +249,11 @@
         elseif (request()->routeIs('rdp.reports.*')) {
             $sectionTitle = 'Reports';
             $tabs = [
+                [
+                    'label' => 'Generalized Records',
+                    'url' => route('rdp.reports.master-lifecycle'),
+                    'active' => request()->routeIs('rdp.reports.master-lifecycle'),
+                ],
                 [
                     'label' => 'NAP Form 1',
                     'url' => route('rdp.reports.nap-form-1'),

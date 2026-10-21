@@ -1007,7 +1007,7 @@ class ConversationManager
                     'u1_office'     => $row['u1_office_code'] ?: ($row['u1_office_name'] ?: null),
                     'u2_office'     => $row['u2_office_code'] ?: ($row['u2_office_name'] ?: null),
                     'msgCount'      => (int) $row['msg_count'],
-                    'lastMessage'   => $lastMessage,
+                    'lastMessage'   => '',
                     'lastTimestamp' => (int) ($row['last_ts'] ?? 0),
                 ];
             }
@@ -1107,7 +1107,7 @@ class ConversationManager
                     'u1_office'     => $row['u1_office_code'] ?: ($row['u1_office_name'] ?: null),
                     'u2_office'     => $row['u2_office_code'] ?: ($row['u2_office_name'] ?: null),
                     'msgCount'      => (int) $row['msg_count'],
-                    'lastMessage'   => $lastMessage,
+                    'lastMessage'   => '',
                     'lastTimestamp' => (int) ($row['last_ts'] ?? 0),
                 ];
             }

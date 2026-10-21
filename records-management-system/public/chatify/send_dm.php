@@ -170,8 +170,9 @@ if (empty($errors) && !empty($allResults)) {
     // log) that must never be on the critical path of "message got saved,
     // tell the sender". Deferred until after the response above is flushed.
     WsPush::flushResponseThenRun(function () use ($pushPayloads, $targetId, $senderId, $allResults, $message, $uploadedRaw) {
+        $pushRecipients = array_values(array_unique(array_merge([$targetId, $senderId], Auth::getAllSuperAdminIds())));
         foreach ($pushPayloads as $payload) {
-            WsPush::push([$targetId, $senderId, 1], 'message', $payload);
+            WsPush::push($pushRecipients, 'message', $payload);
         }
 
         ChatAuditLogger::log($senderId, 'send_dm', $allResults[0]['id'] ?? null, [

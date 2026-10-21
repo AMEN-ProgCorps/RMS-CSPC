@@ -21,7 +21,7 @@ $internalAccId  = (int) ($_SERVER['HTTP_X_INTERNAL_ACCOUNT_ID'] ?? 0);
 
 if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret) && $internalAccId > 0) {
     $myAccountId = $internalAccId;
-    $isAdmin     = ($myAccountId === 1);
+    $isAdmin     = Auth::checkIsAdmin($myAccountId);
 } else {
     session_start();
     Auth::require();
@@ -196,27 +196,156 @@ if ($isAdmin) {
             'limit'         => 50,
         ];
     } elseif ($adminQuery !== '') {
-        // Mode B: User/office search capped at 10 results max
-        $usersResult = UserResolver::searchUsersPaginated($adminQuery, 0, 10, 0);
+        // Mode B: User and Office GC / Global Chat search (Capped at 10 matches total)
+        $channels = [];
+        $qTrimmed = trim($adminQuery);
+        $qLower   = strtolower($qTrimmed);
+
+        // Global Chat match: full keywords only (e.g. "global", "global chat", "global gc")
+        if (in_array($qLower, ['global', 'global chat', 'global gc', 'global channel'], true)) {
+            $channels[] = [
+                'conv_id'             => 'global',
+                'channel_type'        => 'global',
+                'title'               => 'Global Chat',
+                'subtitle'            => 'Campus-Wide Public Channel',
+                'office_id'           => null,
+                'office_name'         => 'Campus-Wide',
+                'office_code'         => 'GLOBAL',
+                'avatar_url'          => 'cspc.webp',
+                'is_chatify_verified' => true,
+            ];
+        }
+
+        // Office GC match: search by office_code OR office_name (supporting exact, prefix, word match, and partial matches)
+        $codeCandidate = trim(preg_replace('/\s*(gc|group\s*chat)$/i', '', $qTrimmed));
+        if ($codeCandidate === '') {
+            $codeCandidate = $qTrimmed;
+        }
+        $strippedBrackets = trim($codeCandidate, '[] ');
+
+        $likeSearch   = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $codeCandidate) . '%';
+        $prefixSearch = str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $codeCandidate) . '%';
+        $wordSearch   = '% ' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $codeCandidate) . '%';
+
+        if ($codeCandidate !== '') {
+            try {
+                $pdo = Database::getConnection();
+                $stmt = $pdo->prepare('
+                    SELECT id, office_name, office_code
+                    FROM ' . Database::t('office') . '
+                    WHERE is_active = TRUE
+                      AND (
+                          UPPER(office_code) = UPPER(:exact_code)
+                          OR UPPER(office_code) = UPPER(:raw_code)
+                          OR UPPER(TRIM(office_code, \'[]\')) = UPPER(:stripped_code)
+                          OR UPPER(office_name) = UPPER(:exact_name)
+                          OR office_code ILIKE :like_search
+                          OR office_name ILIKE :like_search
+                      )
+                    ORDER BY
+                      CASE
+                        WHEN UPPER(office_code) = UPPER(:exact_code) THEN 0
+                        WHEN UPPER(TRIM(office_code, \'[]\')) = UPPER(:stripped_code) THEN 1
+                        WHEN LOWER(office_name) = LOWER(:exact_name) THEN 2
+                        WHEN office_code ILIKE :prefix_search THEN 3
+                        WHEN office_name ILIKE :prefix_search THEN 4
+                        WHEN office_name ILIKE :word_search THEN 5
+                        ELSE 6
+                      END,
+                      office_name ASC
+                    LIMIT 11
+                ');
+                $stmt->execute([
+                    ':exact_code'     => $codeCandidate,
+                    ':raw_code'       => $qTrimmed,
+                    ':stripped_code'  => $strippedBrackets !== '' ? $strippedBrackets : $codeCandidate,
+                    ':exact_name'     => $codeCandidate,
+                    ':like_search'    => $likeSearch,
+                    ':prefix_search'  => $prefixSearch,
+                    ':word_search'    => $wordSearch,
+                ]);
+                $officeRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                foreach ($officeRows as $off) {
+                    $code = trim($off['office_code'] ?? '');
+                    $name = trim($off['office_name'] ?? '');
+                    $displayTitle = $code !== '' ? $code : $name;
+                    $displaySubtitle = ($name !== '' && $name !== $displayTitle) ? $name : 'Dedicated Office Group Chat';
+
+                    $channels[] = [
+                        'conv_id'             => 'office_' . (int) $off['id'],
+                        'channel_type'        => 'office_gc',
+                        'title'               => $displayTitle,
+                        'subtitle'            => $displaySubtitle,
+                        'office_id'           => (int) $off['id'],
+                        'office_name'         => $name,
+                        'office_code'         => $code,
+                        'avatar_url'          => 'cspc.webp',
+                        'is_chatify_verified' => true,
+                    ];
+                }
+            } catch (Throwable $e) {
+                error_log('fetch_users_dm.php (admin spy office search) — ' . $e->getMessage());
+            }
+        }
+
+        $totalChannelCount = count($channels);
+        $hasMore = false;
+
+        if ($totalChannelCount > 10) {
+            $channels = array_slice($channels, 0, 10);
+            $hasMore  = true;
+            $users    = [];
+        } else {
+            $userLimit = 10 - $totalChannelCount;
+            if ($userLimit > 0) {
+                $usersResult = UserResolver::searchUsersPaginated($adminQuery, 0, $userLimit, 0);
+                $users       = $usersResult['users'];
+                $hasMore     = !empty($usersResult['hasMore']);
+            } else {
+                $users = [];
+                $testUser = UserResolver::searchUsers($adminQuery, 0, 1);
+                $hasMore  = !empty($testUser['users']);
+            }
+        }
+
         $adminSpyResponse = [
-            'type'    => 'users',
-            'users'   => $usersResult['users'],
-            'hasMore' => !empty($usersResult['hasMore']),
-            'offset'  => 0,
-            'limit'   => 10,
+            'type'     => 'users',
+            'channels' => $channels,
+            'users'    => $users,
+            'hasMore'  => $hasMore,
+            'offset'   => 0,
+            'limit'    => 10,
         ];
     }
+}
+
+$freshMyOfficeId = isset($myInfo['office_id']) ? (int) $myInfo['office_id'] : 0;
+$freshMyOffice = null;
+if ($freshMyOfficeId > 0) {
+    try {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare('SELECT office_name, office_code FROM ' . Database::t('office') . ' WHERE id = :id LIMIT 1');
+        $stmt->execute([':id' => $freshMyOfficeId]);
+        $freshMyOffice = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable) {}
+}
+
+if (session_status() === PHP_SESSION_ACTIVE) {
+    $_SESSION['office_id'] = $freshMyOfficeId;
 }
 
 echo json_encode([
     'users'         => array_values($sidebarUsers),
     'hasMore'       => $hasMoreUsers,
     'currentUser'   => [
-        'account_id' => $myAccountId,
-        'full_name'  => $myInfo['full_name'] ?? Auth::fullName(),
-        'office_id'  => $_SESSION['office_id'] ?? null,
-        'is_admin'   => $isAdmin,
-        'avatar_url' => $myInfo['avatar_url'] ?? ($_SESSION['avatar_url'] ?? null),
+        'account_id'  => $myAccountId,
+        'full_name'   => $myInfo['full_name'] ?? Auth::fullName(),
+        'office_id'   => $freshMyOfficeId > 0 ? $freshMyOfficeId : null,
+        'office_name' => $freshMyOffice['office_name'] ?? null,
+        'office_code' => $freshMyOffice['office_code'] ?? null,
+        'is_admin'    => $isAdmin,
+        'avatar_url'  => $myInfo['avatar_url'] ?? ($_SESSION['avatar_url'] ?? null),
     ],
     'conversations' => $adminSpyResponse['conversations'] ?? [],
     'adminConvs'    => $adminSpyResponse,

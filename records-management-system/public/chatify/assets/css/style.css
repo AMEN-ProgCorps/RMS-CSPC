@@ -292,10 +292,13 @@
       min-height: 72px;
       height: 72px;
       box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
     }
     
-    .user-item:hover {
-      background-color: var(--bg-drop-overlay);
+    @media (hover: hover) {
+      .user-item:hover {
+        background-color: var(--bg-drop-overlay);
+      }
     }
 
     .user-item.active {
@@ -1669,6 +1672,25 @@
       justify-content: flex-start;
     }
 
+    /* Moved user bubble in office GC */
+    .message-container.user-moved .message-bubble {
+      background: var(--bg-secondary, #f0f2f5) !important;
+      border: 1px dashed var(--border-color, #ccd0d5) !important;
+      color: var(--text-secondary, #65676b) !important;
+      font-style: italic !important;
+      cursor: default !important;
+      user-select: none;
+    }
+    .message-container.user-moved .message-content {
+      font-style: italic !important;
+      color: var(--text-secondary, #65676b) !important;
+      opacity: 0.85;
+      font-size: 13px;
+    }
+    .message-container.user-moved .message-sender {
+      color: var(--text-secondary, #65676b) !important;
+    }
+
     /* Avatar Styles */
     .message-avatar {
       width: 32px;
@@ -2483,6 +2505,10 @@
       color: var(--text-primary);
     }
 
+    .modal-footer .modal-button:last-child {
+      border-right: none;
+    }
+
     .cancel-button:hover {
       background-color: var(--button-hover, rgba(0, 0, 0, 0.05));
     }
@@ -2668,25 +2694,24 @@
     /* Scroll indicator */
     .scroll-indicator {
       position: absolute;
-      bottom: calc(100% + 8px);
-      right: 16px;
-      background: #1b74e4;
+      bottom: calc(100% + 12px);
+      right: 20px;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--bg-avatar-sent, #1b74e4);
       color: white;
-      padding: 8px 14px;
-      border-radius: 24px;
-      font-size: 13px;
-      font-weight: 500;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       cursor: pointer;
       opacity: 0;
       visibility: hidden;
       transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.2s ease, background 0.2s ease;
       z-index: 200;
       box-shadow: 0 2px 10px rgba(0,0,0,0.25);
-      display: flex;
-      align-items: center;
-      gap: 6px;
       user-select: none;
-      white-space: nowrap;
       will-change: opacity, transform;
     }
 
@@ -2702,7 +2727,14 @@
     }
 
     .scroll-indicator:active {
-      transform: scale(0.96);
+      transform: scale(0.92);
+    }
+
+    .scroll-indicator-arrow {
+      width: 16px;
+      height: 16px;
+      display: block;
+      transition: transform 0.2s ease;
     }
 
     /* Floating Load More button for Super Admin Spy Mode user cards */
@@ -2749,15 +2781,27 @@
     .unread-badge {
       background: #ff3b30;
       color: white;
-      border-radius: 12px;
-      padding: 1px 7px;
-      font-size: 11px;
+      border-radius: 10px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      font-size: 10px;
       font-weight: 700;
+      line-height: 18px;
+      text-align: center;
       display: none;
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      border: 2px solid var(--bg-chat, #fff);
+      box-sizing: border-box;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
 
     .scroll-indicator.has-unread .unread-badge {
-      display: inline-block;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     /* Desktop specific styles */
@@ -2876,6 +2920,25 @@
       .input-area {
         flex-shrink: 0;
         padding-bottom: 12px;
+      }
+
+      .scroll-indicator {
+        right: 16px;
+        bottom: calc(100% + 10px);
+      }
+
+      .user-item.active {
+        background-color: transparent !important;
+      }
+      .user-item:hover {
+        background-color: transparent !important;
+      }
+      .user-item:focus {
+        background-color: transparent !important;
+        outline: none !important;
+      }
+      .user-item:active {
+        background-color: var(--bg-drop-overlay) !important;
       }
     }
 
@@ -3694,4 +3757,97 @@
 
     .dark-mode-header-btn:active {
       transform: scale(0.95);
+    }
+
+    /* ── Settings Header Admin Key Button ── */
+    .admin-key-header-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: none;
+      background: #1b74e4;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+      outline: none;
+      padding: 0;
+      flex-shrink: 0;
+    }
+
+    .admin-key-header-btn:hover {
+      opacity: 0.9;
+      transform: scale(1.08);
+    }
+
+    .admin-key-header-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* ── Header Office Info Button ── */
+    .header-info-btn {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: transparent !important;
+      color: var(--icon-color, var(--text-secondary));
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+      box-shadow: none !important;
+      outline: none;
+      padding: 0;
+      margin: 0;
+      flex-shrink: 0;
+    }
+
+    .header-info-btn:hover {
+      background: transparent !important;
+      color: var(--icon-hover, #1b74e4);
+      transform: scale(1.08);
+      opacity: 0.9;
+    }
+
+    .header-info-btn:active {
+      background: transparent !important;
+      transform: scale(0.95);
+    }
+
+    /* ── Office Members Modal Scrollbar & Smooth Scrolling (Hidden Scrollbar) ── */
+    #officeMembersList {
+      scrollbar-width: none !important; /* Firefox */
+      -ms-overflow-style: none !important; /* IE/Edge */
+      overscroll-behavior: contain;
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-y;
+    }
+    #officeMembersList::-webkit-scrollbar {
+      display: none !important; /* Chrome/Safari/Edge */
+      width: 0 !important;
+      height: 0 !important;
+    }
+
+    /* ── Office Members List Row: Clean borderless style without rectangle ── */
+    #officeMembersList .mention-user-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border: none !important;
+      background: transparent !important;
+      cursor: default !important;
+      padding: 7px 4px !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      transition: none !important;
+    }
+
+    #officeMembersList .mention-user-row:hover {
+      border: none !important;
+      background: transparent !important;
+      box-shadow: none !important;
     }

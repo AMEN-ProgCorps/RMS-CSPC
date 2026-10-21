@@ -928,37 +928,21 @@
       activeScrollObservers.delete(el);
     }
 
-    chatBox.addEventListener('click', function(e) {
-      if (typeof longPressJustFired !== 'undefined' && longPressJustFired) return;
-      const rq = e.target.closest('.reply-quote[data-reply-to]');
-      if (!rq) return;
-
-      const replyToMsgId = rq.getAttribute('data-reply-to');
-      if (!replyToMsgId) return;
-
-      const targetMsg = chatBox.querySelector(`.message-container[data-msg-id="${replyToMsgId}"]`);
-      if (!targetMsg) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      // Cancel any in-flight scroll+observe cycle for this element
+    // Scroll chatBox to the target element then blink it once it's visible.
+    function scrollAndBlinkTarget(targetMsg) {
       cancelScrollObserve(targetMsg);
 
-      // Check whether the target is already sufficiently visible inside chatBox
-      const chatRect  = chatBox.getBoundingClientRect();
+      const chatRect   = chatBox.getBoundingClientRect();
       const targetRect = targetMsg.getBoundingClientRect();
-      const isVisible =
+      const isVisible  =
         targetRect.top    >= chatRect.top    + 40 &&
         targetRect.bottom <= chatRect.bottom - 40;
 
       if (isVisible) {
-        // Already on screen — blink immediately
         triggerBlinkOn(targetMsg);
         return;
       }
 
-      // Not yet visible — scroll first, blink once IO confirms it arrived.
       const state = { observer: null, safetyTimer: null, fired: false };
       activeScrollObservers.set(targetMsg, state);
 
@@ -975,17 +959,138 @@
         if (entries[0].isIntersecting) finish();
       }, {
         root: chatBox,
-        threshold: 0.35   // fire when at least 35 % of the message row is visible
+        threshold: 0.35
       });
 
       state.observer.observe(targetMsg);
-
-      // Safety fallback — covers cases where IO fires before scroll starts
-      // (element already partially in root but below threshold) or misses due to
-      // browser quirks. 900 ms is well beyond any smooth-scroll duration.
       state.safetyTimer = setTimeout(finish, 900);
-
       targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    // Build the URL for an around_uuid jump fetch based on which chat type is active.
+    function buildAroundUuidUrl(aroundUuid) {
+      const limit = typeof BACKREAD_BATCH !== 'undefined' ? BACKREAD_BATCH : 50;
+      if (activeAdminConv) {
+        return 'load_dm_admin.php?conv_id=' + encodeURIComponent(activeAdminConv)
+             + '&around_uuid=' + encodeURIComponent(aroundUuid)
+             + '&limit=' + limit;
+      }
+      if (isGlobalChat) {
+        const convId = (typeof getActiveChannelConvId === 'function')
+          ? getActiveChannelConvId()
+          : (window.activeChannel === 'office' && window.currentOfficeInfo && window.currentOfficeInfo.conv_id
+              ? window.currentOfficeInfo.conv_id
+              : 'global');
+        return 'load.php?around_uuid=' + encodeURIComponent(aroundUuid)
+             + '&conv_id=' + encodeURIComponent(convId)
+             + '&limit=' + limit;
+      }
+      if (activeDM && activeDMAccountId) {
+        return 'load_dm.php?target_id=' + encodeURIComponent(activeDMAccountId)
+             + '&target_user=' + encodeURIComponent(activeDM)
+             + '&around_uuid=' + encodeURIComponent(aroundUuid)
+             + '&limit=' + limit;
+      }
+      return null;
+    }
+
+    // Replace the current chat window with a jump-fetched batch, then scroll+blink.
+    // Returns false if a fetch cannot be made (no active chat), true otherwise.
+    let jumpFetchInFlight = false;
+    function jumpToUnloadedMessage(aroundUuid) {
+      if (jumpFetchInFlight) return;
+      const url = buildAroundUuidUrl(aroundUuid);
+      if (!url) return;
+
+      jumpFetchInFlight = true;
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.onload = function() {
+        jumpFetchInFlight = false;
+        if (this.status !== 200) return;
+        let data;
+        try { data = JSON.parse(this.responseText); } catch(e) { return; }
+        const newHtml = data.html || '';
+        if (!newHtml.trim()) return;
+
+        // Replace current chat window content (keep sending-overlay placeholders)
+        const sendingPlaceholders = Array.from(chatBox.querySelectorAll('[data-sending-uid],[data-upload-uid]'));
+        chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
+
+        const temp = document.createElement('div');
+        temp.innerHTML = newHtml;
+        const newItems = Array.from(temp.querySelectorAll('.message-container, .empty-chat'));
+        const frag = document.createDocumentFragment();
+        newItems.forEach(el => frag.appendChild(el));
+        // Insert before any pending sending placeholders
+        const firstPlaceholder = sendingPlaceholders.find(el => chatBox.contains(el));
+        if (firstPlaceholder) {
+          chatBox.insertBefore(frag, firstPlaceholder);
+        } else {
+          chatBox.appendChild(frag);
+        }
+
+        // Update pagination state so load-older still works from this new window
+        const cursor = data.nextCursor || '';
+        if (activeAdminConv) {
+          if (typeof adminConvCursor !== 'undefined')  adminConvCursor  = cursor;
+          if (typeof adminConvHasMore !== 'undefined') adminConvHasMore = data.hasMore || false;
+          if (typeof adminConvViewingOlder !== 'undefined') adminConvViewingOlder = true;
+        } else if (isGlobalChat) {
+          gcCursor       = cursor;
+          gcHasMore      = data.hasMore || false;
+          gcViewingOlder = true;
+        } else if (activeDM) {
+          if (typeof dmCursor !== 'undefined')       dmCursor       = cursor;
+          if (typeof dmHasMore !== 'undefined')      dmHasMore      = data.hasMore || false;
+          if (typeof dmViewingOlder !== 'undefined') dmViewingOlder = true;
+        }
+
+        shouldAutoScroll = false;
+        userScrolledUp   = true;
+
+        if (data.hasMore) {
+          if (!document.getElementById('loadOlderBtn')) insertLoadOlderBtn();
+        } else {
+          showNoMoreOlderNotice();
+        }
+
+        applyAdminBadges();
+        applyEmojiOnly();
+        attachImageLoadListeners();
+
+        // Now scroll+blink the target
+        const targetMsg = chatBox.querySelector(`.message-container[data-msg-id="${aroundUuid}"]`);
+        if (targetMsg) {
+          // Use rAF so the DOM has been painted before we measure positions
+          requestAnimationFrame(function() {
+            scrollAndBlinkTarget(targetMsg);
+          });
+        }
+      };
+      xhr.onerror = function() { jumpFetchInFlight = false; };
+      xhr.send();
+    }
+
+    chatBox.addEventListener('click', function(e) {
+      if (typeof longPressJustFired !== 'undefined' && longPressJustFired) return;
+      const rq = e.target.closest('.reply-quote[data-reply-to]');
+      if (!rq) return;
+
+      const replyToMsgId = rq.getAttribute('data-reply-to');
+      if (!replyToMsgId) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const targetMsg = chatBox.querySelector(`.message-container[data-msg-id="${replyToMsgId}"]`);
+      if (targetMsg) {
+        // Message is in the DOM — scroll+blink in place
+        scrollAndBlinkTarget(targetMsg);
+      } else {
+        // Message not loaded yet — fetch a window centred on it
+        jumpToUnloadedMessage(replyToMsgId);
+      }
     });
 
     // X cancel-edit button

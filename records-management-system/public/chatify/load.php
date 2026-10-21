@@ -5,10 +5,13 @@
 // GET params:
 //   before_uuid (string, optional) — msg_uuid of the oldest message already shown;
 //                                     omit to load the latest messages.
+//   around_uuid (string, optional) — msg_uuid of a target message to jump to;
+//                                     fetches a window of messages ending at that
+//                                     message (used by reply-quote jump feature).
 //   limit       (int, optional)    — messages per page, default 50, max 100.
 //
 // Returns JSON:
-//   { html: string, hasMore: bool, nextCursor: string|null }
+//   { html: string, hasMore: bool, nextCursor: string|null, jumpMode?: bool }
 //
 // Uses KEYSET (cursor) pagination — no OFFSET, no COUNT(*).  The DB returns
 // rows newest-first; array_reverse() re-orders for display.
@@ -43,6 +46,7 @@ if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret)
 $requestedLimit = isset($_GET['limit']) ? (int) $_GET['limit'] : 50;
 $limit          = min(max(1, $requestedLimit), 100);
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
+$aroundUuid = isset($_GET['around_uuid']) && $_GET['around_uuid'] !== '' ? (string) $_GET['around_uuid'] : null;
 
 $convId = trim($_GET['conv_id'] ?? '');
 $userOfficeId = (int) ($_SESSION['office_id'] ?? 0);
@@ -68,14 +72,22 @@ if ($isOfficeGc && $targetOfficeId) {
 
 // ── Load data ────────────────────────────────────────────────────────────────
 // Fetch limit+1 rows so we can detect hasMore without a separate COUNT(*).
-$rawMessages = GlobalChatManager::loadRaw($limit + 1, $beforeUuid, $convId);
-$hasMore     = count($rawMessages) > $limit;
-if ($hasMore) {
-    array_pop($rawMessages); // discard the extra sentinel row
+$jumpMode = false;
+if ($aroundUuid !== null) {
+    // Jump-to-message mode: load a window ending at (and including) $aroundUuid.
+    $around  = GlobalChatManager::loadAroundUuid($aroundUuid, $limit, $convId);
+    $rawMessages = $around['rows'];   // already in chronological order
+    $hasMore     = $around['hasMore'];
+    $jumpMode    = true;
+} else {
+    $rawMessages = GlobalChatManager::loadRaw($limit + 1, $beforeUuid, $convId);
+    $hasMore     = count($rawMessages) > $limit;
+    if ($hasMore) {
+        array_pop($rawMessages); // discard the extra sentinel row
+    }
+    // DB returns newest-first; flip for chronological display.
+    $rawMessages = array_reverse($rawMessages);
 }
-
-// DB returns newest-first; flip for chronological display.
-$rawMessages = array_reverse($rawMessages);
 
 // Scope reaction loading to just this page's UUIDs — avoids loading the
 // entire channel's reaction history on every request.
@@ -490,4 +502,6 @@ echo json_encode([
     'nextCursor'      => $nextCursor,   // pass as before_uuid for next "load older" request
     'conv_id'         => $convId,
     'is_office_admin' => Auth::isAdmin($myAccountId),
+    'jumpMode'        => $jumpMode,     // true when fetched via around_uuid (reply-quote jump)
+    'jumpTarget'      => $aroundUuid,   // the UUID the client should scroll+blink to
 ]);

@@ -48,9 +48,16 @@ $requestedLimit = isset($_GET['limit']) ? (int) $_GET['limit'] : 50;
 $limit          = min(max(1, $requestedLimit), 100);
 $beforeUuid = isset($_GET['before_uuid']) && $_GET['before_uuid'] !== '' ? (string) $_GET['before_uuid'] : null;
 $sinceUuid  = isset($_GET['since_uuid'])  && $_GET['since_uuid']  !== '' ? (string) $_GET['since_uuid']  : null;
+$aroundUuid = isset($_GET['around_uuid']) && $_GET['around_uuid'] !== '' ? (string) $_GET['around_uuid'] : null;
 
+$jumpMode = false;
 if ($isChannel) {
-    if ($sinceUuid !== null) {
+    if ($aroundUuid !== null) {
+        $around      = GlobalChatManager::loadAroundUuid($aroundUuid, $limit, $convId);
+        $rawMessages = $around['rows'];
+        $hasMore     = $around['hasMore'];
+        $jumpMode    = true;
+    } elseif ($sinceUuid !== null) {
         $rawMessages = GlobalChatManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
         $hasMore     = false;
     } else {
@@ -65,7 +72,12 @@ if ($isChannel) {
     $pageUuids  = array_column($rawMessages, 'id');
     $reactions  = GlobalChatManager::loadReactions($pageUuids, $convId);
 } else {
-    if ($sinceUuid !== null) {
+    if ($aroundUuid !== null) {
+        $around      = ConversationManager::loadAroundUuid($convId, $aroundUuid, $limit);
+        $rawMessages = $around['rows'];
+        $hasMore     = $around['hasMore'];
+        $jumpMode    = true;
+    } elseif ($sinceUuid !== null) {
         $rawMessages = ConversationManager::loadIncrementalRaw($convId, $sinceUuid, $limit);
         $hasMore     = false;
     } else {
@@ -417,4 +429,6 @@ echo json_encode([
     'html'       => $html,
     'hasMore'    => $hasMore,
     'nextCursor' => $nextCursor,   // pass as before_uuid for next "load older" request
+    'jumpMode'   => $jumpMode,     // true when fetched via around_uuid (reply-quote jump)
+    'jumpTarget' => $aroundUuid,   // the UUID the client should scroll+blink to
 ]);

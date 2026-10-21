@@ -188,6 +188,91 @@ class GlobalChatManager
     }
 
     /**
+     * Load a window of messages centred around a specific message UUID.
+     *
+     * Fetches up to $limit messages that are OLDER THAN or EQUAL TO the target
+     * (i.e. the target plus the messages that precede it), returned oldest-first.
+     * The caller may also request the cursor for the next "load older" page
+     * via the returned $hasMore / $nextCursor fields.
+     *
+     * This is used by the "jump to quoted message" feature: when the target
+     * message is not in the currently rendered window, the client fetches a
+     * fresh batch anchored to that message instead of scrolling up page by page.
+     *
+     * @param  string $aroundUuid  msg_uuid of the message to centre the window on.
+     * @param  int    $limit       Total messages to return (default 50).
+     * @param  string $convId      Conversation/channel id.
+     * @return array{ rows: array, hasMore: bool, nextCursor: string|null }
+     */
+    public static function loadAroundUuid(string $aroundUuid, int $limit = 50, string $convId = self::CONV_ID): array
+    {
+        try {
+            $pdo = Database::getConnection();
+            self::ensureMessageStatusColumn($pdo);
+
+            // Resolve the anchor row
+            $cur = $pdo->prepare(
+                'SELECT created_at, id FROM chat_messages WHERE msg_uuid = :uuid LIMIT 1'
+            );
+            $cur->execute([':uuid' => $aroundUuid]);
+            $curRow = $cur->fetch();
+
+            if (!$curRow) {
+                // Target message deleted or not found — fall back to latest page
+                $rows = self::loadRaw($limit, null, $convId);
+                return [
+                    'rows'       => array_reverse($rows),
+                    'hasMore'    => false,
+                    'nextCursor' => !empty($rows) ? $rows[count($rows) - 1]['id'] : null,
+                ];
+            }
+
+            // Fetch $limit messages that are older than OR equal to the target,
+            // ordered newest-first (so the target is first, older ones follow).
+            // We fetch $limit+1 to detect whether there are even older messages.
+            $stmt = $pdo->prepare(
+                'SELECT m.msg_uuid AS id,
+                        m.sender_id,
+                        m.message,
+                        m.msg_type AS type,
+                        m.is_edited,
+                        m.edit_count,
+                        m.reply_to_msg_uuid,
+                        r.message AS reply_message,
+                        r.msg_type AS reply_msg_type,
+                        r.sender_id AS reply_sender_id,
+                        to_char(m.created_at AT TIME ZONE \'Asia/Manila\', \'YYYY-MM-DD HH24:MI:SS.US\') AS timestamp
+                 FROM chat_messages m
+                 LEFT JOIN chat_messages r ON r.msg_uuid = m.reply_to_msg_uuid
+                 WHERE m.conv_id = :conv_id
+                   AND (m.created_at, m.id) <= (:cur_ts, :cur_id)
+                   AND m.status = \'active\'
+                 ORDER BY m.created_at DESC, m.id DESC
+                 LIMIT :lim'
+            );
+            $stmt->bindValue(':conv_id', $convId);
+            $stmt->bindValue(':cur_ts',  $curRow['created_at']);
+            $stmt->bindValue(':cur_id',  (int) $curRow['id'], PDO::PARAM_INT);
+            $stmt->bindValue(':lim',     $limit + 1, PDO::PARAM_INT);
+            $stmt->execute();
+            $rows = $stmt->fetchAll() ?: [];
+
+            $hasMore = count($rows) > $limit;
+            if ($hasMore) array_pop($rows); // discard sentinel
+
+            // Flip to chronological (oldest-first) for rendering
+            $rows = array_reverse($rows);
+
+            $nextCursor = !empty($rows) ? $rows[0]['id'] : null;
+
+            return ['rows' => $rows, 'hasMore' => $hasMore, 'nextCursor' => $nextCursor];
+        } catch (PDOException $e) {
+            error_log('GlobalChatManager::loadAroundUuid() — ' . $e->getMessage());
+            return ['rows' => [], 'hasMore' => false, 'nextCursor' => null];
+        }
+    }
+
+    /**
      * Count all global/channel messages.
      * NOTE: Only use this when a total count is genuinely required (e.g. admin
      * display). Do NOT call this in the normal message-loading path; use

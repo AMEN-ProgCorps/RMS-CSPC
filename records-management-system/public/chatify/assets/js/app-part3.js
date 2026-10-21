@@ -5358,51 +5358,53 @@
     var iosFooter          = document.querySelector('.input-area');
     var iosBlurSuppressed  = false; // true while we're about to refocus after send
 
-    let keyboardAnimRaf = null;
+    let lastViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    let isKeyboardOpen = false;
+    let keyboardOpening = false;
+    let wasNearBottomOnFocus = true;
+    let keyboardOpenTimer = null;
 
-    function smoothKeepScrollAtBottom(durationMs = 400) {
-      if (!chatBox) return;
-      userScrolledUp = false;
-      shouldAutoScroll = true;
-      hideScrollIndicator();
+    function handleKeyboardResize(currentHeight) {
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
+      const diff = lastViewportHeight - currentHeight;
 
-      if (keyboardAnimRaf) {
-        cancelAnimationFrame(keyboardAnimRaf);
-        keyboardAnimRaf = null;
-      }
-
-      const startTime = performance.now();
-
-      function step(now) {
-        if (!chatBox) return;
-        chatBox.scrollTop = chatBox.scrollHeight;
-        if (now - startTime < durationMs) {
-          keyboardAnimRaf = requestAnimationFrame(step);
-        } else {
-          keyboardAnimRaf = null;
+      // Keyboard opening/extending: viewport shrinks by > 60px
+      if (diff > 60 || (keyboardOpening && diff > 20)) {
+        isKeyboardOpen = true;
+        keyboardOpening = false;
+        if (wasNearBottomOnFocus && chatBox) {
           chatBox.scrollTop = chatBox.scrollHeight;
         }
+        if (keyboardOpenTimer) clearTimeout(keyboardOpenTimer);
+        keyboardOpenTimer = setTimeout(function() {
+          if (isKeyboardOpen && wasNearBottomOnFocus && chatBox) {
+            chatBox.scrollTop = chatBox.scrollHeight;
+          }
+        }, 200);
+      } else if (diff < -60) {
+        // Keyboard closing/retracting: viewport expands
+        isKeyboardOpen = false;
+        keyboardOpening = false;
+        if (keyboardOpenTimer) clearTimeout(keyboardOpenTimer);
       }
 
-      keyboardAnimRaf = requestAnimationFrame(step);
-    }
-
-    function applyIOSViewport() {
-      if (window.scrollY !== 0) window.scrollTo(0, 0);
-    }
-
-    function resetIOSViewport() {
-      if (window.scrollY !== 0) window.scrollTo(0, 0);
+      lastViewportHeight = currentHeight;
     }
 
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', function() {
-        if (window.scrollY !== 0) window.scrollTo(0, 0);
+        handleKeyboardResize(window.visualViewport.height);
       });
       window.visualViewport.addEventListener('scroll', function() {
         if (window.scrollY !== 0) window.scrollTo(0, 0);
       });
     }
+
+    window.addEventListener('resize', function() {
+      if (!window.visualViewport) {
+        handleKeyboardResize(window.innerHeight);
+      }
+    });
 
     window.addEventListener('scroll', function() {
       if (window.scrollY !== 0) {
@@ -5412,10 +5414,22 @@
 
     messageInput.addEventListener('focus', function () {
       if (window.scrollY !== 0) window.scrollTo(0, 0);
+      if (!isKeyboardOpen) {
+        keyboardOpening = true;
+        wasNearBottomOnFocus = !userScrolledUp || (typeof isAtBottom === 'function' ? isAtBottom(120) : true);
+        setTimeout(function() {
+          if (keyboardOpening && wasNearBottomOnFocus && chatBox) {
+            chatBox.scrollTop = chatBox.scrollHeight;
+          }
+        }, 120);
+      }
+      // When isKeyboardOpen is already true, do not touch scroll so the chat UI stays steady!
     });
 
     messageInput.addEventListener('blur', function () {
-      // Intentionally do not force scroll on blur: keeps conversation steady when tapping Read More or scrolling
+      keyboardOpening = false;
+      isKeyboardOpen = false;
+      if (keyboardOpenTimer) clearTimeout(keyboardOpenTimer);
     });
 
     // ── Mobile keyboard: keep input-area always above the virtual keyboard ──

@@ -658,8 +658,10 @@
         return;
       }
 
+      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+
       const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
-      if (distance <= 100 && newCount === 0) {
+      if (!viewingOlder && distance <= 100 && newCount === 0) {
         hideScrollIndicator();
         return;
       }
@@ -675,7 +677,7 @@
         }
       }
 
-      if (distance > 200 || scrollIndicator.classList.contains('has-unread')) {
+      if (viewingOlder || distance > 150 || scrollIndicator.classList.contains('has-unread')) {
         scrollIndicator.classList.add('visible');
       } else {
         scrollIndicator.classList.remove('visible');
@@ -932,6 +934,9 @@
     function scrollAndBlinkTarget(targetMsg) {
       cancelScrollObserve(targetMsg);
 
+      shouldAutoScroll = false;
+      userScrolledUp   = true;
+
       const chatRect   = chatBox.getBoundingClientRect();
       const targetRect = targetMsg.getBoundingClientRect();
       const isVisible  =
@@ -940,6 +945,7 @@
 
       if (isVisible) {
         triggerBlinkOn(targetMsg);
+        showScrollIndicator(0);
         return;
       }
 
@@ -953,6 +959,7 @@
         if (state.safetyTimer) clearTimeout(state.safetyTimer);
         activeScrollObservers.delete(targetMsg);
         triggerBlinkOn(targetMsg);
+        showScrollIndicator(0);
       };
 
       state.observer = new IntersectionObserver(function(entries) {
@@ -965,6 +972,13 @@
       state.observer.observe(targetMsg);
       state.safetyTimer = setTimeout(finish, 900);
       targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      // If this target is away from the bottom of chatBox, display arrow down right away
+      const distFromBottom = chatBox.scrollHeight - (targetMsg.offsetTop + targetMsg.offsetHeight);
+      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+      if (viewingOlder || distFromBottom > 150) {
+        showScrollIndicator(0);
+      }
     }
 
     // Build the URL for an around_uuid jump fetch based on which chat type is active.
@@ -1059,13 +1073,19 @@
         applyEmojiOnly();
         attachImageLoadListeners();
 
+        // Always show the arrow down / "Go to bottom" button since we are now in an older message window
+        showScrollIndicator(0);
+
         // Now scroll+blink the target
         const targetMsg = chatBox.querySelector(`.message-container[data-msg-id="${aroundUuid}"]`);
         if (targetMsg) {
           // Use rAF so the DOM has been painted before we measure positions
           requestAnimationFrame(function() {
             scrollAndBlinkTarget(targetMsg);
+            showScrollIndicator(0);
           });
+        } else {
+          showScrollIndicator(0);
         }
       };
       xhr.onerror = function() { jumpFetchInFlight = false; };
@@ -1936,9 +1956,9 @@
           // so the user can easily jump back to latest messages anytime.
           showScrollIndicator(0);
         } else if (chatFullyLoaded && !isMobileVirtualKeyboardActive()) {
-          // Show scroll button when initial load is done AND user has scrolled up > 200px away from bottom
+          // Show scroll button when initial load is done AND user has scrolled up away from bottom
           const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
-          if (distance > 200) {
+          if (distance > 150) {
             const hasMessages = chatBox.querySelectorAll('.message-container').length > 0;
             if (hasMessages) {
               showScrollIndicator(0);
@@ -1948,7 +1968,7 @@
           }
         } else if (chatFullyLoaded) {
           const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
-          if (distance <= 100) {
+          if (distance <= 100 && !viewingOlder) {
             hideScrollIndicator();
           }
         }

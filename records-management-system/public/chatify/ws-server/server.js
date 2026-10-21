@@ -967,6 +967,12 @@ wss.on('connection', (ws) => {
       // Notify the sender's live socket(s) immediately, plus admin (1) for
       // spymode parity with the HTTP-triggered push in mark_read.php.
       broadcastToAccounts([targetId, 1], payloadStr);
+
+      // Durably persist in Postgres immediately via internal PHP endpoint so the read
+      // state is preserved even if the user closes/leaves the chat in under 150ms.
+      internalFetchPhp('/mark_read.php', { target_id: targetId }, state.accountId, (err) => {
+        if (err) logError('internalFetchPhp mark_read error:', err.message);
+      });
       return;
     }
 

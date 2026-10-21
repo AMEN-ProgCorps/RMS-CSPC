@@ -746,17 +746,30 @@
         } else if (data.type === 'message_read') {
           // The other participant just read up through data.last_msg_uuid —
           // update the Messenger-style "Seen" indicator instantly, no poll needed.
-          if (activeDM && activeDMAccountId === Number(data.reader_id)) {
+          const readerId = Number(data.reader_id);
+          const targetId = Number(data.target_id);
+
+          // Only process this read marker for our private DMs if the other participant was reading
+          // OUR conversation (i.e. target_id is OUR account).
+          // Otherwise (e.g. admin receiving audit broadcast when reader read someone else's chat),
+          // this is a foreign conversation and must NOT corrupt our DM's read marker!
+          if (targetId && wsConfig && Number(wsConfig.accountId) > 0 && targetId === Number(wsConfig.accountId)) {
+            const readerUser = allUsersData.find(u => Number(u.account_id) === readerId);
+            const readerUsername = (readerUser ? readerUser.username : null) || (activeDMAccountId === readerId ? activeDM : null);
             let incomingReadUpTo = data.last_msg_uuid || null;
-            if (incomingReadUpTo && (incomingReadUpTo !== dmReadUpTo || !chatBox.querySelector('.seen-indicator'))) {
-              dmReadUpTo = incomingReadUpTo;
-              dmReadUpToMap.set(activeDM, dmReadUpTo);
-              const cachedObj = dmMessageCache.get(activeDM);
+            if (incomingReadUpTo && readerUsername) {
+              dmReadUpToMap.set(readerUsername, incomingReadUpTo);
+              const cachedObj = dmMessageCache.get(readerUsername);
               if (cachedObj) {
-                cachedObj.readUpTo = dmReadUpTo;
-                if (cachedObj._raw) cachedObj._raw.readUpTo = dmReadUpTo;
+                cachedObj.readUpTo = incomingReadUpTo;
+                if (cachedObj._raw) cachedObj._raw.readUpTo = incomingReadUpTo;
               }
-              updateSeenIndicator();
+            }
+            if (activeDM && (activeDMAccountId === readerId || activeDM === readerUsername)) {
+              if (incomingReadUpTo && (incomingReadUpTo !== dmReadUpTo || !chatBox.querySelector('.seen-indicator'))) {
+                dmReadUpTo = incomingReadUpTo;
+                updateSeenIndicator();
+              }
             }
           }
         } else if (data.type === 'chat_cleared') {
@@ -1756,13 +1769,13 @@
 
     function cacheDmSnapshot(username, data) {
       if (!username || !data) return;
-      let readUpToVal = (typeof data.readUpTo !== 'undefined')
-        ? (data.readUpTo || null)
+      let readUpToVal = (typeof data.readUpTo !== 'undefined' && data.readUpTo !== null)
+        ? data.readUpTo
         : ((typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(username)) ? (dmReadUpToMap.get(username) || null) : null);
-      if (typeof dmReadUpToMap !== 'undefined') {
+      if (typeof dmReadUpToMap !== 'undefined' && readUpToVal !== null) {
         dmReadUpToMap.set(username, readUpToVal);
       }
-      if (typeof data === 'object' && data !== null) {
+      if (typeof data === 'object' && data !== null && readUpToVal !== null) {
         data.readUpTo = readUpToVal;
       }
       dmMessageCache.delete(username); // re-insert at the end = most-recently-used
@@ -2852,7 +2865,7 @@
         xhr.open('POST', 'mark_read.php', true);
         xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
         xhr.send('target_id=' + encodeURIComponent(targetId) + '&target_user=' + encodeURIComponent(targetUsername));
-      }, 150);
+      }, 50);
     }
 
     // Messenger-style "Seen" indicator: shown under the newest message WE sent
@@ -2904,19 +2917,6 @@
       if (readMarkerIndex !== -1) {
         // Target is the last SENT message at or before readMarkerIndex
         for (let i = readMarkerIndex; i >= 0; i--) {
-          if (allMessages[i].classList.contains('sent')) {
-            target = allMessages[i];
-            break;
-          }
-        }
-      } else {
-        // readUpTo message is NOT in the loaded DOM window.  This means the
-        // read marker refers to a message outside the currently rendered
-        // viewport (e.g. it was scrolled out, or we're viewing older history).
-        // All *visible* sent messages are guaranteed to be at-or-before the
-        // read point, so place the indicator on the LAST visible sent message
-        // to preserve the "Seen" badge instead of wrongly removing it.
-        for (let i = allMessages.length - 1; i >= 0; i--) {
           if (allMessages[i].classList.contains('sent')) {
             target = allMessages[i];
             break;
@@ -3093,9 +3093,9 @@
 
       dmCursor = (cached && cached.nextCursor) ? cached.nextCursor : '';
       dmHasMore = (cached && cached.hasMore) ? cached.hasMore : false;
-      dmReadUpTo = (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(u.username))
+      dmReadUpTo = (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(u.username) && dmReadUpToMap.get(u.username))
         ? dmReadUpToMap.get(u.username)
-        : ((cached && typeof cached.readUpTo !== 'undefined') ? cached.readUpTo : null);
+        : ((cached && typeof cached.readUpTo !== 'undefined' && cached.readUpTo) ? cached.readUpTo : null);
       if (dmReadUpTo && cached && cached._raw) {
         cached._raw.readUpTo = dmReadUpTo;
       }

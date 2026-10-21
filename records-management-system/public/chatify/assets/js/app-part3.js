@@ -2674,14 +2674,13 @@
           if (cachedObj._raw) cachedObj._raw.readUpTo = data.readUpTo;
         }
       } else {
-        // Server returned null/undefined readUpTo.  Only wipe the local
-        // marker if we don't already have a cached one — otherwise we'd
-        // destroy a perfectly valid "Seen" indicator every time a poll or
-        // backread response happens not to include readUpTo.
         const existingMarker = (typeof dmReadUpToMap !== 'undefined' && dmReadUpToMap.has(requestedUser))
           ? dmReadUpToMap.get(requestedUser)
           : null;
-        if (!existingMarker) {
+        if (existingMarker) {
+          dmReadUpTo = existingMarker;
+          if (typeof data === 'object' && data !== null) data.readUpTo = existingMarker;
+        } else {
           dmReadUpTo = null;
           if (typeof dmReadUpToMap !== 'undefined') dmReadUpToMap.set(requestedUser, null);
           const cachedObj = typeof dmMessageCache !== 'undefined' ? dmMessageCache.get(requestedUser) : null;
@@ -2689,9 +2688,6 @@
             cachedObj.readUpTo = null;
             if (cachedObj._raw) cachedObj._raw.readUpTo = null;
           }
-        } else {
-          // Preserve the known marker — don't overwrite with null
-          dmReadUpTo = existingMarker;
         }
       }
 

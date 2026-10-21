@@ -145,7 +145,16 @@
             if (history.length > 1) history.back();
             return;
         }
-        location.assign(target);
+        try {
+            var url = new URL(target, location.origin);
+            var sameOrigin = url.origin === location.origin;
+            var safeProtocol = url.protocol === 'http:' || url.protocol === 'https:';
+            if (sameOrigin && safeProtocol) {
+                location.assign(url.href);
+                return;
+            }
+        } catch (e) {}
+        if (history.length > 1) history.back();
     }
 
     function errorColor(status) {

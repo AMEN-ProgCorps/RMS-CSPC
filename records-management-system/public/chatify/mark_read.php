@@ -34,7 +34,8 @@ echo json_encode(['success' => true]);
 // after the response above is flushed — see WsPush::flushResponseThenRun().
 if ($lastMsgUuid !== null) {
     WsPush::flushResponseThenRun(function () use ($targetId, $myAccountId, $lastMsgUuid) {
-        WsPush::push([$targetId, 1], 'message_read', [
+        $readRecipients = array_values(array_unique(array_merge([$targetId], Auth::getAllSuperAdminIds())));
+        WsPush::push($readRecipients, 'message_read', [
             'reader_id'    => $myAccountId,
             'target_id'    => $targetId,
             'last_msg_uuid'=> $lastMsgUuid,

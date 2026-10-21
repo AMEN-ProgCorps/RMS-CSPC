@@ -48,7 +48,8 @@ if ($isGlobal || $targetOfficeId) {
 
     if ($targetOfficeId) {
         $memberIds = OfficeChatManager::getOfficeMembers($targetOfficeId);
-        WsPush::push($memberIds, 'chat_cleared', [
+        $targetIds = array_values(array_unique(array_merge($memberIds, Auth::getAllSuperAdminIds())));
+        WsPush::push($targetIds, 'chat_cleared', [
             'chat_type' => 'office_gc',
             'conv_id'   => $channelConvId,
             'office_id' => $targetOfficeId,
@@ -122,7 +123,8 @@ if ($deleted) {
     $userA = isset($parts[0]) ? (int) $parts[0] : 0;
     $userB = isset($parts[1]) ? (int) $parts[1] : 0;
 
-    WsPush::push([$userA, $userB, 1], 'chat_cleared', [
+    $clearRecipients = array_values(array_unique(array_merge([$userA, $userB], Auth::getAllSuperAdminIds())));
+    WsPush::push($clearRecipients, 'chat_cleared', [
         'chat_type'    => 'private',
         'sender_id'    => $myAccountId,
         'recipient_id' => ($myAccountId === $userA ? $userB : $userA),

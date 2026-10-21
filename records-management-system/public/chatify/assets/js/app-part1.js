@@ -578,33 +578,47 @@
             const isOfficeMsg = (data.chat_type === 'office_gc') || (data.conv_id && data.conv_id.startsWith('office_'));
             const msgConvId   = data.conv_id || (isOfficeMsg ? window.currentOfficeInfo?.conv_id : 'global');
 
-            // If message is for another office GC, drop it
-            if (isOfficeMsg && window.currentOfficeInfo && window.currentOfficeInfo.conv_id && msgConvId !== window.currentOfficeInfo.conv_id) {
-              return;
+            const isViewingThisInAdminSpy = (typeof activeAdminConv !== 'undefined' && activeAdminConv === msgConvId);
+
+            // If message is for an office GC:
+            // Allow only if Super Admin is actively viewing this GC in spy mode, OR the user belongs to this office GC
+            if (isOfficeMsg) {
+              const isOwnOffice = Boolean(window.currentOfficeInfo && window.currentOfficeInfo.conv_id && window.currentOfficeInfo.conv_id === msgConvId);
+              if (!isViewingThisInAdminSpy && !isOwnOffice) {
+                return;
+              }
             }
 
             if (Array.isArray(data.mentioned_ids) && data.mentioned_ids.map(Number).includes(Number(wsConfig.accountId))) {
               catchUpMissedNotifications();
             }
 
-            const curConvId = (typeof getActiveChannelConvId === 'function')
-              ? getActiveChannelConvId()
-              : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
-
-            if (isGlobalChat && msgConvId === curConvId) {
-              const sender = Number(data.sender_id);
-              if (sender !== wsConfig.accountId) {
-                if (data.has_upload) {
-                  isLoadingGC = false;
-                  loadGlobalChat(false);
-                } else {
-                  renderAndAppendWsMessage(data);
-                }
+            if (isViewingThisInAdminSpy) {
+              if (data.has_upload) {
+                loadAdminConv(activeAdminConv, false);
               } else {
-                // Echo of our own sent message — XHR optimistic path already rendered it in place.
-                if (data.has_upload) {
-                  isLoadingGC = false;
-                  loadGlobalChat(false);
+                renderAndAppendAdminWsMessage(data);
+              }
+            } else {
+              const curConvId = (typeof getActiveChannelConvId === 'function')
+                ? getActiveChannelConvId()
+                : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+
+              if (isGlobalChat && msgConvId === curConvId) {
+                const sender = Number(data.sender_id);
+                if (sender !== wsConfig.accountId) {
+                  if (data.has_upload) {
+                    isLoadingGC = false;
+                    loadGlobalChat(false);
+                  } else {
+                    renderAndAppendWsMessage(data);
+                  }
+                } else {
+                  // Echo of our own sent message — XHR optimistic path already rendered it in place.
+                  if (data.has_upload) {
+                    isLoadingGC = false;
+                    loadGlobalChat(false);
+                  }
                 }
               }
             }
@@ -744,7 +758,9 @@
             removePaginationBtn();
             if (typeof closeImageViewer === 'function') closeImageViewer();
 
-            if (isGlobalChat && window.activeChannel === 'global') {
+            if (typeof activeAdminConv !== 'undefined' && activeAdminConv === 'global') {
+              loadAdminConv(activeAdminConv, false);
+            } else if (isGlobalChat && window.activeChannel === 'global') {
               if (chatBox) chatBox.innerHTML = '<div class="empty-chat"></div>';
               isFirstLoad = true;
               chatFullyLoaded = false;
@@ -757,6 +773,10 @@
 
           // ── Case 2: Office Group Chat clear (admin "/clear" in Office GC) ──
           if (isOfficeClear) {
+            if (typeof activeAdminConv !== 'undefined' && activeAdminConv === clearedConvId) {
+              loadAdminConv(activeAdminConv, false);
+              return;
+            }
             // Only affects users belonging to this office
             if (window.currentOfficeInfo && window.currentOfficeInfo.conv_id && clearedConvId !== window.currentOfficeInfo.conv_id) {
               return; // Clear belongs to another office
@@ -929,11 +949,100 @@
         } else if (data.type === 'users_changed') {
           // Pushed by the server whenever something outside the chat itself
           // affects the sidebar list — account created/deleted, visibility
-          // changed, etc. Message-driven sidebar refreshes already happen
-          // via the 'message'/'chat_cleared'/'all_cleared' cases above; this
-          // covers everything else without needing a blind poll for it.
+          // changed, office assigned/removed, etc.
           console.log('Received WebSocket real-time update notice:', data);
           fetchUsers();
+          if (typeof reloadOfficeMembersList === 'function') {
+            reloadOfficeMembersList(true);
+          }
+
+          const changedUserId = Number(data.account_id);
+          const newOfficeId   = (data.office_id !== null && data.office_id !== undefined && data.office_id !== '') ? Number(data.office_id) : 0;
+
+          // ── Case 1: Super Admin is currently spying on an Office GC ──
+          if (typeof activeAdminConv !== 'undefined' && activeAdminConv && activeAdminConv.startsWith('office_')) {
+            const spiedOfficeId = Number(activeAdminConv.replace('office_', ''));
+
+            if (chatBox && changedUserId > 0) {
+              const msgContainers = chatBox.querySelectorAll(`.message-container[data-sender-id="${changedUserId}"]`);
+              if (newOfficeId !== spiedOfficeId) {
+                const noticeText = (newOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+                const changedMsgIds = new Set();
+                msgContainers.forEach(container => {
+                  container.classList.add('user-moved');
+                  const mid = container.getAttribute('data-msg-id');
+                  if (mid) changedMsgIds.add(mid);
+                  const contentEl = container.querySelector('.message-content');
+                  if (contentEl) {
+                    contentEl.textContent = noticeText;
+                    contentEl.style.fontStyle = 'italic';
+                    contentEl.style.opacity = '0.85';
+                  }
+                  container.querySelectorAll('.chat-attachment-container, .reply-quote-image, img.chat-image, video, audio').forEach(el => el.remove());
+                });
+
+                if (changedMsgIds.size > 0) {
+                  chatBox.querySelectorAll('.reply-quote[data-reply-to]').forEach(rq => {
+                    const replyTo = rq.getAttribute('data-reply-to');
+                    if (replyTo && changedMsgIds.has(replyTo)) {
+                      const textEl = rq.querySelector('.reply-quote-text');
+                      if (textEl) {
+                        textEl.textContent = noticeText;
+                        textEl.style.fontStyle = 'italic';
+                        textEl.style.opacity = '0.8';
+                      }
+                      rq.querySelectorAll('.reply-quote-image, .reply-quote-image-container').forEach(el => el.remove());
+                    }
+                  });
+                }
+              }
+            }
+
+            if (typeof loadAdminConv === 'function') {
+              loadAdminConv(activeAdminConv, false);
+            }
+          }
+
+          // ── Case 2: User is currently viewing Office GC in normal mode ──
+          if (window.activeChannel === 'office') {
+            const currentOfficeId = window.currentOfficeInfo ? Number(window.currentOfficeInfo.office_id) : 0;
+            if (chatBox && changedUserId > 0 && currentOfficeId > 0 && newOfficeId !== currentOfficeId) {
+              const noticeText = (newOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+              const changedMsgIds = new Set();
+              const msgContainers = chatBox.querySelectorAll(`.message-container[data-sender-id="${changedUserId}"]`);
+              msgContainers.forEach(container => {
+                container.classList.add('user-moved');
+                const mid = container.getAttribute('data-msg-id');
+                if (mid) changedMsgIds.add(mid);
+                const contentEl = container.querySelector('.message-content');
+                if (contentEl) {
+                  contentEl.textContent = noticeText;
+                  contentEl.style.fontStyle = 'italic';
+                  contentEl.style.opacity = '0.85';
+                }
+                container.querySelectorAll('.chat-attachment-container, .reply-quote-image, img.chat-image, video, audio').forEach(el => el.remove());
+              });
+
+              if (changedMsgIds.size > 0) {
+                chatBox.querySelectorAll('.reply-quote[data-reply-to]').forEach(rq => {
+                  const replyTo = rq.getAttribute('data-reply-to');
+                  if (replyTo && changedMsgIds.has(replyTo)) {
+                    const textEl = rq.querySelector('.reply-quote-text');
+                    if (textEl) {
+                      textEl.textContent = noticeText;
+                      textEl.style.fontStyle = 'italic';
+                      textEl.style.opacity = '0.8';
+                    }
+                    rq.querySelectorAll('.reply-quote-image, .reply-quote-image-container').forEach(el => el.remove());
+                  }
+                });
+              }
+            }
+
+            if (typeof loadGlobalChat === 'function') {
+              loadGlobalChat(false, false, true);
+            }
+          }
         } else if (data.type === 'verification_update') {
           // Broadcast from set_verification.php when Super Admin toggles a user's badge
           const changedId = Number(data.account_id);
@@ -1416,6 +1525,51 @@
         allUsersData = data.users || [];
         userSearchHasMore = !!data.hasMore;
         serverIsAdmin = !!(data.currentUser && data.currentUser.is_admin);
+
+        if (data.currentUser) {
+          const freshOfficeId = (data.currentUser.office_id !== null && data.currentUser.office_id !== undefined)
+            ? Number(data.currentUser.office_id)
+            : 0;
+          if (window.currentOfficeInfo) {
+            const oldOfficeId = window.currentOfficeInfo.office_id ? Number(window.currentOfficeInfo.office_id) : 0;
+            window.currentOfficeInfo.office_id = freshOfficeId > 0 ? freshOfficeId : null;
+            if (freshOfficeId > 0) {
+              window.currentOfficeInfo.conv_id = 'office_' + freshOfficeId;
+              if (data.currentUser.office_name) window.currentOfficeInfo.office_name = data.currentUser.office_name;
+              if (data.currentUser.office_code) window.currentOfficeInfo.office_code = data.currentUser.office_code;
+              window.currentOfficeInfo.display_title = (data.currentUser.office_code || data.currentUser.office_name || 'Office Group Chat');
+              const tEl = document.getElementById('officeGcTitle');
+              if (tEl) tEl.textContent = window.currentOfficeInfo.display_title;
+              const subEl = document.getElementById('officeGcLastMsg');
+              if (subEl) subEl.textContent = data.currentUser.office_name || '';
+            } else {
+              window.currentOfficeInfo.conv_id = null;
+              window.currentOfficeInfo.office_name = null;
+              window.currentOfficeInfo.office_code = null;
+              window.currentOfficeInfo.display_title = null;
+            }
+            if (oldOfficeId > 0 && freshOfficeId > 0 && oldOfficeId !== freshOfficeId && window.activeChannel === 'office') {
+              if (typeof selectOfficeChat === 'function') selectOfficeChat();
+            }
+          }
+          const ocItem = document.getElementById('officeChatItem');
+          if (ocItem) {
+            const isSpy = (typeof isAdminAllChatsView !== 'undefined') ? isAdminAllChatsView : false;
+            ocItem.style.display = (freshOfficeId > 0 && !isSpy) ? '' : 'none';
+          }
+          if (freshOfficeId <= 0) {
+            if (localStorage.getItem('activeDM') === '__office__') {
+              localStorage.removeItem('activeDM');
+            }
+            if (window.activeChannel === 'office') {
+              if (typeof closeOfficeMembersModal === 'function') closeOfficeMembersModal();
+              selectGlobalChat();
+            }
+          }
+          if (typeof updateOfficeInfoButtonVisibility === 'function') {
+            updateOfficeInfoButtonVisibility();
+          }
+        }
       }
 
       // Online presence is WS-driven, but we preserve last_online_time from the DB
@@ -1436,6 +1590,9 @@
         if (activeUser) activeUser.unreadCount = 0;
       }
       renderSidebarUsers();
+      if (typeof reloadOfficeMembersList === 'function') {
+        reloadOfficeMembersList(true);
+      }
 
       // Note: we no longer warm dmMessageCache here. selectDM/performSelectDM
       // paints only from the real load_dm.php response now (same single-paint
@@ -1506,7 +1663,13 @@
         return;
       }
       if (savedActiveDM === '__office__') {
-        selectOfficeChat();
+        const hasOffice = !!(window.currentOfficeInfo && window.currentOfficeInfo.office_id && Number(window.currentOfficeInfo.office_id) > 0);
+        if (hasOffice) {
+          selectOfficeChat();
+        } else {
+          localStorage.removeItem('activeDM');
+          selectGlobalChat();
+        }
         return;
       }
 
@@ -1934,13 +2097,6 @@
     let notifyTargetUser = null; // { account_id, username, name, ... } — same shape as fetch_users_dm.php's user objects
 
     function openNotifyModal(user) {
-      // Defense in depth: never allow the admin (account_id === 1) to be
-      // @mentioned/notified by a regular user, even if this gets called
-      // some other way besides the sidebar's notify button.
-      if (Number(user.account_id) === 1 && !serverIsAdmin) {
-        console.warn('Blocked attempt to notify/mention the admin.');
-        return;
-      }
       notifyTargetUser = user;
       notifyTargetName.textContent = '@' + user.username;
       notifyMessageInput.value = '';
@@ -2836,6 +2992,7 @@
         allUsersData.unshift(u);
       }
       updateClearChatButtonVisibility();
+      updateOfficeInfoButtonVisibility();
       clearSendingOverlay(); // drop any pending-send bubbles from the previous conversation
       hideEditBanner();
       if (typeof hideReplyBanner === 'function') hideReplyBanner();
@@ -2930,6 +3087,7 @@
       activeDMAccountId = null;
       activeAdminConv = null;
       updateClearChatButtonVisibility();
+      updateOfficeInfoButtonVisibility();
       gcCursor = '';
       gcHasMore = false;
       gcViewingOlder = false;
@@ -2978,6 +3136,16 @@
     window.selectGlobalChat = selectGlobalChat;
 
     function selectOfficeChat() {
+      const hasOffice = !!(window.currentOfficeInfo && window.currentOfficeInfo.office_id && Number(window.currentOfficeInfo.office_id) > 0);
+      if (!hasOffice) {
+        localStorage.removeItem('activeDM');
+        const oc = document.getElementById('officeChatItem');
+        if (oc) oc.style.display = 'none';
+        if (typeof updateOfficeInfoButtonVisibility === 'function') updateOfficeInfoButtonVisibility();
+        selectGlobalChat();
+        return;
+      }
+
       if (isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv) {
         if (isMobileViewport()) {
           sidebar.classList.remove('open');
@@ -2998,6 +3166,7 @@
       activeDMAccountId = null;
       activeAdminConv = null;
       updateClearChatButtonVisibility();
+      updateOfficeInfoButtonVisibility();
       gcCursor = '';
       gcHasMore = false;
       gcViewingOlder = false;
@@ -3712,6 +3881,7 @@
       adminSpyTargetUser = user;
       activeAdminConv = null;
       updateClearChatButtonVisibility();
+      updateOfficeInfoButtonVisibility();
       chatHeaderTitle.textContent = '';
       applyHeaderAdminBadge();
       applyHeaderAvatar(null);
@@ -3724,6 +3894,7 @@
       adminSpyTargetUser = null;
       activeAdminConv = null;
       updateClearChatButtonVisibility();
+      updateOfficeInfoButtonVisibility();
       chatHeaderTitle.textContent = '';
       applyHeaderAdminBadge();
       applyHeaderAvatar(null);
@@ -4005,7 +4176,7 @@
           const count = c.msgCount || 1;
           const newMsg = (count > 99)
             ? '99+ messages'
-            : (count + ' msg' + (count !== 1 ? 's' : '') + (c.lastMessage ? ' · ' + c.lastMessage : ''));
+            : (count + ' msg' + (count !== 1 ? 's' : ''));
           if (msgEl.textContent !== newMsg) msgEl.textContent = newMsg;
 
           list.appendChild(item);
@@ -4057,6 +4228,209 @@
       if (!btn) return;
       btn.style.display = (typeof isAdmin !== 'undefined' && isAdmin && !!activeAdminConv) ? 'inline-flex' : 'none';
     }
+
+    function updateOfficeInfoButtonVisibility() {
+      const infoBtn = document.getElementById('officeInfoBtn');
+      if (!infoBtn) return;
+      const hasOffice = !!(window.currentOfficeInfo && window.currentOfficeInfo.office_id && Number(window.currentOfficeInfo.office_id) > 0);
+      const isOfficeChannel = (window.activeChannel === 'office' || activeChannel === 'office') && !activeDM && !activeAdminConv && hasOffice;
+      const isAdminOfficeConv = typeof activeAdminConv === 'string' && activeAdminConv.startsWith('office_');
+      const isOffice = isOfficeChannel || isAdminOfficeConv;
+      infoBtn.style.display = isOffice ? 'inline-flex' : 'none';
+    }
+    window.updateOfficeInfoButtonVisibility = updateOfficeInfoButtonVisibility;
+    updateOfficeInfoButtonVisibility();
+
+    let officeMembersPollTimer = null;
+
+    function reloadOfficeMembersList(silent = true) {
+      const modal = document.getElementById('officeMembersModal');
+      if (!modal || !modal.classList.contains('active')) return;
+
+      const titleEl = document.getElementById('officeMembersModalTitle');
+      const subtitleEl = document.getElementById('officeMembersModalSubtitle');
+      const countBadge = document.getElementById('officeMembersCountBadge');
+      const listEl = document.getElementById('officeMembersList');
+
+      if (!silent && listEl) {
+        listEl.innerHTML = '<div style="padding:32px 16px;text-align:center;color:var(--text-secondary);font-size:13px;font-weight:500;">Loading members...</div>';
+      }
+
+      let param = '';
+      if (typeof activeAdminConv === 'string' && activeAdminConv.startsWith('office_')) {
+        param = 'conv_id=' + encodeURIComponent(activeAdminConv);
+      } else if (window.currentOfficeInfo && window.currentOfficeInfo.conv_id && window.currentOfficeInfo.conv_id.startsWith('office_')) {
+        param = 'conv_id=' + encodeURIComponent(window.currentOfficeInfo.conv_id);
+      } else if (window.currentOfficeInfo && window.currentOfficeInfo.office_id) {
+        param = 'office_id=' + encodeURIComponent(window.currentOfficeInfo.office_id);
+      }
+
+      const url = param ? ('fetch_office_members.php?' + param) : 'fetch_office_members.php';
+
+      fetch(url)
+        .then(res => res.json())
+        .then(data => {
+          if (!modal.classList.contains('active')) return;
+          if (!data.success) {
+            if (!silent && listEl) {
+              listEl.innerHTML = `<div style="padding:24px 16px;text-align:center;color:#e74c3c;font-size:13px;">${escapeHtml(data.error || 'Failed to load members.')}</div>`;
+            }
+            return;
+          }
+
+          if (titleEl && data.office) {
+            titleEl.textContent = data.office.code ? (data.office.code + ' Members') : (data.office.name || 'Office Members');
+          }
+          if (subtitleEl && data.office && data.office.name) {
+            subtitleEl.textContent = data.office.name;
+          }
+          if (countBadge) {
+            countBadge.textContent = data.member_count || (data.members ? data.members.length : 0);
+          }
+
+          renderOfficeMembersList(data.members || [], silent);
+        })
+        .catch(err => {
+          if (!silent && listEl) {
+            listEl.innerHTML = '<div style="padding:24px 16px;text-align:center;color:#e74c3c;font-size:13px;">Error loading members. Please try again.</div>';
+          }
+        });
+    }
+    window.reloadOfficeMembersList = reloadOfficeMembersList;
+
+    function openOfficeMembersModal() {
+      const modal = document.getElementById('officeMembersModal');
+      if (!modal) return;
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+
+      reloadOfficeMembersList(false);
+
+      if (officeMembersPollTimer) clearInterval(officeMembersPollTimer);
+      officeMembersPollTimer = setInterval(() => {
+        const m = document.getElementById('officeMembersModal');
+        if (m && m.classList.contains('active')) {
+          reloadOfficeMembersList(true);
+        } else {
+          clearInterval(officeMembersPollTimer);
+          officeMembersPollTimer = null;
+        }
+      }, 3000);
+    }
+    window.openOfficeMembersModal = openOfficeMembersModal;
+
+    function closeOfficeMembersModal() {
+      const modal = document.getElementById('officeMembersModal');
+      if (!modal) return;
+      modal.classList.remove('active');
+      modal.setAttribute('aria-hidden', 'true');
+      if (officeMembersPollTimer) {
+        clearInterval(officeMembersPollTimer);
+        officeMembersPollTimer = null;
+      }
+    }
+    window.closeOfficeMembersModal = closeOfficeMembersModal;
+
+    function syncOfficeMembersModalVerification(accountId, isVerified) {
+      const targetId = Number(accountId);
+      if (Array.isArray(window.currentOfficeMembers)) {
+        const m = window.currentOfficeMembers.find(x => Number(x.account_id) === targetId);
+        if (m) m.is_chatify_verified = !!isVerified;
+      }
+      const row = document.querySelector(`#officeMembersList [data-account-id="${targetId}"]`);
+      if (!row) return;
+
+      const nameRow = row.querySelector('.mention-user-name')?.parentElement || row.querySelector('.mention-user-info > div');
+      if (!nameRow) return;
+
+      const existingBadge = nameRow.querySelector('.verified-badge');
+      if (isVerified && !existingBadge) {
+        const vBadge = document.createElement('span');
+        vBadge.className = 'verified-badge';
+        vBadge.style.cssText = 'flex-shrink:0;';
+        vBadge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+        nameRow.appendChild(vBadge);
+      } else if (!isVerified && existingBadge) {
+        existingBadge.remove();
+      }
+    }
+    window.syncOfficeMembersModalVerification = syncOfficeMembersModalVerification;
+
+    function renderOfficeMembersList(members, isSilent = false) {
+      const listEl = document.getElementById('officeMembersList');
+      if (!listEl) return;
+
+      if (!members || members.length === 0) {
+        window.currentOfficeMembers = [];
+        listEl.innerHTML = '<div style="padding:32px 16px;text-align:center;color:var(--text-secondary);font-size:13px;">No members found in this office.</div>';
+        return;
+      }
+
+      const existingRows = listEl.querySelectorAll('.mention-user-row');
+      const oldKeys = (window.currentOfficeMembers || []).map(m => `${m.account_id}_${m.is_chatify_verified ? 1 : 0}_${m.role_name || ''}`).join('|');
+      const newKeys = (members || []).map(m => `${m.account_id}_${m.is_chatify_verified ? 1 : 0}_${m.role_name || ''}`).join('|');
+
+      // Only skip re-render during background silent sync if the list already contains all rows and keys didn't change
+      if (isSilent && existingRows.length === members.length && oldKeys === newKeys) {
+        window.currentOfficeMembers = members;
+        return;
+      }
+
+      window.currentOfficeMembers = members;
+      listEl.innerHTML = '';
+      const myId = (typeof myAccountId !== 'undefined' ? myAccountId : (window.currentAccountDetails ? window.currentAccountDetails.id : 0));
+
+      members.forEach(m => {
+        const item = document.createElement('div');
+        item.className = 'mention-user-row';
+        item.style.cssText = 'cursor:default;flex-shrink:0;';
+        item.dataset.accountId = m.account_id;
+        item.setAttribute('data-account-id', m.account_id);
+
+        const avatar = document.createElement('div');
+        avatar.className = 'mention-user-avatar';
+        avatar.innerHTML = avatarInnerHtml(m.avatar_url, getInitialsFromFullName(m.full_name));
+
+        const info = document.createElement('div');
+        info.className = 'mention-user-info';
+
+        const nameRow = document.createElement('div');
+        nameRow.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:0;';
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'mention-user-name';
+        nameEl.textContent = m.full_name + (m.account_id === myId ? ' (You)' : '');
+        nameRow.appendChild(nameEl);
+
+        if (m.is_chatify_verified) {
+          const vBadge = document.createElement('span');
+          vBadge.className = 'verified-badge';
+          vBadge.style.cssText = 'flex-shrink:0;';
+          vBadge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+          nameRow.appendChild(vBadge);
+        }
+
+        const subEl = document.createElement('div');
+        subEl.className = 'mention-user-sub';
+        subEl.textContent = m.role_name || m.email || '';
+
+        info.appendChild(nameRow);
+        info.appendChild(subEl);
+
+        item.appendChild(avatar);
+        item.appendChild(info);
+
+        listEl.appendChild(item);
+      });
+    }
+
+    const officeMembersModalBackdrop = document.getElementById('officeMembersModal');
+    if (officeMembersModalBackdrop) {
+      officeMembersModalBackdrop.addEventListener('click', function(e) {
+        if (e.target === officeMembersModalBackdrop) closeOfficeMembersModal();
+      });
+    }
+
     let adminConvCursor = '';
     let adminConvHasMore = false;
     let adminConvViewingOlder = false; // true once the user has loaded an older window
@@ -4284,6 +4658,7 @@
       activeDMAccountId = null;
       isGlobalChat = false;
       updateClearChatButtonVisibility();
+      updateOfficeInfoButtonVisibility();
 
       const _hEl = document.querySelector('.header');
       if (_hEl) {
@@ -4349,6 +4724,7 @@
       activeDM = null;
       activeDMAccountId = null;
       updateClearChatButtonVisibility();
+      updateOfficeInfoButtonVisibility();
       isGlobalChat = false; // must reset — otherwise polling/visibilitychange keep re-loading Global Chat over the spy view
       const _hEl = document.querySelector('.header');
       if (_hEl) _hEl.classList.remove('is-global-chat');
@@ -4424,6 +4800,7 @@
       }
       
       updateClearChatButtonVisibility();
+      updateOfficeInfoButtonVisibility();
       hideEditBanner();
       if (typeof hideReplyBanner === 'function') hideReplyBanner();
       
@@ -4470,6 +4847,15 @@
       }
       const gcItem = document.getElementById('globalChatItem');
       if (gcItem) gcItem.classList.remove('active');
+      const ocItem = document.getElementById('officeChatItem');
+      if (ocItem) ocItem.classList.remove('active');
+
+      if (typeof sidebarUserItems !== 'undefined' && sidebarUserItems) {
+        sidebarUserItems.forEach(item => item.classList.remove('active'));
+      }
+      if (typeof adminConvItems !== 'undefined' && adminConvItems) {
+        adminConvItems.forEach(item => item.classList.remove('active'));
+      }
       
       renderSidebarUsers();
       if (serverIsAdmin) renderAdminConvs();

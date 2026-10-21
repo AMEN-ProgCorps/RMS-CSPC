@@ -75,16 +75,16 @@ class OfficeChatManager
 
     /**
      * Check if an account is an admin of an office GC.
-     * Super Admin (account_id = 1) is the admin of every office GC.
+     * Super Admins are admins of every office GC.
      */
     public static function isOfficeAdmin(int $accountId, int $officeId): bool
     {
-        return $accountId === 1;
+        return Auth::checkIsAdmin($accountId);
     }
 
     /**
      * Get all member account_ids belonging to an office.
-     * Always includes account_id 1 (Super Admin).
+     * Always includes all Super Admins.
      */
     public static function getOfficeMembers(int $officeId): array
     {
@@ -96,12 +96,15 @@ class OfficeChatManager
             $stmt->execute([':oid' => $officeId]);
             $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
             $ids = array_map('intval', $rows);
-            if (!in_array(1, $ids, true)) {
-                $ids[] = 1;
+            $adminIds = Auth::getAllSuperAdminIds();
+            foreach ($adminIds as $adminId) {
+                if (!in_array($adminId, $ids, true)) {
+                    $ids[] = $adminId;
+                }
             }
             return array_values(array_unique($ids));
         } catch (Throwable $e) {
-            return [1];
+            return Auth::getAllSuperAdminIds();
         }
     }
 }

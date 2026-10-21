@@ -66,9 +66,9 @@ if (!Auth::check()) {
 $user_name = trim(preg_replace('/\s+/', ' ', (string) $_SESSION["name"]));
 $username  = $_SESSION["username"] ?? '';
 
-// Admin is strictly determined by account_id = 1
+// Super Admin is determined by role permissions (is_sadm), role name, or account_id = 1
 $_current_account_id = (int) ($_SESSION['account_id'] ?? 0);
-$is_admin = ($_current_account_id === 1);
+$is_admin = Auth::checkIsAdmin($_current_account_id);
 $_SESSION['is_admin'] = $is_admin;
 
 // Load the list of account_ids with is_chatify_verified = TRUE for real-time badge injection.
@@ -79,6 +79,12 @@ try {
     $stmt = $pdo->query('SELECT account_id FROM ' . Database::t('account_details') . ' WHERE is_chatify_verified = TRUE');
     $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
     $verified_account_ids = array_map('intval', $rows);
+    $adminIds = Auth::getAllSuperAdminIds();
+    foreach ($adminIds as $aid) {
+        if (!in_array($aid, $verified_account_ids, true)) {
+            $verified_account_ids[] = $aid;
+        }
+    }
 } catch (Throwable $e) {
     // Non-fatal — verified badges simply won't show if DB is unavailable
 }
@@ -179,13 +185,16 @@ try {
     window.verifiedAccountIdsSet = verifiedAccountIds;
     window.isSuperAdmin = <?php echo json_encode($is_admin); ?>;
     window.currentOfficeInfo = {
-      office_id: <?php echo json_encode($current_office_id); ?>,
-      office_name: <?php echo json_encode($current_office_name); ?>,
-      office_code: <?php echo json_encode($current_office_code); ?>,
-      conv_id: <?php echo json_encode($current_office_id > 0 ? OfficeChatManager::convId($current_office_id) : 'global'); ?>,
+      office_id: <?php echo json_encode($current_office_id > 0 ? $current_office_id : null); ?>,
+      office_name: <?php echo json_encode($current_office_id > 0 ? $current_office_name : null); ?>,
+      office_code: <?php echo json_encode($current_office_id > 0 ? $current_office_code : null); ?>,
+      conv_id: <?php echo json_encode($current_office_id > 0 ? OfficeChatManager::convId($current_office_id) : null); ?>,
       is_gc_admin: <?php echo json_encode($is_admin); ?>,
-      display_title: <?php echo json_encode($current_office_id > 0 ? ($current_office_code !== '' ? $current_office_code : $current_office_name) : 'General Chat'); ?>
+      display_title: <?php echo json_encode($current_office_id > 0 ? ($current_office_code !== '' ? $current_office_code : $current_office_name) : null); ?>
     };
+    if (!window.currentOfficeInfo.office_id && localStorage.getItem('activeDM') === '__office__') {
+      localStorage.removeItem('activeDM');
+    }
   </script>
   <!-- Apply dark mode BEFORE page renders to prevent flash -->
   <script>
@@ -240,20 +249,15 @@ try {
       <div class="sidebar-header">
         <span style="flex-grow:1;">Chatify</span>
         <div class="sidebar-header-actions">
-          <?php if (!$is_admin): ?>
           <button id="notificationBellBtn" class="clear-button sidebar-action-btn" title="Notifications" style="position:relative;">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
             <span class="bell-badge" id="notificationBellBadge" style="display:none;"></span>
           </button>
-          <?php endif; ?>
           <button id="commSettingsBtn" class="clear-button sidebar-action-btn" title="Settings" onclick="openCommSettingsModal()">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
           </button>
           <button id="adminEyeToggleBtn" class="clear-button sidebar-action-btn" style="display:none;" title="View all user conversations">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-          </button>
-          <button id="adminKeyToggleBtn" class="clear-button sidebar-action-btn" style="display:none;" title="Change Chat Secret Key">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"></circle><path d="m10.7 12.3 8.8-8.8"></path><path d="m15.5 4.5 3 3"></path><path d="m18 7 3 3"></path></svg>
           </button>
         </div>
       </div>
@@ -274,17 +278,17 @@ try {
         </div>
       </div>
 
-      <!-- Pinned Office Group Chat entry -->
-      <div class="user-item" id="officeChatItem" onclick="selectOfficeChat()" style="border-bottom:1px solid var(--border-color);">
+      <!-- Pinned Office Group Chat entry (only visible when user belongs to an office) -->
+      <div class="user-item" id="officeChatItem" onclick="selectOfficeChat()" style="border-bottom:1px solid var(--border-color);<?php echo $current_office_id <= 0 ? 'display:none;' : ''; ?>">
         <div class="user-avatar" style="position:relative;">
           <img src="cspc.webp" width="48" height="48" alt="CSPC logo" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
         </div>
         <div class="user-info">
           <div class="user-name-row" style="display:flex;align-items:center;justify-content:flex-start;gap:4px;min-width:0;">
-            <div class="user-name" id="officeGcTitle"><?php echo htmlspecialchars($current_office_id > 0 ? ($current_office_code !== '' ? $current_office_code : $current_office_name) : 'Office Group Chat'); ?></div>
+            <div class="user-name" id="officeGcTitle"><?php echo htmlspecialchars($current_office_code !== '' ? $current_office_code : $current_office_name); ?></div>
             <span class="verified-badge"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           </div>
-          <div class="user-last-msg" id="officeGcLastMsg"><?php echo htmlspecialchars($current_office_id > 0 ? 'Official Office Group Chat' : 'No office assigned yet'); ?></div>
+          <div class="user-last-msg" id="officeGcLastMsg"><?php echo htmlspecialchars($current_office_name); ?></div>
         </div>
       </div>
       <div class="sidebar-users" id="sidebarUsers">
@@ -323,6 +327,13 @@ try {
         <?php if ($is_admin): ?>
         <button id="clearChatHeaderBtn" class="clear-button" style="display:none;" title="Clear this conversation" onclick="showModal()">Clear Chat</button>
         <?php endif; ?>
+        <button type="button" id="officeInfoBtn" class="header-info-btn" style="display:none;" title="View office group chat members" onclick="openOfficeMembersModal()" aria-label="Office Information">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -338,9 +349,12 @@ try {
 
     <div class="input-area">
       <!-- Scroll to bottom indicator anchored to top-right of input area -->
-      <div class="scroll-indicator" id="scrollIndicator">
-        <span>↓</span>
-        <span id="scrollIndicatorText">Go to bottom</span>
+      <div class="scroll-indicator" id="scrollIndicator" title="Go to bottom" aria-label="Go to bottom">
+        <svg class="scroll-indicator-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="12" y1="4" x2="12" y2="20"></line>
+          <polyline points="18 14 12 20 6 14"></polyline>
+        </svg>
+        <span id="scrollIndicatorText" style="display:none;" aria-hidden="true">Go to bottom</span>
         <span class="unread-badge" id="unreadBadge"></span>
       </div>
 
@@ -412,7 +426,7 @@ try {
         <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="flex-shrink:0;">
           <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
         </svg>
-        <span>Root Admin Spy Mode</span>
+        <span>Super Admin Spy Mode</span>
       </div>
     </div>
   </div>
@@ -512,12 +526,10 @@ try {
     </div>
   </div>
 
-  <?php if (!$is_admin): ?>
   <!-- Notification bell modal — lists every @mention that hasn't been
        opened yet (is_seen = 0 in chat_message_mentions). Clicking an entry
        opens the same #notifyContentModal a toast click would, which marks
-       it seen and removes it from this list. Not rendered for the super
-       admin (account id 1) — the admin can never be @mentioned/notified. -->
+       it seen and removes it from this list. -->
   <div class="modal" id="notificationBellModal" aria-hidden="true">
     <div class="modal-content" style="min-height:0;">
       <div class="modal-header">
@@ -529,7 +541,27 @@ try {
       </div>
     </div>
   </div>
-  <?php endif; ?>
+
+  <!-- Office Members Modal (View users in Office GC) -->
+  <div class="modal" id="officeMembersModal" aria-hidden="true">
+    <div class="modal-content" style="max-width:440px;height:460px;max-height:85vh;display:flex;flex-direction:column;box-sizing:border-box;">
+      <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;flex-shrink:0;">
+        <div style="min-width:0;flex:1;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <h3 id="officeMembersModalTitle" style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Office Members</h3>
+            <span id="officeMembersCountBadge" style="font-size:11px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:2px 7px;border-radius:10px;flex-shrink:0;">0</span>
+          </div>
+          <div id="officeMembersModalSubtitle" style="font-size:11px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;">Group Chat Directory</div>
+        </div>
+      </div>
+      <div class="modal-body" id="officeMembersList" style="padding:16px;overflow-y:auto;flex:1;min-height:0;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scroll-behavior:smooth;touch-action:pan-y;display:flex;flex-direction:column;gap:8px;">
+        <!-- Members populated dynamically via JS -->
+      </div>
+      <div class="modal-footer" style="flex-shrink:0;">
+        <button type="button" class="modal-button cancel-button" onclick="closeOfficeMembersModal()">Close</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Modal shown when tapping "Read more..." on a long chat message.
        Same markup renders full messages from Global Chat and from Private
@@ -591,10 +623,17 @@ try {
     <div class="modal-content" style="max-width:440px;">
       <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;">
         <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Settings</h3>
-        <button type="button" id="darkModeHeaderBtn" onclick="toggleDarkMode()" title="Toggle Dark Mode" class="dark-mode-header-btn" style="width:34px;height:34px;border-radius:50%;border:none;background:#1b74e4;color:#ffffff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.15s, opacity 0.15s;padding:0;outline:none;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
-          <svg id="darkModeMoonIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-          <svg id="darkModeSunIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-        </button>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <?php if ($is_admin): ?>
+          <button type="button" id="adminKeyToggleBtn" onclick="openAdminKeyModalFromSettings()" title="Change Deletion Secret Key" class="admin-key-header-btn" style="width:34px;height:34px;border-radius:50%;border:none;background:#1b74e4;color:#ffffff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.15s, opacity 0.15s;padding:0;outline:none;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"></circle><path d="m10.7 12.3 8.8-8.8"></path><path d="m15.5 4.5 3 3"></path><path d="m18 7 3 3"></path></svg>
+          </button>
+          <?php endif; ?>
+          <button type="button" id="darkModeHeaderBtn" onclick="toggleDarkMode()" title="Toggle Dark Mode" class="dark-mode-header-btn" style="width:34px;height:34px;border-radius:50%;border:none;background:#1b74e4;color:#ffffff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.15s, opacity 0.15s;padding:0;outline:none;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+            <svg id="darkModeMoonIcon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            <svg id="darkModeSunIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          </button>
+        </div>
       </div>
       <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:0;text-align:left;">
         <p style="margin:0 0 10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary);">Communication</p>

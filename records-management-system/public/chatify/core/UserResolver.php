@@ -319,7 +319,9 @@ class UserResolver
         try {
             $pdo  = Database::getConnection();
             $like = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $q) . '%';
-            $officeCondition = ($officeId !== null && $officeId > 0) ? " AND ad.office_id = :office_id" : "";
+            $officeCondition = ($officeId !== null && $officeId > 0)
+                ? " AND (ad.office_id = :office_id OR ((ad.account_id = 1 OR cd.is_sadm = TRUE OR LOWER(ck.key_name) = 'super admin') AND EXISTS (SELECT 1 FROM chat_messages cm WHERE cm.conv_id = :office_conv_id AND cm.sender_id = ad.account_id)))"
+                : "";
 
             $stmt = $pdo->prepare(
                 "SELECT ad.account_id,
@@ -335,6 +337,9 @@ class UserResolver
                         COALESCE(ad.is_chatify_verified, FALSE) AS is_chatify_verified
                  FROM " . Database::t('account_details') . " ad
                  LEFT JOIN " . Database::t('office') . " o ON o.id = ad.office_id
+                 LEFT JOIN " . Database::t('account') . " a ON a.id = ad.account_id
+                 LEFT JOIN " . Database::t('condition_key') . " ck ON ck.id = a.account_role
+                 LEFT JOIN " . Database::t('condition_details') . " cd ON cd.key_id = ck.modifier_key
                  WHERE (:exclude = 0 OR ad.account_id != :exclude)" . $officeCondition . "
                    AND (
                          ad.first_name ILIKE :q1
@@ -344,9 +349,17 @@ class UserResolver
                       OR ad.email ILIKE :q5
                       OR o.office_name ILIKE :q6
                       OR o.office_code ILIKE :q7
+                      OR a.username ILIKE :q8
+                      OR ck.key_name ILIKE :q9
+                      OR ((ad.account_id = 1 OR cd.is_sadm = TRUE OR LOWER(ck.key_name) = 'super admin') AND (
+                           'super admin' ILIKE :q10
+                        OR 'superadmin' ILIKE :q11
+                        OR 'admin' ILIKE :q12
+                      ))
                    )
                  ORDER BY
                    CASE
+                     WHEN LOWER(:exact_q) IN ('super admin', 'superadmin', 'admin', 'root') AND (ad.account_id = 1 OR cd.is_sadm = TRUE OR LOWER(ck.key_name) = 'super admin') THEN 0
                      WHEN LOWER(ad.first_name || ' ' || ad.last_name) = LOWER(:exact_q) THEN 1
                      WHEN LOWER(ad.last_name  || ' ' || ad.first_name) = LOWER(:exact_q) THEN 2
                      WHEN LOWER(ad.first_name) = LOWER(:exact_q) THEN 3
@@ -361,6 +374,7 @@ class UserResolver
             $stmt->bindValue(':exclude', $excludeAccountId, PDO::PARAM_INT);
             if ($officeId !== null && $officeId > 0) {
                 $stmt->bindValue(':office_id', $officeId, PDO::PARAM_INT);
+                $stmt->bindValue(':office_conv_id', 'office_' . $officeId);
             }
             $stmt->bindValue(':q1', $like);
             $stmt->bindValue(':q2', $like);
@@ -369,6 +383,11 @@ class UserResolver
             $stmt->bindValue(':q5', $like);
             $stmt->bindValue(':q6', $like);
             $stmt->bindValue(':q7', $like);
+            $stmt->bindValue(':q8', $like);
+            $stmt->bindValue(':q9', $like);
+            $stmt->bindValue(':q10', $like);
+            $stmt->bindValue(':q11', $like);
+            $stmt->bindValue(':q12', $like);
             $stmt->bindValue(':exact_q', $q);
             $stmt->bindValue(':lim', $limit + 1, PDO::PARAM_INT);
             $stmt->execute();

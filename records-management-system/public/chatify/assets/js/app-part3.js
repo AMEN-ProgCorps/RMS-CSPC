@@ -2056,7 +2056,11 @@
     function getMessageKey(el) {
       if (el && typeof el.getAttribute === 'function') {
         const msgId = el.getAttribute('data-msg-id');
-        if (msgId) return msgId;
+        if (msgId) {
+          const isMoved = el.classList && el.classList.contains('user-moved') ? 'moved' : 'active';
+          const content = el.querySelector('.message-content')?.textContent?.trim() || '';
+          return msgId + '|' + isMoved + '|' + content;
+        }
       }
       if (el && el.classList && el.classList.contains('empty-chat')) {
         return 'empty-chat|' + (el.textContent || '').trim().replace(/\s+/g, ' ');
@@ -2083,6 +2087,24 @@
       }
       const newHtml    = data.html || '';
       gcHasMore        = data.hasMore || false;
+
+      if (!loadOlderMode && !newHtml.trim()) {
+        const title = (window.activeChannel === 'office' && window.currentOfficeInfo)
+          ? (window.currentOfficeInfo.office_code || window.currentOfficeInfo.display_title || 'Office Group Chat')
+          : 'Global Chat';
+        const sub = (window.activeChannel === 'office')
+          ? 'No messages yet. Say hello to your office team!'
+          : 'No messages yet. Send a message to get the conversation started!';
+        chatBox.innerHTML = `<div class="empty-chat">
+          <div class="chat-icon">
+            <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+          </div>
+          <h3>${escapeHtml(title)}</h3>
+          <p>${escapeHtml(sub)}</p>
+        </div>`;
+        isFirstLoad = false;
+        return;
+      }
 
       if (loadOlderMode) {
         shouldAutoScroll = false;
@@ -2248,7 +2270,8 @@
 
       gcPrefetchPromise = new Promise(function(resolve) {
         const xhr = new XMLHttpRequest();
-        const convParam = (window.currentOfficeInfo && window.currentOfficeInfo.conv_id)
+        const isOffice = (window.activeChannel === 'office');
+        const convParam = (isOffice && window.currentOfficeInfo && window.currentOfficeInfo.conv_id)
           ? '&conv_id=' + encodeURIComponent(window.currentOfficeInfo.conv_id)
           : '';
         xhr.open('GET', 'load.php?before_uuid=&limit=' + INITIAL_LOAD + convParam, true);
@@ -2284,10 +2307,7 @@
 
       // Register Speculation Rules API rule dynamically for load.php
       if (typeof HTMLScriptElement !== 'undefined' && HTMLScriptElement.supports && HTMLScriptElement.supports('speculationrules')) {
-        const convParam = (window.currentOfficeInfo && window.currentOfficeInfo.conv_id)
-          ? '&conv_id=' + encodeURIComponent(window.currentOfficeInfo.conv_id)
-          : '';
-        const url = 'load.php?before_uuid=' + convParam;
+        const url = 'load.php?before_uuid=';
         const ruleId = 'speculation-rule-global-chat';
         if (!document.getElementById(ruleId)) {
           try {
@@ -4114,6 +4134,9 @@
                   if (typeof applyAdminBadges === 'function') {
                     applyAdminBadges();
                   }
+                  if (typeof window.syncOfficeMembersModalVerification === 'function') {
+                    window.syncOfficeMembersModalVerification(targetId, newVal);
+                  }
 
                   // Persist via backend (WS broadcast is handled server-side)
                   fetch('set_verification.php', {
@@ -4158,6 +4181,9 @@
                       if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
                       if (Number(activeDMAccountId) === targetId && typeof applyHeaderAdminBadge === 'function') applyHeaderAdminBadge();
                       if (typeof applyAdminBadges === 'function') applyAdminBadges();
+                      if (typeof window.syncOfficeMembersModalVerification === 'function') {
+                        window.syncOfficeMembersModalVerification(targetId, !newVal);
+                      }
                     }
                   }).catch(() => {
                     chk.checked = !newVal;
@@ -4195,6 +4221,9 @@
                     if (typeof renderSidebarUsers === 'function') renderSidebarUsers();
                     if (Number(activeDMAccountId) === targetId && typeof applyHeaderAdminBadge === 'function') applyHeaderAdminBadge();
                     if (typeof applyAdminBadges === 'function') applyAdminBadges();
+                    if (typeof window.syncOfficeMembersModalVerification === 'function') {
+                      window.syncOfficeMembersModalVerification(targetId, !newVal);
+                    }
                   });
                 });
 

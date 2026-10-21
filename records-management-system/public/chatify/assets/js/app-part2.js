@@ -5,6 +5,7 @@
     let isAdminAllChatsView = (localStorage.getItem('__adminAllChatsView__') === '1');
     let preSpyDM = localStorage.getItem('__preSpyDM__') || null;        // activeDM to restore when leaving the all-conversations spy view
     let preSpyIsGlobal = (localStorage.getItem('__preSpyIsGlobal__') === '1'); // isGlobalChat to restore when leaving the all-conversations spy view
+    let preSpyChannel = localStorage.getItem('__preSpyChannel__') || null;
 
     function applyAdminAllChatsView() {
       if (adminEyeToggleBtn) {
@@ -13,9 +14,10 @@
       // Hide the admin's own conversation list/search while browsing all users' chats
       const globalChatItemEl = document.getElementById('globalChatItem');
       const officeChatItemEl = document.getElementById('officeChatItem');
+      const hasOffice = !!(window.currentOfficeInfo && window.currentOfficeInfo.office_id && Number(window.currentOfficeInfo.office_id) > 0);
       if (ownSidebarSearch) ownSidebarSearch.style.display = isAdminAllChatsView ? 'none' : '';
       if (globalChatItemEl) globalChatItemEl.style.display = isAdminAllChatsView ? 'none' : '';
-      if (officeChatItemEl) officeChatItemEl.style.display = isAdminAllChatsView ? 'none' : '';
+      if (officeChatItemEl) officeChatItemEl.style.display = (isAdminAllChatsView || !hasOffice) ? 'none' : '';
       if (sidebarUsers) sidebarUsers.style.display = isAdminAllChatsView ? 'none' : '';
 
       const inputSection = document.querySelector('.input-section');
@@ -42,11 +44,13 @@
         const turningOn = !isAdminAllChatsView;
 
         if (turningOn) {
-          // Entering spy view — remember activeDM and isGlobalChat to restore upon exit
+          // Entering spy view — remember activeDM, channel, and isGlobalChat to restore upon exit
           preSpyDM = activeDM;
-          preSpyIsGlobal = isGlobalChat;
+          preSpyChannel = window.activeChannel || null;
+          preSpyIsGlobal = (window.activeChannel === 'global' && isGlobalChat);
           localStorage.setItem('__preSpyDM__', activeDM || '');
-          localStorage.setItem('__preSpyIsGlobal__', isGlobalChat ? '1' : '0');
+          localStorage.setItem('__preSpyChannel__', preSpyChannel || '');
+          localStorage.setItem('__preSpyIsGlobal__', preSpyIsGlobal ? '1' : '0');
 
           // Close/clear previously opened conversation
           activeDM = null;
@@ -106,26 +110,29 @@
           applyAdminAllChatsView();
 
           // Determine which conversation to restore.
-          // Priority: in-memory preSpyDM → localStorage activeDM → nothing.
-          // The old "currentSpyConv" fallback that tried to guess from the
-          // spied conv's participant IDs was the root cause of the bug: it
-          // was opening the SPIED user's conversation instead of the admin's.
-          let savedAdminDM = preSpyDM || null;
-          let savedIsGlobal = preSpyIsGlobal || false;
-          let savedIsOffice = false;
+          // Priority: in-memory preSpyDM/channel → localStorage → default.
+          let savedAdminDM = preSpyDM || localStorage.getItem('__preSpyDM__') || null;
+          let savedChannel = preSpyChannel || localStorage.getItem('__preSpyChannel__') || null;
+          let savedIsOffice = (savedChannel === 'office');
+          let savedIsGlobal = (savedChannel === 'global' || (!savedChannel && preSpyIsGlobal));
 
-          if (!savedAdminDM && !savedIsGlobal) {
+          if (!savedAdminDM && !savedIsGlobal && !savedIsOffice) {
             const locDM = localStorage.getItem('activeDM');
             if (locDM === '__global__') savedIsGlobal = true;
             else if (locDM === '__office__') savedIsOffice = true;
             else if (locDM && !locDM.startsWith('__admin__')) savedAdminDM = locDM;
           }
 
-          if (savedIsGlobal) {
+          if (savedIsOffice) {
+            const hasOffice = !!(window.currentOfficeInfo && window.currentOfficeInfo.office_id && Number(window.currentOfficeInfo.office_id) > 0);
+            if (hasOffice && typeof selectOfficeChat === 'function') {
+              selectOfficeChat();
+            } else {
+              localStorage.removeItem('activeDM');
+              selectGlobalChat();
+            }
+          } else if (savedIsGlobal) {
             selectGlobalChat();
-          } else if (savedIsOffice) {
-            if (typeof selectOfficeChat === 'function') selectOfficeChat();
-            else selectGlobalChat();
           } else if (savedAdminDM && savedAdminDM !== '' && !savedAdminDM.startsWith('__admin__')) {
             const matchedUser = (allUsersData || []).find(u => u.username === savedAdminDM);
             if (matchedUser) {
@@ -148,8 +155,10 @@
 
           // Clean up pre-spy state
           preSpyDM = null;
+          preSpyChannel = null;
           preSpyIsGlobal = false;
           localStorage.removeItem('__preSpyDM__');
+          localStorage.removeItem('__preSpyChannel__');
           localStorage.removeItem('__preSpyIsGlobal__');
         }
       });
@@ -165,9 +174,17 @@
     if (adminKeyToggleBtn) {
       if (isAdmin) adminKeyToggleBtn.style.display = 'inline-flex';
       adminKeyToggleBtn.addEventListener('click', () => {
+        if (typeof closeCommSettingsModal === 'function') closeCommSettingsModal();
         openAdminKeyModal();
       });
     }
+
+    window.openAdminKeyModalFromSettings = function() {
+      if (typeof closeCommSettingsModal === 'function') {
+        closeCommSettingsModal();
+      }
+      openAdminKeyModal();
+    };
 
     function openAdminKeyModal() {
       if (!adminKeyModal) return;
@@ -189,7 +206,15 @@
       }
     }
 
+    window.openAdminKeyModal = openAdminKeyModal;
+    window.closeAdminKeyModal = closeAdminKeyModal;
+
     if (adminKeyCancelBtn) adminKeyCancelBtn.addEventListener('click', closeAdminKeyModal);
+    if (adminKeyModal) {
+      adminKeyModal.addEventListener('click', function(e) {
+        if (e.target === adminKeyModal) closeAdminKeyModal();
+      });
+    }
 
     function submitSecretKeyForm() {
       const form = document.getElementById('adminKeyForm');

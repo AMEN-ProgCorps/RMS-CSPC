@@ -27,13 +27,9 @@ $expires   = isset($_GET['expires'])    ? (int) trim($_GET['expires'])    : 0;
 $token     = isset($_GET['token'])      ? trim($_GET['token'])            : '';
 
 // ------------------------------------------------------------------
-// If already authenticated, check if it matches the incoming user
+// If already authenticated with another user, reset session
 // ------------------------------------------------------------------
-if (Auth::check()) {
-    if (Auth::accountId() === $accountId) {
-        header('Location: index.php');
-        exit;
-    }
+if (Auth::check() && Auth::accountId() !== $accountId) {
     Auth::destroy();
     session_start();
 }

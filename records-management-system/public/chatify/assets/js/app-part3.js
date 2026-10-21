@@ -668,7 +668,7 @@
 
       if (newCount > 0) {
         unreadCount += newCount;
-        unreadBadge.textContent = unreadCount;
+        unreadBadge.textContent = unreadCount > 99 ? '99+' : unreadCount;
         scrollIndicatorText.textContent = unreadCount === 1 ? 'new message' : 'new messages';
         scrollIndicator.classList.add('has-unread');
       } else if (!scrollIndicator.classList.contains('visible')) {
@@ -2151,14 +2151,14 @@
       sessionStorage.removeItem('chatScrollHeight_' + activeKey);
     }
 
-    // Click scroll indicator to go to bottom
-    scrollIndicator.addEventListener('click', function() {
+    // Return to the latest live conversation at the bottom.
+    // If user was viewing older history (e.g. jumped or backread), cleans up
+    // stale cursor state, clears older messages, and reloads the latest batch.
+    function returnToLatestChat() {
       shouldAutoScroll = true;
       userScrolledUp = false;
+      hideScrollIndicator();
 
-      // If the user has loaded an older window, "Go to bottom" snaps back to
-      // the latest INITIAL_LOAD messages instead of just scrolling within the
-      // (now stale) older batch that's on screen.
       if (isGlobalChat && gcViewingOlder) {
         gcViewingOlder = false;
         gcCursor = '';
@@ -2169,7 +2169,7 @@
         isFirstLoad = true;
         chatFullyLoaded = false;
         loadGlobalChat(false, false);
-        return;
+        return true;
       }
       if (!isGlobalChat && activeAdminConv && adminConvViewingOlder) {
         adminConvViewingOlder = false;
@@ -2180,7 +2180,7 @@
         isFirstLoad = true;
         chatFullyLoaded = false;
         loadAdminConv(activeAdminConv, false, false);
-        return;
+        return true;
       }
       if (!isGlobalChat && !activeAdminConv && activeDM && dmViewingOlder) {
         dmViewingOlder = false;
@@ -2194,10 +2194,16 @@
         isFirstLoad = true;
         chatFullyLoaded = false;
         loadChat(false, false, true);
-        return;
+        return true;
       }
 
-      scrollToBottom(true);
+      scrollToBottom(true, true);
+      return false;
+    }
+
+    // Click scroll indicator to go to bottom
+    scrollIndicator.addEventListener('click', function() {
+      returnToLatestChat();
     });
 
     // ── Auto-load older messages on backread (replaces the old floating
@@ -3507,6 +3513,8 @@
       const activeReply = (replyState && !editingMsgId) ? replyState : null;
       hideReplyBanner();
 
+      const wasViewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+
       // Disable send button momentarily to prevent double-tap
       isSending = true;
       sendButton.classList.add('sending');
@@ -3725,91 +3733,101 @@
             hideEditBanner();
           }
 
-          // Convert optimistic sending bubble in-place immediately without full chat reload
+          // Convert optimistic sending bubble in-place immediately without full chat reload.
+          // If the user was viewing older history (e.g. jumped to a distant reply),
+          // returning to latest chat resets the view and snaps cleanly to the live bottom.
           if (!editingMsgId && sendIndId) {
-            const sendingBubble = document.getElementById(sendIndId);
-            if (sendingBubble) {
-              if (confirmedMsg && confirmedMsg.id) {
-                const existingInChatBox = chatBox.querySelector(`.message-container[data-msg-id="${confirmedMsg.id}"]`);
-                if (existingInChatBox) {
-                  if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
-                  updateSeenIndicator();
-                } else {
-                  sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
-                  sendingBubble.setAttribute('data-created-at', new Date().toISOString());
-                  sendingBubble.setAttribute('data-edit-count', '0');
-                  const replyUuid = (confirmedMsg && confirmedMsg.reply_to_msg_uuid) ? confirmedMsg.reply_to_msg_uuid : (activeReply ? activeReply.msgId : null);
-                  if (replyUuid) {
-                    sendingBubble.setAttribute('data-reply-to', replyUuid);
-                  }
-                  sendingBubble.removeAttribute('id');
-                  sendingBubble.removeAttribute('data-sending-uid');
-                
-                // Move from floating sending overlay to main chatBox if needed
-                if (sendingBubble.parentNode && sendingBubble.parentNode !== chatBox) {
-                  sendingBubble.parentNode.removeChild(sendingBubble);
-                  chatBox.appendChild(sendingBubble);
-                }
-
-                const msgContent = confirmedMsg.plaintext || message;
-                const d = new Date();
-                const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric' });
-                const timeStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true });
-                const fullTimeDisplay = `${dateStr} at ${timeStr}`;
-                const senderLabel = (name || 'you').toLowerCase();
-
-                sendingBubble.className = 'message-container sent';
-                const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
-                const replyQuoteHtml = (() => {
-                  let snippetText = (confirmedMsg && (confirmedMsg.reply_snippet || confirmedMsg.reply_message))
-                    ? (confirmedMsg.reply_snippet || confirmedMsg.reply_message)
-                    : (activeReply && activeReply.snippet ? activeReply.snippet : '');
-                  if (!snippetText && replyUuid) {
-                    const targetContainer = chatBox.querySelector(`.message-container[data-msg-id="${replyUuid}"]`);
-                    if (targetContainer && typeof getReplySnippet === 'function') {
-                      snippetText = getReplySnippet(targetContainer);
+            if (wasViewingOlder) {
+              if (typeof clearSendingOverlay === 'function') clearSendingOverlay();
+              const ind = document.getElementById(sendIndId);
+              if (ind && ind.parentNode) ind.parentNode.removeChild(ind);
+              returnToLatestChat();
+            } else {
+              const sendingBubble = document.getElementById(sendIndId);
+              if (sendingBubble) {
+                if (confirmedMsg && confirmedMsg.id) {
+                  const existingInChatBox = chatBox.querySelector(`.message-container[data-msg-id="${confirmedMsg.id}"]`);
+                  if (existingInChatBox) {
+                    if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
+                    updateSeenIndicator();
+                  } else {
+                    sendingBubble.setAttribute('data-msg-id', confirmedMsg.id);
+                    sendingBubble.setAttribute('data-created-at', new Date().toISOString());
+                    sendingBubble.setAttribute('data-edit-count', '0');
+                    const replyUuid = (confirmedMsg && confirmedMsg.reply_to_msg_uuid) ? confirmedMsg.reply_to_msg_uuid : (activeReply ? activeReply.msgId : null);
+                    if (replyUuid) {
+                      sendingBubble.setAttribute('data-reply-to', replyUuid);
                     }
+                    sendingBubble.removeAttribute('id');
+                    sendingBubble.removeAttribute('data-sending-uid');
+                  
+                  // Move from floating sending overlay to main chatBox if needed
+                  if (sendingBubble.parentNode && sendingBubble.parentNode !== chatBox) {
+                    sendingBubble.parentNode.removeChild(sendingBubble);
+                    chatBox.appendChild(sendingBubble);
                   }
-                  if (!replyUuid || !snippetText) return '';
-                  if (String(snippetText).startsWith('image:')) {
-                    const imgFile = String(snippetText).slice(6);
-                    const imgSrc  = 'uploads/' + imgFile;
-                    return `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(replyUuid)}"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
-                  }
-                  return `<div class="reply-quote" data-reply-to="${escapeHtml(replyUuid)}"><div class="reply-quote-text">${escapeHtml(truncateForReply(snippetText, 120))}</div></div>`;
-                })();
-                sendingBubble.innerHTML = `
-                  <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
-                  <div class="bubble-wrapper">
-                    <div class="message-click-timestamp">${fullTimeDisplay}</div>
-                    ${replyQuoteHtml}
-                    <div class="message-bubble${emojiOnlyClass}">
-                      <div class="message-content">${escapeHtml(msgContent)}</div>
+
+                  const msgContent = confirmedMsg.plaintext || message;
+                  const d = new Date();
+                  const dateStr = d.toLocaleDateString('en-US', { timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric' });
+                  const timeStr = d.toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true });
+                  const fullTimeDisplay = `${dateStr} at ${timeStr}`;
+                  const senderLabel = (name || 'you').toLowerCase();
+
+                  sendingBubble.className = 'message-container sent';
+                  const emojiOnlyClass = isEmojiOnly(msgContent) ? ' emoji-only' : '';
+                  const replyQuoteHtml = (() => {
+                    let snippetText = (confirmedMsg && (confirmedMsg.reply_snippet || confirmedMsg.reply_message))
+                      ? (confirmedMsg.reply_snippet || confirmedMsg.reply_message)
+                      : (activeReply && activeReply.snippet ? activeReply.snippet : '');
+                    if (!snippetText && replyUuid) {
+                      const targetContainer = chatBox.querySelector(`.message-container[data-msg-id="${replyUuid}"]`);
+                      if (targetContainer && typeof getReplySnippet === 'function') {
+                        snippetText = getReplySnippet(targetContainer);
+                      }
+                    }
+                    if (!replyUuid || !snippetText) return '';
+                    if (String(snippetText).startsWith('image:')) {
+                      const imgFile = String(snippetText).slice(6);
+                      const imgSrc  = 'uploads/' + imgFile;
+                      return `<div class="reply-quote reply-quote-image-container" data-reply-to="${escapeHtml(replyUuid)}"><img src="${imgSrc.replace(/"/g, '&quot;')}" class="reply-quote-image" alt="" referrerpolicy="no-referrer" draggable="false" onerror="this.closest('.reply-quote-image-container,.reply-quote')?.remove()"></div>`;
+                    }
+                    return `<div class="reply-quote" data-reply-to="${escapeHtml(replyUuid)}"><div class="reply-quote-text">${escapeHtml(truncateForReply(snippetText, 120))}</div></div>`;
+                  })();
+                  sendingBubble.innerHTML = `
+                    <div class="message-avatar">${avatarInnerHtml(wsConfig.avatarUrl, getInitials(name))}</div>
+                    <div class="bubble-wrapper">
+                      <div class="message-click-timestamp">${fullTimeDisplay}</div>
+                      ${replyQuoteHtml}
+                      <div class="message-bubble${emojiOnlyClass}">
+                        <div class="message-content">${escapeHtml(msgContent)}</div>
+                      </div>
                     </div>
-                  </div>
-                `;
-                  const contentEl = sendingBubble.querySelector('.message-content');
-                  if (contentEl) {
-                    linkifyContent(contentEl);
-                    applyReadMoreToElement(contentEl);
+                  `;
+                    const contentEl = sendingBubble.querySelector('.message-content');
+                    if (contentEl) {
+                      linkifyContent(contentEl);
+                      applyReadMoreToElement(contentEl);
+                    }
+                    applyAdminBadges();
+                    // The optimistic bubble just became a real, permanent
+                    // .message-container inside chatBox — cap the window at
+                    // MAX_WINDOW just like any other real-time append.
+                    if (!gcViewingOlder && !dmViewingOlder) {
+                      const trimmed = trimChatMessages(MAX_WINDOW);
+                      if (trimmed) refreshCursorAfterTopTrim();
+                    }
+                    // Always scroll for the user's own confirmed message — see note
+                    // above the optimistic-bubble scroll for why isAtBottom() is
+                    // unreliable while the virtual keyboard is open.
+                    scrollToBottom(true, true);
+                    hideScrollIndicator();
+                    updateSeenIndicator();
                   }
-                  applyAdminBadges();
-                  // The optimistic bubble just became a real, permanent
-                  // .message-container inside chatBox — cap the window at
-                  // MAX_WINDOW just like any other real-time append.
-                  if (!gcViewingOlder && !dmViewingOlder) {
-                    const trimmed = trimChatMessages(MAX_WINDOW);
-                    if (trimmed) refreshCursorAfterTopTrim();
-                  }
-                  // Always scroll for the user's own confirmed message — see note
-                  // above the optimistic-bubble scroll for why isAtBottom() is
-                  // unreliable while the virtual keyboard is open.
-                  scrollToBottom(true, true);
-                  updateSeenIndicator();
+                } else {
+                  // If confirmedMsg is missing or invalid, remove the optimistic sending bubble so it doesn't float stuck!
+                  if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
                 }
-              } else {
-                // If confirmedMsg is missing or invalid, remove the optimistic sending bubble so it doesn't float stuck!
-                if (sendingBubble.parentNode) sendingBubble.parentNode.removeChild(sendingBubble);
               }
             }
           }
@@ -3859,8 +3877,12 @@
           // Fallback only if confirmedMsg missing (optimistic bubble already converted above)
           if (!confirmedMsg) {
             if (typeof clearSendingOverlay === 'function') clearSendingOverlay();
-            if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
-            else loadChatForced();
+            if (wasViewingOlder) {
+              returnToLatestChat();
+            } else {
+              if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
+              else loadChatForced();
+            }
           }
 
           // Bump the conversation to the top of the sidebar after a successful send.
@@ -5579,11 +5601,16 @@
           if (this.status === 200) {
             let resData = null;
             try { resData = JSON.parse(this.responseText); } catch(e) {}
-            if (isGlobalChat) {
-              isLoadingGC = false;
-              loadGlobalChat(false);
-            } else if (activeDM) {
-              loadChatForced();
+            const wasViewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+            if (wasViewingOlder) {
+              returnToLatestChat();
+            } else {
+              if (isGlobalChat) {
+                isLoadingGC = false;
+                loadGlobalChat(false);
+              } else if (activeDM) {
+                loadChatForced();
+              }
             }
           } else {
             showUploadErrorModal('Failed to save uploaded file message.');

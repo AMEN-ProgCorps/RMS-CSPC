@@ -893,8 +893,41 @@
       }
     }, { passive: false });
 
-    // Click on a reply quote (text quote or image quote): scroll to original quoted message and blink it AFTER arrival
-    // Uses IntersectionObserver so the blink fires only once the target is truly visible — no timing guesses needed.
+    // Click on a reply quote (text quote or image quote): scroll to original quoted message and blink it AFTER arrival.
+    // Uses IntersectionObserver so the blink fires only once the target is truly visible.
+    // WeakMap tracks the active remove-timer per element so rapid clicks always restart cleanly.
+    const blinkTimers = new WeakMap();
+
+    // Cleans up any pending blink state for a given element (observer + timers).
+    // activeScrollObservers maps element → { observer, safetyTimer, fired } so a
+    // new click cancels any in-flight scroll+observe cycle for the same element.
+    const activeScrollObservers = new WeakMap();
+
+    function triggerBlinkOn(el) {
+      // Cancel any pending remove-timer from a previous blink on this element
+      const prev = blinkTimers.get(el);
+      if (prev) clearTimeout(prev);
+
+      el.classList.remove('reply-target-blink');
+      void el.offsetWidth; // force reflow so animation restarts
+      el.classList.add('reply-target-blink');
+
+      const t = setTimeout(function() {
+        el.classList.remove('reply-target-blink');
+        blinkTimers.delete(el);
+      }, 1400);
+      blinkTimers.set(el, t);
+    }
+
+    function cancelScrollObserve(el) {
+      const state = activeScrollObservers.get(el);
+      if (!state) return;
+      state.fired = true;                    // prevent late IO/safety callbacks
+      if (state.safetyTimer) clearTimeout(state.safetyTimer);
+      try { state.observer.disconnect(); } catch (_) {}
+      activeScrollObservers.delete(el);
+    }
+
     chatBox.addEventListener('click', function(e) {
       if (typeof longPressJustFired !== 'undefined' && longPressJustFired) return;
       const rq = e.target.closest('.reply-quote[data-reply-to]');
@@ -909,61 +942,48 @@
       e.preventDefault();
       e.stopPropagation();
 
-      // Remove any in-progress blink so re-clicking always restarts cleanly
-      targetMsg.classList.remove('reply-target-blink');
-
-      const triggerBlink = function() {
-        void targetMsg.offsetWidth; // force reflow so animation restarts every click
-        targetMsg.classList.add('reply-target-blink');
-        setTimeout(function() {
-          targetMsg.classList.remove('reply-target-blink');
-        }, 1400);
-      };
+      // Cancel any in-flight scroll+observe cycle for this element
+      cancelScrollObserve(targetMsg);
 
       // Check whether the target is already sufficiently visible inside chatBox
-      const chatRect = chatBox.getBoundingClientRect();
+      const chatRect  = chatBox.getBoundingClientRect();
       const targetRect = targetMsg.getBoundingClientRect();
-      const margin = 60; // px — how much padding we require from the chatBox edges
       const isVisible =
-        targetRect.top    >= chatRect.top    + margin &&
-        targetRect.bottom <= chatRect.bottom - margin;
+        targetRect.top    >= chatRect.top    + 40 &&
+        targetRect.bottom <= chatRect.bottom - 40;
 
       if (isVisible) {
         // Already on screen — blink immediately
-        triggerBlink();
+        triggerBlinkOn(targetMsg);
         return;
       }
 
-      // Not yet visible — scroll first, then blink once it enters the viewport.
-      // IntersectionObserver with chatBox as root fires as soon as the element
-      // becomes visible, regardless of scroll speed or frame timing.
-      let observerFired = false;
-      let safetyTimer   = null;
+      // Not yet visible — scroll first, blink once IO confirms it arrived.
+      const state = { observer: null, safetyTimer: null, fired: false };
+      activeScrollObservers.set(targetMsg, state);
 
-      const observer = new IntersectionObserver(function(entries) {
-        const entry = entries[0];
-        if (!entry.isIntersecting) return;         // still off-screen — wait
-        if (observerFired) return;
-        observerFired = true;
-        observer.disconnect();
-        if (safetyTimer) clearTimeout(safetyTimer);
-        triggerBlink();
+      const finish = function() {
+        if (state.fired) return;
+        state.fired = true;
+        try { state.observer.disconnect(); } catch (_) {}
+        if (state.safetyTimer) clearTimeout(state.safetyTimer);
+        activeScrollObservers.delete(targetMsg);
+        triggerBlinkOn(targetMsg);
+      };
+
+      state.observer = new IntersectionObserver(function(entries) {
+        if (entries[0].isIntersecting) finish();
       }, {
         root: chatBox,
-        threshold: 0.4   // fire when at least 40 % of the message is visible
+        threshold: 0.35   // fire when at least 35 % of the message row is visible
       });
 
-      observer.observe(targetMsg);
+      state.observer.observe(targetMsg);
 
-      // Safety fallback: if IntersectionObserver never fires (e.g. the element
-      // is already in the observer's root but hasn't triggered, or scrollend
-      // completes before the first IO callback), trigger blink after 900 ms.
-      safetyTimer = setTimeout(function() {
-        if (observerFired) return;
-        observerFired = true;
-        observer.disconnect();
-        triggerBlink();
-      }, 900);
+      // Safety fallback — covers cases where IO fires before scroll starts
+      // (element already partially in root but below threshold) or misses due to
+      // browser quirks. 900 ms is well beyond any smooth-scroll duration.
+      state.safetyTimer = setTimeout(finish, 900);
 
       targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });

@@ -2909,6 +2909,19 @@
             break;
           }
         }
+      } else {
+        // readUpTo message is NOT in the loaded DOM window.  This means the
+        // read marker refers to a message outside the currently rendered
+        // viewport (e.g. it was scrolled out, or we're viewing older history).
+        // All *visible* sent messages are guaranteed to be at-or-before the
+        // read point, so place the indicator on the LAST visible sent message
+        // to preserve the "Seen" badge instead of wrongly removing it.
+        for (let i = allMessages.length - 1; i >= 0; i--) {
+          if (allMessages[i].classList.contains('sent')) {
+            target = allMessages[i];
+            break;
+          }
+        }
       }
 
       if (!target) {

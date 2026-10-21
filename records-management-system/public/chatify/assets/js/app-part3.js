@@ -783,10 +783,9 @@
       return false;
     }
 
-    // Event delegation for double click to edit chat message
-    chatBox.addEventListener('dblclick', function (e) {
-      const container = e.target.closest('.message-container.sent');
-      if (!container) return; // only edit messages sent by you
+    // Handler to open edit mode for a message container
+    function triggerEditForContainer(container) {
+      if (!container || !container.classList.contains('sent')) return; // only edit messages sent by you
       
       const msgId = container.getAttribute('data-msg-id');
       if (!msgId) return;
@@ -808,12 +807,13 @@
       const contentEl = container.querySelector('.message-bubble .message-content');
       if (!contentEl) return;
       
-      // If it contains an attachment (like an anchor link or image or audio), do not edit.
-      // Scoped to .bubble-wrapper (not the whole .message-container) so the
-      // sender's own avatar <img> — rendered separately in .message-avatar —
-      // is never mistaken for an image/file attachment.
+      // If it contains a real attachment (like an anchor link or uploaded image or audio), do not edit.
+      // Exclude img.reply-quote-image so messages replying to an image can still be edited!
       const bubbleWrapperEl = container.querySelector('.bubble-wrapper');
-      if (contentEl.querySelector('a') || (bubbleWrapperEl && bubbleWrapperEl.querySelector('img, audio'))) {
+      const hasRealAttachment = container.querySelector('.message-media, .chat-attachment-container') ||
+                                contentEl.querySelector('a') ||
+                                (bubbleWrapperEl && bubbleWrapperEl.querySelector('img:not(.reply-quote-image), audio, video'));
+      if (hasRealAttachment) {
         return;
       }
       
@@ -846,6 +846,126 @@
       scrollToBottom(true, true);
 
       messageInput.focus({ preventScroll: true });
+    }
+
+    // Event delegation for double click to edit chat message
+    chatBox.addEventListener('dblclick', function (e) {
+      const container = e.target.closest('.message-container.sent');
+      if (!container) return;
+      if (e.target.closest('.reply-quote')) return;
+      triggerEditForContainer(container);
+    });
+
+    // Mobile double-tap on message bubble to edit
+    let lastMsgTapTime = 0;
+    let lastMsgTapContainer = null;
+    let lastMsgTapX = 0;
+    let lastMsgTapY = 0;
+
+    chatBox.addEventListener('touchend', function (e) {
+      if (e.changedTouches.length !== 1) return;
+      const touch = e.changedTouches[0];
+      const container = e.target.closest('.message-container.sent');
+      if (!container) {
+        lastMsgTapTime = 0;
+        lastMsgTapContainer = null;
+        return;
+      }
+
+      // Do not trigger edit if tapped directly on a link, reply quote, reaction badge, or media
+      if (e.target.closest('a, .reply-quote, .reaction-badge, .reaction-picker-btn, .chat-viewable-image')) {
+        return;
+      }
+
+      const now = Date.now();
+      const dist = Math.hypot(touch.clientX - lastMsgTapX, touch.clientY - lastMsgTapY);
+
+      if (now - lastMsgTapTime < 350 && container === lastMsgTapContainer && dist < 30) {
+        e.preventDefault();
+        lastMsgTapTime = 0;
+        lastMsgTapContainer = null;
+        triggerEditForContainer(container);
+      } else {
+        lastMsgTapTime = now;
+        lastMsgTapContainer = container;
+        lastMsgTapX = touch.clientX;
+        lastMsgTapY = touch.clientY;
+      }
+    }, { passive: false });
+
+    // Click on a reply quote (text quote or image quote): scroll to original quoted message and blink it AFTER arrival
+    // Uses IntersectionObserver so the blink fires only once the target is truly visible — no timing guesses needed.
+    chatBox.addEventListener('click', function(e) {
+      if (typeof longPressJustFired !== 'undefined' && longPressJustFired) return;
+      const rq = e.target.closest('.reply-quote[data-reply-to]');
+      if (!rq) return;
+
+      const replyToMsgId = rq.getAttribute('data-reply-to');
+      if (!replyToMsgId) return;
+
+      const targetMsg = chatBox.querySelector(`.message-container[data-msg-id="${replyToMsgId}"]`);
+      if (!targetMsg) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Remove any in-progress blink so re-clicking always restarts cleanly
+      targetMsg.classList.remove('reply-target-blink');
+
+      const triggerBlink = function() {
+        void targetMsg.offsetWidth; // force reflow so animation restarts every click
+        targetMsg.classList.add('reply-target-blink');
+        setTimeout(function() {
+          targetMsg.classList.remove('reply-target-blink');
+        }, 1400);
+      };
+
+      // Check whether the target is already sufficiently visible inside chatBox
+      const chatRect = chatBox.getBoundingClientRect();
+      const targetRect = targetMsg.getBoundingClientRect();
+      const margin = 60; // px — how much padding we require from the chatBox edges
+      const isVisible =
+        targetRect.top    >= chatRect.top    + margin &&
+        targetRect.bottom <= chatRect.bottom - margin;
+
+      if (isVisible) {
+        // Already on screen — blink immediately
+        triggerBlink();
+        return;
+      }
+
+      // Not yet visible — scroll first, then blink once it enters the viewport.
+      // IntersectionObserver with chatBox as root fires as soon as the element
+      // becomes visible, regardless of scroll speed or frame timing.
+      let observerFired = false;
+      let safetyTimer   = null;
+
+      const observer = new IntersectionObserver(function(entries) {
+        const entry = entries[0];
+        if (!entry.isIntersecting) return;         // still off-screen — wait
+        if (observerFired) return;
+        observerFired = true;
+        observer.disconnect();
+        if (safetyTimer) clearTimeout(safetyTimer);
+        triggerBlink();
+      }, {
+        root: chatBox,
+        threshold: 0.4   // fire when at least 40 % of the message is visible
+      });
+
+      observer.observe(targetMsg);
+
+      // Safety fallback: if IntersectionObserver never fires (e.g. the element
+      // is already in the observer's root but hasn't triggered, or scrollend
+      // completes before the first IO callback), trigger blink after 900 ms.
+      safetyTimer = setTimeout(function() {
+        if (observerFired) return;
+        observerFired = true;
+        observer.disconnect();
+        triggerBlink();
+      }, 900);
+
+      targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
 
     // X cancel-edit button

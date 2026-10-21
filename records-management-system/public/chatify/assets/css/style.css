@@ -2922,11 +2922,6 @@
         padding-bottom: 12px;
       }
 
-      #messageInput,
-      .message-input-highlight {
-        font-size: 16px !important;
-      }
-
       .scroll-indicator {
         right: 16px;
         bottom: calc(100% + 10px);

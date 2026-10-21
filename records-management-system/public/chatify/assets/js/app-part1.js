@@ -27,6 +27,7 @@
     const cancelClear     = document.getElementById("cancelClear");
     const confirmClear    = document.getElementById("confirmClear");
     const scrollIndicator = document.getElementById("scrollIndicator");
+    window.replyJumpActive = false;
     const secretInput     = document.getElementById("secretInput");
     const secretError     = document.getElementById("secretError");
     const darkModeToggle  = document.getElementById("darkModeToggle");
@@ -248,7 +249,7 @@
       // even though the user hadn't scrolled away at all. That made replies
       // specifically prone to silently skipping the auto-scroll and just
       // showing the "new message" indicator instead.
-      const wasAtBottom = isAtBottom();
+      const wasAtBottom = isAtBottom() && !window.replyJumpActive;
 
       const isSentByMe = Number(msgData.sender_id) === wsConfig.accountId;
       const container = document.createElement('div');
@@ -342,10 +343,10 @@
       }
 
       applyAdminBadges();
-      if (wasAtBottom || isSentByMe) {
+      if ((wasAtBottom || isSentByMe) && !window.replyJumpActive) {
         scrollToBottom(true, true);
       } else {
-        showScrollIndicator(1);
+        showScrollIndicator(isSentByMe ? 0 : 1);
       }
       updateSeenIndicator();
     }
@@ -375,7 +376,7 @@
       // Captured BEFORE appendChild below — see the matching comment in
       // renderAndAppendWsMessage() above for why checking after append is
       // wrong (a taller incoming reply bubble skews the result).
-      const wasAtBottom = isAtBottom();
+      const wasAtBottom = isAtBottom() && !window.replyJumpActive;
 
       // Admin spy view always renders every message "received"-style,
       // regardless of who sent it — matches load_dm_admin.php's renderer.
@@ -470,7 +471,7 @@
       }
 
       applyAdminBadges();
-      if (wasAtBottom) {
+      if (wasAtBottom && !window.replyJumpActive) {
         scrollToBottom(true, true);
       } else {
         showScrollIndicator(1);
@@ -624,8 +625,12 @@
                 const sender = Number(data.sender_id);
                 if (sender !== wsConfig.accountId) {
                   if (data.has_upload) {
-                    isLoadingGC = false;
-                    loadGlobalChat(false);
+                    if (gcViewingOlder || window.replyJumpActive) {
+                      showScrollIndicator(1);
+                    } else {
+                      isLoadingGC = false;
+                      loadGlobalChat(false);
+                    }
                   } else {
                     renderAndAppendWsMessage(data);
                   }
@@ -674,7 +679,7 @@
                   // Incoming message from the other person — render it via WS
                   if (data.has_upload) {
                     if (typeof dmMessageCache !== 'undefined' && activeDM) dmMessageCache.delete(activeDM);
-                    if (dmViewingOlder) {
+                    if (dmViewingOlder || window.replyJumpActive) {
                       showScrollIndicator(1);
                     } else {
                       loadChatForced();
@@ -3087,7 +3092,8 @@
       chatBox.innerHTML = '';
       chatBox.scrollTop = 0;
       removePaginationBtn();
-      hideScrollIndicator();
+      window.replyJumpActive = false;
+      hideScrollIndicator(true);
       const _htp = document.getElementById('headerTypingPreview');
       if (_htp) { _htp.textContent = ''; _htp.classList.remove('active'); }
 
@@ -3162,7 +3168,8 @@
       updateHeaderActiveStatus();
       isFirstLoad = true;
       chatFullyLoaded = false;
-      hideScrollIndicator();
+      window.replyJumpActive = false;
+      hideScrollIndicator(true);
       const _htpGc = document.getElementById('headerTypingPreview');
       if (_htpGc) { _htpGc.textContent = ''; _htpGc.classList.remove('active'); }
       if (localTypingTimeout) {
@@ -3241,7 +3248,8 @@
       updateHeaderActiveStatus();
       isFirstLoad = true;
       chatFullyLoaded = false;
-      hideScrollIndicator();
+      window.replyJumpActive = false;
+      hideScrollIndicator(true);
       const _htpGc = document.getElementById('headerTypingPreview');
       if (_htpGc) { _htpGc.textContent = ''; _htpGc.classList.remove('active'); }
       if (localTypingTimeout) {
@@ -4503,7 +4511,7 @@
     let adminConvXhr = null;          // track in-flight XHR so stale responses can be discarded
 
     function loadAdminConv(convId, isAutoPoll = false, loadOlderMode = false) {
-      if (isAutoPoll && !loadOlderMode && adminConvViewingOlder) return;
+      if (isAutoPoll && !loadOlderMode && (adminConvViewingOlder || window.replyJumpActive)) return;
       if (isLoadingAdminConv) {
         // For non-poll (explicit open) calls, abort any in-flight request and proceed
         if (!isAutoPoll && adminConvXhr) { adminConvXhr.abort(); adminConvXhr = null; isLoadingAdminConv = false; }
@@ -4511,7 +4519,7 @@
       }
       isLoadingAdminConv = true;
 
-      const wasAtBottom = isAtBottom();
+      const wasAtBottom = isAtBottom() && !window.replyJumpActive;
       const requestedConv = activeAdminConv;
       const cursor     = loadOlderMode ? adminConvCursor : '';
       const limitParam = loadOlderMode ? BACKREAD_BATCH : INITIAL_LOAD;
@@ -4644,12 +4652,14 @@
             if (isFirstLoad) {
               isFirstLoad = false;
               handleFirstLoadScroll();
-            } else if (wasAtBottom || !userScrolledUp) {
+            } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
               scrollToBottom(true, true);
-            } else if (userScrolledUp) {
+            } else if (userScrolledUp || window.replyJumpActive) {
               const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
               if (newlyAppendedCount > 0) {
                 showScrollIndicator(newlyAppendedCount);
+              } else if (window.replyJumpActive) {
+                showScrollIndicator(0);
               }
             }
           }
@@ -4685,12 +4695,14 @@
           isFirstLoad = false;
           handleFirstLoadScroll();
         } else if (!adminConvViewingOlder) {
-          if (wasAtBottom || !userScrolledUp) {
+          if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
             scrollToBottom(true, true);
           } else {
             chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
-            if (userScrolledUp && genuinelyNewCountF > 0) {
+            if ((userScrolledUp || window.replyJumpActive) && genuinelyNewCountF > 0) {
               showScrollIndicator(genuinelyNewCountF);
+            } else if (window.replyJumpActive) {
+              showScrollIndicator(0);
             }
           }
         }
@@ -4762,6 +4774,8 @@
 
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
       removePaginationBtn();
+      window.replyJumpActive = false;
+      hideScrollIndicator(true);
       renderAdminConvs();
       loadAdminConv(ch.conv_id, false);
 
@@ -4827,6 +4841,8 @@
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
       
       removePaginationBtn();
+      window.replyJumpActive = false;
+      hideScrollIndicator(true);
       renderAdminConvs();
       loadAdminConv(c.convId, false);
 

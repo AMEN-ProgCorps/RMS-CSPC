@@ -563,7 +563,7 @@
       // Never snap or jump scroll position while the user is actively touch-dragging or scrolling
       if (isUserScrollingOrTouching && !force) return;
 
-      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+      const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
       if (viewingOlder && !force) return;
 
       cancelActiveScrollAnimation();
@@ -653,12 +653,13 @@
     }
 
     function showScrollIndicator(newCount = 0) {
-      if (!chatBox || !chatFullyLoaded || isMobileVirtualKeyboardActive()) {
+      if (!chatBox) return;
+      if (!window.replyJumpActive && (!chatFullyLoaded || isMobileVirtualKeyboardActive())) {
         hideScrollIndicator();
         return;
       }
 
-      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+      const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
 
       const distance = chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight;
       if (!viewingOlder && distance <= 100 && newCount === 0) {
@@ -671,10 +672,10 @@
         unreadBadge.textContent = unreadCount > 99 ? '99+' : unreadCount;
         scrollIndicatorText.textContent = unreadCount === 1 ? 'new message' : 'new messages';
         scrollIndicator.classList.add('has-unread');
-      } else if (!scrollIndicator.classList.contains('visible')) {
-        if (!scrollIndicator.classList.contains('has-unread')) {
-          scrollIndicatorText.textContent = 'Go to bottom';
-        }
+      } else if (unreadCount === 0) {
+        scrollIndicator.classList.remove('has-unread');
+        unreadBadge.textContent = '';
+        scrollIndicatorText.textContent = 'Go to bottom';
       }
 
       if (viewingOlder || distance > 150 || scrollIndicator.classList.contains('has-unread')) {
@@ -684,7 +685,8 @@
       }
     }
 
-    function hideScrollIndicator() {
+    function hideScrollIndicator(force = false) {
+      if (window.replyJumpActive && !force) return;
       scrollIndicator.classList.remove('visible', 'has-unread');
       unreadCount = 0;
       unreadBadge.textContent = '';
@@ -934,6 +936,7 @@
     function scrollAndBlinkTarget(targetMsg) {
       cancelScrollObserve(targetMsg);
 
+      window.replyJumpActive = true;
       shouldAutoScroll = false;
       userScrolledUp   = true;
 
@@ -973,12 +976,8 @@
       state.safetyTimer = setTimeout(finish, 900);
       targetMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-      // If this target is away from the bottom of chatBox, display arrow down right away
-      const distFromBottom = chatBox.scrollHeight - (targetMsg.offsetTop + targetMsg.offsetHeight);
-      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
-      if (viewingOlder || distFromBottom > 150) {
-        showScrollIndicator(0);
-      }
+      // Always show the down arrow right away
+      showScrollIndicator(0);
     }
 
     // Build the URL for an around_uuid jump fetch based on which chat type is active.
@@ -1103,10 +1102,12 @@
       e.preventDefault();
       e.stopPropagation();
 
+      window.replyJumpActive = true;
       const targetMsg = chatBox.querySelector(`.message-container[data-msg-id="${replyToMsgId}"]`);
       if (targetMsg) {
         // Message is in the DOM — scroll+blink in place
         scrollAndBlinkTarget(targetMsg);
+        showScrollIndicator(0);
       } else {
         // Message not loaded yet — fetch a window centred on it
         jumpToUnloadedMessage(replyToMsgId);
@@ -1939,7 +1940,7 @@
     // Monitor scroll position
     chatBox.addEventListener('scroll', function() {
       const atBottom = isAtBottom();
-      const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+      const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
       
       if (atBottom && !viewingOlder) {
         shouldAutoScroll = true;
@@ -1979,7 +1980,7 @@
     chatBox.addEventListener('load', function(event) {
       if (isUserScrollingOrTouching) return;
       if (event.target.tagName === 'IMG') {
-        const viewingOlder = isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder);
+        const viewingOlder = (isGlobalChat ? gcViewingOlder : (activeAdminConv ? adminConvViewingOlder : dmViewingOlder)) || window.replyJumpActive;
         if (viewingOlder) return; // Never auto-scroll to bottom when user is viewing older messages
         if (shouldAutoScroll || !userScrolledUp || isAtBottom()) {
           scrollToBottom(true, true);
@@ -2155,9 +2156,10 @@
     // If user was viewing older history (e.g. jumped or backread), cleans up
     // stale cursor state, clears older messages, and reloads the latest batch.
     function returnToLatestChat() {
+      window.replyJumpActive = false;
       shouldAutoScroll = true;
       userScrolledUp = false;
-      hideScrollIndicator();
+      hideScrollIndicator(true);
 
       if (isGlobalChat && gcViewingOlder) {
         gcViewingOlder = false;
@@ -2198,12 +2200,22 @@
       }
 
       scrollToBottom(true, true);
+      hideScrollIndicator(true);
+      if (activeDM && typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) {
+        markRead(activeDM);
+      }
       return false;
     }
 
     // Click scroll indicator to go to bottom
     scrollIndicator.addEventListener('click', function() {
       returnToLatestChat();
+    });
+    scrollIndicator.addEventListener('keydown', function(e) {
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        returnToLatestChat();
+      }
     });
 
     // ── Auto-load older messages on backread (replaces the old floating
@@ -2477,12 +2489,14 @@
           if (isFirstLoad) {
             isFirstLoad = false;
             handleFirstLoadScroll();
-          } else if (wasAtBottom || !userScrolledUp) {
+          } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
             scrollToBottom(true, true);
-          } else if (userScrolledUp) {
+          } else if (userScrolledUp || window.replyJumpActive) {
             const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
             if (newlyAppendedCount > 0) {
               showScrollIndicator(newlyAppendedCount);
+            } else if (window.replyJumpActive) {
+              showScrollIndicator(0);
             }
           }
         }
@@ -2516,12 +2530,14 @@
         isFirstLoad = false;
         handleFirstLoadScroll();
       } else if (!gcViewingOlder) {
-        if (wasAtBottom || !userScrolledUp) {
+        if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
           scrollToBottom(true, true);
         } else {
           chatBox.scrollTop = Math.max(0, prevST + chatBox.scrollHeight - prevSH);
-          if (userScrolledUp && genuinelyNewCount > 0) {
+          if ((userScrolledUp || window.replyJumpActive) && genuinelyNewCount > 0) {
             showScrollIndicator(genuinelyNewCount);
+          } else if (window.replyJumpActive) {
+            showScrollIndicator(0);
           }
         }
       }
@@ -2604,7 +2620,7 @@
     function loadGlobalChat(isAutoPoll = false, loadOlderMode = false, force = false) {
       if (!isGlobalChat) return;
       if (isLoadingGC && !force) return;
-      if (isAutoPoll && !loadOlderMode && gcViewingOlder) return;
+      if (isAutoPoll && !loadOlderMode && (gcViewingOlder || window.replyJumpActive)) return;
 
       if (!loadOlderMode && !isAutoPoll) {
         if (globalChatPrefetchedData) {
@@ -2813,12 +2829,14 @@
           if (isFirstLoad) {
             isFirstLoad = false;
             handleFirstLoadScroll();
-          } else if (wasAtBottom || !userScrolledUp) {
+          } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
             scrollToBottom(true, true);
-          } else if (userScrolledUp) {
+          } else if (userScrolledUp || window.replyJumpActive) {
             const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
             if (newlyAppendedCount > 0) {
               showScrollIndicator(newlyAppendedCount);
+            } else if (window.replyJumpActive) {
+              showScrollIndicator(0);
             }
           }
         }
@@ -2854,12 +2872,14 @@
         isFirstLoad = false;
         handleFirstLoadScroll();
       } else if (!dmViewingOlder) {
-        if (wasAtBottom || !userScrolledUp) {
+        if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
           scrollToBottom(true, true);
         } else {
           chatBox.scrollTop = Math.max(0, prevSTF + chatBox.scrollHeight - prevSHF);
-          if (userScrolledUp && genuinelyNewCountF > 0) {
+          if ((userScrolledUp || window.replyJumpActive) && genuinelyNewCountF > 0) {
             showScrollIndicator(genuinelyNewCountF);
+          } else if (window.replyJumpActive) {
+            showScrollIndicator(0);
           }
         }
       }
@@ -2870,7 +2890,7 @@
     function loadChat(isAutoPoll = false, loadOlderMode = false, force = false) {
       if (isAdminAllChatsView || activeAdminConv) return;
       if (!activeDM) return;
-      if (isAutoPoll && !loadOlderMode && dmViewingOlder) return;
+      if (isAutoPoll && !loadOlderMode && (dmViewingOlder || window.replyJumpActive)) return;
 
       // Consume preloaded snapshot from hover cache if available on initial open for instant paint,
       // but do NOT return early so we still perform background fetch from load_dm.php to reconcile new messages.
@@ -3012,7 +3032,8 @@
         if (this.status === 200) {
           shouldAutoScroll = true;
           userScrolledUp = false;
-          hideScrollIndicator();
+          window.replyJumpActive = false;
+          hideScrollIndicator(true);
           // Capture conv identifiers before resetToHome() nulls them
           const clearedDM       = activeDM;
           if (clearedDM) dmMessageCache.delete(clearedDM); // this conversation's snapshot is now stale
@@ -3577,13 +3598,15 @@
         const overlay3 = getSendingOverlay();
         if (overlay3) overlay3.appendChild(sendingBubble);
         else chatBox.appendChild(sendingBubble);
-        shouldAutoScroll = true;
-        userScrolledUp = false;
-        // Always scroll for the user's own outgoing message — isAtBottom() can read
-        // stale while the virtual keyboard is open (viewport/chatBox height is still
-        // reflowing), which silently blocked this scroll and left the new message
-        // hidden below the fold when the keyboard was up.
-        scrollToBottom(true, true);
+        if (!window.replyJumpActive) {
+          shouldAutoScroll = true;
+          userScrolledUp = false;
+          // Always scroll for the user's own outgoing message — isAtBottom() can read
+          // stale while the virtual keyboard is open (viewport/chatBox height is still
+          // reflowing), which silently blocked this scroll and left the new message
+          // hidden below the fold when the keyboard was up.
+          scrollToBottom(true, true);
+        }
       }
 
       const xhr = new XMLHttpRequest();
@@ -3828,8 +3851,12 @@
                     // Always scroll for the user's own confirmed message — see note
                     // above the optimistic-bubble scroll for why isAtBottom() is
                     // unreliable while the virtual keyboard is open.
-                    scrollToBottom(true, true);
-                    hideScrollIndicator();
+                    if (!window.replyJumpActive) {
+                      scrollToBottom(true, true);
+                      hideScrollIndicator();
+                    } else {
+                      showScrollIndicator(0);
+                    }
                     updateSeenIndicator();
                   }
                 } else {
@@ -4816,12 +4843,10 @@
         }
       }
       
-      // Press Space or Enter when scroll indicator is visible to scroll to bottom
-      if ((e.key === ' ' || e.key === 'Enter') && scrollIndicator.classList.contains('visible')) {
+      // Press Space or Enter only when scroll indicator itself is focused and visible
+      if ((e.key === ' ' || e.key === 'Enter') && document.activeElement === scrollIndicator && scrollIndicator.classList.contains('visible')) {
         e.preventDefault();
-        shouldAutoScroll = true;
-        userScrolledUp = false;
-        scrollToBottom(true);
+        returnToLatestChat();
       }
       
       // Prevent clear chat shortcuts for non-admins

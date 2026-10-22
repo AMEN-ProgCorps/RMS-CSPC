@@ -1234,6 +1234,16 @@
           if (targetGid > 0 && (_myId <= 0 || _myId !== _creatorId)) {
             window.newlyAddedGcIds = window.newlyAddedGcIds || new Set();
             window.newlyAddedGcIds.add(targetGid);
+            // Also remove from localStorage openedGcIds so the NEW badge
+            // reappears even if this user was previously in this group
+            try {
+              const _raw = localStorage.getItem('openedGcIds');
+              const _set = new Set(_raw ? JSON.parse(_raw).map(Number) : []);
+              if (_set.has(targetGid)) {
+                _set.delete(targetGid);
+                localStorage.setItem('openedGcIds', JSON.stringify([..._set]));
+              }
+            } catch (e) {}
           }
 
           // Case 1: Super Admin is currently spying on this Custom GC
@@ -1894,6 +1904,25 @@
 
       // Sort: newly-added custom GCs rise to the top, rest sorted by lastTimestamp
       if (Array.isArray(allUsersData) && allUsersData.length > 0) {
+        // Sync localStorage: any custom GC the server says is NOT newly_added = already opened
+        // This prevents showing NEW for GCs that were opened before the feature was deployed,
+        // or where the server has already recorded last_opened_at.
+        try {
+          const _openedKey = 'openedGcIds';
+          const _storedRaw = localStorage.getItem(_openedKey);
+          const _openedSet = new Set(_storedRaw ? JSON.parse(_storedRaw).map(Number) : []);
+          let _changed = false;
+          allUsersData.forEach(u => {
+            if (u.is_custom_gc && !u.is_newly_added) {
+              if (!_openedSet.has(Number(u.gc_id))) {
+                _openedSet.add(Number(u.gc_id));
+                _changed = true;
+              }
+            }
+          });
+          if (_changed) localStorage.setItem(_openedKey, JSON.stringify([..._openedSet]));
+        } catch (e) {}
+
         allUsersData.sort((a, b) => {
           const aNew = (a.is_custom_gc && (a.is_newly_added || (window.newlyAddedGcIds && window.newlyAddedGcIds.has(Number(a.gc_id))))) ? 1 : 0;
           const bNew = (b.is_custom_gc && (b.is_newly_added || (window.newlyAddedGcIds && window.newlyAddedGcIds.has(Number(b.gc_id))))) ? 1 : 0;

@@ -238,7 +238,7 @@ class CustomGroupManager
                 } catch (Throwable) {}
 
                 $joinedTs = (int) ($row['joined_ts'] ?? 0);
-                $isNewlyAdded = empty($row['last_opened_at']) && ($lastReadId <= 0) && ((int)$row['creator_id'] !== $accountId);
+                $isNewlyAdded = empty($row['last_opened_at']) && ((int)$row['creator_id'] !== $accountId);
                 $effectiveTs = max($joinedTs, $lastTs);
 
                 $groups[] = [
@@ -365,14 +365,17 @@ class CustomGroupManager
 
             $convId = 'gc_' . $groupId;
             $stmt = $pdo->prepare(
-                'INSERT INTO chat_custom_group_members (group_id, account_id, joined_at, last_read_msg_id)
-                 VALUES (:group_id, :account_id, NOW(), COALESCE((SELECT MAX(id) FROM chat_messages WHERE conv_id = :conv_id AND status = \'active\'), 0))
-                 ON CONFLICT (group_id, account_id) DO NOTHING'
+                'INSERT INTO chat_custom_group_members (group_id, account_id, joined_at, last_read_msg_id, last_opened_at)
+                 VALUES (:group_id, :account_id, NOW(), 0, NULL)
+                 ON CONFLICT (group_id, account_id) DO UPDATE
+                   SET joined_at       = NOW(),
+                       last_read_msg_id = 0,
+                       last_opened_at   = NULL'
             );
             foreach ($newMemberIds as $accId) {
                 $accId = (int) $accId;
                 if ($accId <= 0) continue;
-                $stmt->execute([':group_id' => $groupId, ':account_id' => $accId, ':conv_id' => $convId]);
+                $stmt->execute([':group_id' => $groupId, ':account_id' => $accId]);
             }
             return true;
         } catch (Throwable $e) {

@@ -19,6 +19,10 @@
       if (globalChatItemEl) globalChatItemEl.style.display = isAdminAllChatsView ? 'none' : '';
       if (officeChatItemEl) officeChatItemEl.style.display = (isAdminAllChatsView || !hasOffice) ? 'none' : '';
       if (sidebarUsers) sidebarUsers.style.display = isAdminAllChatsView ? 'none' : '';
+      const sidebarScrollContainer = document.querySelector('.sidebar-scrollable-container');
+      if (sidebarScrollContainer) sidebarScrollContainer.style.display = isAdminAllChatsView ? 'none' : '';
+      const customGcSection = document.getElementById('customGcSection');
+      if (customGcSection) customGcSection.style.display = isAdminAllChatsView ? 'none' : '';
 
       const inputSection = document.querySelector('.input-section');
       const chatForm = document.getElementById('chatForm');
@@ -36,6 +40,7 @@
       } else {
         renderAdminConvs();
       }
+      if (typeof updateOfficeInfoButtonVisibility === 'function') updateOfficeInfoButtonVisibility();
     }
 
     if (adminEyeToggleBtn) {
@@ -52,12 +57,18 @@
           localStorage.setItem('__preSpyChannel__', preSpyChannel || '');
           localStorage.setItem('__preSpyIsGlobal__', preSpyIsGlobal ? '1' : '0');
 
+          isAdminAllChatsView = true;
+          localStorage.setItem('__adminAllChatsView__', '1');
+
           // Close/clear previously opened conversation
           activeDM = null;
           activeDMAccountId = null;
           isGlobalChat = false;
+          window.activeChannel = null;
+          window.activeCustomGc = null;
           activeAdminConv = null;
           updateClearChatButtonVisibility();
+          if (typeof updateOfficeInfoButtonVisibility === 'function') updateOfficeInfoButtonVisibility();
           if (typeof hideEditBanner === 'function') hideEditBanner();
           if (typeof hideReplyBanner === 'function') hideReplyBanner();
           localStorage.removeItem('activeSpyConv');
@@ -70,8 +81,6 @@
           removePaginationBtn();
           chatBox.innerHTML = '<div class="empty-chat"></div>';
 
-          isAdminAllChatsView = true;
-          localStorage.setItem('__adminAllChatsView__', '1');
           applyAdminAllChatsView();
         } else {
           // Leaving spy view — restore the admin's conversation
@@ -160,6 +169,7 @@
           localStorage.removeItem('__preSpyDM__');
           localStorage.removeItem('__preSpyChannel__');
           localStorage.removeItem('__preSpyIsGlobal__');
+          if (typeof updateOfficeInfoButtonVisibility === 'function') updateOfficeInfoButtonVisibility();
         }
       });
     }

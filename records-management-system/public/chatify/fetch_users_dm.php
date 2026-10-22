@@ -187,10 +187,44 @@ if ($isAdmin) {
         $convsResult = ConversationManager::getUserConversations($adminTargetId, 50, 0);
         $targetInfo  = UserResolver::getUserInfo($adminTargetId);
 
+        // Fetch custom GCs created by this target user
+        $customGcs = [];
+        try {
+            $pdo = Database::getConnection();
+            $stmt = $pdo->prepare('
+                SELECT g.id, g.name, g.creator_id,
+                       EXTRACT(EPOCH FROM g.created_at)::BIGINT AS created_ts,
+                       (SELECT COUNT(*) FROM chat_custom_group_members WHERE group_id = g.id) AS member_count,
+                       (SELECT COUNT(*) FROM chat_messages WHERE conv_id = (\'gc_\' || g.id)) AS msg_count
+                FROM chat_custom_groups g
+                WHERE g.creator_id = :target_id
+                ORDER BY g.created_at DESC
+            ');
+            $stmt->execute([':target_id' => $adminTargetId]);
+            $gcRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            foreach ($gcRows as $gc) {
+                $customGcs[] = [
+                    'convId'        => 'gc_' . (int) $gc['id'],
+                    'isCustomGc'    => true,
+                    'title'         => $gc['name'],
+                    'name1'         => $gc['name'],
+                    'name2'         => 'Custom GC (' . (int) $gc['member_count'] . ' members)',
+                    'msgCount'      => (int) $gc['msg_count'],
+                    'lastMessage'   => '',
+                    'lastTimestamp' => (int) $gc['created_ts'],
+                ];
+            }
+        } catch (Throwable $e) {
+            error_log('fetch_users_dm.php (target user custom GCs) - ' . $e->getMessage());
+        }
+
+        $allConvs = array_merge($customGcs, $convsResult['conversations']);
+
         $adminSpyResponse = [
             'type'          => 'conversations',
             'targetUser'    => $targetInfo,
-            'conversations' => $convsResult['conversations'],
+            'conversations' => $allConvs,
             'hasMore'       => !empty($convsResult['hasMore']),
             'offset'        => 0,
             'limit'         => 50,
@@ -322,6 +356,7 @@ if ($isAdmin) {
 
 $freshMyOfficeId = isset($myInfo['office_id']) ? (int) $myInfo['office_id'] : 0;
 $freshMyOffice = null;
+$officeGcUnreadCount = 0;
 if ($freshMyOfficeId > 0) {
     try {
         $pdo = Database::getConnection();
@@ -329,6 +364,8 @@ if ($freshMyOfficeId > 0) {
         $stmt->execute([':id' => $freshMyOfficeId]);
         $freshMyOffice = $stmt->fetch(PDO::FETCH_ASSOC);
     } catch (Throwable) {}
+    // Compute unread count for this user's office GC
+    $officeGcUnreadCount = OfficeChatManager::getUnreadCount($freshMyOfficeId, $myAccountId);
 }
 
 if (session_status() === PHP_SESSION_ACTIVE) {
@@ -336,17 +373,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 }
 
 echo json_encode([
-    'users'         => array_values($sidebarUsers),
-    'hasMore'       => $hasMoreUsers,
-    'currentUser'   => [
-        'account_id'  => $myAccountId,
-        'full_name'   => $myInfo['full_name'] ?? Auth::fullName(),
-        'office_id'   => $freshMyOfficeId > 0 ? $freshMyOfficeId : null,
-        'office_name' => $freshMyOffice['office_name'] ?? null,
-        'office_code' => $freshMyOffice['office_code'] ?? null,
-        'is_admin'    => $isAdmin,
-        'avatar_url'  => $myInfo['avatar_url'] ?? ($_SESSION['avatar_url'] ?? null),
+    'users'                => array_values($sidebarUsers),
+    'hasMore'              => $hasMoreUsers,
+    'currentUser'          => [
+        'account_id'           => $myAccountId,
+        'full_name'            => $myInfo['full_name'] ?? Auth::fullName(),
+        'office_id'            => $freshMyOfficeId > 0 ? $freshMyOfficeId : null,
+        'office_name'          => $freshMyOffice['office_name'] ?? null,
+        'office_code'          => $freshMyOffice['office_code'] ?? null,
+        'is_admin'             => $isAdmin,
+        'avatar_url'           => $myInfo['avatar_url'] ?? ($_SESSION['avatar_url'] ?? null),
+        'office_gc_unread'     => $officeGcUnreadCount,
     ],
-    'conversations' => $adminSpyResponse['conversations'] ?? [],
-    'adminConvs'    => $adminSpyResponse,
+    'conversations'        => $adminSpyResponse['conversations'] ?? [],
+    'adminConvs'           => $adminSpyResponse,
 ]);

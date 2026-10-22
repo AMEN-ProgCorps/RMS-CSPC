@@ -32,11 +32,12 @@ if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret)
 }
 
 $convId = preg_replace('/[^a-z0-9_]/', '', strtolower(trim($_GET['conv_id'] ?? '')));
-if (empty($convId) || !preg_match('/^(\d+_\d+|global|office_\d+)$/', $convId)) {
+if (empty($convId) || !preg_match('/^(\d+_\d+|global|office_\d+|gc_\d+)$/', $convId)) {
     die('Invalid conv_id');
 }
 
-$isChannel      = ($convId === 'global' || str_starts_with($convId, 'office_'));
+$isCustomGc     = str_starts_with($convId, 'gc_');
+$isChannel      = ($convId === 'global' || str_starts_with($convId, 'office_') || $isCustomGc);
 $isOfficeGc     = str_starts_with($convId, 'office_');
 $targetOfficeId = $isOfficeGc ? OfficeChatManager::parseOfficeId($convId) : null;
 
@@ -404,7 +405,12 @@ for ($i = 0; $i < $msgCount; $i++) {
 if ($html === '') {
     $chatTitle     = 'Global Chat';
     $emptySubtitle = 'No messages yet. Send a message to get the conversation started!';
-    if ($isOfficeGc && $targetOfficeId) {
+    if ($isCustomGc) {
+        $gcId = (int) substr($convId, 3);
+        $group = CustomGroupManager::getGroup($gcId);
+        $chatTitle = $group ? htmlspecialchars($group['name'], ENT_QUOTES) : 'Group Chat';
+        $emptySubtitle = 'No messages in this group chat yet.';
+    } elseif ($isOfficeGc && $targetOfficeId) {
         $off = OfficeChatManager::getOfficeDetails($targetOfficeId);
         $offCode = trim($off['office_code'] ?? '');
         $chatTitle = $off ? htmlspecialchars($offCode !== '' ? $offCode : $off['office_name'], ENT_QUOTES) : 'Office Group Chat';

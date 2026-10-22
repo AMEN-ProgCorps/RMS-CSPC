@@ -989,30 +989,51 @@
       display: inline-block;
     }
 
-    /* Single-line Header Title Alignment (Global Chat & Admin Spy Mode): Perfectly level/kapantay with back arrow horizontally & vertically */
+    /* Single-line Header Title Alignment (Global Chat & Admin Spy Mode): Perfectly centered with GC logo horizontally & vertically */
     .header.is-single-title .header-user-info,
     .header.is-global-chat .header-user-info {
-      height: 20px;
+      height: 32px;
       padding-top: 0;
+      display: flex;
+      flex-direction: column;
       justify-content: center;
       align-items: flex-start;
+      min-width: 0;
+      flex: 1 1 auto;
+      overflow: visible;
     }
 
     .header.is-single-title .header-title-row,
     .header.is-global-chat .header-title-row {
-      height: 20px;
+      height: 32px;
       display: flex;
       align-items: center;
       justify-content: flex-start;
-      width: auto;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      overflow: visible;
+      gap: 6px;
     }
 
     .header.is-single-title h1#chatHeaderTitle,
     .header.is-global-chat h1#chatHeaderTitle {
-      line-height: 20px;
+      font-size: 18px;
+      font-weight: 400;
+      line-height: normal;
       text-align: left;
-      display: flex;
-      align-items: center;
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+      max-width: 100%;
+      flex: 0 1 auto;
+    }
+
+    .header.is-single-title .header-active-status,
+    .header.is-global-chat .header-active-status {
+      display: none;
     }
 
     .header-title-row .verified-badge {
@@ -2073,6 +2094,10 @@
       left: 50%;
       transform: translate(-50%, -50%);
       width: 80%;
+      max-width: 480px;
+      box-sizing: border-box;
+      overflow-wrap: break-word;
+      word-break: break-word;
     }
 
     .empty-chat .chat-icon {
@@ -2097,6 +2122,8 @@
       font-weight: 600;
       margin-bottom: 8px;
       color: var(--text-primary);
+      overflow-wrap: break-word;
+      word-break: break-word;
     }
 
     .empty-chat p {

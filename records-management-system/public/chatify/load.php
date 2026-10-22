@@ -68,6 +68,24 @@ if ($isOfficeGc && $targetOfficeId) {
         echo json_encode(['error' => 'You do not belong to this office group chat.']);
         exit;
     }
+    // Mark office GC messages as read for this user (only for real members, not spy mode)
+    if (!Auth::isAdmin($myAccountId) || $userOfficeId === $targetOfficeId) {
+        OfficeChatManager::markAsRead($targetOfficeId, $myAccountId);
+    }
+}
+
+// Custom GC authorization: verify user is a member
+$isCustomGc    = str_starts_with($convId, 'gc_');
+$customGcId    = 0;
+if ($isCustomGc) {
+    $customGcId = (int) substr($convId, 3);
+    if ($customGcId <= 0 || (!Auth::isAdmin($myAccountId) && !CustomGroupManager::isMember($customGcId, $myAccountId))) {
+        http_response_code(403);
+        echo json_encode(['error' => 'You are not a member of this group chat.']);
+        exit;
+    }
+    // Mark messages as read for this user
+    CustomGroupManager::markAsRead($customGcId, $myAccountId);
 }
 
 // ── Load data ────────────────────────────────────────────────────────────────
@@ -484,6 +502,10 @@ if ($html === '') {
         $offCode = trim($off['office_code'] ?? '');
         $chatTitle = $off ? htmlspecialchars($offCode !== '' ? $offCode : $off['office_name'], ENT_QUOTES) : 'Office Group Chat';
         $emptySubtitle = 'No messages yet. Say hello to your office team!';
+    } elseif ($isCustomGc && $customGcId > 0) {
+        $gcRow = CustomGroupManager::getGroup($customGcId);
+        $chatTitle = $gcRow ? htmlspecialchars($gcRow['name'], ENT_QUOTES) : 'Group Chat';
+        $emptySubtitle = 'No messages yet. Start the conversation!';
     }
     $html = "<div class='empty-chat'>
                 <div class='chat-icon'>
@@ -491,7 +513,7 @@ if ($html === '') {
                         <path d='M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z'/>
                     </svg>
                 </div>
-                <h3>{$chatTitle}</h3>
+                <h3 style='word-break:break-word;overflow-wrap:anywhere;max-width:100%;'>{$chatTitle}</h3>
                 <p>{$emptySubtitle}</p>
             </div>";
 }

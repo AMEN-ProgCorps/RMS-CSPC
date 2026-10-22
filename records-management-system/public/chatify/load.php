@@ -88,6 +88,12 @@ if ($isCustomGc) {
     CustomGroupManager::markAsRead($customGcId, $myAccountId);
 }
 
+$customGcMemberIds = [];
+if ($isCustomGc && $customGcId > 0) {
+    $gcMembers = CustomGroupManager::getMembers($customGcId);
+    $customGcMemberIds = array_map('intval', array_column($gcMembers, 'account_id'));
+}
+
 // ── Load data ────────────────────────────────────────────────────────────────
 // Fetch limit+1 rows so we can detect hasMore without a separate COUNT(*).
 $jumpMode = false;
@@ -289,6 +295,7 @@ for ($i = 0; $i < $msgCount; $i++) {
         $senderOfficeId = $userOfficeId;
     }
     $isUserMoved = ($isOfficeGc && $targetOfficeId && $senderOfficeId !== $targetOfficeId);
+    $isUserRemovedFromGc = ($isCustomGc && !empty($customGcMemberIds) && !in_array($senderId, $customGcMemberIds, true));
 
     // Reply quote — a small bubble showing what this message is replying
     // to. Intentionally has NO sender name attached, just the quoted
@@ -311,12 +318,19 @@ for ($i = 0; $i < $msgCount; $i++) {
             if ($rSenderOfficeId !== $targetOfficeId) {
                 $replySenderStatus = ($rSenderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
             }
+        } elseif ($isCustomGc && !empty($msg['reply_sender_id']) && !empty($customGcMemberIds)) {
+            $rSenderId = (int) $msg['reply_sender_id'];
+            if (!in_array($rSenderId, $customGcMemberIds, true)) {
+                $replySenderStatus = 'This user has been removed from the group';
+            }
         }
         $replyQuoteHtml = gcBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid'], $replySenderStatus);
     }
 
-    if ($isUserMoved) {
-        $noticeText = ($senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+    if ($isUserMoved || $isUserRemovedFromGc) {
+        $noticeText = $isUserRemovedFromGc
+            ? 'This user has been removed from the group'
+            : (($senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office');
         $rawTimestamp = htmlspecialchars($msg['timestamp'] ?? '', ENT_QUOTES);
         $replyToAttr  = !empty($msg['reply_to_msg_uuid']) ? " data-reply-to='" . htmlspecialchars($msg['reply_to_msg_uuid'], ENT_QUOTES) . "'" : '';
         $html .= "<div class='message-container {$msgClass} user-moved' data-msg-id='{$msgId}' data-sender-id='{$senderId}' data-created-at='{$rawTimestamp}'{$replyToAttr}>";

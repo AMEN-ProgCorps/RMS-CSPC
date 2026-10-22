@@ -41,6 +41,15 @@ $isChannel      = ($convId === 'global' || str_starts_with($convId, 'office_') |
 $isOfficeGc     = str_starts_with($convId, 'office_');
 $targetOfficeId = $isOfficeGc ? OfficeChatManager::parseOfficeId($convId) : null;
 
+$customGcMemberIds = [];
+if ($isCustomGc) {
+    $gcId = (int) substr($convId, 3);
+    if ($gcId > 0) {
+        $gcMembers = CustomGroupManager::getMembers($gcId);
+        $customGcMemberIds = array_map('intval', array_column($gcMembers, 'account_id'));
+    }
+}
+
 // ── Pagination & Incremental Fetching ──────────────────────────────────────────
 // INITIAL_LOAD = 100 (first open), BACKREAD_BATCH = 50 (scroll-up fetches).
 // The client sends ?limit=100 on the first request and ?limit=50 thereafter.
@@ -241,6 +250,7 @@ for ($i = 0; $i < $msgCount; $i++) {
         $senderOfficeId = $userOfficeId;
     }
     $isUserMoved = ($isOfficeGc && $targetOfficeId && $senderOfficeId !== $targetOfficeId);
+    $isUserRemovedFromGc = ($isCustomGc && !empty($customGcMemberIds) && !in_array($senderId, $customGcMemberIds, true));
 
     // Build reply quote if this message is a reply to another message
     $replyQuoteHtml = '';
@@ -259,12 +269,19 @@ for ($i = 0; $i < $msgCount; $i++) {
             if ($rSenderOfficeId !== $targetOfficeId) {
                 $replySenderStatus = ($rSenderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
             }
+        } elseif ($isCustomGc && !empty($msg['reply_sender_id']) && !empty($customGcMemberIds)) {
+            $rSenderId = (int) $msg['reply_sender_id'];
+            if (!in_array($rSenderId, $customGcMemberIds, true)) {
+                $replySenderStatus = 'This user has been removed from the group';
+            }
         }
         $replyQuoteHtml = adminBuildReplyQuoteHtml($msg['reply_message'], $msg['reply_msg_type'] ?? 'text', $msg['reply_to_msg_uuid'], $replySenderStatus);
     }
 
-    if ($isUserMoved) {
-        $noticeText = ($senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office';
+    if ($isUserMoved || $isUserRemovedFromGc) {
+        $noticeText = $isUserRemovedFromGc
+            ? 'This user has been removed from the group'
+            : (($senderOfficeId <= 0) ? 'No office assigned for this user' : 'This user has been moved to other office');
         $bodyHtml .= $replyQuoteHtml;
         $bodyHtml .= "<div class='message-bubble'>";
         $bodyHtml .= "<div class='message-content' style='font-style:italic;opacity:0.85;'>{$noticeText}</div>";

@@ -3054,8 +3054,38 @@
               chatFullyLoaded = false;
               isLoadingAdminConv = false;
               loadAdminConv(clearedAdminConv, false);
+            } else if (clearedAdminConv.startsWith('gc_')) {
+              // Custom GC spy mode clear — reset all loading flags before reloading
+              chatBox.innerHTML = '<div class="empty-chat"></div>';
+              isFirstLoad = true;
+              chatFullyLoaded = false;
+              isLoadingAdminConv = false;
+              if (typeof adminConvXhr !== 'undefined' && adminConvXhr) {
+                try { adminConvXhr.abort(); } catch(e) {}
+                adminConvXhr = null;
+              }
+              adminConvCursor = '';
+              adminConvHasMore = false;
+              adminConvViewingOlder = false;
+              // Immediately update spy list item count in memory
+              if (typeof adminSpyConvs !== 'undefined' && Array.isArray(adminSpyConvs)) {
+                const foundConv = adminSpyConvs.find(c => c.convId === clearedAdminConv);
+                if (foundConv) {
+                  foundConv.msgCount = 0;
+                  if (typeof renderAdminConvs === 'function') renderAdminConvs();
+                }
+              }
+              loadAdminConv(clearedAdminConv, false);
+              // Refresh the admin convs list from server so the message count updates
+              if (typeof window.fetchAdminConvs === 'function' && window.adminSpyTargetUser) {
+                window.fetchAdminConvs('', 0, false, window.adminSpyTargetUser.account_id);
+              } else if (typeof window.fetchAdminConvs === 'function') {
+                const _adminQ = document.getElementById('adminSearchInput');
+                if (_adminQ && _adminQ.value.trim() !== '') window.fetchAdminConvs(_adminQ.value.trim(), 0, false, 0);
+              }
             } else {
               chatBox.innerHTML = '<div class="empty-chat"></div>';
+              isLoadingAdminConv = false;
               loadAdminConv(clearedAdminConv, false);
               fetchUsers();
             }
@@ -6457,6 +6487,9 @@
                         }
                         if (typeof reloadOfficeMembersList === 'function') {
                           reloadOfficeMembersList(true);
+                        }
+                        if (typeof loadGlobalChat === 'function') {
+                          loadGlobalChat(false, false, true);
                         }
                       } else {
                         // Failed — reset to unchecked so they can retry

@@ -1225,38 +1225,83 @@
           }
         } else if (data.type === 'custom_gc_added' || data.type === 'custom_gc_member_added') {
           console.log('Received custom GC update notice:', data);
-          if (typeof loadCustomGcs === 'function') {
-            loadCustomGcs();
-          }
-          if (typeof catchUpMissedNotifications === 'function') {
-            catchUpMissedNotifications();
-          }
-          if (window.activeChannel === 'gc' && typeof reloadOfficeMembersList === 'function') {
-            reloadOfficeMembersList(true);
-          }
-        } else if (data.type === 'custom_gc_removed') {
-          console.log('Received custom GC removed notice:', data);
-          if (typeof loadCustomGcs === 'function') {
-            loadCustomGcs();
-          }
-          if (typeof catchUpMissedNotifications === 'function') {
-            catchUpMissedNotifications();
-          }
-          if (window.activeChannel === 'gc' && window.activeCustomGc && Number(window.activeCustomGc.gc_id) === Number(data.group_id)) {
-            if (typeof closeOfficeMembersModal === 'function') closeOfficeMembersModal();
-            if (typeof resetToHome === 'function') {
-              resetToHome();
+          const targetGid = Number(data.group_id);
+
+          // Case 1: Super Admin is currently spying on this Custom GC
+          if (targetGid > 0 && typeof activeAdminConv !== 'undefined' && activeAdminConv === ('gc_' + targetGid)) {
+            if (typeof loadAdminConv === 'function') {
+              loadAdminConv(activeAdminConv, false);
             }
           }
-        } else if (data.type === 'custom_gc_member_removed') {
-          console.log('Received custom GC member removed notice:', data);
-          if (typeof loadCustomGcs === 'function') {
-            loadCustomGcs();
-          }
-          if (window.activeChannel === 'gc' && window.activeCustomGc && Number(window.activeCustomGc.gc_id) === Number(data.group_id)) {
+
+          // Case 2: User is currently viewing this Custom GC — reload members list and reload chat to restore chats of added user
+          if (targetGid > 0 && window.activeChannel === 'gc' && window.activeCustomGc && Number(window.activeCustomGc.gc_id) === targetGid) {
             if (typeof reloadOfficeMembersList === 'function') {
               reloadOfficeMembersList(true);
             }
+            if (typeof loadGlobalChat === 'function') {
+              loadGlobalChat(false, false, true);
+            }
+          }
+
+          if (typeof loadCustomGcs === 'function') {
+            loadCustomGcs();
+          }
+          if (typeof catchUpMissedNotifications === 'function') {
+            catchUpMissedNotifications();
+          }
+        } else if (data.type === 'custom_gc_removed') {
+          console.log('Received custom GC removed notice:', data);
+          // If the removed user is currently viewing that GC, show removal message
+          if (window.activeChannel === 'gc' && window.activeCustomGc && Number(window.activeCustomGc.gc_id) === Number(data.group_id)) {
+            const _gcName = escapeHtml(data.name || 'this group');
+            if (chatBox) {
+              chatBox.innerHTML = '<div class="empty-chat" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;padding:32px;">' +
+                '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.7;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>' +
+                '<p style="margin:0;font-size:14px;font-weight:600;color:var(--text-primary);">You have been removed from this group.</p>' +
+                '<p style="margin:0;font-size:13px;color:var(--text-secondary);">You no longer have access to <strong>' + _gcName + '</strong>.</p>' +
+              '</div>';
+            }
+            window.activeCustomGc = null;
+            window.activeChannel = null;
+            isGlobalChat = false;
+          }
+          if (typeof loadCustomGcs === 'function') {
+            loadCustomGcs();
+          }
+          if (typeof catchUpMissedNotifications === 'function') {
+            catchUpMissedNotifications();
+          }
+        } else if (data.type === 'custom_gc_member_removed') {
+          console.log('Received custom GC member removed notice:', data);
+          const changedUserId = Number(data.removed_id);
+          const targetGid = Number(data.group_id);
+
+          // Case 1: Super Admin is currently spying on this Custom GC
+          if (typeof activeAdminConv !== 'undefined' && activeAdminConv === ('gc_' + targetGid)) {
+            if (typeof markUserRemovedFromGcInChatBox === 'function') {
+              markUserRemovedFromGcInChatBox(changedUserId);
+            }
+            if (typeof loadAdminConv === 'function') {
+              loadAdminConv(activeAdminConv, false);
+            }
+          }
+
+          // Case 2: User is currently viewing this Custom GC
+          if (window.activeChannel === 'gc' && window.activeCustomGc && Number(window.activeCustomGc.gc_id) === targetGid) {
+            if (typeof markUserRemovedFromGcInChatBox === 'function') {
+              markUserRemovedFromGcInChatBox(changedUserId);
+            }
+            if (typeof reloadOfficeMembersList === 'function') {
+              reloadOfficeMembersList(true);
+            }
+            if (typeof loadGlobalChat === 'function') {
+              loadGlobalChat(false, false, true);
+            }
+          }
+
+          if (typeof loadCustomGcs === 'function') {
+            loadCustomGcs();
           }
         } else if (data.type === 'custom_gc_disbanded') {
           console.log('Received custom GC disbanded notice:', data);
@@ -4295,6 +4340,7 @@
         adminSpyHasMore = false;
         adminSpyOffset = 0;
         adminSpyTargetUser = null;
+        window.adminSpyTargetUser = null;
         renderAdminConvs();
         return;
       }
@@ -4325,6 +4371,7 @@
             } else if (adminSpyType === 'conversations') {
               if (adminData.targetUser) {
                 adminSpyTargetUser = adminData.targetUser;
+                window.adminSpyTargetUser = adminSpyTargetUser;
               }
               adminSpyConvs = adminData.conversations || [];
             }
@@ -4336,9 +4383,16 @@
       xhr.onerror = function() { adminSpyIsLoading = false; };
       xhr.send();
     }
+    window.fetchAdminConvs = fetchAdminConvs;
 
     function selectAdminSpyTargetUser(user) {
+      if (adminConvXhr) {
+        try { adminConvXhr.abort(); } catch(e) {}
+        adminConvXhr = null;
+      }
+      isLoadingAdminConv = false;
       adminSpyTargetUser = user;
+      window.adminSpyTargetUser = adminSpyTargetUser;
       activeAdminConv = null;
       updateClearChatButtonVisibility();
       updateOfficeInfoButtonVisibility();
@@ -4346,12 +4400,19 @@
       applyHeaderAdminBadge();
       applyHeaderAvatar(null);
       updateHeaderActiveStatus();
+      if (chatBox) chatBox.innerHTML = '';
       adminSpyConvs = [];
       fetchAdminConvs('', 0, false, user.account_id);
     }
 
     function clearAdminSpyTargetUser() {
+      if (adminConvXhr) {
+        try { adminConvXhr.abort(); } catch(e) {}
+        adminConvXhr = null;
+      }
+      isLoadingAdminConv = false;
       adminSpyTargetUser = null;
+      window.adminSpyTargetUser = null;
       activeAdminConv = null;
       updateClearChatButtonVisibility();
       updateOfficeInfoButtonVisibility();
@@ -4359,6 +4420,7 @@
       applyHeaderAdminBadge();
       applyHeaderAvatar(null);
       updateHeaderActiveStatus();
+      if (chatBox) chatBox.innerHTML = '';
       adminSpyConvs = [];
       const query = adminSearchInput ? adminSearchInput.value.trim() : '';
       if (query !== '') {
@@ -4677,11 +4739,13 @@
           if (nameEl.textContent !== nameDisplay) nameEl.textContent = nameDisplay;
 
           const count = Number(c.msgCount) || 0;
-          let newMsg = '1 message';
+          let newMsg = 'No messages';
           if (count > 99) {
             newMsg = '99+ messages';
           } else if (count === 1) {
             newMsg = '1 message';
+          } else if (count === 0) {
+            newMsg = 'No messages';
           } else {
             newMsg = count + ' messages';
           }
@@ -5066,6 +5130,59 @@
     window.closeDangerConfirmModal = closeDangerConfirmModal;
     window.showDangerConfirm = showDangerConfirm;
 
+    function markUserRemovedFromGcInChatBox(changedUserId) {
+      if (!chatBox || !changedUserId) return;
+      const noticeText = 'This user has been removed from the group';
+      const changedMsgIds = new Set();
+      const msgContainers = chatBox.querySelectorAll(`.message-container[data-sender-id="${changedUserId}"]`);
+      msgContainers.forEach(container => {
+        container.classList.add('user-moved');
+        const mid = container.getAttribute('data-msg-id');
+        if (mid) changedMsgIds.add(mid);
+        let contentEl = container.querySelector('.message-content');
+        if (!contentEl) {
+          let bubble = container.querySelector('.message-bubble');
+          if (!bubble) {
+            bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            const bubbleWrapper = container.querySelector('.bubble-wrapper');
+            if (bubbleWrapper) bubbleWrapper.appendChild(bubble);
+            else container.appendChild(bubble);
+          }
+          contentEl = document.createElement('div');
+          contentEl.className = 'message-content';
+          bubble.insertBefore(contentEl, bubble.firstChild);
+          if (!bubble.querySelector('.message-info')) {
+            const info = document.createElement('div');
+            info.className = 'message-info';
+            const sender = document.createElement('span');
+            sender.className = 'message-sender';
+            const userObj = allUsersData.find(u => Number(u.account_id) === changedUserId);
+            sender.textContent = userObj ? (userObj.full_name || userObj.username || '').toLowerCase() : 'user';
+            info.appendChild(sender);
+            bubble.appendChild(info);
+          }
+        }
+        if (contentEl) {
+          contentEl.textContent = noticeText;
+          contentEl.style.fontStyle = 'italic';
+          contentEl.style.opacity = '0.85';
+        }
+        container.querySelectorAll('.chat-attachment-container, img.chat-image, video, audio, .message-media').forEach(el => el.remove());
+      });
+
+      if (changedMsgIds.size > 0) {
+        chatBox.querySelectorAll('.reply-quote[data-reply-to]').forEach(rq => {
+          const replyTo = rq.getAttribute('data-reply-to');
+          if (replyTo && changedMsgIds.has(replyTo)) {
+            rq.classList.remove('reply-quote-image-container');
+            rq.innerHTML = `<div class="reply-quote-text" style="font-style:italic;opacity:0.8;">${escapeHtml(noticeText)}</div>`;
+          }
+        });
+      }
+    }
+    window.markUserRemovedFromGcInChatBox = markUserRemovedFromGcInChatBox;
+
     function removeCustomGcMember(groupId, accountId, memberName) {
       const myId = (typeof wsConfig !== 'undefined' && wsConfig.accountId) ? Number(wsConfig.accountId) : 0;
       const creatorId = window.activeCustomGc ? Number(window.activeCustomGc.creator_id) : 0;
@@ -5091,6 +5208,9 @@
               if (res && res.success) {
                 if (Array.isArray(window.activeCustomGcMembers)) {
                   window.activeCustomGcMembers = window.activeCustomGcMembers.filter(x => Number(x.account_id) !== Number(accountId));
+                }
+                if (window.activeChannel === 'gc' && window.activeCustomGc && Number(window.activeCustomGc.gc_id) === Number(groupId)) {
+                  markUserRemovedFromGcInChatBox(Number(accountId));
                 }
                 if (typeof reloadOfficeMembersList === 'function') {
                   reloadOfficeMembersList(true);
@@ -5277,8 +5397,15 @@
       if (isAutoPoll && !loadOlderMode && (adminConvViewingOlder || window.replyJumpActive)) return;
       if (isLoadingAdminConv) {
         // For non-poll (explicit open) calls, abort any in-flight request and proceed
-        if (!isAutoPoll && adminConvXhr) { adminConvXhr.abort(); adminConvXhr = null; isLoadingAdminConv = false; }
-        else return;
+        if (!isAutoPoll) {
+          if (adminConvXhr) {
+            try { adminConvXhr.abort(); } catch(e) {}
+            adminConvXhr = null;
+          }
+          isLoadingAdminConv = false;
+        } else {
+          return;
+        }
       }
       isLoadingAdminConv = true;
 
@@ -5297,13 +5424,21 @@
         isLoadingAdminConv = false;
         if (adminConvXhr === xhr) adminConvXhr = null;
         if (loadOlderMode) hideBackreadTopLoader();
-        if (this.status !== 200) return;
+        if (this.status !== 200) {
+          if (requestedConv === activeAdminConv && !loadOlderMode && chatBox) {
+            chatBox.innerHTML = '<div class="empty-chat"><p>Failed to load conversation.</p></div>';
+          }
+          return;
+        }
         if (requestedConv !== activeAdminConv) return; // stale response
         
         let data;
         try {
           data = JSON.parse(this.responseText);
         } catch(e) {
+          if (!loadOlderMode && chatBox) {
+            chatBox.innerHTML = '<div class="empty-chat"><p>Failed to load conversation.</p></div>';
+          }
           return;
         }
         
@@ -5494,11 +5629,18 @@
           sidebar.classList.remove('open');
           if (backButton) backButton.style.display = 'inline-flex';
         }
+        if (!isLoadingAdminConv) loadAdminConv(ch.conv_id, false);
         return;
       }
 
       if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
       if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
+
+      if (adminConvXhr) {
+        try { adminConvXhr.abort(); } catch(e) {}
+        adminConvXhr = null;
+      }
+      isLoadingAdminConv = false;
 
       activeAdminConv = ch.conv_id;
       activeDM = null;
@@ -5563,11 +5705,18 @@
           sidebar.classList.remove('open');
           if (backButton) backButton.style.display = 'inline-flex';
         }
+        if (!isLoadingAdminConv) loadAdminConv(c.convId, false);
         return;
       }
 
       if (typeof cancelActiveScrollAnimation === 'function') cancelActiveScrollAnimation();
       if (typeof clearFirstLoadScrollTimers === 'function') clearFirstLoadScrollTimers();
+
+      if (adminConvXhr) {
+        try { adminConvXhr.abort(); } catch(e) {}
+        adminConvXhr = null;
+      }
+      isLoadingAdminConv = false;
 
       activeAdminConv = c.convId;
       activeDM = null;

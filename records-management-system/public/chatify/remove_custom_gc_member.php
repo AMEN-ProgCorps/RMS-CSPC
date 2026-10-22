@@ -111,11 +111,13 @@ WsPush::flushResponseThenRun(function () use ($myAccountId, $targetAccountId, $g
         'name'     => $groupNameSafe,
     ]);
 
-    // Push WS event to remaining members to update their members list
+    // Push WS event to remaining members and super admins to update members list and chat messages
     $remainingMembers = CustomGroupManager::getMembers($groupId);
-    $remainingIds = array_column($remainingMembers, 'account_id');
-    if (!empty($remainingIds)) {
-        WsPush::push($remainingIds, 'custom_gc_member_removed', [
+    $remainingIds = array_map('intval', array_column($remainingMembers, 'account_id'));
+    $superAdminIds = Auth::getAllSuperAdminIds();
+    $notifyIds = array_values(array_unique(array_merge($remainingIds, $superAdminIds)));
+    if (!empty($notifyIds)) {
+        WsPush::push($notifyIds, 'custom_gc_member_removed', [
             'group_id'   => $groupId,
             'conv_id'    => $convId,
             'removed_id' => $targetAccountId,

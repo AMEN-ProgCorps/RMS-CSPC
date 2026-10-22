@@ -101,10 +101,18 @@ WsPush::flushResponseThenRun(function () use ($requesterId, $groupId, $convId, $
         }
     }
 
-    // Push to the new members so their sidebar updates
-    WsPush::push($memberIds, 'custom_gc_member_added', [
-        'group_id' => $groupId,
-        'conv_id'  => $convId,
-        'name'     => $groupName,
-    ]);
+    // Push to ALL members (new members, existing members, and super admins) so everyone's UI and chat messages update in real-time
+    $allMembers = CustomGroupManager::getMembers($groupId);
+    $allMemberIds = array_map('intval', array_column($allMembers, 'account_id'));
+    $superAdminIds = Auth::getAllSuperAdminIds();
+    $notifyIds = array_values(array_unique(array_merge($allMemberIds, $superAdminIds)));
+
+    if (!empty($notifyIds)) {
+        WsPush::push($notifyIds, 'custom_gc_member_added', [
+            'group_id'  => $groupId,
+            'conv_id'   => $convId,
+            'name'      => $groupName,
+            'added_ids' => $memberIds,
+        ]);
+    }
 });

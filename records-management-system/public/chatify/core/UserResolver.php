@@ -427,6 +427,78 @@ class UserResolver
     }
 
     /**
+     * Search users restricted to a given set of account_ids.
+     * Used for custom GC @mention scoping.
+     */
+    public static function searchUsersFromSet(string $q, int $excludeId, int $limit, array $idSet): array
+    {
+        if (empty($idSet)) return ['users' => [], 'total' => 0];
+
+        try {
+            $pdo = Database::getConnection();
+        } catch (Throwable) {
+            return ['users' => [], 'total' => 0];
+        }
+
+        $accountsTable = Database::t('account_details');
+        $placeholders = implode(',', array_fill(0, count($idSet), '?'));
+        $params = array_values($idSet);
+        $params[] = $excludeId;
+
+        if ($q !== '') {
+            $qLike = '%' . $q . '%';
+            $params[] = $qLike;
+            $params[] = $qLike;
+            $params[] = $limit;
+            $sql = "SELECT ad.account_id,
+                           (ad.first_name || ' ' || ad.last_name) AS full_name,
+                           ad.email,
+                           ad.avatar_url,
+                           ad.is_currently_online
+                    FROM {$accountsTable} ad
+                    WHERE ad.account_id IN ({$placeholders})
+                      AND ad.account_id != ?
+                      AND ((ad.first_name || ' ' || ad.last_name) ILIKE ? OR ad.email ILIKE ?)
+                    ORDER BY ad.first_name ASC
+                    LIMIT ?";
+        } else {
+            $params[] = $limit;
+            $sql = "SELECT ad.account_id,
+                           (ad.first_name || ' ' || ad.last_name) AS full_name,
+                           ad.email,
+                           ad.avatar_url,
+                           ad.is_currently_online
+                    FROM {$accountsTable} ad
+                    WHERE ad.account_id IN ({$placeholders})
+                      AND ad.account_id != ?
+                    ORDER BY ad.first_name ASC
+                    LIMIT ?";
+        }
+
+        try {
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            error_log('UserResolver::searchUsersFromSet — ' . $e->getMessage());
+            return ['users' => [], 'total' => 0];
+        }
+
+        $users = array_map(function ($r) {
+            return [
+                'account_id'          => (int) $r['account_id'],
+                'full_name'           => $r['full_name'],
+                'email'               => $r['email'],
+                'avatar_url'          => $r['avatar_url'] ?? null,
+                'is_currently_online' => (bool) ($r['is_currently_online'] ?? false),
+                'office_name'         => null,
+            ];
+        }, $rows);
+
+        return ['users' => $users, 'total' => count($users)];
+    }
+
+    /**
      * Server-side paginated user search using PostgreSQL ILIKE.
      * Supports search by First Name, Last Name, Email, Office Name, Office Code.
      *

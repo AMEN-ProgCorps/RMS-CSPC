@@ -1257,10 +1257,22 @@
             const _gcName = escapeHtml(data.name || 'this group');
             if (chatBox) {
               chatBox.innerHTML = '<div class="empty-chat" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;padding:32px;">' +
-                '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#e74c3c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.7;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>' +
                 '<p style="margin:0;font-size:14px;font-weight:600;color:var(--text-primary);">You have been removed from this group.</p>' +
                 '<p style="margin:0;font-size:13px;color:var(--text-secondary);">You no longer have access to <strong>' + _gcName + '</strong>.</p>' +
               '</div>';
+            }
+            if (chatHeaderTitle) {
+              chatHeaderTitle.innerHTML = _gcName;
+            }
+            if (typeof applyHeaderAdminBadge === 'function') {
+              applyHeaderAdminBadge();
+            }
+            if (chatHeaderAvatar) {
+              chatHeaderAvatar.innerHTML = '<img src="cspc.webp" width="32" height="32" class="avatar-img" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover;background:transparent;" draggable="false">';
+              chatHeaderAvatar.style.display = 'flex';
+              chatHeaderAvatar.style.background = 'transparent';
+              chatHeaderAvatar.style.backgroundColor = 'transparent';
+              chatHeaderAvatar.dataset.avatarUrl = 'cspc.webp';
             }
             window.activeCustomGc = null;
             window.activeChannel = null;
@@ -4507,11 +4519,7 @@
 
               const avatar = document.createElement('div');
               avatar.className = 'user-avatar';
-              if (ch.channel_type === 'custom_gc') {
-                avatar.innerHTML = `<div style="width:48px;height:48px;border-radius:50%;background:rgba(27,116,228,0.12);display:flex;align-items:center;justify-content:center;color:#1b74e4;"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></div>`;
-              } else {
-                avatar.innerHTML = `<img src="cspc.webp" width="48" height="48" alt="CSPC" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">`;
-              }
+              avatar.innerHTML = `<img src="cspc.webp" width="48" height="48" alt="Group Chat" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;border-radius:50%;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">`;
 
               const info = document.createElement('div');
               info.className = 'user-info';
@@ -4913,7 +4921,8 @@
               subtitleEl.textContent = isCustomGcAdminSpy ? 'Custom Group Chat' : 'Group Chat Members';
             }
             if (countBadge) {
-              countBadge.textContent = data.members ? data.members.length : 0;
+              // Hide the member count badge for custom GC — show it only for office GC
+              countBadge.style.display = 'none';
             }
 
             renderOfficeMembersList(data.members || [], silent, data.group);
@@ -5007,6 +5016,7 @@
             subtitleEl.textContent = data.office.name;
           }
           if (countBadge) {
+            countBadge.style.display = '';
             countBadge.textContent = data.member_count || (data.members ? data.members.length : 0);
           }
 
@@ -5682,7 +5692,7 @@
       chatHeaderTitle.textContent = ch.title;
       updateHeaderActiveStatus();
       applyHeaderAdminBadge();
-      applyHeaderAvatar({ avatar_url: 'cspc.webp', name: ch.office_code || ch.title || 'Office GC' });
+      applyHeaderAvatar({ avatar_url: 'cspc.webp', name: ch.office_code || ch.title || 'Group Chat' });
 
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
       removePaginationBtn();
@@ -5757,7 +5767,11 @@
       chatHeaderTitle.textContent = c.isCustomGc ? (c.title || c.name1) : (c.name1 + ' & ' + c.name2);
       updateHeaderActiveStatus();
       applyHeaderAdminBadge(); // activeDMAccountId is null for spied conversations — clears any leftover badge
-      applyHeaderAvatar(null); // two participants, no single avatar to show
+      if (c.isCustomGc) {
+        applyHeaderAvatar({ avatar_url: 'cspc.webp', name: c.title || c.name1 });
+      } else {
+        applyHeaderAvatar(null); // two participants, no single avatar to show
+      }
       chatBox.innerHTML = '<div class="empty-chat"><p>Loading...</p></div>';
       
       removePaginationBtn();

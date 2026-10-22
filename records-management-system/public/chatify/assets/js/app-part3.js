@@ -58,9 +58,16 @@
       const displayName = u.name || u.full_name || '';
       const initials = getInitials(displayName || '?');
       const avatarUrl = u.avatar_url || '';
+      if (avatarUrl) {
+        chatHeaderAvatar.style.background = 'transparent';
+        chatHeaderAvatar.style.backgroundColor = 'transparent';
+      } else {
+        chatHeaderAvatar.style.background = '';
+        chatHeaderAvatar.style.backgroundColor = '';
+      }
       // Cache last-rendered values so re-syncing on every poll doesn't
       // needlessly rebuild the <img> (and re-trigger its network load).
-      if (chatHeaderAvatar.dataset.avatarUrl === avatarUrl && chatHeaderAvatar.dataset.initials === initials && chatHeaderAvatar.style.display === 'flex') {
+      if (chatHeaderAvatar.dataset.avatarUrl === avatarUrl && chatHeaderAvatar.dataset.initials === initials && chatHeaderAvatar.style.display === 'flex' && (!avatarUrl || chatHeaderAvatar.querySelector('img'))) {
         return;
       }
       chatHeaderAvatar.innerHTML = avatarInnerHtml(u.avatar_url, initials);
@@ -74,6 +81,7 @@
         headerImg.ondragstart = function() { return false; };
       }
     }
+    window.applyHeaderAvatar = applyHeaderAvatar;
 
     // ── Verified badge on the chat header (1-on-1 DM title) ──
     // Re-checks every time so switching between conversations correctly adds/removes the badge.
@@ -6473,7 +6481,7 @@
                         // Keep permanently checked and disabled — added successfully
                         chk.disabled = true;
                         label.title = 'Already added';
-                        slider.style.background = '#27ae60'; // green = confirmed added
+                        slider.style.background = '#1b74e4'; // blue = confirmed added
                         if (!Array.isArray(window.activeCustomGcMembers)) {
                           window.activeCustomGcMembers = [];
                         }

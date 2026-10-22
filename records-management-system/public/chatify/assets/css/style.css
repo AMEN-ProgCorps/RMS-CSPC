@@ -2551,6 +2551,8 @@
       color: var(--text-secondary);
       font-size: 14px;
       line-height: 1.5;
+      overflow-wrap: anywhere;
+      word-break: break-word;
       touch-action: pan-y; /* Block pinch-zoom while allowing vertical scroll (mobile) */
     }
 

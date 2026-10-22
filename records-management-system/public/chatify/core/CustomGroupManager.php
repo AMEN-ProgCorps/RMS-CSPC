@@ -41,6 +41,7 @@ class CustomGroupManager
                 CREATE INDEX IF NOT EXISTS idx_ccgm_group ON chat_custom_group_members(group_id);
                 ALTER TABLE chat_custom_group_members ADD COLUMN IF NOT EXISTS last_read_msg_id BIGINT DEFAULT 0;
                 ALTER TABLE chat_custom_group_members ADD COLUMN IF NOT EXISTS last_opened_at TIMESTAMP WITH TIME ZONE;
+                ALTER TABLE chat_custom_group_members ADD COLUMN IF NOT EXISTS new_member_seen BOOLEAN NOT NULL DEFAULT FALSE;
             ");
         } catch (Throwable $t) {
             error_log('CustomGroupManager::ensureTables() — ' . $t->getMessage());
@@ -163,7 +164,8 @@ class CustomGroupManager
                         (SELECT COUNT(*) FROM chat_custom_group_members WHERE group_id = g.id) AS member_count,
                         COALESCE(m.last_read_msg_id, 0) AS last_read_msg_id,
                         m.joined_at,
-                        m.last_opened_at
+                        m.last_opened_at,
+                        COALESCE(m.new_member_seen, FALSE) AS new_member_seen
                  FROM chat_custom_groups g
                  JOIN chat_custom_group_members m ON m.group_id = g.id
                  WHERE m.account_id = :account_id
@@ -238,7 +240,7 @@ class CustomGroupManager
                 } catch (Throwable) {}
 
                 $joinedTs = (int) ($row['joined_ts'] ?? 0);
-                $isNewlyAdded = empty($row['last_opened_at']) && ((int)$row['creator_id'] !== $accountId);
+                $isNewlyAdded = !((bool)($row['new_member_seen'] ?? false)) && ((int)$row['creator_id'] !== $accountId);
                 $effectiveTs = max($joinedTs, $lastTs);
 
                 $groups[] = [
@@ -285,6 +287,26 @@ class CustomGroupManager
             ]);
         } catch (Throwable $e) {
             error_log('CustomGroupManager::markAsRead() — ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Mark the "new member" notification as seen for this user in this group.
+     * Called when the user explicitly clicks/opens the GC from the sidebar.
+     */
+    public static function markNewMemberSeen(int $groupId, int $accountId): void
+    {
+        try {
+            $pdo = Database::getConnection();
+            self::ensureTables($pdo);
+            $stmt = $pdo->prepare(
+                'UPDATE chat_custom_group_members
+                 SET new_member_seen = TRUE
+                 WHERE group_id = :group_id AND account_id = :account_id'
+            );
+            $stmt->execute([':group_id' => $groupId, ':account_id' => $accountId]);
+        } catch (Throwable $e) {
+            error_log('CustomGroupManager::markNewMemberSeen() — ' . $e->getMessage());
         }
     }
 
@@ -365,12 +387,13 @@ class CustomGroupManager
 
             $convId = 'gc_' . $groupId;
             $stmt = $pdo->prepare(
-                'INSERT INTO chat_custom_group_members (group_id, account_id, joined_at, last_read_msg_id, last_opened_at)
-                 VALUES (:group_id, :account_id, NOW(), 0, NULL)
+                'INSERT INTO chat_custom_group_members (group_id, account_id, joined_at, last_read_msg_id, last_opened_at, new_member_seen)
+                 VALUES (:group_id, :account_id, NOW(), 0, NULL, FALSE)
                  ON CONFLICT (group_id, account_id) DO UPDATE
-                   SET joined_at       = NOW(),
+                   SET joined_at        = NOW(),
                        last_read_msg_id = 0,
-                       last_opened_at   = NULL'
+                       last_opened_at   = NULL,
+                       new_member_seen  = FALSE'
             );
             foreach ($newMemberIds as $accId) {
                 $accId = (int) $accId;

@@ -1904,20 +1904,24 @@
 
       // Sort: newly-added custom GCs rise to the top, rest sorted by lastTimestamp
       if (Array.isArray(allUsersData) && allUsersData.length > 0) {
-        // Sync localStorage: any custom GC the server says is NOT newly_added = already opened
-        // This prevents showing NEW for GCs that were opened before the feature was deployed,
-        // or where the server has already recorded last_opened_at.
+        // Sync localStorage openedGcIds with server truth:
+        // - If server says is_newly_added=false → user has opened it before → add to localStorage (badge stays hidden)
+        // - If server says is_newly_added=true  → user hasn't opened it yet (or was re-added) → REMOVE from localStorage (badge must show, even after refresh)
         try {
           const _openedKey = 'openedGcIds';
           const _storedRaw = localStorage.getItem(_openedKey);
           const _openedSet = new Set(_storedRaw ? JSON.parse(_storedRaw).map(Number) : []);
           let _changed = false;
           allUsersData.forEach(u => {
-            if (u.is_custom_gc && !u.is_newly_added) {
-              if (!_openedSet.has(Number(u.gc_id))) {
-                _openedSet.add(Number(u.gc_id));
-                _changed = true;
-              }
+            if (!u.is_custom_gc) return;
+            const gid = Number(u.gc_id);
+            if (!u.is_newly_added) {
+              // Server confirmed this GC was already opened — mark as opened locally
+              if (!_openedSet.has(gid)) { _openedSet.add(gid); _changed = true; }
+            } else {
+              // Server says this is newly added (not yet opened) — remove from opened set
+              // so the NEW badge always shows after refresh until the user clicks it
+              if (_openedSet.has(gid)) { _openedSet.delete(gid); _changed = true; }
             }
           });
           if (_changed) localStorage.setItem(_openedKey, JSON.stringify([..._openedSet]));
@@ -3734,20 +3738,26 @@
       window.activeCustomGcGroupInfo = null;
       window.activeCustomGcMembers = null;
 
-      // Clear the "newly added" highlight for this GC now that the user is opening it
+      // Clear the "newly added" highlight — persist to DB so it survives refreshes
       const _openedGcId = Number(group.gc_id);
       if (window.newlyAddedGcIds) {
         window.newlyAddedGcIds.delete(_openedGcId);
       }
       if (group.is_newly_added) {
         group.is_newly_added = false;
+        // Fire-and-forget: tell the server this user has seen the NEW notification
+        try {
+          const _fd = new FormData();
+          _fd.append('group_id', _openedGcId);
+          fetch('mark_gc_seen.php', { method: 'POST', body: _fd }).catch(() => {});
+        } catch (e) {}
       }
-      // Persist in localStorage so even if fetchUsers() re-fetches before markAsRead
-      // completes server-side, the badge stays gone for this session and beyond.
+      // Also update localStorage immediately so the badge disappears before the
+      // server round-trip completes (avoids any flash of the badge on next render)
       try {
         const _openedKey = 'openedGcIds';
         const _storedRaw = localStorage.getItem(_openedKey);
-        const _openedSet = new Set(_storedRaw ? JSON.parse(_storedRaw) : []);
+        const _openedSet = new Set(_storedRaw ? JSON.parse(_storedRaw).map(Number) : []);
         _openedSet.add(_openedGcId);
         localStorage.setItem(_openedKey, JSON.stringify([..._openedSet]));
       } catch (e) {}
@@ -5012,14 +5022,17 @@
             }
 
             if (titleEl && data.group) {
-              titleEl.textContent = data.group.name || 'Group Chat';
+              const rawGroupName = data.group.name || 'Group Chat';
+              titleEl.textContent = rawGroupName.length > 20 ? (rawGroupName.slice(0, 20).trimEnd() + '...') : rawGroupName;
+              titleEl.title = rawGroupName;
             }
             if (subtitleEl) {
               subtitleEl.textContent = isCustomGcAdminSpy ? 'Custom Group Chat' : 'Group Chat Members';
             }
             if (countBadge) {
-              // Hide the member count badge for custom GC — show it only for office GC
-              countBadge.style.display = 'none';
+              countBadge.style.display = '';
+              const mCount = (data.members && data.members.length) || (data.group && data.group.member_count) || 0;
+              countBadge.textContent = String(mCount);
             }
 
             renderOfficeMembersList(data.members || [], silent, data.group);
@@ -5214,6 +5227,8 @@
       }
       titleEl.textContent = title;
       msgEl.textContent = message;
+      msgEl.style.wordBreak = 'break-word';
+      msgEl.style.overflowWrap = 'anywhere';
       modal.style.display = 'flex';
       modal.classList.add('active');
       modal.setAttribute('aria-hidden', 'false');
@@ -5298,9 +5313,12 @@
         return;
       }
 
+      const rawMemberName = memberName || 'this user';
+      const truncatedMember = rawMemberName.length > 25 ? (rawMemberName.slice(0, 25).trimEnd() + '...') : rawMemberName;
+
       showDangerConfirm(
         'Remove Member',
-        `Are you sure you want to remove "${memberName}" from this group?`,
+        `Are you sure you want to remove "${truncatedMember}" from this group?`,
         function() {
           const bodyData = new FormData();
           bodyData.append('group_id', groupId);
@@ -5346,12 +5364,13 @@
         return;
       }
 
-      const groupName = window.activeCustomGc.name || 'this group';
+      const rawName = window.activeCustomGc.name || 'this group';
+      const truncatedName = rawName.length > 25 ? (rawName.slice(0, 25).trimEnd() + '...') : rawName;
       const groupId = window.activeCustomGc.gc_id;
 
       showDangerConfirm(
         'Remove Group',
-        `Are you sure you want to delete "${groupName}"? This will permanently delete the group and all its messages. This cannot be undone.`,
+        `Are you sure you want to delete "${truncatedName}"? This will permanently delete the group and all its messages. This cannot be undone.`,
         function() {
           const bodyData = new FormData();
           bodyData.append('group_id', groupId);

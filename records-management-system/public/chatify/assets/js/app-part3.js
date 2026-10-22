@@ -6330,7 +6330,11 @@
       if (!modal) return;
 
       const subEl = document.getElementById('addGcModalSubtitle');
-      if (subEl) subEl.textContent = window.activeCustomGc.name || 'Group Chat';
+      if (subEl) {
+        const rawName = window.activeCustomGc.name || 'Group Chat';
+        subEl.textContent = rawName.length > 25 ? (rawName.slice(0, 25).trimEnd() + '...') : rawName;
+        subEl.title = rawName;
+      }
 
       const searchInput = document.getElementById('addGcSearchInput');
       if (searchInput) {

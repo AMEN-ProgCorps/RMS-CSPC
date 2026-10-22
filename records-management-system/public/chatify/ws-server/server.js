@@ -713,7 +713,7 @@ wss.on('connection', (ws) => {
       };
       const payloadStr = JSON.stringify(payloadObj);
 
-      if (chat_type === 'global' || chat_type === 'office_gc') {
+      if (chat_type === 'global' || chat_type === 'office_gc' || chat_type === 'custom_gc') {
         broadcastToAll(payloadStr, state.accountId);
       } else if (chat_type === 'private') {
         // Recipient, any other session of the sender, and admin (1) for spymode
@@ -749,7 +749,7 @@ wss.on('connection', (ws) => {
         sender_id: state.accountId
       });
 
-      if (chat_type === 'global' || chat_type === 'office_gc') {
+      if (chat_type === 'global' || chat_type === 'office_gc' || chat_type === 'custom_gc') {
         broadcastToAll(payloadStr, state.accountId);
       } else if (chat_type === 'private') {
         // Recipient, any other session of the sender, and admin (1) for spymode
@@ -776,7 +776,7 @@ wss.on('connection', (ws) => {
       };
       const payloadStr = JSON.stringify(payloadObj);
 
-      if (chat_type === 'global' || chat_type === 'office_gc') {
+      if (chat_type === 'global' || chat_type === 'office_gc' || chat_type === 'custom_gc') {
         broadcastToAll(payloadStr);
       } else if (chat_type === 'private') {
         // Recipient, sender's other tabs/sessions, and admin (1) for spy mode

@@ -665,6 +665,9 @@
                   } else {
                     renderAndAppendWsMessage(data);
                   }
+                  if (curConvId && (curConvId.startsWith('gc_') || curConvId.startsWith('office_'))) {
+                    markRead(curConvId);
+                  }
                 } else {
                   // Echo of our own sent message — XHR optimistic path already rendered it in place.
                   if (data.has_upload) {
@@ -672,6 +675,21 @@
                     loadGlobalChat(false);
                   }
                 }
+              }
+
+              // Bump GC in sidebar if it's an office or custom GC message
+              if (msgConvId && (msgConvId.startsWith('gc_') || data.chat_type === 'custom_gc')) {
+                const isViewingThisGc = (isGlobalChat && window.activeChannel === 'gc' && window.activeCustomGc && window.activeCustomGc.conv_id === msgConvId);
+                bumpSidebarUser(msgConvId, {
+                  incrementUnread: !isViewingThisGc && Number(data.sender_id) !== Number(wsConfig.accountId),
+                  lastMessage: data.message
+                });
+              } else if (msgConvId && (msgConvId.startsWith('office_') || data.chat_type === 'office_gc')) {
+                const isViewingThisOffice = (isGlobalChat && window.activeChannel === 'office');
+                bumpSidebarUser(msgConvId, {
+                  incrementUnread: !isViewingThisOffice && Number(data.sender_id) !== Number(wsConfig.accountId),
+                  lastMessage: data.message
+                });
               }
             }
           } else if (data.chat_type === 'private') {
@@ -1887,6 +1905,14 @@
         }
         return;
       }
+      if (savedActiveDM && savedActiveDM.startsWith('__gc_') && savedActiveDM.endsWith('__')) {
+        const gcId = Number(savedActiveDM.slice(5, -2));
+        const matchedGc = allUsersData.find(u => u.is_custom_gc && Number(u.gc_id) === gcId);
+        if (matchedGc) {
+          selectCustomGc(matchedGc);
+          return;
+        }
+      }
 
       const matchedUser = allUsersData.find(u => u.username === savedActiveDM) || null;
       if (matchedUser) {
@@ -2032,17 +2058,40 @@
     // message — no fetch_users_dm.php round trip needed.
     // Returns false if that user isn't in the currently loaded/filtered
     // list, so the caller can fall back to a real fetch in that one case.
-    function bumpSidebarUser(username, opts) {
+    function bumpSidebarUser(identifier, opts) {
       opts = opts || {};
-      const idx = allUsersData.findIndex(u => u.username === username);
-      if (idx === -1) return false;
+      const idx = (allUsersData || []).findIndex(u =>
+        u.username === identifier ||
+        u.conv_id === identifier ||
+        (u.is_custom_gc && ('gc_' + u.gc_id) === String(identifier)) ||
+        (u.is_office_gc && ('office_' + u.office_id) === String(identifier)) ||
+        (u.account_id && Number(u.account_id) === Number(identifier))
+      );
+      if (idx === -1) {
+        if (typeof fetchUsers === 'function') fetchUsers();
+        return false;
+      }
 
       const u = allUsersData[idx];
-      if (username === activeDM) {
+      let isThisActive = false;
+      if (u.is_office_gc) {
+        isThisActive = (isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv);
+      } else if (u.is_custom_gc) {
+        isThisActive = (isGlobalChat && window.activeChannel === 'gc' && !activeDM && !activeAdminConv && window.activeCustomGc && (Number(window.activeCustomGc.gc_id) === Number(u.gc_id) || window.activeCustomGc.conv_id === u.conv_id));
+      } else {
+        isThisActive = ((activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM));
+      }
+
+      if (isThisActive) {
         u.unreadCount = 0;
       } else if (opts.incrementUnread) {
         u.unreadCount = (u.unreadCount || 0) + 1;
       }
+      if (opts.lastMessage !== undefined) {
+        u.lastMessage = opts.lastMessage;
+      }
+      u.lastTimestamp = opts.lastTimestamp || Math.floor(Date.now() / 1000);
+
       if (idx > 0) {
         allUsersData.splice(idx, 1);
         allUsersData.unshift(u);
@@ -2060,10 +2109,25 @@
           (activeDM && u.username === activeDM)
         );
         if (activeUser) activeUser.unreadCount = 0;
+      } else if (isGlobalChat) {
+        if (window.activeChannel === 'office') {
+          const activeOffice = (allUsersData || []).find(u => u.is_office_gc);
+          if (activeOffice) activeOffice.unreadCount = 0;
+        } else if (window.activeChannel === 'gc' && window.activeCustomGc) {
+          const activeCustom = (allUsersData || []).find(u => u.is_custom_gc && (Number(u.gc_id) === Number(window.activeCustomGc.gc_id) || u.conv_id === window.activeCustomGc.conv_id));
+          if (activeCustom) activeCustom.unreadCount = 0;
+        }
       }
 
       latestTotalUnread = (allUsersData || []).reduce((sum, u) => {
-        const isAct = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
+        let isAct = false;
+        if (u.is_office_gc) {
+          isAct = (isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv);
+        } else if (u.is_custom_gc) {
+          isAct = (isGlobalChat && window.activeChannel === 'gc' && !activeDM && !activeAdminConv && window.activeCustomGc && (Number(window.activeCustomGc.gc_id) === Number(u.gc_id) || window.activeCustomGc.conv_id === u.conv_id));
+        } else {
+          isAct = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
+        }
         return sum + (isAct ? 0 : (u.unreadCount || 0));
       }, 0);
       updateTabTitle(latestTotalUnread);
@@ -2076,12 +2140,7 @@
         } catch (e) {}
       }
 
-      if (activeDM) {
-        document.querySelectorAll('#customGcSection .user-item').forEach(el => el.classList.remove('active'));
-      }
-
       if (query === '') {
-
         if (!allUsersData || allUsersData.length === 0) {
           sidebarUsers.innerHTML = `<div class="sidebar-empty-state" style="padding:32px 16px;text-align:center;font-size:13px;color:var(--text-secondary);opacity:0.85;">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="margin-bottom:8px;opacity:0.6;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -2104,7 +2163,15 @@
       const seen = new Set();
 
       allUsersData.forEach((u, index) => {
-        const isThisActive = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
+        let isThisActive = false;
+        if (u.is_office_gc) {
+          isThisActive = (isGlobalChat && window.activeChannel === 'office' && !activeDM && !activeAdminConv);
+        } else if (u.is_custom_gc) {
+          isThisActive = (isGlobalChat && window.activeChannel === 'gc' && !activeDM && !activeAdminConv && window.activeCustomGc && (Number(window.activeCustomGc.gc_id) === Number(u.gc_id) || window.activeCustomGc.conv_id === u.conv_id));
+        } else {
+          isThisActive = (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) || (activeDM && u.username === activeDM);
+        }
+
         if (isThisActive) u.unreadCount = 0;
         const hasUnread = u.unreadCount > 0 && !isThisActive;
         seen.add(u.username);
@@ -2143,9 +2210,6 @@
           item.appendChild(info);
           item.appendChild(actionsRight);
 
-          item.onclick = () => selectDM(u);
-          item.onmouseenter = () => speculateConversationCard(u, item);
-          item.onpointerdown = () => speculateConversationCard(u, item);
           item._avatar = avatar;
           item._dot = dot;
           item._info = info;
@@ -2163,34 +2227,52 @@
           nameEl = item._nameEl || item.querySelector('.user-name');
           officeEl = item._officeEl || item.querySelector('.user-office');
           actionsRight = item._actionsRight || item.querySelector('.user-actions-right');
+        }
+
+        if (u.is_office_gc) {
+          item.onclick = () => selectOfficeChat();
+          item.onmouseenter = null;
+          item.onpointerdown = null;
+        } else if (u.is_custom_gc) {
+          item.onclick = () => selectCustomGc(u);
+          item.onmouseenter = null;
+          item.onpointerdown = null;
+        } else {
           item.onclick = () => selectDM(u);
           item.onmouseenter = () => speculateConversationCard(u, item);
           item.onpointerdown = () => speculateConversationCard(u, item);
         }
 
-        const newClassName = 'user-item' + (activeDM === u.username ? ' active' : '') + (hasUnread ? ' has-unread' : '');
+        const newClassName = 'user-item' + (isThisActive ? ' active' : '') + (hasUnread ? ' has-unread' : '') + (u.is_custom_gc ? ' custom-gc-item' : (u.is_office_gc ? ' office-gc-item' : ''));
         if (item.className !== newClassName) item.className = newClassName;
 
-        if (avatar.dataset.initials !== u.name || avatar.dataset.avatarUrl !== (u.avatar_url || '')) {
-          const initials = getInitials(u.name);
-          avatar.innerHTML = avatarInnerHtml(u.avatar_url, initials);
-          avatar.appendChild(dot);
-          avatar.dataset.initials = u.name;
-          avatar.dataset.avatarUrl = u.avatar_url || '';
+        if (u.is_office_gc || u.is_custom_gc) {
+          if (dot) dot.style.display = 'none';
+          if (avatar.dataset.avatarType !== 'gc') {
+            avatar.innerHTML = `<img src="cspc.webp" width="48" height="48" alt="Group Chat" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;border-radius:50%;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">`;
+            avatar.dataset.avatarType = 'gc';
+            avatar.dataset.initials = '';
+            avatar.dataset.avatarUrl = '';
+          }
+        } else {
+          if (dot) dot.style.display = '';
+          if (avatar.dataset.avatarType === 'gc' || avatar.dataset.initials !== u.name || avatar.dataset.avatarUrl !== (u.avatar_url || '')) {
+            avatar.dataset.avatarType = 'dm';
+            const initials = getInitials(u.name);
+            avatar.innerHTML = avatarInnerHtml(u.avatar_url, initials);
+            if (dot && !avatar.contains(dot)) avatar.appendChild(dot);
+            avatar.dataset.initials = u.name;
+            avatar.dataset.avatarUrl = u.avatar_url || '';
+          }
+          if (hasReceivedPresenceSnapshot) {
+            const isWsOnline = onlineAccountsSet.has(Number(u.account_id));
+            u.status = isWsOnline ? 'online' : 'offline';
+            u.is_currently_online = isWsOnline;
+          }
+          const effectiveStatus = hasReceivedPresenceSnapshot ? u.status : 'offline';
+          const newDotClass = 'status-dot ' + (effectiveStatus || 'offline');
+          if (dot && dot.className !== newDotClass) dot.className = newDotClass;
         }
-        if (hasReceivedPresenceSnapshot) {
-          const isWsOnline = onlineAccountsSet.has(Number(u.account_id));
-          u.status = isWsOnline ? 'online' : 'offline';
-          u.is_currently_online = isWsOnline;
-        }
-        // Fully WS-driven: before the first presence_snapshot arrives we
-        // don't actually know this user's status yet, so default the dot
-        // to offline rather than trusting whatever the DB-fetched payload
-        // said (that DB flag can be stale for anyone who didn't log out
-        // cleanly, which is what caused the old online-then-offline flash).
-        const effectiveStatus = hasReceivedPresenceSnapshot ? u.status : 'offline';
-        const newDotClass = 'status-dot ' + (effectiveStatus || 'offline');
-        if (dot.className !== newDotClass) dot.className = newDotClass;
 
         if (nameEl.textContent !== u.name) nameEl.textContent = u.name;
 
@@ -2203,16 +2285,8 @@
         }
 
         const vSet = (typeof verifiedAccountIds !== 'undefined' && verifiedAccountIds) ? verifiedAccountIds : window.verifiedAccountIdsSet;
-        const targetIsVerified = vSet && vSet.has(Number(u.account_id));
+        const targetIsVerified = u.is_office_gc || u.is_custom_gc || (vSet && vSet.has(Number(u.account_id))) || Boolean(u.is_chatify_verified);
 
-        // Verified badge next to verified users' names in the sidebar.
-        // Injected into nameRow (a flex sibling of nameEl), NOT nameEl itself.
-        // nameEl has text-overflow:ellipsis for long names — appending the
-        // badge inside it let the browser's own truncation swallow the SVG
-        // whenever the name nearly filled the row, showing "…" instead of
-        // the checkmark. nameEl keeps flex:0 1 auto + min-width:0 so it still
-        // truncates on its own, while the badge sits outside that box and
-        // always stays visible.
         const sidebarBadge = nameRow.querySelector('.verified-badge');
         if (targetIsVerified) {
           if (!sidebarBadge) injectBadge(nameRow);
@@ -2221,11 +2295,18 @@
         }
 
         if (officeEl) {
-          const newOffice = u.office_name ? u.office_name : 'No office assigned';
+          let newOffice = '';
+          if (u.is_custom_gc) {
+            newOffice = 'Custom GC';
+          } else if (u.is_office_gc) {
+            newOffice = u.office_name || 'Office Group Chat';
+          } else {
+            newOffice = u.office_name ? u.office_name : 'No office assigned';
+          }
           if (officeEl.textContent !== newOffice) {
             officeEl.textContent = newOffice;
           }
-          if (u.office_name) {
+          if (u.is_custom_gc || u.is_office_gc || u.office_name) {
             officeEl.style.color = '#1b74e4';
             officeEl.style.fontStyle = 'normal';
           } else {
@@ -2243,18 +2324,23 @@
             info.appendChild(lastMsgEl);
           }
 
-          const activeDraft = (typeof clientActivePreviews !== 'undefined') ? clientActivePreviews.get(Number(u.account_id)) : null;
-          const canSeeTyping = window.currentUserCommSettings && window.currentUserCommSettings.allow_see_typing_preview;
-          if (canSeeTyping && activeDraft && activeDraft.preview) {
-            lastMsgEl.textContent = activeDraft.preview;
-            lastMsgEl.style.display = 'block';
-            lastMsgEl.style.fontStyle = 'italic';
-            lastMsgEl.style.color = 'var(--primary-color, #1b74e4)';
-          } else {
+          if (u.is_custom_gc || u.is_office_gc) {
             lastMsgEl.textContent = '';
-            lastMsgEl.style.fontStyle = '';
-            lastMsgEl.style.color = '';
-            lastMsgEl.style.display = 'block';
+            lastMsgEl.style.display = 'none';
+          } else {
+            const activeDraft = (typeof clientActivePreviews !== 'undefined') ? clientActivePreviews.get(Number(u.account_id)) : null;
+            const canSeeTyping = window.currentUserCommSettings && window.currentUserCommSettings.allow_see_typing_preview;
+            if (canSeeTyping && activeDraft && activeDraft.preview) {
+              lastMsgEl.textContent = activeDraft.preview;
+              lastMsgEl.style.display = 'block';
+              lastMsgEl.style.fontStyle = 'italic';
+              lastMsgEl.style.color = 'var(--primary-color, #1b74e4)';
+            } else {
+              lastMsgEl.textContent = '';
+              lastMsgEl.style.fontStyle = '';
+              lastMsgEl.style.color = '';
+              lastMsgEl.style.display = 'block';
+            }
           }
         }
 
@@ -2988,13 +3074,34 @@
 
     function markRead(targetUsername, explicitMsgId = null) {
       if (!targetUsername) return;
-      const u = allUsersData.find(x => x.username === targetUsername || (activeDMAccountId && Number(x.account_id) === activeDMAccountId));
+      const isGc = typeof targetUsername === 'string' && (targetUsername.startsWith('gc_') || targetUsername.startsWith('office_'));
+      const u = allUsersData.find(x =>
+        x.username === targetUsername ||
+        x.conv_id === targetUsername ||
+        (isGc && x.is_custom_gc && ('gc_' + x.gc_id) === targetUsername) ||
+        (isGc && x.is_office_gc && ('office_' + x.office_id) === targetUsername) ||
+        (activeDMAccountId && Number(x.account_id) === activeDMAccountId)
+      );
       if (u) u.unreadCount = 0;
       if (activeDM === targetUsername || (activeDMAccountId && u && Number(u.account_id) === activeDMAccountId)) {
         const activeU = allUsersData.find(x => x.username === activeDM || (activeDMAccountId && Number(x.account_id) === activeDMAccountId));
         if (activeU) activeU.unreadCount = 0;
       }
       renderSidebarUsers();
+
+      // Handle GC read marking via conv_id
+      if (isGc || (u && (u.is_custom_gc || u.is_office_gc))) {
+        const gcConvId = (u && u.conv_id) ? u.conv_id : targetUsername;
+        if (markReadHttpDebounceTimer) clearTimeout(markReadHttpDebounceTimer);
+        markReadHttpDebounceTimer = setTimeout(() => {
+          markReadHttpDebounceTimer = null;
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', 'mark_read.php', true);
+          xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+          xhr.send('conv_id=' + encodeURIComponent(gcConvId));
+        }, 50);
+        return;
+      }
 
       const targetId = activeDMAccountId || (u ? Number(u.account_id) : 0);
       if (!targetId) return;
@@ -3463,6 +3570,9 @@
       document.querySelectorAll('#customGcSection .user-item').forEach(el => el.classList.remove('active'));
 
       loadGlobalChat();
+      if (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) {
+        markRead(window.currentOfficeInfo.conv_id);
+      }
       if (isMobileViewport()) {
         sidebar.classList.remove('open');
         if (backButton) backButton.style.display = 'inline-flex';
@@ -3552,7 +3662,8 @@
       });
 
       loadGlobalChat();
-      if (typeof loadCustomGcs === 'function') loadCustomGcs();
+      const gcConv = group.conv_id || ('gc_' + group.gc_id);
+      markRead(gcConv);
       if (isMobileViewport()) {
         sidebar.classList.remove('open');
         if (backButton) backButton.style.display = 'inline-flex';
@@ -3563,98 +3674,9 @@
     window.selectCustomGc = selectCustomGc;
 
     function loadCustomGcs(filterQuery) {
-      const container = document.getElementById('customGcSection');
-      if (!container) return;
-
-      const q = (typeof filterQuery === 'string' ? filterQuery : (document.getElementById('searchInput')?.value || '')).trim().toLowerCase();
-
-      fetch('fetch_custom_gcs.php')
-        .then(res => res.json())
-        .then(data => {
-          if (!data || !data.success || !Array.isArray(data.groups)) {
-            container.innerHTML = '';
-            return;
-          }
-
-          let groups = data.groups;
-          if (q !== '') {
-            groups = groups.filter(g => (g.name || '').toLowerCase().includes(q));
-          }
-
-          if (groups.length === 0) {
-            container.innerHTML = '';
-            return;
-          }
-
-          const existingItems = new Map();
-          container.querySelectorAll('.custom-gc-item[data-gc-id]').forEach(el => {
-            existingItems.set(String(el.dataset.gcId), el);
-          });
-          const renderedIds = new Set();
-
-          groups.forEach((g, index) => {
-            const gcIdStr = String(g.gc_id);
-            renderedIds.add(gcIdStr);
-
-            const isActive = (window.activeChannel === 'gc' && !activeDM && !activeAdminConv && window.activeCustomGc && window.activeCustomGc.gc_id === g.gc_id);
-            const memberCountText = 'Custom GC';
-
-            let item = existingItems.get(gcIdStr);
-            if (!item) {
-              item = document.createElement('div');
-              item.className = 'user-item custom-gc-item' + (isActive ? ' active' : '');
-              item.dataset.gcId = gcIdStr;
-              item.style.borderBottom = '1px solid var(--border-color)';
-              item.innerHTML = `
-                <div class="user-avatar" style="position:relative;">
-                  <img src="cspc.webp" width="48" height="48" alt="Group Chat" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;border-radius:50%;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
-                </div>
-                <div class="user-info">
-                  <div class="user-name-row" style="display:flex;align-items:center;justify-content:flex-start;gap:4px;min-width:0;">
-                    <div class="user-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
-                    <span class="verified-badge"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-                  </div>
-                  <div class="user-last-msg" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(memberCountText)}</div>
-                </div>
-                <div class="user-actions-right"></div>
-              `;
-              // Store group data safely via dataset (avoids HTML entity issues with apostrophes)
-              item._gcData = g;
-              item.addEventListener('click', function() {
-                if (typeof selectCustomGc === 'function') selectCustomGc(this._gcData);
-              });
-            } else {
-              // Update stored data reference
-              item._gcData = g;
-            }
-
-            const targetClass = 'user-item custom-gc-item' + (isActive ? ' active' : '');
-            if (item.className !== targetClass) item.className = targetClass;
-
-            const nameEl = item.querySelector('.user-name');
-            if (nameEl && nameEl.textContent !== g.name) nameEl.textContent = g.name;
-
-            const actionsRight = item.querySelector('.user-actions-right');
-            if (actionsRight) {
-              actionsRight.innerHTML = '';
-            }
-
-            const currentChild = container.children[index];
-            if (currentChild !== item) {
-              container.insertBefore(item, currentChild || null);
-            }
-          });
-
-          existingItems.forEach((el, id) => {
-            if (!renderedIds.has(id)) el.remove();
-          });
-          while (container.children.length > groups.length) {
-            container.removeChild(container.lastChild);
-          }
-        })
-        .catch(err => {
-          console.error('Error fetching custom GCs:', err);
-        });
+      if (typeof fetchUsers === 'function') {
+        fetchUsers(filterQuery);
+      }
     }
     window.loadCustomGcs = loadCustomGcs;
 

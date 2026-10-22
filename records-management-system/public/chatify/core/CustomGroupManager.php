@@ -158,7 +158,8 @@ class CustomGroupManager
             $stmt = $pdo->prepare(
                 'SELECT g.id, g.name, g.creator_id, g.created_at,
                         (SELECT COUNT(*) FROM chat_custom_group_members WHERE group_id = g.id) AS member_count,
-                        COALESCE(m.last_read_msg_id, 0) AS last_read_msg_id
+                        COALESCE(m.last_read_msg_id, 0) AS last_read_msg_id,
+                        m.joined_at
                  FROM chat_custom_groups g
                  JOIN chat_custom_group_members m ON m.group_id = g.id
                  WHERE m.account_id = :account_id
@@ -172,22 +173,39 @@ class CustomGroupManager
                 $groupId = (int) $row['id'];
                 $convId  = 'gc_' . $groupId;
                 $lastReadId = (int) ($row['last_read_msg_id'] ?? 0);
+                $joinedAt = $row['joined_at'] ?? null;
 
                 // Calculate unread count for this user
                 $unreadCount = 0;
                 try {
-                    $uStmt = $pdo->prepare(
-                        "SELECT COUNT(*) FROM chat_messages
-                         WHERE conv_id = :conv_id
-                           AND status = 'active'
-                           AND sender_id != :account_id
-                           AND id > :last_read_id"
-                    );
-                    $uStmt->execute([
-                        ':conv_id'      => $convId,
-                        ':account_id'   => $accountId,
-                        ':last_read_id' => $lastReadId,
-                    ]);
+                    if ($lastReadId <= 0 && $joinedAt) {
+                        // If user has never opened the chat, only count messages created AFTER they joined
+                        $uStmt = $pdo->prepare(
+                            "SELECT COUNT(*) FROM chat_messages
+                             WHERE conv_id = :conv_id
+                               AND status = 'active'
+                               AND sender_id != :account_id
+                               AND created_at >= :joined_at"
+                        );
+                        $uStmt->execute([
+                            ':conv_id'    => $convId,
+                            ':account_id' => $accountId,
+                            ':joined_at'  => $joinedAt,
+                        ]);
+                    } else {
+                        $uStmt = $pdo->prepare(
+                            "SELECT COUNT(*) FROM chat_messages
+                             WHERE conv_id = :conv_id
+                               AND status = 'active'
+                               AND sender_id != :account_id
+                               AND id > :last_read_id"
+                        );
+                        $uStmt->execute([
+                            ':conv_id'      => $convId,
+                            ':account_id'   => $accountId,
+                            ':last_read_id' => $lastReadId,
+                        ]);
+                    }
                     $unreadCount = (int) $uStmt->fetchColumn();
                 } catch (Throwable) {}
 
@@ -335,15 +353,16 @@ class CustomGroupManager
             $pdo = Database::getConnection();
             self::ensureTables($pdo);
 
+            $convId = 'gc_' . $groupId;
             $stmt = $pdo->prepare(
-                'INSERT INTO chat_custom_group_members (group_id, account_id, joined_at)
-                 VALUES (:group_id, :account_id, NOW())
+                'INSERT INTO chat_custom_group_members (group_id, account_id, joined_at, last_read_msg_id)
+                 VALUES (:group_id, :account_id, NOW(), COALESCE((SELECT MAX(id) FROM chat_messages WHERE conv_id = :conv_id AND status = \'active\'), 0))
                  ON CONFLICT (group_id, account_id) DO NOTHING'
             );
             foreach ($newMemberIds as $accId) {
                 $accId = (int) $accId;
                 if ($accId <= 0) continue;
-                $stmt->execute([':group_id' => $groupId, ':account_id' => $accId]);
+                $stmt->execute([':group_id' => $groupId, ':account_id' => $accId, ':conv_id' => $convId]);
             }
             return true;
         } catch (Throwable $e) {

@@ -16,6 +16,29 @@ if ($internalSecret !== '' && hash_equals(INTERNAL_PUSH_SECRET, $internalSecret)
     session_write_close();
     $myAccountId = Auth::accountId();
 }
+
+$convIdInput = trim($_POST['conv_id'] ?? $_GET['conv_id'] ?? '');
+if ($convIdInput !== '') {
+    header('Content-Type: application/json');
+    if (str_starts_with($convIdInput, 'gc_')) {
+        $groupId = (int) substr($convIdInput, 3);
+        if ($groupId > 0) {
+            require_once __DIR__ . '/core/CustomGroupManager.php';
+            CustomGroupManager::markAsRead($groupId, $myAccountId);
+            echo json_encode(['success' => true]);
+            exit;
+        }
+    } elseif (str_starts_with($convIdInput, 'office_')) {
+        $officeId = (int) substr($convIdInput, 7);
+        if ($officeId > 0) {
+            require_once __DIR__ . '/core/OfficeChatManager.php';
+            OfficeChatManager::markAsRead($officeId, $myAccountId);
+            echo json_encode(['success' => true]);
+            exit;
+        }
+    }
+}
+
 $targetInput = $_POST['target_id'] ?? $_GET['target_id'] ?? $_POST['target_user'] ?? $_GET['target_user'] ?? '';
 $targetId    = UserResolver::resolveAccountId($targetInput);
 

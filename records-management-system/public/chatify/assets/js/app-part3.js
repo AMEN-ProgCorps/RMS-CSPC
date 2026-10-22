@@ -3885,9 +3885,10 @@
             const wasEditing = !!capturedEditingMsgId;
             const targetConvId = (typeof getActiveChannelConvId === 'function')
               ? getActiveChannelConvId()
-              : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+              : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
             const isOffice = isGlobalChat && Boolean(targetConvId && targetConvId.startsWith('office_'));
-            const effectiveChatType = isGlobalChat ? (isOffice ? 'office_gc' : 'global') : 'private';
+            const isCustomGc = isGlobalChat && Boolean(targetConvId && targetConvId.startsWith('gc_'));
+            const effectiveChatType = isGlobalChat ? (isCustomGc ? 'custom_gc' : (isOffice ? 'office_gc' : 'global')) : 'private';
 
             if (wasEditing) {
               ws.send(JSON.stringify({
@@ -3935,10 +3936,15 @@
 
           // Bump the conversation to the top of the sidebar after a successful send.
           // No fetch needed — we just move the user row up in-place.
-          if (!isGlobalChat && activeDM) {
-            if (!bumpSidebarUser(activeDM, {})) {
-              // Conversation partner isn't in the currently loaded/filtered
-              // sidebar list (e.g. still under a search filter).
+          if (isGlobalChat) {
+            const targetConvId = (typeof getActiveChannelConvId === 'function')
+              ? getActiveChannelConvId()
+              : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+            if (targetConvId && (targetConvId.startsWith('gc_') || targetConvId.startsWith('office_'))) {
+              bumpSidebarUser(targetConvId, { lastMessage: message });
+            }
+          } else if (activeDM) {
+            if (!bumpSidebarUser(activeDM, { lastMessage: message })) {
               fetchUsers();
             }
           }
@@ -5622,8 +5628,15 @@
               if (isGlobalChat) {
                 isLoadingGC = false;
                 loadGlobalChat(false);
+                const targetConvId = (typeof getActiveChannelConvId === 'function')
+                  ? getActiveChannelConvId()
+                  : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+                if (targetConvId && (targetConvId.startsWith('gc_') || targetConvId.startsWith('office_'))) {
+                  bumpSidebarUser(targetConvId, { lastMessage: 'Sent a file' });
+                }
               } else if (activeDM) {
                 loadChatForced();
+                bumpSidebarUser(activeDM, { lastMessage: 'Sent a file' });
               }
             }
           } else {

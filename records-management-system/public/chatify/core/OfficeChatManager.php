@@ -145,7 +145,7 @@ class OfficeChatManager
             $pdo->prepare(
                 'INSERT INTO chat_office_gc_reads (account_id, office_id, last_read_msg_id)
                  VALUES (:aid, :oid,
-                     COALESCE((SELECT MAX(id) FROM chat_messages WHERE conv_id = :cid), 0)
+                     COALESCE((SELECT MAX(id) FROM chat_messages WHERE conv_id = :cid AND status = \'active\'), 0)
                  )
                  ON CONFLICT (account_id, office_id)
                  DO UPDATE SET last_read_msg_id = EXCLUDED.last_read_msg_id'
@@ -165,21 +165,31 @@ class OfficeChatManager
             $pdo    = Database::getConnection();
             self::ensureReadTable($pdo);
             $convId = self::convId($officeId);
+
+            $rStmt = $pdo->prepare(
+                'SELECT last_read_msg_id FROM chat_office_gc_reads
+                 WHERE account_id = :aid AND office_id = :oid LIMIT 1'
+            );
+            $rStmt->execute([':aid' => $accountId, ':oid' => $officeId]);
+            $lastRead = $rStmt->fetchColumn();
+
+            // If user has never had a read entry, initialize to latest message so old history isn't unread!
+            if ($lastRead === false) {
+                self::markAsRead($officeId, $accountId);
+                return 0;
+            }
+
             $stmt = $pdo->prepare(
-                'SELECT COUNT(*) FROM chat_messages
+                "SELECT COUNT(*) FROM chat_messages
                  WHERE conv_id = :cid
+                   AND status = 'active'
                    AND sender_id != :aid
-                   AND id > COALESCE(
-                       (SELECT last_read_msg_id FROM chat_office_gc_reads
-                        WHERE account_id = :aid2 AND office_id = :oid),
-                       0
-                   )'
+                   AND id > :last_read_id"
             );
             $stmt->execute([
-                ':cid'  => $convId,
-                ':aid'  => $accountId,
-                ':aid2' => $accountId,
-                ':oid'  => $officeId,
+                ':cid'          => $convId,
+                ':aid'          => $accountId,
+                ':last_read_id' => (int) $lastRead,
             ]);
             return (int) $stmt->fetchColumn();
         } catch (Throwable $e) {

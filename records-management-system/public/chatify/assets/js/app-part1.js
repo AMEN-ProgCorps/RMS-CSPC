@@ -2339,9 +2339,6 @@
     });
 
     notifyCancel.addEventListener('click', closeNotifyModal);
-    notifyModal.addEventListener('click', function(e) {
-      if (e.target === notifyModal) closeNotifyModal();
-    });
 
     notifySend.addEventListener('click', function() {
       if (!notifyTargetUser) return;
@@ -2608,11 +2605,6 @@
     if (notifyContentClose) {
       notifyContentClose.addEventListener('click', closeNotifyContentModal);
     }
-    if (notifyContentModal) {
-      notifyContentModal.addEventListener('click', function(e) {
-        if (e.target === notifyContentModal) closeNotifyContentModal();
-      });
-    }
 
     // ── Notification bell: modal listing every unopened @mention ──────────
     // The toast (above) is transient — if it's missed (offline, backgrounded
@@ -2746,11 +2738,6 @@
     if (notificationBellClose) {
       notificationBellClose.addEventListener('click', closeNotificationBellModal);
     }
-    if (notificationBellModal) {
-      notificationBellModal.addEventListener('click', function(e) {
-        if (e.target === notificationBellModal) closeNotificationBellModal();
-      });
-    }
     // Clicking an entry opens the same mention modal a toast click would —
     // that call marks it seen and drops it from bellNotifications for us.
     // Flagged as bell-opened so closeNotifyContentModal() knows to return
@@ -2857,11 +2844,6 @@
 
     if (readMoreModalClose) {
       readMoreModalClose.addEventListener('click', closeReadMoreModal);
-    }
-    if (readMoreModal) {
-      readMoreModal.addEventListener('click', function(e) {
-        if (e.target === readMoreModal) closeReadMoreModal();
-      });
     }
 
     // ── "Read more" truncation for long messages ──────────────────────────
@@ -4213,13 +4195,6 @@
       });
     }
 
-    // Backdrop click closes the modal (leaves the typed "@" as-is, same as
-    // dismissing the User Verification modal doesn't undo anything).
-    if (mentionModal) {
-      mentionModal.addEventListener('click', function(e) {
-        if (e.target === this) closeMentionModal();
-      });
-    }
 
     // Swaps the lone "@" that opened the modal for "@Full Name " and
     // remembers it as an active mention.
@@ -5068,10 +5043,6 @@
     }
     window.closeDangerConfirmModal = closeDangerConfirmModal;
     window.showDangerConfirm = showDangerConfirm;
-    // Close on backdrop click
-    document.getElementById('dangerConfirmModal')?.addEventListener('click', function(e) {
-      if (e.target === this) closeDangerConfirmModal();
-    });
 
     function removeCustomGcMember(groupId, accountId, memberName) {
       const myId = (typeof wsConfig !== 'undefined' && wsConfig.accountId) ? Number(wsConfig.accountId) : 0;
@@ -5273,12 +5244,6 @@
       });
     }
 
-    const officeMembersModalBackdrop = document.getElementById('officeMembersModal');
-    if (officeMembersModalBackdrop) {
-      officeMembersModalBackdrop.addEventListener('click', function(e) {
-        if (e.target === officeMembersModalBackdrop) closeOfficeMembersModal();
-      });
-    }
 
     let adminConvCursor = '';
     let adminConvHasMore = false;

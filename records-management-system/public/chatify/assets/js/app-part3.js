@@ -354,14 +354,9 @@
       openImageViewer(img.dataset.fullSrc || img.src, img.alt);
     });
 
-    // Close: X button, clicking the dark backdrop, or Escape key.
+    // Close: X button or Escape key.
     if (imageViewerCloseBtn) {
       imageViewerCloseBtn.addEventListener('click', closeImageViewer);
-    }
-    if (imageViewerModal) {
-      imageViewerModal.addEventListener('click', function(e) {
-        if (e.target === imageViewerModal) closeImageViewer();
-      });
     }
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape' && imageViewerModal && imageViewerModal.classList.contains('active')) {
@@ -712,14 +707,6 @@
       document.body.style.overflow = '';
     }
 
-    // Close logout modal when clicking outside modal-content
-    if (logoutModal) {
-      logoutModal.addEventListener('click', function(e) {
-        if (e.target === logoutModal) {
-          closeLogoutModal();
-        }
-      });
-    }
 
     // Logout modal buttons
     if (logoutConfirmBtn) {
@@ -1462,12 +1449,6 @@
       if (closeBtn) {
         closeBtn.addEventListener('click', closeReactionsModal);
       }
-
-      modal.addEventListener('click', function(e) {
-        if (e.target === modal) {
-          closeReactionsModal();
-        }
-      });
 
       return modal;
     }
@@ -4341,11 +4322,6 @@
       closeCommSettingsModal();
     };
 
-    // Backdrop click listener for closing comm settings modal
-    document.getElementById('commSettingsModal')?.addEventListener('click', function(e) {
-      if (e.target === this) closeCommSettingsModal();
-    });
-
     // Attach click listener directly to settings button
     const commBtn = document.getElementById('commSettingsBtn');
     if (commBtn) {
@@ -4380,11 +4356,6 @@
         modal.setAttribute('aria-hidden', 'true');
       }
     };
-
-    // Backdrop click closes the modal
-    document.getElementById('userVerificationModal')?.addEventListener('click', function(e) {
-      if (e.target === this) closeUserVerificationModal();
-    });
 
     // Search on input with 400ms debounce — no fetch-all
     const verifyInput = document.getElementById('verifySearchInput');
@@ -4767,12 +4738,6 @@
         xhr.send('secretKey=' + encodeURIComponent(secretInput.value));
       });
       
-      // Close modal when clicking outside
-      confirmModal.addEventListener("click", function(e) {
-        if (e.target === confirmModal) {
-          closeModal();
-        }
-      });
     }
 
     // ── "/backup" modal wiring (mirrors the /clear wiring above) ──────────────
@@ -4839,18 +4804,9 @@
         }
         runBackup();
       });
-
-      backupConfirmModalEl.addEventListener('click', function(e) {
-        if (e.target === backupConfirmModalEl) closeBackupConfirmModal();
-      });
     }
 
     const backupAlreadyDoneModalEl = document.getElementById('backupAlreadyDoneModal');
-    if (backupAlreadyDoneModalEl) {
-      backupAlreadyDoneModalEl.addEventListener('click', function(e) {
-        if (e.target === backupAlreadyDoneModalEl) closeBackupAlreadyDoneModal();
-      });
-    }
 
     // User Mention Autocomplete System Completely Removed
 
@@ -5453,15 +5409,6 @@
     window.showEditExpiredModal = showEditExpiredModal;
     window.showEditLimitModal = showEditLimitModal;
     window.closeEditExpiredModal = closeEditExpiredModal;
-
-    const editExpiredModalEl = document.getElementById('editExpiredModal');
-    if (editExpiredModalEl) {
-      editExpiredModalEl.addEventListener('click', function(e) {
-        if (e.target === editExpiredModalEl) {
-          closeEditExpiredModal();
-        }
-      });
-    }
 
     // ── Scroll anchoring for content that resizes above the viewport ──────
     // The backread "glitch": messages are prepended above the current
@@ -6161,10 +6108,6 @@
       document.body.style.overflow = '';
     };
 
-    document.getElementById('createCustomGcModal')?.addEventListener('click', function(e) {
-      if (e.target === this) closeCreateCustomGcModal();
-    });
-
     // Search user for Create Custom GC (max 3 results)
     const gcSearchInput = document.getElementById('gcMemberSearchInput');
     if (gcSearchInput) {
@@ -6378,10 +6321,6 @@
         loadCustomGcs();
       }
     };
-
-    document.getElementById('addGcMembersModal')?.addEventListener('click', function(e) {
-      if (e.target === this) closeAddGcMembersModal();
-    });
 
     const addGcSearchInput = document.getElementById('addGcSearchInput');
     if (addGcSearchInput) {

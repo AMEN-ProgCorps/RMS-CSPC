@@ -220,11 +220,6 @@
     window.closeAdminKeyModal = closeAdminKeyModal;
 
     if (adminKeyCancelBtn) adminKeyCancelBtn.addEventListener('click', closeAdminKeyModal);
-    if (adminKeyModal) {
-      adminKeyModal.addEventListener('click', function(e) {
-        if (e.target === adminKeyModal) closeAdminKeyModal();
-      });
-    }
 
     function submitSecretKeyForm() {
       const form = document.getElementById('adminKeyForm');

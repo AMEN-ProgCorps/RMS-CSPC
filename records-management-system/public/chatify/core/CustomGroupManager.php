@@ -40,6 +40,7 @@ class CustomGroupManager
                 CREATE INDEX IF NOT EXISTS idx_ccgm_account ON chat_custom_group_members(account_id);
                 CREATE INDEX IF NOT EXISTS idx_ccgm_group ON chat_custom_group_members(group_id);
                 ALTER TABLE chat_custom_group_members ADD COLUMN IF NOT EXISTS last_read_msg_id BIGINT DEFAULT 0;
+                ALTER TABLE chat_custom_group_members ADD COLUMN IF NOT EXISTS last_opened_at TIMESTAMP WITH TIME ZONE;
             ");
         } catch (Throwable $t) {
             error_log('CustomGroupManager::ensureTables() — ' . $t->getMessage());
@@ -157,9 +158,12 @@ class CustomGroupManager
 
             $stmt = $pdo->prepare(
                 'SELECT g.id, g.name, g.creator_id, g.created_at,
+                        EXTRACT(EPOCH FROM g.created_at)::BIGINT AS created_ts,
+                        EXTRACT(EPOCH FROM m.joined_at)::BIGINT AS joined_ts,
                         (SELECT COUNT(*) FROM chat_custom_group_members WHERE group_id = g.id) AS member_count,
                         COALESCE(m.last_read_msg_id, 0) AS last_read_msg_id,
-                        m.joined_at
+                        m.joined_at,
+                        m.last_opened_at
                  FROM chat_custom_groups g
                  JOIN chat_custom_group_members m ON m.group_id = g.id
                  WHERE m.account_id = :account_id
@@ -233,6 +237,10 @@ class CustomGroupManager
                     }
                 } catch (Throwable) {}
 
+                $joinedTs = (int) ($row['joined_ts'] ?? 0);
+                $isNewlyAdded = empty($row['last_opened_at']) && ($lastReadId <= 0) && ((int)$row['creator_id'] !== $accountId);
+                $effectiveTs = max($joinedTs, $lastTs);
+
                 $groups[] = [
                     'gc_id'          => $groupId,
                     'conv_id'        => $convId,
@@ -240,8 +248,9 @@ class CustomGroupManager
                     'creator_id'     => (int) $row['creator_id'],
                     'member_count'   => (int) $row['member_count'],
                     'last_message'   => $lastMsg,
-                    'last_timestamp' => $lastTs,
+                    'last_timestamp' => $effectiveTs,
                     'unread_count'   => $unreadCount,
+                    'is_newly_added' => $isNewlyAdded,
                 ];
             }
 
@@ -265,7 +274,8 @@ class CustomGroupManager
                 "UPDATE chat_custom_group_members
                  SET last_read_msg_id = COALESCE((
                      SELECT MAX(id) FROM chat_messages WHERE conv_id = :conv_id AND status = 'active'
-                 ), 0)
+                 ), 0),
+                 last_opened_at = NOW()
                  WHERE group_id = :group_id AND account_id = :account_id"
             );
             $stmt->execute([

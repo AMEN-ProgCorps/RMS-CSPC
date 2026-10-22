@@ -735,7 +735,7 @@ try {
       <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px;text-align:left;">
         <div>
           <label for="gcNameInput" style="display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">GROUP CHAT NAME</label>
-          <input type="text" id="gcNameInput" placeholder="Enter custom GC name..." maxlength="50" autocomplete="off"
+          <input type="text" id="gcNameInput" placeholder="Enter custom GC name..." maxlength="40" autocomplete="off"
             style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;outline:none;">
         </div>
 

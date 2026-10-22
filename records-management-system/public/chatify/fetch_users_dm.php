@@ -92,6 +92,7 @@ if ($searchQuery !== '') {
                 'lastMessage'         => $cg['last_message'] ?? '',
                 'lastTimestamp'       => (int) ($cg['last_timestamp'] ?? 0),
                 'unreadCount'         => (int) ($cg['unread_count'] ?? 0),
+                'is_newly_added'      => !empty($cg['is_newly_added']),
                 'is_chatify_verified' => true,
                 'avatar_url'          => 'cspc.webp',
             ];
@@ -269,13 +270,19 @@ if ($searchQuery !== '') {
             'lastMessage'         => $cg['last_message'] ?? '',
             'lastTimestamp'       => (int) ($cg['last_timestamp'] ?? 0),
             'unreadCount'         => (int) ($cg['unread_count'] ?? 0),
+            'is_newly_added'      => !empty($cg['is_newly_added']),
             'is_chatify_verified' => true,
             'avatar_url'          => 'cspc.webp',
         ];
     }
 
-    // Sort: most recent → alphabetical (ALL conversations sorted by lastTimestamp)
+    // Sort: newly added GCs first -> most recent -> alphabetical
     usort($sidebarUsers, function ($a, $b) {
+        $aNew = !empty($a['is_newly_added']) ? 1 : 0;
+        $bNew = !empty($b['is_newly_added']) ? 1 : 0;
+        if ($aNew !== $bNew) {
+            return $bNew <=> $aNew;
+        }
         if ($b['lastTimestamp'] !== $a['lastTimestamp']) {
             return $b['lastTimestamp'] <=> $a['lastTimestamp'];
         }

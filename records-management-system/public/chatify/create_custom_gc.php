@@ -30,9 +30,9 @@ if ($groupName === '') {
     echo json_encode(['success' => false, 'error' => 'Group name is required.']);
     exit;
 }
-if (mb_strlen($groupName) > 50) {
+if (mb_strlen($groupName) > 40) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => 'Group chat name must be 50 characters or less.']);
+    echo json_encode(['success' => false, 'error' => 'Group chat name must be 40 characters or less.']);
     exit;
 }
 

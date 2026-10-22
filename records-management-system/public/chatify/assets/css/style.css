@@ -304,6 +304,26 @@
     .user-item.active {
       background-color: rgba(27, 116, 228, 0.13) !important;
     }
+
+    .user-item.newly-added-gc {
+    }
+    .newly-added-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #1b74e4;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1;
+      padding: 2px 6px;
+      border-radius: 10px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      box-shadow: 0 1px 4px rgba(27, 116, 228, 0.35);
+      flex-shrink: 0;
+      margin-left: 4px;
+    }
     
     .user-avatar {
       width: 48px;

@@ -1227,6 +1227,15 @@
           console.log('Received custom GC update notice:', data);
           const targetGid = Number(data.group_id);
 
+          // Track newly added GC so it highlights and sorts to top
+          // Only mark as "new" for members who were added — NOT the creator
+          const _myId = (typeof wsConfig !== 'undefined' && wsConfig.accountId) ? Number(wsConfig.accountId) : 0;
+          const _creatorId = Number(data.creator_id || 0);
+          if (targetGid > 0 && (_myId <= 0 || _myId !== _creatorId)) {
+            window.newlyAddedGcIds = window.newlyAddedGcIds || new Set();
+            window.newlyAddedGcIds.add(targetGid);
+          }
+
           // Case 1: Super Admin is currently spying on this Custom GC
           if (targetGid > 0 && typeof activeAdminConv !== 'undefined' && activeAdminConv === ('gc_' + targetGid)) {
             if (typeof loadAdminConv === 'function') {
@@ -1244,6 +1253,9 @@
             }
           }
 
+          if (typeof fetchUsers === 'function') {
+            fetchUsers();
+          }
           if (typeof loadCustomGcs === 'function') {
             loadCustomGcs();
           }
@@ -1879,6 +1891,17 @@
         const activeUser = (allUsersData || []).find(u => u.username === activeDM);
         if (activeUser) activeUser.unreadCount = 0;
       }
+
+      // Sort: newly-added custom GCs rise to the top, rest sorted by lastTimestamp
+      if (Array.isArray(allUsersData) && allUsersData.length > 0) {
+        allUsersData.sort((a, b) => {
+          const aNew = (a.is_custom_gc && (a.is_newly_added || (window.newlyAddedGcIds && window.newlyAddedGcIds.has(Number(a.gc_id))))) ? 1 : 0;
+          const bNew = (b.is_custom_gc && (b.is_newly_added || (window.newlyAddedGcIds && window.newlyAddedGcIds.has(Number(b.gc_id))))) ? 1 : 0;
+          if (aNew !== bNew) return bNew - aNew;
+          return (Number(b.lastTimestamp) || 0) - (Number(a.lastTimestamp) || 0);
+        });
+      }
+
       renderSidebarUsers();
       if (typeof reloadOfficeMembersList === 'function') {
         reloadOfficeMembersList(true);
@@ -2160,6 +2183,14 @@
     function renderSidebarUsers() {
       const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
 
+      // Build a Set of GC IDs the user has already opened (persisted in localStorage)
+      // so the NEW badge never reappears once clicked, even after fetchUsers() re-fetches.
+      let _openedGcIdsSet = new Set();
+      try {
+        const _raw = localStorage.getItem('openedGcIds');
+        if (_raw) _openedGcIdsSet = new Set(JSON.parse(_raw).map(Number));
+      } catch (e) {}
+
       if (activeDM || activeDMAccountId) {
         const activeUser = (allUsersData || []).find(u =>
           (activeDMAccountId && Number(u.account_id) === Number(activeDMAccountId)) ||
@@ -2300,7 +2331,8 @@
           item.onpointerdown = () => speculateConversationCard(u, item);
         }
 
-        const newClassName = 'user-item' + (isThisActive ? ' active' : '') + (hasUnread ? ' has-unread' : '') + (u.is_custom_gc ? ' custom-gc-item' : (u.is_office_gc ? ' office-gc-item' : ''));
+        const isNewlyAdded = u.is_custom_gc && !isThisActive && (u.is_newly_added || (window.newlyAddedGcIds && window.newlyAddedGcIds.has(Number(u.gc_id)))) && !_openedGcIdsSet.has(Number(u.gc_id));
+        const newClassName = 'user-item' + (isThisActive ? ' active' : '') + (hasUnread ? ' has-unread' : '') + (isNewlyAdded ? ' newly-added-gc' : '') + (u.is_custom_gc ? ' custom-gc-item' : (u.is_office_gc ? ' office-gc-item' : ''));
         if (item.className !== newClassName) item.className = newClassName;
 
         if (u.is_office_gc || u.is_custom_gc) {
@@ -2349,6 +2381,19 @@
           if (!sidebarBadge) injectBadge(nameRow);
         } else if (sidebarBadge) {
           sidebarBadge.remove();
+        }
+
+        // "NEW" badge for newly added Custom GCs
+        const existingNewBadge = nameRow.querySelector('.newly-added-badge');
+        if (isNewlyAdded) {
+          if (!existingNewBadge) {
+            const newBadge = document.createElement('span');
+            newBadge.className = 'newly-added-badge';
+            newBadge.textContent = 'NEW';
+            nameRow.appendChild(newBadge);
+          }
+        } else if (existingNewBadge) {
+          existingNewBadge.remove();
         }
 
         if (officeEl) {
@@ -3659,6 +3704,29 @@
       window.activeCustomGc = group;
       window.activeCustomGcGroupInfo = null;
       window.activeCustomGcMembers = null;
+
+      // Clear the "newly added" highlight for this GC now that the user is opening it
+      const _openedGcId = Number(group.gc_id);
+      if (window.newlyAddedGcIds) {
+        window.newlyAddedGcIds.delete(_openedGcId);
+      }
+      if (group.is_newly_added) {
+        group.is_newly_added = false;
+      }
+      // Persist in localStorage so even if fetchUsers() re-fetches before markAsRead
+      // completes server-side, the badge stays gone for this session and beyond.
+      try {
+        const _openedKey = 'openedGcIds';
+        const _storedRaw = localStorage.getItem(_openedKey);
+        const _openedSet = new Set(_storedRaw ? JSON.parse(_storedRaw) : []);
+        _openedSet.add(_openedGcId);
+        localStorage.setItem(_openedKey, JSON.stringify([..._openedSet]));
+      } catch (e) {}
+      // Also clear it in allUsersData in-memory
+      if (Array.isArray(allUsersData)) {
+        const _gcEntry = allUsersData.find(u => u.is_custom_gc && Number(u.gc_id) === _openedGcId);
+        if (_gcEntry) _gcEntry.is_newly_added = false;
+      }
 
       const _hEl = document.querySelector('.header');
       if (_hEl) _hEl.classList.add('is-global-chat');

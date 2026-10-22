@@ -6461,89 +6461,69 @@
 
                 chk.addEventListener('change', function() {
                   if (!window.activeCustomGc) return;
-                  const isAdding = this.checked;
+                  // Only allow adding (checking ON) in this modal — cannot uncheck
+                  if (!this.checked) {
+                    // Prevent unchecking: snap back to checked
+                    this.checked = true;
+                    slider.style.background = '#1b74e4';
+                    knob.style.left = '21px';
+                    return;
+                  }
                   const targetId = Number(u.account_id);
                   const groupId = window.activeCustomGc.gc_id;
 
                   this.disabled = true;
-                  slider.style.background = isAdding ? '#1b74e4' : 'var(--border-color)';
-                  knob.style.left = isAdding ? '21px' : '3px';
+                  label.style.cursor = 'not-allowed';
+                  slider.style.background = '#1b74e4';
+                  knob.style.left = '21px';
 
-                  if (isAdding) {
-                    const bodyData = new FormData();
-                    bodyData.append('group_id', groupId);
-                    bodyData.append('member_ids', JSON.stringify([targetId]));
+                  const bodyData = new FormData();
+                  bodyData.append('group_id', groupId);
+                  bodyData.append('member_ids', JSON.stringify([targetId]));
 
-                    fetch('add_custom_gc_members.php', {
-                      method: 'POST',
-                      body: bodyData,
-                    })
-                      .then(r => r.json())
-                      .then(res => {
-                        chk.disabled = false;
-                        if (res && res.success) {
-                          if (!Array.isArray(window.activeCustomGcMembers)) {
-                            window.activeCustomGcMembers = [];
-                          }
-                          if (!window.activeCustomGcMembers.some(m => Number(m.account_id) === targetId)) {
-                            window.activeCustomGcMembers.push({
-                              account_id: u.account_id,
-                              full_name: u.full_name,
-                              avatar_url: u.avatar_url,
-                              is_chatify_verified: u.is_chatify_verified
-                            });
-                          }
-                          if (typeof reloadOfficeMembersList === 'function') {
-                            reloadOfficeMembersList(true);
-                          }
-                        } else {
-                          chk.checked = false;
-                          slider.style.background = 'var(--border-color)';
-                          knob.style.left = '3px';
-                          alert(res?.error || 'Failed to add member.');
+                  fetch('add_custom_gc_members.php', {
+                    method: 'POST',
+                    body: bodyData,
+                  })
+                    .then(r => r.json())
+                    .then(res => {
+                      if (res && res.success) {
+                        // Keep permanently checked and disabled — added successfully
+                        chk.disabled = true;
+                        label.title = 'Already added';
+                        slider.style.background = '#27ae60'; // green = confirmed added
+                        if (!Array.isArray(window.activeCustomGcMembers)) {
+                          window.activeCustomGcMembers = [];
                         }
-                      })
-                      .catch(() => {
+                        if (!window.activeCustomGcMembers.some(m => Number(m.account_id) === targetId)) {
+                          window.activeCustomGcMembers.push({
+                            account_id: u.account_id,
+                            full_name: u.full_name,
+                            avatar_url: u.avatar_url,
+                            is_chatify_verified: u.is_chatify_verified
+                          });
+                        }
+                        if (typeof reloadOfficeMembersList === 'function') {
+                          reloadOfficeMembersList(true);
+                        }
+                      } else {
+                        // Failed — reset to unchecked so they can retry
                         chk.disabled = false;
                         chk.checked = false;
+                        label.style.cursor = 'pointer';
                         slider.style.background = 'var(--border-color)';
                         knob.style.left = '3px';
-                        alert('Network error adding member.');
-                      });
-                  } else {
-                    const bodyData = new FormData();
-                    bodyData.append('group_id', groupId);
-                    bodyData.append('account_id', targetId);
-
-                    fetch('remove_custom_gc_member.php', {
-                      method: 'POST',
-                      body: bodyData,
+                        alert(res?.error || 'Failed to add member.');
+                      }
                     })
-                      .then(r => r.json())
-                      .then(res => {
-                        chk.disabled = false;
-                        if (res && res.success) {
-                          if (Array.isArray(window.activeCustomGcMembers)) {
-                            window.activeCustomGcMembers = window.activeCustomGcMembers.filter(m => Number(m.account_id) !== targetId);
-                          }
-                          if (typeof reloadOfficeMembersList === 'function') {
-                            reloadOfficeMembersList(true);
-                          }
-                        } else {
-                          chk.checked = true;
-                          slider.style.background = '#1b74e4';
-                          knob.style.left = '21px';
-                          alert(res?.error || 'Failed to remove member.');
-                        }
-                      })
-                      .catch(() => {
-                        chk.disabled = false;
-                        chk.checked = true;
-                        slider.style.background = '#1b74e4';
-                        knob.style.left = '21px';
-                        alert('Network error removing member.');
-                      });
-                  }
+                    .catch(() => {
+                      chk.disabled = false;
+                      chk.checked = false;
+                      label.style.cursor = 'pointer';
+                      slider.style.background = 'var(--border-color)';
+                      knob.style.left = '3px';
+                      alert('Network error adding member.');
+                    });
                 });
 
                 resultsEl.appendChild(row);

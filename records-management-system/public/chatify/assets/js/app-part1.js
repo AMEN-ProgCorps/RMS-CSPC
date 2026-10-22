@@ -1039,6 +1039,11 @@
           }
           showNotifyToast(data);
           if (data && data.id && !bellNotifications.some(function(x) { return x.id === data.id; })) {
+            // Mark GC-related notifications so we don't show "mentioned you"
+            const _gcMsgPatterns = ['added to the group', 'removed from the group', 'disbanded by the admin', 'has been disbanded'];
+            if (_gcMsgPatterns.some(p => (data.message || '').toLowerCase().includes(p))) {
+              data.is_gc_event = true;
+            }
             bellNotifications.unshift(data); // newest first
             updateBellBadge();
             renderBellList();
@@ -2396,6 +2401,12 @@
           // Server response is the full, authoritative set of this user's
           // currently-unseen mentions — replace the bell's cache with it
           // (newest first for display) rather than merging.
+          const _gcPats = ['added to the group', 'removed from the group', 'disbanded by the admin', 'has been disbanded'];
+          list.forEach(function(n) {
+            if (_gcPats.some(p => (n.message || '').toLowerCase().includes(p))) {
+              n.is_gc_event = true;
+            }
+          });
           bellNotifications = list.slice().reverse();
           updateBellBadge();
           renderBellList();
@@ -2559,9 +2570,9 @@
       }
 
       // Header: static "Mention" title + sender subtitle
-      notifyContentTitle.textContent = 'Mention';
+      notifyContentTitle.textContent = n.is_gc_event ? 'Group Chat' : 'Mention';
       if (notifyContentSender) {
-        notifyContentSender.textContent = n.sender ? (n.sender + ' mentioned you') : '';
+        notifyContentSender.textContent = n.sender ? (n.is_gc_event ? n.sender : (n.sender + ' mentioned you')) : '';
       }
 
       // Body: message text or "No messages." fallback — same as readMoreModal body
@@ -2643,7 +2654,7 @@
       if (!notificationBellBadge) return;
       const count = bellNotifications.length;
       if (count > 0) {
-        notificationBellBadge.textContent = count > 100 ? '99+' : String(count);
+        notificationBellBadge.textContent = count > 99 ? '99+' : String(count);
         notificationBellBadge.style.display = 'flex';
       } else {
         notificationBellBadge.style.display = 'none';
@@ -2663,7 +2674,7 @@
           : '<em>No message</em>';
         const safeId = escapeHtml(String(n.id == null ? '' : n.id));
         return '<div class="bell-item" data-id="' + safeId + '">' +
-                 '<div class="bell-item-sender">' + escapeHtml(n.sender || 'A user') + ' mentioned you</div>' +
+                 '<div class="bell-item-sender">' + escapeHtml(n.sender || 'A user') + (n.is_gc_event ? '' : ' mentioned you') + '</div>' +
                  '<div class="bell-item-preview">' + previewHtml + '</div>' +
                  (n.time ? '<div class="bell-item-time">' + escapeHtml(formatMentionTime(n.time)) + '</div>' : '') +
                '</div>';
@@ -5022,6 +5033,46 @@
     }
     window.syncOfficeMembersModalVerification = syncOfficeMembersModalVerification;
 
+    // ── Generic danger confirmation modal ─────────────────────────────────────
+    function showDangerConfirm(title, message, onConfirm) {
+      const modal = document.getElementById('dangerConfirmModal');
+      const titleEl = document.getElementById('dangerConfirmTitle');
+      const msgEl = document.getElementById('dangerConfirmMessage');
+      const okBtn = document.getElementById('dangerConfirmOkBtn');
+      if (!modal || !titleEl || !msgEl || !okBtn) {
+        // Fallback to native confirm if modal not found
+        if (confirm(message)) onConfirm();
+        return;
+      }
+      titleEl.textContent = title;
+      msgEl.textContent = message;
+      modal.style.display = 'flex';
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+      // Remove previous listener and attach fresh one
+      const newOkBtn = okBtn.cloneNode(true);
+      okBtn.parentNode.replaceChild(newOkBtn, okBtn);
+      newOkBtn.addEventListener('click', function() {
+        closeDangerConfirmModal();
+        onConfirm();
+      });
+    }
+    function closeDangerConfirmModal() {
+      const modal = document.getElementById('dangerConfirmModal');
+      if (!modal) return;
+      modal.style.display = 'none';
+      modal.classList.remove('active');
+      modal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    }
+    window.closeDangerConfirmModal = closeDangerConfirmModal;
+    window.showDangerConfirm = showDangerConfirm;
+    // Close on backdrop click
+    document.getElementById('dangerConfirmModal')?.addEventListener('click', function(e) {
+      if (e.target === this) closeDangerConfirmModal();
+    });
+
     function removeCustomGcMember(groupId, accountId, memberName) {
       const myId = (typeof wsConfig !== 'undefined' && wsConfig.accountId) ? Number(wsConfig.accountId) : 0;
       const creatorId = window.activeCustomGc ? Number(window.activeCustomGc.creator_id) : 0;
@@ -5030,36 +5081,39 @@
         return;
       }
 
-      if (!confirm(`Are you sure you want to remove ${memberName} from this group?`)) {
-        return;
-      }
-      const bodyData = new FormData();
-      bodyData.append('group_id', groupId);
-      bodyData.append('account_id', accountId);
+      showDangerConfirm(
+        'Remove Member',
+        `Are you sure you want to remove "${memberName}" from this group?`,
+        function() {
+          const bodyData = new FormData();
+          bodyData.append('group_id', groupId);
+          bodyData.append('account_id', accountId);
 
-      fetch('remove_custom_gc_member.php', {
-        method: 'POST',
-        body: bodyData,
-      })
-        .then(r => r.json())
-        .then(res => {
-          if (res && res.success) {
-            if (Array.isArray(window.activeCustomGcMembers)) {
-              window.activeCustomGcMembers = window.activeCustomGcMembers.filter(x => Number(x.account_id) !== Number(accountId));
-            }
-            if (typeof reloadOfficeMembersList === 'function') {
-              reloadOfficeMembersList(true);
-            }
-            if (typeof loadCustomGcs === 'function') {
-              loadCustomGcs();
-            }
-          } else {
-            alert(res?.error || 'Failed to remove member.');
-          }
-        })
-        .catch(() => {
-          alert('Network error removing member.');
-        });
+          fetch('remove_custom_gc_member.php', {
+            method: 'POST',
+            body: bodyData,
+          })
+            .then(r => r.json())
+            .then(res => {
+              if (res && res.success) {
+                if (Array.isArray(window.activeCustomGcMembers)) {
+                  window.activeCustomGcMembers = window.activeCustomGcMembers.filter(x => Number(x.account_id) !== Number(accountId));
+                }
+                if (typeof reloadOfficeMembersList === 'function') {
+                  reloadOfficeMembersList(true);
+                }
+                if (typeof loadCustomGcs === 'function') {
+                  loadCustomGcs();
+                }
+              } else {
+                alert(res?.error || 'Failed to remove member.');
+              }
+            })
+            .catch(() => {
+              alert('Network error removing member.');
+            });
+        }
+      );
     }
     window.removeCustomGcMember = removeCustomGcMember;
 
@@ -5073,31 +5127,34 @@
       }
 
       const groupName = window.activeCustomGc.name || 'this group';
-      if (!confirm(`Are you sure you want to remove "${groupName}"? This will permanently delete the group and all its messages. This cannot be undone.`)) {
-        return;
-      }
-
       const groupId = window.activeCustomGc.gc_id;
-      const bodyData = new FormData();
-      bodyData.append('group_id', groupId);
 
-      fetch('disband_custom_gc.php', {
-        method: 'POST',
-        body: bodyData,
-      })
-        .then(r => r.json())
-        .then(res => {
-          if (res && res.success) {
-            if (typeof closeOfficeMembersModal === 'function') closeOfficeMembersModal();
-            if (typeof resetToHome === 'function') resetToHome();
-            if (typeof loadCustomGcs === 'function') loadCustomGcs();
-          } else {
-            alert(res?.error || 'Failed to disband group.');
-          }
-        })
-        .catch(() => {
-          alert('Network error disbanding group.');
-        });
+      showDangerConfirm(
+        'Remove Group',
+        `Are you sure you want to delete "${groupName}"? This will permanently delete the group and all its messages. This cannot be undone.`,
+        function() {
+          const bodyData = new FormData();
+          bodyData.append('group_id', groupId);
+
+          fetch('disband_custom_gc.php', {
+            method: 'POST',
+            body: bodyData,
+          })
+            .then(r => r.json())
+            .then(res => {
+              if (res && res.success) {
+                if (typeof closeOfficeMembersModal === 'function') closeOfficeMembersModal();
+                if (typeof resetToHome === 'function') resetToHome();
+                if (typeof loadCustomGcs === 'function') loadCustomGcs();
+              } else {
+                alert(res?.error || 'Failed to disband group.');
+              }
+            })
+            .catch(() => {
+              alert('Network error disbanding group.');
+            });
+        }
+      );
     }
     window.disbandCustomGc = disbandCustomGc;
 

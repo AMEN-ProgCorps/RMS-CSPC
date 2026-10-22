@@ -546,6 +546,21 @@ try {
     </div>
   </div>
 
+  <!-- Generic Danger Confirmation Modal (Same design & size as editExpiredModal) -->
+  <div class="modal" id="dangerConfirmModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
+    <div class="modal-content" style="max-width:320px;min-height:0;">
+      <div class="modal-header">
+        <h3 id="dangerConfirmTitle" style="color:#c0392b;">Confirm Action</h3>
+      </div>
+      <div class="modal-body" id="dangerConfirmMessage">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button cancel-button" id="dangerConfirmCancelBtn" onclick="closeDangerConfirmModal()">Cancel</button>
+        <button type="button" class="modal-button confirm-button" id="dangerConfirmOkBtn" style="color:#c0392b;">Confirm</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Office Members Modal (View users in Office GC) -->
   <div class="modal" id="officeMembersModal" aria-hidden="true">
     <div class="modal-content" style="max-width:440px;height:460px;max-height:85vh;display:flex;flex-direction:column;box-sizing:border-box;">

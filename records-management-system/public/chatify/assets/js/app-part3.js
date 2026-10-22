@@ -3094,11 +3094,13 @@
               const targetConvId = (typeof getActiveChannelConvId === 'function')
                 ? getActiveChannelConvId()
                 : (window.activeChannel === 'office' ? (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) : 'global');
+              const isCustomGcClear = targetConvId && targetConvId.startsWith('gc_');
+              const isOfficeClear   = targetConvId && targetConvId.startsWith('office_');
               ws.send(JSON.stringify({
                 type: 'chat_cleared',
-                chat_type: (targetConvId && targetConvId.startsWith('office_')) ? 'office_gc' : 'global',
+                chat_type: isCustomGcClear ? 'custom_gc' : (isOfficeClear ? 'office_gc' : 'global'),
                 conv_id: targetConvId || 'global',
-                office_id: (targetConvId && targetConvId.startsWith('office_')) ? (window.currentOfficeInfo && window.currentOfficeInfo.office_id) : null,
+                office_id: isOfficeClear ? (window.currentOfficeInfo && window.currentOfficeInfo.office_id) : null,
                 sender_id: wsConfig.accountId
               }));
             } else if (clearedDM && clearedDMAccId) {
@@ -3119,6 +3121,13 @@
                   chat_type: targetOfficeId ? 'office_gc' : 'global',
                   conv_id: clearedAdminConv,
                   office_id: targetOfficeId,
+                  sender_id: wsConfig.accountId
+                }));
+              } else if (clearedAdminConv.startsWith('gc_')) {
+                ws.send(JSON.stringify({
+                  type: 'chat_cleared',
+                  chat_type: 'custom_gc',
+                  conv_id: clearedAdminConv,
                   sender_id: wsConfig.accountId
                 }));
               } else {
@@ -3150,16 +3159,22 @@
 
       let params = "secret=" + encodeURIComponent(secret);
       if (isGlobalChat) {
-        params += "&global=1";
         const targetConvId = (typeof getActiveChannelConvId === 'function')
           ? getActiveChannelConvId()
           : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
-        params += "&conv_id=" + encodeURIComponent(targetConvId);
+        // Custom GC — do NOT send global=1, just send the gc_ conv_id directly
+        if (targetConvId && targetConvId.startsWith('gc_')) {
+          params += "&conv_id=" + encodeURIComponent(targetConvId);
+        } else {
+          params += "&global=1";
+          params += "&conv_id=" + encodeURIComponent(targetConvId);
+        }
       } else if (activeDMAccountId) {
         params += "&target_id=" + encodeURIComponent(activeDMAccountId) + "&target_user=" + encodeURIComponent(activeDM);
       } else if (activeDM) {
         params += "&target_user=" + encodeURIComponent(activeDM);
       } else if (activeAdminConv) {
+        // Custom GC spy mode — send conv_id directly (no global flag)
         params += "&conv_id=" + encodeURIComponent(activeAdminConv);
       }
       xhr.send(params);
@@ -6383,20 +6398,23 @@
 
         _addGcSearchTimer = setTimeout(() => {
           resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Searching...</div>';
-          fetch('search_users_gc.php?q=' + encodeURIComponent(q))
+          const gcId = window.activeCustomGc ? window.activeCustomGc.gc_id : 0;
+          fetch('search_users_gc.php?q=' + encodeURIComponent(q) + (gcId ? '&group_id=' + encodeURIComponent(gcId) : ''))
             .then(r => r.json())
             .then(data => {
-              const users = (data.users || []).slice(0, 1); // max 1 result only
+              const currentMembers = Array.isArray(window.activeCustomGcMembers) ? window.activeCustomGcMembers : [];
+              const rawUsers = data.users || [];
+              const availableUsers = rawUsers.filter(u => !currentMembers.some(m => Number(m.account_id) === Number(u.account_id)));
+              const users = availableUsers.slice(0, 1); // max 1 result only
               if (users.length === 0) {
                 resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">No users found.</div>';
                 return;
               }
 
-              const currentMembers = Array.isArray(window.activeCustomGcMembers) ? window.activeCustomGcMembers : [];
               resultsEl.innerHTML = '';
 
               users.forEach(u => {
-                const isAlreadyInGc = currentMembers.some(m => Number(m.account_id) === Number(u.account_id));
+                const isAlreadyInGc = false;
                 const row = document.createElement('div');
                 row.dataset.accountId = u.account_id;
                 row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
@@ -6427,15 +6445,15 @@
                 label.style.cssText = 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;';
                 const chk = document.createElement('input');
                 chk.type = 'checkbox';
-                chk.checked = isAlreadyInGc;
+                chk.checked = false;
                 if (isCreator) chk.disabled = true;
                 chk.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
                 const slider = document.createElement('span');
                 slider.className = 'slider-bg';
-                slider.style.cssText = `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${isAlreadyInGc ? '#1b74e4' : 'var(--border-color)'};`;
+                slider.style.cssText = 'position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:var(--border-color);';
                 const knob = document.createElement('span');
                 knob.className = 'slider-knob';
-                knob.style.cssText = `position:absolute;top:3px;left:${isAlreadyInGc ? '21px' : '3px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s,background 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);`;
+                knob.style.cssText = 'position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s,background 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);';
                 slider.appendChild(knob);
                 label.appendChild(chk);
                 label.appendChild(slider);

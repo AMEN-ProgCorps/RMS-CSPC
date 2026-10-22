@@ -811,9 +811,38 @@
         } else if (data.type === 'chat_cleared') {
           console.log('Received WebSocket real-time update notice:', data);
 
-          const isGlobalClear = (data.chat_type === 'global') || (data.conv_id === 'global');
-          const isOfficeClear = (data.chat_type === 'office_gc') || (data.conv_id && String(data.conv_id).startsWith('office_'));
-          const clearedConvId = data.conv_id || (isOfficeClear ? (data.office_id ? 'office_' + data.office_id : null) : (isGlobalClear ? 'global' : null));
+          const isGlobalClear   = (data.chat_type === 'global') || (data.conv_id === 'global');
+          const isOfficeClear   = (data.chat_type === 'office_gc') || (data.conv_id && String(data.conv_id).startsWith('office_'));
+          const isCustomGcClear = (data.chat_type === 'custom_gc') || (data.conv_id && String(data.conv_id).startsWith('gc_'));
+          const clearedConvId   = data.conv_id || (isOfficeClear ? (data.office_id ? 'office_' + data.office_id : null) : (isGlobalClear ? 'global' : null));
+
+          // ── Case 0: Custom Group Chat clear ───────────────────────────────────
+          if (isCustomGcClear) {
+            // If admin is spying on this custom GC
+            if (typeof activeAdminConv !== 'undefined' && activeAdminConv === clearedConvId) {
+              chatBox.innerHTML = '<div class="empty-chat"></div>';
+              isFirstLoad = true;
+              chatFullyLoaded = false;
+              isLoadingAdminConv = false;
+              loadAdminConv(activeAdminConv, false);
+              return;
+            }
+            // If current user is viewing this custom GC
+            if (isGlobalChat && window.activeChannel === 'gc' && window.activeCustomGc && window.activeCustomGc.conv_id === clearedConvId) {
+              globalChatCache = null;
+              if (typeof globalChatPrefetchedData !== 'undefined') globalChatPrefetchedData = null;
+              gcCursor = '';
+              gcViewingOlder = false;
+              removePaginationBtn();
+              if (typeof closeImageViewer === 'function') closeImageViewer();
+              if (chatBox) chatBox.innerHTML = '<div class="empty-chat"></div>';
+              isFirstLoad = true;
+              chatFullyLoaded = false;
+              isLoadingGC = false;
+              loadGlobalChat(false, false, true);
+            }
+            return;
+          }
 
           // ── Case 1: Global Chat clear (super admin "/clear" in Global Chat) ──
           if (isGlobalClear) {
@@ -899,14 +928,15 @@
             }
           }
 
-          // ── 1. Immediately strip the cleared entry from the sidebar ──────────
+          // ── 1. Drop stale snapshot from DM cache — do NOT splice allUsersData
+          //       here because fetchUsers() will return the user again (soft-delete
+          //       only removes messages, not the user), causing a ghost-blink where
+          //       the user disappears then immediately re-appears in the sidebar.
+          //       Instead, just invalidate the message cache so the next open reads
+          //       fresh data, and let fetchUsers() below repaint the sidebar correctly
+          //       in one pass without any intermediate flicker. ──────────────────────
           if (_partnerId !== null && _partnerId > 0) {
-            const idx = allUsersData.findIndex(u => Number(u.account_id) === _partnerId);
-            if (idx !== -1) {
-              dmMessageCache.delete(allUsersData[idx].username); // drop the now-stale snapshot
-              allUsersData.splice(idx, 1);
-              renderSidebarUsers();
-            }
+            if (partnerUsername) dmMessageCache.delete(partnerUsername);
           }
 
           // ── 2. If the user is currently viewing this conversation, wipe the
@@ -954,8 +984,8 @@
               chatXhr.abort();
               chatXhr = null;
             }
-            // Wipe the pane now — resetToHome() will confirm it, but this
-            // makes the clear visually instant without waiting for XHR round-trips.
+            // Wipe the pane immediately — makes the clear visually instant for
+            // BOTH the admin who cleared and the recipient on the other side.
             if (chatBox) {
               chatBox.innerHTML = '<div class="empty-chat"></div>';
             }
@@ -3575,7 +3605,6 @@
 
             const isActive = (window.activeChannel === 'gc' && !activeDM && !activeAdminConv && window.activeCustomGc && window.activeCustomGc.gc_id === g.gc_id);
             const memberCountText = 'Custom GC';
-            const safeGroupJson = JSON.stringify(g).replace(/'/g, "&apos;");
 
             let item = existingItems.get(gcIdStr);
             if (!item) {
@@ -3589,16 +3618,23 @@
                 </div>
                 <div class="user-info">
                   <div class="user-name-row" style="display:flex;align-items:center;justify-content:flex-start;gap:4px;min-width:0;">
-                    <div class="user-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(g.name)}</div>
+                    <div class="user-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
                     <span class="verified-badge"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
                   </div>
                   <div class="user-last-msg" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(memberCountText)}</div>
                 </div>
                 <div class="user-actions-right"></div>
               `;
+              // Store group data safely via dataset (avoids HTML entity issues with apostrophes)
+              item._gcData = g;
+              item.addEventListener('click', function() {
+                if (typeof selectCustomGc === 'function') selectCustomGc(this._gcData);
+              });
+            } else {
+              // Update stored data reference
+              item._gcData = g;
             }
 
-            item.setAttribute('onclick', `selectCustomGc(${safeGroupJson})`);
             const targetClass = 'user-item custom-gc-item' + (isActive ? ' active' : '');
             if (item.className !== targetClass) item.className = targetClass;
 
@@ -4418,12 +4454,10 @@
               nameEl.style.fontSize = '13px';
               nameRow.appendChild(nameEl);
 
-              if (ch.channel_type !== 'custom_gc') {
-                const checkBadge = document.createElement('span');
-                checkBadge.className = 'verified-badge';
-                checkBadge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-                nameRow.appendChild(checkBadge);
-              }
+              const checkBadge = document.createElement('span');
+              checkBadge.className = 'verified-badge';
+              checkBadge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+              nameRow.appendChild(checkBadge);
 
               const badge = document.createElement('span');
               badge.style.cssText = 'font-size:10px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 5px;border-radius:4px;text-transform:uppercase;flex-shrink:0;margin-left:4px;';
@@ -4579,19 +4613,19 @@
             nameEl.style.fontSize = '13px';
             nameRow.appendChild(nameEl);
 
-            const badge = document.createElement('span');
-            badge.className = 'custom-gc-badge';
-            badge.style.cssText = 'font-size:10px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 5px;border-radius:4px;text-transform:uppercase;flex-shrink:0;margin-left:4px;';
-            badge.textContent = 'Custom GC';
-            badge.style.display = c.isCustomGc ? 'inline-block' : 'none';
-            nameRow.appendChild(badge);
-
             if (c.isCustomGc) {
               const vBadge = document.createElement('span');
               vBadge.className = 'verified-badge';
               vBadge.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
               nameRow.appendChild(vBadge);
             }
+
+            const badge = document.createElement('span');
+            badge.className = 'custom-gc-badge';
+            badge.style.cssText = 'font-size:10px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:1px 5px;border-radius:4px;text-transform:uppercase;flex-shrink:0;margin-left:4px;';
+            badge.textContent = 'Custom GC';
+            badge.style.display = c.isCustomGc ? 'inline-block' : 'none';
+            nameRow.appendChild(badge);
 
             msgEl = document.createElement('div');
             msgEl.className = 'user-last-msg';

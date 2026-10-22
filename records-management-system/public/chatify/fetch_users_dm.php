@@ -321,6 +321,35 @@ if ($isAdmin) {
             } catch (Throwable $e) {
                 error_log('fetch_users_dm.php (admin spy office search) — ' . $e->getMessage());
             }
+
+            // Custom GC match: search by group name
+            try {
+                $stmt = $pdo->prepare('
+                    SELECT g.id, g.name,
+                           (SELECT COUNT(*) FROM chat_custom_group_members WHERE group_id = g.id) AS member_count
+                    FROM chat_custom_groups g
+                    WHERE g.name ILIKE :like_search
+                    ORDER BY g.name ASC
+                    LIMIT 11
+                ');
+                $stmt->execute([':like_search' => $likeSearch]);
+                $gcRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($gcRows as $gc) {
+                    $channels[] = [
+                        'conv_id'             => 'gc_' . (int) $gc['id'],
+                        'channel_type'        => 'custom_gc',
+                        'title'               => $gc['name'],
+                        'subtitle'            => 'Custom Group Chat (' . (int) $gc['member_count'] . ' members)',
+                        'office_id'           => null,
+                        'office_name'         => null,
+                        'office_code'         => null,
+                        'avatar_url'          => 'cspc.webp',
+                        'is_chatify_verified' => true,
+                    ];
+                }
+            } catch (Throwable $e) {
+                error_log('fetch_users_dm.php (admin spy custom gc search) — ' . $e->getMessage());
+            }
         }
 
         $totalChannelCount = count($channels);

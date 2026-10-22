@@ -73,6 +73,14 @@
                 zoom: clamp(0.72, calc(100vw / 1920), 1);
             }
         }
+        body.rdp-appraisal-only .navigation,
+        body.rdp-appraisal-only .top-nav-tabs-wrapper,
+        body.rdp-appraisal-only .dcs-top-tabs-host {
+            display: none !important;
+        }
+        body.rdp-appraisal-only .article-container {
+            width: 100% !important;
+        }
         @media print {
             header,
             nav,
@@ -91,7 +99,10 @@
     <title>CSPC - Records Disposition Program</title>
     @stack('styles')
 </head>
-<body data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
+@php
+    $rdpGuestAppraisal = !(auth()->user()?->permissions?->is_sadm || auth()->user()?->permissions?->can_access_rdp);
+@endphp
+<body data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" @if($rdpGuestAppraisal) class="rdp-appraisal-only" @endif>
     <header>
         <div class="cspc-logo">
             <img class="ico" src="{{ asset('images/cspc.png') }}" alt="CSPC">
@@ -111,6 +122,7 @@
         $isCollapsed = $sidebarState === 'imdown';
     @endphp
     <section>
+        @unless($rdpGuestAppraisal)
         <div class="navigation {{ $isCollapsed ? 'imdown' : 'imup' }}" id="navigation">
             <div class="nav">
                 <div class="nav-header-container">
@@ -136,8 +148,11 @@
                 </div>
             </div>
         </div>
+        @endunless
         <div id="article-container" class="article-container {{ $isCollapsed ? 'imup' : 'imdown' }}">
+            @unless($rdpGuestAppraisal)
             <x-nav.top-tabs system="rdp" />
+            @endunless
             {{ $slot }}
         </div>
     </section>

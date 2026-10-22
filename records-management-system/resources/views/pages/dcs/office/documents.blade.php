@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Controlled documents already held by this office.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;

@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: My DRF list for the signed-in office. Print stays locked until that row's rfio_print_notified_at is set. The list polls print-ready and swaps the lock for a link.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;

@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Document Registration create screen. Sub-Type stays hidden when the document type has no subtypes. Revision history and the DCN document check load together.
+ */
+
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -21,6 +25,9 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         setSyllabiStep(step) { this.syllabiStep = Number(step) === 2 ? 2 : 1; window.syllabiCurrentStep = this.syllabiStep; },
         closeReview() {
             if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
+            window.__openAppraisalAfterSave = false;
+            const appraisalFlag = document.getElementById('openAppraisal');
+            if (appraisalFlag) appraisalFlag.value = '0';
             this.reviewOpen = false;
             const el = document.getElementById('dcsRegisterRoot');
             if (el) el.style.overflow = '';
@@ -46,6 +53,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
         <input type="hidden" id="insertShiftDocNo" name="insert_shift_doc_no" value="">
         <input type="hidden" id="insertShiftRenameLetters" name="insert_shift_rename_letters" value="0">
         <input type="hidden" id="saveAsDraft" name="save_as_draft" value="0">
+        <input type="hidden" id="openAppraisal" name="open_appraisal" value="0">
         <input type="hidden" id="officeIntakeType" name="office_intake_type" value="{{ in_array(request()->query('intake'), ['drf', 'dcn'], true) ? request()->query('intake') : '' }}">
         <input type="hidden" id="officeIntakeId" name="office_intake_id" value="{{ ctype_digit((string) request()->query('intake_id')) ? request()->query('intake_id') : '' }}">
 
@@ -537,7 +545,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <div class="reg-reldocs" id="masterlistOriginatorWidget">
                             <div class="reg-reldocs-inputwrap">
                                 <input type="text" id="masterlistOriginatorSearch" class="reg-reldocs-input"
-                                    placeholder="Type a name" autocomplete="off">
+                                    placeholder="Type names, separated by a comma" autocomplete="off">
                                 <button type="button" class="reg-reldocs-arrow-btn" id="masterlistOriginatorArrowBtn">
                                     <i class="fa-solid fa-chevron-down"></i>
                                 </button>
@@ -584,7 +592,7 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                         <div class="reg-reldocs" id="relatedDocsWidget">
                             <div class="reg-reldocs-inputwrap">
                                 <input type="text" id="relatedDocsSearch" class="reg-reldocs-input"
-                                    placeholder="Type a document title to search..."
+                                    placeholder="Type a document title, then pick from latest documents..."
                                     autocomplete="off"
                                     oninput="handleRelatedDocSearch(this)"
                                     onfocus="handleRelatedDocFocus()">
@@ -788,7 +796,10 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
                 <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                     <i class="fa-regular fa-floppy-disk"></i> Save Draft
                 </button>
-                <button type="button" id="btnSaveDocument" class="reg-btn reg-btn-save" onclick="confirmSave()">
+                <button type="button" id="btnSaveAndAppraise" class="reg-btn reg-btn-appraise" onclick="window.__openAppraisalAfterSave=true; confirmSave()" title="Save, then send this document to Appraisal. Office intake will appraise after receive.">
+                    <i class="fa-solid fa-clipboard-check"></i> Save and Appraise
+                </button>
+                <button type="button" id="btnSaveDocument" class="reg-btn reg-btn-save" onclick="window.__openAppraisalAfterSave=false; confirmSave()" title="Save only. Office intake marks it received — no Appraisal.">
                     <i class="fa-solid fa-floppy-disk"></i> Save Document
                 </button>
             </div>
@@ -1248,7 +1259,9 @@ function restoreOfficeToRetrievalPending(officeId, officeName, copies) {
     }
     updateTotal('totalRetrievalCopies', 'retrievalBody');
     const retSection = document.getElementById('section-4');
-    if (retSection) retSection.style.display = 'block';
+    if (retSection && typeof isRevisedMode === 'function' && isRevisedMode() && !(typeof isRecurringMode === 'function' && isRecurringMode())) {
+        retSection.style.display = 'block';
+    }
 }
 
 function maybeRestoreDistOfficeToRetrieval(tr) {
@@ -1574,6 +1587,10 @@ document.addEventListener("DOMContentLoaded", async function () {
             lockRecurRegistrationIdentity();
             return;
         }
+        if (window.__reviseIdentityLocked) {
+            lockReviseRegistrationIdentity();
+            return;
+        }
         const urlType = new URLSearchParams(location.search).get('type');
         if (urlType !== 'new' && urlType !== 'revised' && urlType !== 'recurring') return;
 
@@ -1676,9 +1693,8 @@ document.addEventListener("DOMContentLoaded", async function () {
         resultsId: 'masterlistOriginatorResults',
         chipsId: 'masterlistOriginatorInlineChips',
         summaryId: 'masterlistOriginatorSummary',
-        allowFreeText: true,
-        singleSelect: true,
-        fieldName: 'masterlistOriginator',
+            allowFreeText: true,
+            fieldName: 'masterlistOriginator',
         dataListGetter: () => allOriginators,
         idKey: 'originator_id',
         labelKey: 'originator_name',
@@ -1738,6 +1754,7 @@ async function applyInventoryRevisePrefillFromUrl() {
     }
     window.__inventoryRevisePrefillApplied = true;
     window.__inventoryRevisePrefill = true;
+    window.__reviseIdentityLocked = true;
 
     try {
         const dt = document.getElementById('docType');
@@ -1781,6 +1798,7 @@ async function applyInventoryRevisePrefillFromUrl() {
             }
             await new Promise((resolve) => setTimeout(resolve, 80));
         }
+        lockReviseRegistrationIdentity();
         if (!row) {
             return;
         }
@@ -1795,6 +1813,7 @@ async function applyInventoryRevisePrefillFromUrl() {
         if (typeof applyRevisionDocumentPick === 'function') {
             await applyRevisionDocumentPick(row, doc);
         }
+        lockReviseRegistrationIdentity();
     } catch (err) {
         console.warn('Inventory revise prefill failed:', err);
         window.__inventoryRevisePrefillApplied = false;
@@ -1879,6 +1898,39 @@ async function applyInventoryRecurPrefillFromUrl() {
     } finally {
         if (typeof setSupersedeLoading === 'function') setSupersedeLoading(false);
     }
+}
+
+function lockReviseRegistrationIdentity() {
+    window.__reviseIdentityLocked = true;
+    const versionEl = document.getElementById('versionType');
+    if (versionEl) {
+        const reviseOpt = [...versionEl.options].find((opt) => /revis/i.test(opt.textContent || ''));
+        if (reviseOpt && versionEl.value !== reviseOpt.value) {
+            versionEl.value = reviseOpt.value;
+            versionEl.dataset.lastValid = reviseOpt.value;
+            if (typeof handleVersionChange === 'function') handleVersionChange();
+        }
+    }
+    const form = document.getElementById('masterForm');
+    ['versionType', 'docType', 'subType'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (id === 'subType' && (el.closest('#subTypeField')?.hidden || el.options.length < 2)) return;
+        el.disabled = true;
+        el.setAttribute('disabled', 'disabled');
+        el.classList.add('reg-identity-locked');
+        const name = el.getAttribute('name');
+        if (!name || !form) return;
+        let hidden = form.querySelector('input[type="hidden"][data-lock-for="' + id + '"]');
+        if (!hidden) {
+            hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = name;
+            hidden.dataset.lockFor = id;
+            form.appendChild(hidden);
+        }
+        hidden.value = el.value || '';
+    });
 }
 
 function lockRecurRegistrationIdentity() {
@@ -2738,8 +2790,8 @@ function applyRevisedDocumentContext(data, options = {}) {
         updateTotal('totalRetrievalCopies', 'retrievalBody');
     }
 
-    // Prefill only applies in revised mode — open Retrieval when offices were seeded.
-    if (isRevisedMode() && !tableIsEmpty('retrievalBody')) {
+    // Prefill only applies in Revise mode — open Retrieval when offices were seeded.
+    if (isRevisedMode() && !isRecurringMode() && !tableIsEmpty('retrievalBody')) {
         const retCb = document.querySelector('#dynamicCheckboxes input[name="checklists[]"][value="4"]');
         if (retCb) {
             retCb.checked = true;
@@ -3348,24 +3400,26 @@ function setSaveEnabled(enabled) {
     // Don't re-enable if duplicate is detected
     if (enabled && (docNoDuplicate || revNoDuplicate || window.drfNoDuplicate || window.syllabiContextTaken)) return;
 
-    const saveBtn = document.getElementById('btnSaveDocument');
-    if (!saveBtn) return;
+    ['btnSaveDocument', 'btnSaveAndAppraise'].forEach((id) => {
+        const saveBtn = document.getElementById(id);
+        if (!saveBtn) return;
 
-    if (enabled) {
-        saveBtn.disabled = false;
-        saveBtn.removeAttribute('disabled');
-        saveBtn.style.opacity = '';
-        saveBtn.style.cursor = '';
-        saveBtn.style.pointerEvents = '';
-        saveBtn.style.filter = '';
-    } else {
-        saveBtn.disabled = true;
-        saveBtn.setAttribute('disabled', 'disabled');
-        saveBtn.style.opacity = '0.4';
-        saveBtn.style.cursor = 'not-allowed';
-        saveBtn.style.pointerEvents = 'none';
-        saveBtn.style.filter = 'grayscale(1)';
-    }
+        if (enabled) {
+            saveBtn.disabled = false;
+            saveBtn.removeAttribute('disabled');
+            saveBtn.style.opacity = '';
+            saveBtn.style.cursor = '';
+            saveBtn.style.pointerEvents = '';
+            saveBtn.style.filter = '';
+        } else {
+            saveBtn.disabled = true;
+            saveBtn.setAttribute('disabled', 'disabled');
+            saveBtn.style.opacity = '0.4';
+            saveBtn.style.cursor = 'not-allowed';
+            saveBtn.style.pointerEvents = 'none';
+            saveBtn.style.filter = 'grayscale(1)';
+        }
+    });
 }
 
 // ══════════════════════════════════════════════
@@ -4221,7 +4275,9 @@ function createSourceUnitWidget(opts) {
             const input = document.createElement('input');
             input.type = 'hidden';
             input.dataset.sourceHidden = 'true';
-            input.name = opts.fieldName || (item.type === 'office' ? opts.officeFieldName : opts.nameFieldName);
+            let name = opts.fieldName || (item.type === 'office' ? opts.officeFieldName : opts.nameFieldName);
+            if (opts.fieldName && name && !String(name).endsWith('[]')) name = name + '[]';
+            input.name = name;
             input.value = opts.fieldName ? item.label : (item.type === 'office' ? item.id : item.label);
             widget.appendChild(input);
         });
@@ -4419,10 +4475,23 @@ function createSourceUnitWidget(opts) {
         }
     });
 
+    function commitPendingQuery() {
+        if (!inputEl || opts.singleSelect || !opts.allowFreeText) return;
+        const q = getCurrentQuery(inputEl);
+        if (!q) return;
+        const already = selected.some(i => String(i.label).toLowerCase() === q.toLowerCase());
+        if (already) return;
+        addFreeText(q);
+        syncInputText();
+        render();
+    }
+    const parentForm = inputEl ? inputEl.closest('form') : null;
+    if (parentForm) parentForm.addEventListener('submit', commitPendingQuery);
+
     render();
 
     const api = {
-        pick, removeItem: removeItemAndSync, reset, seedFromString, setSelectedItems,
+        pick, removeItem: removeItemAndSync, reset, seedFromString, setSelectedItems, commitPendingQuery,
         openPanel: togglePanel, get selected() { return selected; }
     };
     window.__sourceWidgets[opts.key] = api;
@@ -4548,13 +4617,35 @@ window.removeSourceOverlayItem = function (key, id) {
 
 document.addEventListener('DOMContentLoaded', renderRelatedDocsChips);
 
-window.handleRelatedDocFocus = function () {
+function relatedDocsQuery(input) {
+    const raw = String(input?.value || '');
+    const lastComma = raw.lastIndexOf(',');
+    return (lastComma === -1 ? raw : raw.slice(lastComma + 1)).trim();
+}
+
+function syncRelatedDocsInput() {
+    const input = document.getElementById('relatedDocsSearch');
+    if (!input) return;
+    if (relatedDocsSelected.length === 0) {
+        input.value = '';
+        return;
+    }
+    input.value = relatedDocsSelected.map(d => d.doc_title || d.doc_no || '').join(', ') + ', ';
+    const len = input.value.length;
+    try { input.setSelectionRange(len, len); } catch (e) {}
+}
+
+window.handleRelatedDocFocus = function (input) {
     closeRelatedDocsSelectedPanel();
+    syncRelatedDocsInput();
 };
 
 window.handleRelatedDocSearch = function (input) {
     clearTimeout(window.__relatedDocsTimer);
-    const q = input.value.trim();
+    if (window.__relatedDocsAbort) {
+        try { window.__relatedDocsAbort.abort(); } catch (e) {}
+    }
+    const q = relatedDocsQuery(input);
     const dropdown = document.getElementById('relatedDocsResults');
 
     closeRelatedDocsSelectedPanel();
@@ -4562,15 +4653,23 @@ window.handleRelatedDocSearch = function (input) {
     if (q.length < 1) { dropdown.style.display = 'none'; return; }
 
     window.__relatedDocsTimer = setTimeout(async () => {
+        const abort = new AbortController();
+        window.__relatedDocsAbort = abort;
         try {
             const excludeId = document.getElementById('requestId')?.value || '';
-            const url = '/dcs/api/documents/search?q=' + encodeURIComponent(q)
+            const url = '/dcs/api/documents/search?latest_only=1&q=' + encodeURIComponent(q)
                 + (excludeId ? '&exclude_request_id=' + excludeId : '');
-            const data = await fetch(url).then(r => r.json());
-            relatedDocsCache = data.filter(d => !relatedDocsSelected.some(s => s.masterlist_id === d.masterlist_id));
+            const res = await fetch(url, { signal: abort.signal, headers: { 'Accept': 'application/json' } });
+            if (!res.ok) {
+                dropdown.innerHTML = '<div class="reg-reldocs-noresult">Could not search documents. Try again.</div>';
+                dropdown.style.display = 'block';
+                return;
+            }
+            const data = await res.json();
+            relatedDocsCache = (Array.isArray(data) ? data : []).filter(d => !relatedDocsSelected.some(s => s.masterlist_id === d.masterlist_id));
 
             if (relatedDocsCache.length === 0) {
-                dropdown.innerHTML = '<div class="reg-reldocs-noresult">No matching documents found</div>';
+                dropdown.innerHTML = '<div class="reg-reldocs-noresult">No latest document matches "' + escapeHtml(q) + '".</div>';
                 dropdown.style.display = 'block';
                 return;
             }
@@ -4578,8 +4677,12 @@ window.handleRelatedDocSearch = function (input) {
                 .map(d => `<div onmousedown="pickRelatedDoc(${Number(d.masterlist_id)})">${escapeHtml(d.label || d.doc_title || '')}</div>`)
                 .join('');
             dropdown.style.display = 'block';
-        } catch (e) { console.error('Related doc search failed:', e); }
-    }, 300);
+        } catch (e) {
+            if (e && e.name === 'AbortError') return;
+            dropdown.innerHTML = '<div class="reg-reldocs-noresult">Could not search documents. Try again.</div>';
+            dropdown.style.display = 'block';
+        }
+    }, 80);
 };
 
 window.pickRelatedDoc = function (id) {
@@ -4587,16 +4690,17 @@ window.pickRelatedDoc = function (id) {
     if (!doc || relatedDocsSelected.some(d => d.masterlist_id === id)) return;
     relatedDocsSelected.push(doc);
     renderRelatedDocsChips();
-
-    const input = document.getElementById('relatedDocsSearch');
-    input.value = '';
+    syncRelatedDocsInput();
     document.getElementById('relatedDocsResults').style.display = 'none';
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
 };
 
 window.removeRelatedDoc = function (id, event) {
     if (event) event.stopPropagation();
     relatedDocsSelected = relatedDocsSelected.filter(d => d.masterlist_id !== id);
     renderRelatedDocsChips();
+    syncRelatedDocsInput();
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
 };
 
 window.toggleRelatedDocsSelected = function (e) {
@@ -4634,6 +4738,7 @@ function renderRelatedDocsChips() {
             <span class="reg-reldocs-chip-no">${escapeHtml(d.doc_no || '')}</span>
             <button type="button" onclick="removeRelatedDoc(${d.masterlist_id}, event)"><i class="fa-solid fa-xmark"></i></button>
         </div>`).join('');
+    syncRelatedDocsInput();
 }
 
 document.addEventListener('click', function (e) {
@@ -6014,8 +6119,10 @@ function unlockChecklist() {
     syncNonRevisableTypeUi();
     syncRecurFinder();
 
-    const saveBtn = document.getElementById("btnSaveDocument");
-    if (saveBtn) saveBtn.style.display = ""; 
+    ['btnSaveDocument', 'btnSaveAndAppraise'].forEach((id) => {
+        const saveBtn = document.getElementById(id);
+        if (saveBtn) saveBtn.style.display = "";
+    });
 }
 
 /** Default checklist set for leaf parent types External / Forms / Logbooks. */
@@ -6122,7 +6229,7 @@ function lockSupersedeFinderInputs(locked) {
 
 async function loadSupersedeFamily(doc) {
     if (!doc || !doc.request_id) return doc ? [doc] : [];
-    const params = new URLSearchParams({ request_id: String(doc.request_id) });
+    const params = new URLSearchParams({ request_id: String(doc.request_id), lineage: '1' });
     if (doc.doc_no) params.set('doc_no', doc.doc_no);
     const raw = await fetch('/dcs/api/documents/revisions?' + params.toString()).then(function (r) { return r.json(); });
     return Array.isArray(raw) && raw.length ? raw : (doc ? [doc] : []);
@@ -6154,6 +6261,10 @@ async function showSupersedeDocumentHistory(doc, options) {
         }
     }
     if (!revisions.length) revisions = [doc];
+    if (!options.excludeRequestId) {
+        const openId = document.getElementById('requestId')?.value;
+        if (openId) options.excludeRequestId = openId;
+    }
     if (options.excludeRequestId) {
         const currentId = String(options.excludeRequestId);
         revisions = revisions.filter(function (row) {
@@ -6551,8 +6662,8 @@ window.toggleSection = function (checklistId, show) {
         return;
     }
 
-    // Retrieval (checklist 4) is only for revised documents
-    if (checklistId === 4 && !isRevisedMode()) {
+    // Retrieval (checklist 4) is only for a Revise registration, not New or Recur.
+    if (checklistId === 4 && (isRecurringMode() || !isRevisedMode())) {
         clearRetrievalSection();
         return;
     }
@@ -7528,6 +7639,13 @@ window.confirmSave = function () {
 
     clearValidation();
 
+    const confirmBtn = document.getElementById('btnConfirmSaveModal');
+    if (confirmBtn) {
+        confirmBtn.innerHTML = window.__openAppraisalAfterSave
+            ? '<i class="fa-solid fa-clipboard-check"></i> Confirm Save and Appraise'
+            : '<i class="fa-solid fa-check"></i> Confirm Save';
+    }
+
     const reviewContent = document.getElementById("reviewContent");
     reviewContent.innerHTML = "";
 
@@ -7838,6 +7956,8 @@ window.submitForm = function () {
     }
     const draftFlag = document.getElementById('saveAsDraft');
     if (draftFlag) draftFlag.value = '0';
+    const appraisalFlag = document.getElementById('openAppraisal');
+    if (appraisalFlag) appraisalFlag.value = window.__openAppraisalAfterSave ? '1' : '0';
     window.__regFormSubmitting = true;
     try {
         const intakeParams = new URLSearchParams(location.search);

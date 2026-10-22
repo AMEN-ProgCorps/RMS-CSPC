@@ -211,6 +211,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     }
 
     public bool $isAppraising = false;
+    public bool $dcsAdminForward = false;
+    public bool $dcsOfficeLock = false;
+    public bool $dcsOfficeBlocked = false;
+    public bool $dcsOfficeAlreadyDone = false;
+    public bool $dcsAdminAlreadySent = false;
+    public ?int $dcsRequestId = null;
 
     public function updatedVolumeAmount($val): void
     {
@@ -1330,6 +1336,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $this->isAppraising = true;
             $intake = DB::table('rdp_received_documents')->where('id', $this->prefill_intake_id)->first();
             if ($intake) {
+                if (($intake->status ?? '') === 'appraised' || !empty($intake->appraised_record_id)) {
+                    $this->dcsOfficeAlreadyDone = true;
+                    $this->errorMessage = 'This office already created the record for this document.';
+                }
                 $this->parentSeriesTitle = $intake->document_title ?? '';
                 $this->selectedSeriesTitle = $intake->document_title ?? '';
                 $this->description = $intake->description ?? '';
@@ -1382,12 +1392,57 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                             $this->volume_unit = 'Folder';
                         }
 
-                        if (!empty($meta['records_location'])) {
+                        $forwarded = !empty($meta['dcs_forwarded']);
+                        if ($forwarded && ($intake->source_subsystem ?? '') === 'DCS') {
+                            $this->dcsOfficeLock = true;
+                            $this->dcsRequestId = !empty($meta['dcs_request_id']) ? (int) $meta['dcs_request_id'] : null;
+                            if (!$this->dcsOfficeHasReceived($this->dcsRequestId)) {
+                                $this->dcsOfficeBlocked = true;
+                                $this->errorMessage = 'Mark this document as received before entering Records Location.';
+                            }
+                        }
+                        if (($intake->status ?? '') === 'appraised' || !empty($intake->appraised_record_id)) {
+                            $this->dcsOfficeAlreadyDone = true;
+                            $this->dcsOfficeBlocked = false;
+                            $this->errorMessage = 'This office already created the record for this document.';
+                        }
+                        if (!empty($meta['records_location']) && !$forwarded) {
                             $this->records_location = $meta['records_location'];
                         }
                         $this->frequence_use = $meta['frequence_use'] ?? 'Annually';
                         if (!empty($meta['duplicate_offices']) && is_array($meta['duplicate_offices'])) {
-                            $this->duplicate_offices = array_values(array_unique(array_merge($this->duplicate_offices, $meta['duplicate_offices'])));
+                            $this->duplicate_offices = $forwarded
+                                ? array_values(array_unique($meta['duplicate_offices']))
+                                : array_values(array_unique(array_merge($this->duplicate_offices, $meta['duplicate_offices'])));
+                        }
+                        if ($this->dcsOfficeLock) {
+                            $onlyOffice = strtoupper(trim((string) ($intake->target_office ?? '')));
+                            if ($onlyOffice === '') {
+                                $onlyOffice = strtoupper(trim((string) \App\Helpers\RegisterQueryHelper::currentOfficeCode()));
+                            }
+                            $this->duplicate_offices = $onlyOffice !== '' ? [$onlyOffice] : [];
+                        }
+                        if (empty($meta['record_series_id']) && !empty($meta['selected_series_title'])) {
+                            $this->selectedSeriesTitle = (string) $meta['selected_series_title'];
+                            $this->parentSeriesTitle = (string) ($meta['parent_series_title'] ?? $meta['selected_series_title']);
+                        }
+                        if (array_key_exists('time_value', $meta) && $meta['time_value'] !== null && $meta['time_value'] !== '') {
+                            $this->time_value = (string) $meta['time_value'];
+                        }
+                        if (array_key_exists('is_permanent', $meta)) {
+                            $this->is_permanent = (bool) $meta['is_permanent'];
+                        }
+                        if (!empty($meta['active_period'])) {
+                            $this->active_period = (string) $meta['active_period'];
+                        }
+                        if (!empty($meta['storage_period'])) {
+                            $this->storage_period = (string) $meta['storage_period'];
+                        }
+                        if (!empty($meta['retention_period'])) {
+                            $this->retention_period = (string) $meta['retention_period'];
+                        }
+                        if (!empty($meta['disposition_provision'])) {
+                            $this->disposition_provision = (string) $meta['disposition_provision'];
                         }
                         if (!empty($meta['utility_values']) && is_array($meta['utility_values'])) {
                             $this->utility_values = array_values(array_unique(array_merge($this->utility_values, $meta['utility_values'])));
@@ -1415,6 +1470,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     }
                 }
             }
+        } elseif ((int) request()->query('dcs_request_id') > 0) {
+            $this->loadDcsAdminAppraisal((int) request()->query('dcs_request_id'));
         } elseif (request()->query('prefill_title')) {
             $this->parentSeriesTitle = request()->query('prefill_title');
             $this->selectedSeriesTitle = request()->query('prefill_title');
@@ -1425,6 +1482,247 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 $this->date_covered = Carbon::parse(request()->query('prefill_date'))->format('Y-m-d');
             }
         }
+    }
+
+    public function loadDcsAdminAppraisal(int $requestId): void
+    {
+        $this->dcsAdminForward = true;
+        $this->dcsRequestId = $requestId;
+        $this->entryMode = 'single';
+        $this->prefill_source = 'DCS';
+        $this->isAppraising = false;
+        $this->dcsOfficeLock = false;
+
+        $this->records_medium = '';
+        $this->restriction = '';
+        $this->frequence_use = '';
+        $this->utility_values = [];
+        $this->date_covered = '';
+        $this->time_value = '';
+        $this->volume = '';
+        $this->volume_amount = '';
+        $this->records_location = '';
+        $this->active_period = '';
+        $this->storage_period = '';
+        $this->retention_period = '';
+        $this->disposition_provision = '';
+        $this->is_permanent = false;
+        $this->selectedSeriesTitle = '';
+        $this->parentSeriesTitle = '';
+        $this->record_series_id = null;
+
+        $request = DB::table('dcs_document_requests')->where('id', $requestId)->first();
+        $masterlist = DB::table('dcs_masterlist_registration')->where('request_id', $requestId)->first();
+        if (!$request || !$masterlist || !empty($request->is_draft)) {
+            $this->dcsAdminForward = false;
+            $this->errorMessage = 'Appraisal is available after the document is registered.';
+            return;
+        }
+
+        $title = trim((string) ($masterlist->doc_title ?? ''));
+        $docNo = trim((string) ($masterlist->doc_no ?? ''));
+        $this->description = $title;
+        $this->prefill_code = $docNo !== '' ? $docNo : null;
+        $this->prefill_doc_id = (string) $requestId;
+
+        $officeTable = \Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office';
+        $codes = DB::table('dcs_distribution_offices as d')
+            ->join('dcs_document_distribution as dist', 'dist.id', '=', 'd.distribution_id')
+            ->leftJoin($officeTable . ' as o', 'o.id', '=', 'd.office_id')
+            ->where('dist.request_id', $requestId)
+            ->orderBy('d.id')
+            ->pluck('o.office_code');
+
+        $this->duplicate_offices = $codes
+            ->filter(fn ($code) => trim((string) $code) !== '')
+            ->map(fn ($code) => strtoupper(trim((string) $code)))
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($docNo === '' || $this->duplicate_offices === []) {
+            $this->dcsAdminForward = false;
+            $this->errorMessage = 'Appraisal needs a document number and at least one distribution office.';
+            return;
+        }
+
+        if (\App\Services\RdpIntakeService::requestAlreadyForwarded($requestId)) {
+            $this->dcsAdminAlreadySent = true;
+            $this->successMessage = 'This document was already forwarded for appraisal.';
+        }
+    }
+
+    /**
+     * upload_doc_id_handler must be a sys_document_data.document_id.
+     * A DCS request id stored on the intake is not that file.
+     */
+    private function existingUploadDocumentId(): ?string
+    {
+        $id = trim((string) ($this->prefill_doc_id ?? ''));
+        if ($id === '' || !ctype_digit($id)) {
+            return null;
+        }
+
+        $table = \Illuminate\Support\Facades\Schema::hasTable('sys_document_data')
+            ? 'sys_document_data'
+            : 'document_data';
+        if (!\Illuminate\Support\Facades\Schema::hasTable($table) || !\Illuminate\Support\Facades\Schema::hasColumn($table, 'document_id')) {
+            return null;
+        }
+
+        return DB::table($table)->where('document_id', $id)->exists() ? $id : null;
+    }
+
+    private function dcsOfficeHasReceived(?int $requestId): bool
+    {
+        $officeId = \App\Helpers\RegisterQueryHelper::currentOfficeId();
+        if (! $requestId || ! $officeId) {
+            return false;
+        }
+        if (! \Illuminate\Support\Facades\Schema::hasColumn('dcs_distribution_offices', 'office_received_at')) {
+            return true;
+        }
+
+        return DB::table('dcs_distribution_offices as doff')
+            ->join('dcs_document_distribution as dist', 'dist.id', '=', 'doff.distribution_id')
+            ->where('dist.request_id', $requestId)
+            ->where('doff.office_id', $officeId)
+            ->whereNotNull('doff.office_received_at')
+            ->exists();
+    }
+
+    public function forwardToOffices(): void
+    {
+        if (!$this->dcsAdminForward || !$this->dcsRequestId) {
+            $this->errorMessage = 'This appraisal is not ready to forward.';
+            $this->dispatch('scroll-to-top');
+            return;
+        }
+
+        if (\App\Services\RdpIntakeService::requestAlreadyForwarded((int) $this->dcsRequestId)) {
+            $this->dcsAdminAlreadySent = true;
+            $this->errorMessage = 'This document was already forwarded for appraisal.';
+            $this->dispatch('scroll-to-top');
+            return;
+        }
+
+        if (!$this->validateRecordData(false)) {
+            return;
+        }
+
+        if ($this->duplicate_offices === []) {
+            $this->errorMessage = 'Add the distribution offices before forwarding.';
+            $this->dispatch('scroll-to-top');
+            return;
+        }
+
+        $docNo = trim((string) ($this->prefill_code ?? ''));
+        $title = trim($this->description);
+        if ($docNo === '' || $title === '') {
+            $this->errorMessage = 'Document number and title are required before forwarding.';
+            $this->dispatch('scroll-to-top');
+            return;
+        }
+
+        $masterlist = DB::table('dcs_masterlist_registration')->where('request_id', $this->dcsRequestId)->first();
+        $filePath = trim((string) ($masterlist->scanned_masterlist ?? ''));
+        if (strlen($filePath) > 255) {
+            $filePath = '';
+        }
+
+        $metadata = [
+            'dcs_forwarded' => true,
+            'dcs_request_id' => $this->dcsRequestId,
+            'record_series_id' => $this->record_series_id,
+            'parent_series_title' => $this->parentSeriesTitle,
+            'selected_series_title' => $this->selectedSeriesTitle,
+            'records_medium' => $this->records_medium,
+            'restriction' => $this->restriction,
+            'volume' => $this->volume,
+            'volume_amount' => $this->volume_amount,
+            'volume_unit' => $this->volume_unit,
+            'frequence_use' => $this->frequence_use,
+            'duplicate_offices' => array_values($this->duplicate_offices),
+            'utility_values' => array_values($this->utility_values),
+            'date_covered' => $this->date_covered,
+            'time_value' => $this->time_value,
+            'is_permanent' => $this->is_permanent,
+            'active_period' => $this->active_period,
+            'storage_period' => $this->storage_period,
+            'retention_period' => $this->retention_period,
+            'disposition_provision' => $this->disposition_provision,
+        ];
+
+        $origin = \App\Helpers\RegisterQueryHelper::currentOfficeCode();
+        $sent = 0;
+        $already = 0;
+
+        foreach ($this->duplicate_offices as $officeCode) {
+            $result = \App\Services\RdpIntakeService::accept([
+                'source_subsystem' => 'DCS',
+                'document_code' => $docNo,
+                'document_title' => $title,
+                'description' => $title,
+                'origin_office' => $origin,
+                'target_office' => (string) $officeCode,
+                'date_received' => now()->toDateString(),
+                'file_path' => $filePath !== '' ? $filePath : null,
+                'file_name' => $filePath !== '' ? basename($filePath) : null,
+                'document_id_handler' => null,
+                'metadata' => $metadata,
+            ]);
+
+            if (empty($result['success'])) {
+                $this->errorMessage = $result['error'] ?? 'Forwarding failed.';
+                $this->dispatch('scroll-to-top');
+                return;
+            }
+
+            if (!empty($result['already_sent'])) {
+                $already++;
+            } else {
+                $sent++;
+            }
+        }
+
+        $this->successMessage = $sent > 0
+            ? 'Appraisal forwarded to ' . $sent . ' ' . ($sent === 1 ? 'office' : 'offices') . '.'
+            : 'Those offices already have this appraisal.';
+        if ($already > 0 && $sent > 0) {
+            $this->successMessage .= ' ' . $already . ' already had it, and the appraisal fields were updated.';
+        }
+        $this->successMessage .= ' Each office enters Records Location and creates its own record.';
+        $this->dcsAdminAlreadySent = true;
+        $revNo = isset($masterlist->revise_no) ? (int) $masterlist->revise_no : null;
+        foreach ($this->duplicate_offices as $officeCode) {
+            \App\Services\DcsNotificationService::notifyDocumentDistributed(
+                (string) $officeCode,
+                $docNo,
+                $title,
+                $revNo
+            );
+        }
+        $this->dispatch('scroll-to-top');
+    }
+
+    private function claimOfficeIntake(): bool
+    {
+        if (!$this->prefill_intake_id) {
+            return true;
+        }
+
+        $row = DB::table('rdp_received_documents')
+            ->where('id', $this->prefill_intake_id)
+            ->lockForUpdate()
+            ->first();
+
+        if (!$row || ($row->status ?? '') === 'appraised' || !empty($row->appraised_record_id)) {
+            $this->dcsOfficeAlreadyDone = true;
+
+            return false;
+        }
+
+        return true;
     }
 
     public function resolveEffectiveSeriesRetention(object $series): array
@@ -2005,7 +2303,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         ];
     }
 
-    public function validateRecordData(): bool
+    public function validateRecordData(bool $requireLocation = true): bool
     {
         $fail = function(string $msg): bool {
             $this->showValidationErrors = true;
@@ -2019,7 +2317,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         }
 
         $requiredUpload = DB::table(\Illuminate\Support\Facades\Schema::hasTable('sys_system_settings') ? 'sys_system_settings' : 'system_settings')->where('key', 'rdp_required_upload_file')->value('value') === 'true';
-        if ($requiredUpload && !$this->uploadedFile) {
+        if ($requiredUpload && !$this->uploadedFile && !$this->dcsAdminForward && !$this->dcsOfficeLock) {
             return $fail('Uploading a file is required to save a record according to system settings.');
         }
 
@@ -2037,7 +2335,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 return $fail('Please provide a valid Volume Amount & Unit (e.g. 1 box 10 papers).');
             }
 
-            if (empty(trim($this->records_location))) {
+            if ($requireLocation && empty(trim($this->records_location))) {
                 return $fail('Please provide the Records Location (e.g. Cabinet 3, Shelf 2).');
             }
 
@@ -2077,7 +2375,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                 }
             }
 
-            if (empty(trim($this->records_location))) {
+            if ($requireLocation && empty(trim($this->records_location))) {
                 return $fail('Please provide the Records Location (e.g. Cabinet 3, Shelf 2).');
             }
 
@@ -2144,6 +2442,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function saveDraft(): void
     {
+        if ($this->dcsAdminForward) {
+            $this->errorMessage = 'Forward this appraisal to the offices. This step does not create a record.';
+            $this->dispatch('scroll-to-top');
+            return;
+        }
+
         $rateCheck = \App\Services\RateLimiterService::check('rdp_create');
         if (!$rateCheck['allowed']) {
             $this->errorMessage = $rateCheck['message'];
@@ -2159,6 +2463,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
         try {
             DB::beginTransaction();
+            if (!$this->claimOfficeIntake()) {
+                DB::rollBack();
+                $this->errorMessage = 'This office already created the record for this document.';
+                $this->dispatch('scroll-to-top');
+                return;
+            }
 
             $user = Auth::user();
             $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
@@ -2208,8 +2518,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             if ($this->uploadedFile) {
                 $uploadResult = \App\Services\DocumentStorageService::storeUpload($this->uploadedFile, 'RDP', $user);
                 $documentIdHandler = $uploadResult['document_id'];
-            } elseif (!empty($this->prefill_doc_id)) {
-                $documentIdHandler = $this->prefill_doc_id;
+            } else {
+                $documentIdHandler = $this->existingUploadDocumentId();
             }
 
             $periodId = null;
@@ -2422,6 +2732,18 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function createRecord(): void
     {
+        if ($this->dcsAdminForward) {
+            $this->errorMessage = 'Forward this appraisal to the offices. Each office creates its own record after it enters Records Location.';
+            $this->dispatch('scroll-to-top');
+            return;
+        }
+
+        if ($this->dcsOfficeBlocked) {
+            $this->errorMessage = 'Mark this document as received before creating the record.';
+            $this->dispatch('scroll-to-top');
+            return;
+        }
+
         $rateCheck = \App\Services\RateLimiterService::check('rdp_create');
         if (!$rateCheck['allowed']) {
             $this->errorMessage = $rateCheck['message'];
@@ -2437,6 +2759,12 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
         try {
             DB::beginTransaction();
+            if (!$this->claimOfficeIntake()) {
+                DB::rollBack();
+                $this->errorMessage = 'This office already created the record for this document.';
+                $this->dispatch('scroll-to-top');
+                return;
+            }
 
             $user = Auth::user();
             $userOfficeCode = $user?->details?->office?->office_code ?? $user?->details?->office_code ?? null;
@@ -2490,8 +2818,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             if ($this->uploadedFile) {
                 $uploadResult = \App\Services\DocumentStorageService::storeUpload($this->uploadedFile, 'RDP', $user);
                 $documentIdHandler = $uploadResult['document_id'];
-            } elseif (!empty($this->prefill_doc_id)) {
-                $documentIdHandler = $this->prefill_doc_id;
+            } else {
+                $documentIdHandler = $this->existingUploadDocumentId();
             }
 
             $periodId = null;
@@ -3019,16 +3347,27 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
     <!-- Form Card Wrapper -->
     <div class="ia-form-card-wrapper">
         <!-- Main Form Card -->
-        <div class="ia-form-card">
+        <div class="ia-form-card{{ $dcsOfficeLock ? ' ia-dcs-office-lock' : '' }}">
             <!-- Mode Header Bar (Always visible across all monitor resolutions) -->
             <div class="ia-mode-bar">
                 <div class="ia-mode-info">
-                    @if($isAppraising)
+                    @if($dcsAdminForward)
+                        <span class="ia-mode-pill" style="background: #2563eb; color: #ffffff;">
+                            FORWARD APPRAISAL
+                        </span>
+                        <span class="ia-mode-desc">
+                            Fill the appraisal for {{ $prefill_code ? '#' . $prefill_code : 'this document' }}, then send it to each distribution office
+                        </span>
+                    @elseif($isAppraising)
                         <span class="ia-mode-pill" style="background: #2563eb; color: #ffffff;">
                             DOCUMENT APPRAISAL MODE
                         </span>
                         <span class="ia-mode-desc">
-                            Appraise incoming document {{ $prefill_code ? '#' . $prefill_code : '' }} directly into RDP
+                            @if($dcsOfficeLock)
+                                Enter Records Location for your office, then create the record
+                            @else
+                                Appraise incoming document {{ $prefill_code ? '#' . $prefill_code : '' }} directly into RDP
+                            @endif
                         </span>
                     @elseif($entryMode === 'multi')
                         <span class="ia-mode-pill is-multi">
@@ -3053,7 +3392,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         </span>
                     @endif
                 </div>
-                @if(!$isAppraising)
+                @if(!$isAppraising && !$dcsAdminForward)
                     <div class="ia-mode-actions">
                         @php
                             $validCollectiveOffices = array_values(array_filter($collectiveOffices ?? [], fn($c) => $c !== ($userOfficeCode ?? null)));
@@ -3775,9 +4114,16 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     </div>
 
                     <!-- Records Location -->
-                    <div class="ia-form-row" wire:key="ia-row-location" style="position: relative; z-index: 25;">
-                        <span class="ia-label ia-label-required">Records Location</span>
-                        <div style="position: relative; flex: 1;" 
+                    <div class="ia-form-row ia-location-row" wire:key="ia-row-location" style="position: relative; z-index: 25;">
+                        <span class="ia-label {{ $dcsAdminForward ? '' : 'ia-label-required' }}">Records Location</span>
+                        <div style="position: relative; flex: 1;">
+                            @if($dcsAdminForward || $dcsOfficeBlocked || $dcsOfficeAlreadyDone)
+                                <input type="text" class="ia-input" value="{{ $dcsOfficeAlreadyDone ? $records_location : '' }}" disabled readonly placeholder="{{ $dcsOfficeAlreadyDone ? 'Record already created' : ($dcsAdminForward ? 'Each distributed office enters this' : 'Mark the document received first') }}" style="width: 100%; background: #f8fafc; color: #64748b; cursor: not-allowed;">
+                                @if($dcsAdminForward)
+                                <div style="font-size: 11.5px; color: #64748b; margin-top: 6px;">The distributed office enters Records Location after it marks the document received.</div>
+                                @endif
+                            @else
+                        <div style="position: relative; flex: 1;"
                              x-data="{
                                 open: false,
                                 locationValue: @entangle('records_location'),
@@ -3820,6 +4166,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                                     </div>
                                 </template>
                             </div>
+                        </div>
+                            @endif
                         </div>
                     </div>
 
@@ -4050,12 +4398,13 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                         <span style="font-size: 11px; color: #64748b; font-weight: 500; display: block;">(Predefined — Read Only)</span>
                     @endif
                 </span>
-                <textarea class="ia-input" wire:model="disposition_provision" rows="3" placeholder="Enter remarks or disposition instructions..." style="font-family: inherit; text-transform: none !important;" {{ $hasPredefinedRemarks ? 'disabled' : '' }}></textarea>
+                <textarea class="ia-input" wire:model="disposition_provision" rows="3" placeholder="Enter remarks or disposition instructions..." style="font-family: inherit; text-transform: none !important; {{ $dcsOfficeLock ? 'background: #f8fafc; color: #64748b; cursor: not-allowed;' : '' }}" {{ ($hasPredefinedRemarks || $dcsOfficeLock) ? 'disabled' : '' }}></textarea>
             </div>
         </div>
 
         <!-- ═══════ ACTIONS BAR ═══════ -->
         <div class="ia-actions-bar">
+            @if(!$dcsAdminForward && !$dcsOfficeLock)
             @if($uploadedFile)
                 <div class="ia-file-badge">
                     <span>📎 {{ $uploadedFile->getClientOriginalName() }}</span>
@@ -4068,7 +4417,25 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     <input type="file" wire:model.live="uploadedFile" style="display: none;">
                 </label>
             @endif
+            @endif
 
+            @if($dcsAdminForward)
+            @if($dcsAdminAlreadySent)
+            <span style="font-size: 13px; color: #334155; font-weight: 600;">Already forwarded. Each office creates its record once.</span>
+            @else
+            <button type="button" wire:click="forwardToOffices" onclick="rdpScrollToTop()" class="ia-btn ia-btn-primary ia-btn-lg">
+                Forward to offices
+            </button>
+            @endif
+            @elseif($dcsOfficeAlreadyDone)
+            <span style="font-size: 13px; color: #334155; font-weight: 600;">This record is already on NAP Form 1.</span>
+            @elseif($dcsOfficeLock && !$dcsOfficeBlocked)
+            <button type="button" wire:click="createRecord" onclick="rdpScrollToTop()" class="ia-btn ia-btn-primary ia-btn-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                CREATE RECORD
+            </button>
+            @elseif($dcsOfficeLock)
+            @else
             <button type="button" wire:click="resetFormFields" onclick="rdpScrollToTop()" class="ia-btn ia-btn-secondary">CLEAR FORM</button>
             <button type="button" wire:click="openVerificationModal" class="ia-btn ia-btn-primary ia-btn-lg">
                 <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
@@ -4078,6 +4445,7 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
                     {{ $entryMode === 'multi' && count($batchItems) > 1 ? 'CREATE ' . count($batchItems) . ' RECORDS' : 'CREATE RECORD' }}
                 @endif
             </button>
+            @endif
         </div>
     </div>
     </div> <!-- /.ia-form-card-wrapper -->

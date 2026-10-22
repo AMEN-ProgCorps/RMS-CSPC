@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: My DCN list. Same print lock as My DRF.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;

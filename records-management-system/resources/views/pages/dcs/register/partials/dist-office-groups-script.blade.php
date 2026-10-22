@@ -1,3 +1,6 @@
+{{--
+DCS file: Saves and applies a named group of distribution offices on the register form.
+--}}
 <script>
 (function () {
     const GROUP_INDEX_URL = @json(route('dcs.register.distributionOfficeGroups.index'));

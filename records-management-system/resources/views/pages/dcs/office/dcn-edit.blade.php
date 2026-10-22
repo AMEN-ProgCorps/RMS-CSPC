@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Edit an office DCN while it is still editable.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;

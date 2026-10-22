@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: DCS bell notices. Office intake print-and-sign and received-copy notices are created here. Received-copy opens Distribution and Retrieval with ?doc=.
+ */
+
 namespace App\Services;
 
 use Illuminate\Support\Facades\DB;
@@ -139,18 +143,36 @@ class DcsNotificationService
         $revSuffix = $revNo !== null && $revNo > 0 ? ", Rev {$revNo}" : '';
 
         if ($title !== '' && $docNo !== '') {
-            $message = "Your office has a new controlled document to receive: \"{$title}\" ({$docNo}{$revSuffix}).";
+            $message = "You have an incoming documented information: \"{$title}\" ({$docNo}{$revSuffix}).";
         } elseif ($title !== '') {
             $revLabel = $revNo !== null && $revNo > 0 ? " (Rev {$revNo})" : '';
-            $message = "Your office has a new controlled document to receive: \"{$title}\"{$revLabel}.";
+            $message = "You have an incoming documented information: \"{$title}\"{$revLabel}.";
         } elseif ($docNo !== '') {
             $revLabel = $revNo !== null && $revNo > 0 ? " (Rev {$revNo})" : '';
-            $message = "Your office has a new controlled document to receive: {$docNo}{$revLabel}.";
+            $message = "You have an incoming documented information: {$docNo}{$revLabel}.";
         } else {
-            $message = 'Your office has a new controlled document to receive.';
+            $message = 'You have an incoming documented information.';
         }
 
-        static::createNotification($officeCode, $message, '/dcs/office/incoming');
+        $url = '/dcs/office/incoming';
+        if ($docNo !== '') {
+            $url .= '?doc=' . rawurlencode($docNo);
+        }
+
+        static::createNotification($officeCode, $message, $url);
+    }
+
+    public static function notifyAppraisalStillWaiting(string $officeCode, string $docNo, ?string $docTitle = null): void
+    {
+        $docNo = trim($docNo);
+        $title = trim((string) $docTitle);
+        $label = $title !== '' && $docNo !== ''
+            ? "\"{$title}\" ({$docNo})"
+            : ($title !== '' ? "\"{$title}\"" : $docNo);
+        $message = "Appraisal is still waiting for {$label}. It stays on Incoming until you create the record.";
+        $url = '/dcs/office/incoming' . ($docNo !== '' ? '?doc=' . rawurlencode($docNo) : '');
+
+        static::createNotification($officeCode, $message, $url);
     }
 
     public static function notifyOfficeDocumentReceived(
@@ -297,6 +319,25 @@ class DcsNotificationService
         $message = "Your {$formLabel}{$label} has been reviewed and is correct. "
             . 'You can now print and sign the request, then bring the signed hard copy to the Records Office for further processing.';
         $url = '/dcs/office/' . ($type === 'dcn' ? 'dcn' : 'drf') . '/' . $intakeId;
+
+        return static::createNotification($targetOfficeCode, $message, $url);
+    }
+
+    /**
+     * One print-and-sign notice when a paired DCN and DRF are both confirmed.
+     */
+    public static function notifyOfficeIntakePairReadyForPrintSign(
+        string $targetOfficeCode,
+        int $dcnId,
+        int $drfId,
+        string $title = ''
+    ): bool {
+        $label = trim($title) !== '' ? " \"{$title}\"" : '';
+        $message = "Your Document Change Notice and Document Request Form{$label} have been reviewed and are correct. "
+            . 'You can now print and sign both, then bring the signed hard copies to the Records Office for further processing.';
+        $url = $dcnId > 0
+            ? '/dcs/office/dcn/' . $dcnId
+            : '/dcs/office/drf/' . $drfId;
 
         return static::createNotification($targetOfficeCode, $message, $url);
     }

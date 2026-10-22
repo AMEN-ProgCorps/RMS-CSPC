@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: One office DRF. Print is locked until RFIO sends the print-and-sign notice, then print-unlock-watch.blade.php enables it without a reload.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
@@ -59,7 +63,7 @@ new #[Layout('layouts.dcs')] #[Title('View DRF — CSPC DCS')] class extends Com
         : '—';
 @endphp
 
-<div class="ofi-page">
+<div class="ofi-page" @if(!($canPrint ?? false)) wire:poll.1s @endif>
     <div class="ofi-inner">
         <div class="ofi-show-toolbar">
             <a href="{{ ($isIntakeReviewer ?? false) ? route('dcs', absolute: false) : route('dcs.office.drf.index', absolute: false) }}" class="reg-btn reg-btn-cancel">

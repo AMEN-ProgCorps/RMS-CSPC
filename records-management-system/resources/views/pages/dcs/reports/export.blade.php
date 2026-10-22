@@ -1,3 +1,6 @@
+{{--
+DCS file: Print shell for a generated report. Masterlist rows are rendered by export-masterlist-internal.blade.php.
+--}}
 <!DOCTYPE html>
 <html lang="en">
 <head>

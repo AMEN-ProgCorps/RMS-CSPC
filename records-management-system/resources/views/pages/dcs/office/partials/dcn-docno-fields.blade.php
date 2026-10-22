@@ -1,3 +1,6 @@
+{{--
+DCS file: DCN finder. The office types the current document number, title, and originator. Only the latest revision can be revised.
+--}}
 {{-- Confidential document finder: exact number + current title + originator. No result list. --}}
 @php
     $finderNo = trim((string) old('finderDocumentNo', $initialFinderNo ?? $initialDocNo ?? ''));

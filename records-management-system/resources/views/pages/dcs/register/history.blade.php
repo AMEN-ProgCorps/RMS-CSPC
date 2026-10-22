@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Revision history for one document family.
+ */
+
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;

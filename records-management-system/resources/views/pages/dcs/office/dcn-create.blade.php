@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Create an office DCN. The new title and the originator have no maxlength. Several originators are comma-separated in one field.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;

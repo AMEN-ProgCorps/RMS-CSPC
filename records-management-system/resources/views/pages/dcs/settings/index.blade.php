@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: DCS settings catalogs: document types, originators, offices, and related lists. Deleted catalog rows are hidden by SettingsRecycleHelper.
+ */
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Livewire\Attributes\Layout;

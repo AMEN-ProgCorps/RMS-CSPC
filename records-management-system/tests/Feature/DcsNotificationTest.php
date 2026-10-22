@@ -103,8 +103,8 @@ class DcsNotificationTest extends TestCase
         );
 
         $this->assertDatabaseHas($this->contentTable(), [
-            'content' => 'Your office has a new controlled document to receive: "Continuation of the Curriculum" (CSPC-F-COL, Rev 1).',
-            'redirect_url' => '/dcs/office/incoming',
+            'content' => 'You have an incoming documented information: "Continuation of the Curriculum" (CSPC-F-COL, Rev 1).',
+            'redirect_url' => '/dcs/office/incoming?doc=CSPC-F-COL',
         ]);
     }
 
@@ -173,6 +173,21 @@ class DcsNotificationTest extends TestCase
         $this->assertDatabaseHas($this->contentTable(), [
             'content' => 'Your Document Request Form "Quality Manual" has been reviewed and is correct. You can now print and sign the request, then bring the signed hard copy to the Records Office for further processing.',
             'redirect_url' => '/dcs/office/drf/12',
+        ]);
+    }
+
+    public function test_notify_office_intake_pair_ready_for_print_sign(): void
+    {
+        DcsNotificationService::notifyOfficeIntakePairReadyForPrintSign(
+            $this->officeCode,
+            8,
+            9,
+            'Quality Manual'
+        );
+
+        $this->assertDatabaseHas($this->contentTable(), [
+            'content' => 'Your Document Change Notice and Document Request Form "Quality Manual" have been reviewed and are correct. You can now print and sign both, then bring the signed hard copies to the Records Office for further processing.',
+            'redirect_url' => '/dcs/office/dcn/8',
         ]);
     }
 

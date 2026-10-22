@@ -1,3 +1,4 @@
+/* DCS file: Document database table. */
 @import './tokens.css';
 
 [x-cloak] { display: none !important; }
@@ -582,6 +583,17 @@ td.col-group-summary-body {
     text-overflow: ellipsis;
     white-space: nowrap;
     vertical-align: middle;
+}
+
+th.db-source-unit-col,
+td.db-source-unit-col,
+th.db-related-col,
+td.db-related-col {
+    max-width: 200px;
+    min-width: 128px;
+    width: 200px;
+    overflow: hidden;
+    vertical-align: top;
 }
 
 .db-offices-cell,

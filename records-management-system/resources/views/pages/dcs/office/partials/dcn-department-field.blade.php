@@ -1,3 +1,6 @@
+{{--
+DCS file: Department field on the office DCN. Defaults to the signed-in office.
+--}}
 @php
     $officeName = trim((string) ($userOfficeName ?? ''));
     $officeLabel = trim((string) ($userOfficeLabel ?? ''));

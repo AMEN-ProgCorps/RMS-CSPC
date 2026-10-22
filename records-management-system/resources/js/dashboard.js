@@ -1206,21 +1206,8 @@ window.setupIconModeInteractions = setupIconModeInteractions;
 })();
 
 // Universal Follow Scroll Engine (Edge / Corner Proximity Auto-Scroll)
+// Runs on Admin Console, DTS, RDP, and DCS. The master switch is the profile preference.
 (function () {
-    // Strictly exclude and disable on Document Control System (DCS)
-    const isDcsContext = () => {
-        return Boolean(
-            window.RMS_DISABLE_FOLLOW_SCROLL ||
-            (window.location && window.location.pathname.startsWith('/dcs')) ||
-            document.querySelector('meta[name="dcs-meta"]') ||
-            document.documentElement.hasAttribute('data-dcs-sidebar-collapsed')
-        );
-    };
-
-    if (isDcsContext()) {
-        return;
-    }
-
     const EDGE_THRESHOLD = 70; // Trigger zone distance in pixels
     const MIN_SPEED = 2;       // Starting speed at outer boundary of trigger zone
     const MAX_SPEED = 30;      // Top speed right against the screen edge/corner
@@ -1233,10 +1220,6 @@ window.setupIconModeInteractions = setupIconModeInteractions;
     let lastScrollableY = null;
 
     function getSettings() {
-        if (isDcsContext()) {
-            return { enabled: false, side: false, vertical: false };
-        }
-
         let enabled = false;
         let side = true;
         let vertical = false;

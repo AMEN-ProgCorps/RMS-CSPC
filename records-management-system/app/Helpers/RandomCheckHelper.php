@@ -12,7 +12,17 @@ use Illuminate\Support\Facades\Schema;
 /**
  * DCS Random Check — yearly June / December office visits.
  * Check results are stored on the visit. Document number, title, and type come from the masterlist.
- */
+ * DCS file: RandomCheckHelper in app/ so Composer autoloads it.
+ * Random Check visits in June and December. The visit stores the result. Document number, title, and type come from the masterlist.
+ * Do not move this class back under resources/views.
+ * Public methods:
+ * assertCanAccess, cycles, cycleLabel, cycleWindow, normalizeCycle, defaultCycle,
+ * noticeLeadDays, yearSummaries, cycleSummary, officesByCluster, officeStatusMap,
+ * pickRandomOffice, officeLabel, officeMeta, searchOffices, scheduleVisit,
+ * generateSnapshot, listCheckRows, saveCheck, loadCheck, previousCheckForOffice,
+ * shareWithOffice, reportPayload, officeInbox, officeCanViewCheck, defaultDocTypeKey,
+ * normalizeDocTypeKey, docTypeLabel, documentTypeGroups, recentChecks.
+*/
 class RandomCheckHelper
 {
     public const CYCLE_JUNE = 'june';

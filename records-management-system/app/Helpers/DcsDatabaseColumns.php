@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Column groups for the document database table. Group keys drive colspan and which cells a row renders.
+ */
+
 namespace App\Helpers;
 
 class DcsDatabaseColumns

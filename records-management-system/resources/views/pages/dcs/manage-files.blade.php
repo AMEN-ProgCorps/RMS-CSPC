@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Manage Files. Lists controlled copies and their scans. Titles come from the masterlist row, not a separate label.
+ */
+
 use App\Helpers\RegisterQueryHelper;
 use App\Services\DocumentStorageService;
 use Livewire\Attributes\Layout;

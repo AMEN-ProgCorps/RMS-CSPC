@@ -10,7 +10,9 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Shared report browser for Generate Report and Monitoring.
- * Loaded with the other DCS component files under resources/views/components/dcs.
+ * DCS file: InteractsWithDcsReport in app/View/Components/Dcs so Composer autoloads it.
+ * The table markup is resources/views/pages/dcs/partials/report-browser.blade.php.
+ * Monitoring and Generate Report both use this trait. Do not move it back into a Blade file.
  */
 trait InteractsWithDcsReport
 {

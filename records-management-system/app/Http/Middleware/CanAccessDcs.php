@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: DCS gate. Desktop only, and the account must be allowed into Document Control System.
+ */
+
 namespace App\Http\Middleware;
 
 use Closure;

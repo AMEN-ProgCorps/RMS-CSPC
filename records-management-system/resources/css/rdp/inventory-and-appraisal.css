@@ -2125,3 +2125,27 @@ textarea.ia-input {
     background: #ffffff !important;
     color: #000000 !important;
 }
+
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) input,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) select,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) textarea,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) button,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) label {
+    pointer-events: none;
+}
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) input,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) select,
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) textarea {
+    background: #f8fafc !important;
+    color: #64748b !important;
+    cursor: not-allowed;
+}
+.ia-dcs-office-lock .ia-form-row:not(.ia-location-row) .ia-label-required::after {
+    content: none;
+}
+[data-theme="dark"] .ia-dcs-office-lock .ia-form-row:not(.ia-location-row) input,
+[data-theme="dark"] .ia-dcs-office-lock .ia-form-row:not(.ia-location-row) select,
+[data-theme="dark"] .ia-dcs-office-lock .ia-form-row:not(.ia-location-row) textarea {
+    background: #0f172a !important;
+    color: #94a3b8 !important;
+}

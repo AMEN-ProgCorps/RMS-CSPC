@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Named sets of distribution offices saved from the register form.
+ */
+
 namespace App\Helpers;
 
 use Illuminate\Http\Request;

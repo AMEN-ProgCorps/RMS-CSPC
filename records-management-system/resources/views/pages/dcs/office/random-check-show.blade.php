@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: One Random Check visit as the office sees it.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RandomCheckHelper;
 use App\Helpers\RegisterQueryHelper;

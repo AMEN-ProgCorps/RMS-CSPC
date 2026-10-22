@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Document Registration edit screen. Same subtype and revision-history behavior as the create screen.
+ */
+
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -33,7 +37,8 @@ new #[Layout('layouts.dcs')] #[Title('CSPC - Document Control System')] class ex
 @if($docRequest)
 @php
     $reviseNo = (int) (($masterlist->revise_no ?? 0));
-    $allowsRetrieval = $reviseNo > 0;
+    $versionName = strtolower((string) \Illuminate\Support\Facades\DB::table('dcs_version_type')->where('id', $docRequest->version_id ?? 0)->value('version_name'));
+    $allowsRetrieval = str_contains($versionName, 'revis');
     $canEditDocument = (bool) ($can_edit ?? false);
     $readOnly = (bool) ($read_only ?? ! $canEditDocument);
     $isDraftDoc = ! empty($docRequest->is_draft);
@@ -79,6 +84,9 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
         setSyllabiStep(step) { this.syllabiStep = Number(step) === 2 ? 2 : 1; window.syllabiCurrentStep = this.syllabiStep; },
         closeReview() {
             if (document.getElementById('confirmModal')?.classList.contains('is-saving')) return;
+            window.__openAppraisalAfterSave = false;
+            const appraisalFlag = document.getElementById('openAppraisal');
+            if (appraisalFlag) appraisalFlag.value = '0';
             this.reviewOpen = false;
             const el = document.getElementById('dcsEditRoot');
             if (el) el.style.overflow = '';
@@ -119,6 +127,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
             <input type="hidden" id="insertShiftDocNo" name="insert_shift_doc_no" value="">
             <input type="hidden" id="insertShiftRenameLetters" name="insert_shift_rename_letters" value="0">
             <input type="hidden" id="saveAsDraft" name="save_as_draft" value="0">
+            <input type="hidden" id="openAppraisal" name="open_appraisal" value="0">
             <input type="hidden" name="has_existing_masterlist_scan" value="{{ !empty($masterlist?->scanned_masterlist) ? '1' : '0' }}">
             @csrf
             @method('PUT')
@@ -309,7 +318,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     </div>
                     <div class="reg-field">
                         <div id="supersedeDocResults" class="reg-reldocs-dropdown" style="display:none;"></div>
-                        <p id="supersedeDocPicked" class="reg-number-hint" @if(!$recurSource) hidden @endif>@if($recurSource){{ $recurSource['doc_no'] }} — {{ $recurSource['doc_title'] }} (Rev {{ $recurSource['revise_no'] }}, {{ $recurSource['status'] }}) was superseded.@endif</p>
+                        <p id="supersedeDocPicked" class="reg-number-hint" @if(!$recurSource) hidden @endif>@if($recurSource){{ $recurSource['doc_no'] }} — {{ $recurSource['doc_title'] }} (Rev {{ $recurSource['revise_no'] }}, {{ $recurSource['status'] }}) {{ strtolower((string) ($recurSource['status'] ?? '')) === 'latest' ? 'stays the current copy until this recurring document is saved.' : 'was superseded.' }}@endif</p>
                         <button type="button" id="supersedeReselect" hidden><i class="fa-solid fa-arrow-right-arrow-left"></i> Change document</button>
                     </div>
                     <div class="reg-field reg-revision-table" id="supersedeHistoryField" @if($recurPreviousDocuments->isEmpty()) hidden @endif>
@@ -707,7 +716,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                             <div class="reg-reldocs" id="masterlistOriginatorWidget">
                                 <div class="reg-reldocs-inputwrap">
                                     <input type="text" id="masterlistOriginatorSearch" class="reg-reldocs-input"
-                                        placeholder="Type a name" autocomplete="off">
+                                        placeholder="Type names, separated by a comma" autocomplete="off">
                                     <button type="button" class="reg-reldocs-arrow-btn" id="masterlistOriginatorArrowBtn">
                                         <i class="fa-solid fa-chevron-down"></i>
                                     </button>
@@ -750,7 +759,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                             <div class="reg-reldocs" id="relatedDocsWidget">
                                 <div class="reg-reldocs-inputwrap">
                                     <input type="text" id="relatedDocsSearch" class="reg-reldocs-input"
-                                        placeholder="Type a document title to search..."
+                                        placeholder="Type a document title, then pick from latest documents..."
                                         autocomplete="off"
                                         oninput="handleRelatedDocSearch(this)"
                                         onfocus="handleRelatedDocFocus()">
@@ -796,7 +805,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                 </div>
             </section>
 
-            <!-- ═══ SECTION 4 — RETRIEVAL (only for revise_no > 0) ═══ -->
+            <!-- ═══ SECTION 4 — RETRIEVAL (only when the version type is Revise) ═══ -->
             <section class="reg-card" id="section-4" style="display: {{ ($allowsRetrieval && ($retrieval || $retrievalOffices->isNotEmpty() || ($retrievedOfficesHidden ?? collect())->isNotEmpty())) ? 'block' : 'none' }};">
                 <div class="reg-card-header">
                     <span>Document Retrieval</span>
@@ -1028,7 +1037,7 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                     </a>
                 </div>
                 <div class="reg-actions-right">
-                    @unless($readOnly)
+                    @unless($readOnly || !empty($isDraftDoc))
                     <p id="regNoChangesHint" class="reg-no-changes-hint" hidden>
                         <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
                         No changes detected — edit a field to enable Update Document.
@@ -1038,11 +1047,16 @@ window.__timeSpentNonWorkingDateSet = Object.create(null);
                         <i class="fa-solid fa-file-lines"></i> Generate
                     </button>
                     @unless($readOnly)
+                    @if(!empty($isDraftDoc))
                     <button type="button" id="btnSaveDraft" class="reg-btn reg-btn-draft" onclick="confirmSaveDraft()">
                         <i class="fa-regular fa-floppy-disk"></i> Save Draft
                     </button>
-                    <button type="button" id="btnUpdateDocument" class="reg-btn reg-btn-save" onclick="confirmSave()">
-                        <i class="fa-solid fa-floppy-disk"></i> Update Document
+                    <button type="button" id="btnSaveAndAppraise" class="reg-btn reg-btn-appraise" onclick="window.__openAppraisalAfterSave=true; confirmSave()" title="Save, then send this document to Appraisal. Office intake will appraise after receive.">
+                        <i class="fa-solid fa-clipboard-check"></i> Save and Appraise
+                    </button>
+                    @endif
+                    <button type="button" id="btnUpdateDocument" class="reg-btn reg-btn-save" onclick="window.__openAppraisalAfterSave=false; confirmSave()" title="{{ !empty($isDraftDoc) ? 'Save only. Office intake marks it received — no Appraisal.' : 'Update this document. Appraisal is not changed.' }}">
+                        <i class="fa-solid fa-floppy-disk"></i> {{ !empty($isDraftDoc) ? 'Save Document' : 'Update Document' }}
                     </button>
                     @endunless
                 </div>
@@ -1509,7 +1523,9 @@ function restoreOfficeToRetrievalPending(officeId, officeName, copies) {
     }
     updateTotal('retrievalTotal', 'retrievalBody');
     const retSection = document.getElementById('section-4');
-    if (retSection) retSection.style.display = 'block';
+    if (retSection && (typeof allowsDocumentRetrieval !== 'function' || allowsDocumentRetrieval())) {
+        retSection.style.display = 'block';
+    }
 }
 
 function maybeRestoreDistOfficeToRetrieval(tr) {
@@ -1998,7 +2014,6 @@ document.addEventListener("DOMContentLoaded", async function () {
             resultsId: 'masterlistOriginatorResults',
             chipsId: 'masterlistOriginatorInlineChips',
             allowFreeText: true,
-            singleSelect: true,
             fieldName: 'masterlistOriginator',
             dataListGetter: () => allOriginators,
             idKey: 'originator_id',
@@ -2060,16 +2075,19 @@ document.addEventListener("DOMContentLoaded", async function () {
         }
 
         function fieldKey(el) {
+            const name = el.name || '';
+            if (name.endsWith('[]')) return '';
+            const id = el.id || '';
             if (el.type === 'checkbox') {
-                return 'cb|' + (el.name || el.id) + '|' + (el.value || '');
+                return 'cb|' + name + '|' + (el.value || '') + '|' + id;
             }
             if (el.type === 'radio') {
-                return 'radio|' + (el.name || el.id);
+                return 'radio|' + name + '|' + id;
             }
             if (el.type === 'file') {
-                return 'file|' + (el.name || el.id);
+                return 'file|' + (id || name);
             }
-            return 'val|' + (el.name || el.id);
+            return 'val|' + (id || name);
         }
 
         function readFieldValue(el) {
@@ -2078,7 +2096,22 @@ document.addEventListener("DOMContentLoaded", async function () {
                 return document.querySelector('input[name="' + CSS.escape(el.name) + '"]:checked')?.value || '';
             }
             if (el.type === 'file') return '';
-            return el.value ?? '';
+            return String(el.value ?? '').replace(/\s+/g, ' ').trim();
+        }
+
+        function collectionSignature(form) {
+            const groups = {};
+            form.querySelectorAll('input, select, textarea').forEach((el) => {
+                const name = el.name || '';
+                if (!name.endsWith('[]') || shouldIgnoreField(el)) return;
+                if (!groups[name]) groups[name] = [];
+                groups[name].push(readFieldValue(el));
+            });
+            const sig = {};
+            Object.keys(groups).sort().forEach((name) => {
+                sig[name] = groups[name].slice().sort().join('\u0001');
+            });
+            return sig;
         }
 
         function captureInitialState() {
@@ -2109,6 +2142,10 @@ document.addEventListener("DOMContentLoaded", async function () {
             initialState['officeIds|distBody'] = distIds.join(',');
             ['masterlistOfficeIds[]', 'drfSourceUnit[]', 'dcnSourceUnit[]', 'masterlistOriginatorNames[]'].forEach((name) => {
                 initialState['source|' + name] = sourceHiddenIds(name).join(',');
+            });
+            const collections = collectionSignature(form);
+            Object.keys(collections).forEach((name) => {
+                initialState['collection|' + name] = collections[name];
             });
         }
 
@@ -2179,6 +2216,17 @@ document.addEventListener("DOMContentLoaded", async function () {
                 if (baseline !== sourceHiddenIds(name).join(',')) dirty = true;
             });
 
+            const collections = collectionSignature(form);
+            Object.keys(initialState).forEach((key) => {
+                if (dirty || !key.startsWith('collection|')) return;
+                const name = key.slice('collection|'.length);
+                if ((collections[name] || '') !== initialState[key]) dirty = true;
+            });
+            Object.keys(collections).forEach((name) => {
+                if (dirty) return;
+                if (initialState['collection|' + name] === undefined && collections[name] !== '') dirty = true;
+            });
+
             return dirty;
         }
 
@@ -2201,21 +2249,30 @@ document.addEventListener("DOMContentLoaded", async function () {
 
         function updateButtonState() {
             const hint = document.getElementById('regNoChangesHint');
-            if (isDirty()) {
-                updateBtn.disabled = false;
-                updateBtn.style.opacity = '';
-                updateBtn.style.cursor = '';
-                updateBtn.title = '';
-                updateBtn.removeAttribute('aria-disabled');
-                if (hint) hint.hidden = true;
-            } else {
-                updateBtn.disabled = true;
-                updateBtn.style.opacity = '0.45';
-                updateBtn.style.cursor = 'not-allowed';
-                updateBtn.title = 'No changes detected — edit a field to enable Update Document.';
-                updateBtn.setAttribute('aria-disabled', 'true');
-                if (hint) hint.hidden = false;
+            const appraiseBtn = document.getElementById('btnSaveAndAppraise');
+            const isDraft = !!window.__isDraftDoc;
+            const enabled = isDraft || isDirty();
+            if (updateBtn) {
+                updateBtn.disabled = !enabled;
+                updateBtn.style.opacity = enabled ? '' : '0.45';
+                updateBtn.style.cursor = enabled ? '' : 'not-allowed';
+                updateBtn.style.pointerEvents = enabled ? '' : 'none';
+                if (enabled) {
+                    updateBtn.title = '';
+                    updateBtn.removeAttribute('aria-disabled');
+                } else {
+                    updateBtn.title = 'No changes detected — edit a field to enable Update Document.';
+                    updateBtn.setAttribute('aria-disabled', 'true');
+                }
             }
+            if (appraiseBtn) {
+                appraiseBtn.disabled = false;
+                appraiseBtn.style.opacity = '';
+                appraiseBtn.style.cursor = '';
+                appraiseBtn.style.pointerEvents = '';
+                appraiseBtn.removeAttribute('aria-disabled');
+            }
+            if (hint) hint.hidden = enabled;
         }
 
         function refreshBaselineIfPristine() {
@@ -2259,7 +2316,7 @@ document.addEventListener("DOMContentLoaded", async function () {
 
         const originalConfirmSave = window.confirmSave;
         window.confirmSave = function () {
-            if (!isDirty()) return;
+            if (!window.__isDraftDoc && !isDirty() && !window.__openAppraisalAfterSave) return;
             if (originalConfirmSave) originalConfirmSave();
         };
     })();
@@ -2862,7 +2919,9 @@ function applyRevisedDocumentContext(data, options = {}) {
         });
         updateTotal('retrievalTotal', 'retrievalBody');
         const retSection = document.getElementById('section-4');
-        if (retSection) retSection.style.display = 'block';
+        if (retSection && (typeof allowsDocumentRetrieval !== 'function' || allowsDocumentRetrieval())) {
+            retSection.style.display = 'block';
+        }
     }
 
     applyRevisedApprovalFromPrevious(data);
@@ -3189,7 +3248,7 @@ async function showSupersedeDocumentHistory(doc, options) {
     if (!revisions.length) {
         try {
             if (doc.request_id) {
-                const params = new URLSearchParams({ request_id: String(doc.request_id) });
+                const params = new URLSearchParams({ request_id: String(doc.request_id), lineage: '1' });
                 if (doc.doc_no) params.set('doc_no', doc.doc_no);
                 const raw = await fetch('/dcs/api/documents/revisions?' + params.toString()).then(r => r.json());
                 if (Array.isArray(raw)) revisions = raw;
@@ -3199,6 +3258,10 @@ async function showSupersedeDocumentHistory(doc, options) {
         }
     }
     if (!revisions.length) revisions = [doc];
+    if (!options.excludeRequestId) {
+        const openId = document.getElementById('requestId')?.value;
+        if (openId) options.excludeRequestId = openId;
+    }
     if (options.excludeRequestId) {
         const currentId = String(options.excludeRequestId);
         revisions = revisions.filter(function (row) {
@@ -3287,7 +3350,7 @@ async function restoreSupersedeHistory() {
     if (!requestId || !fromNo) return;
     let revisions = [];
     try {
-        const params = new URLSearchParams({ request_id: String(requestId), doc_no: fromNo });
+        const params = new URLSearchParams({ request_id: String(requestId), doc_no: fromNo, lineage: '1' });
         const raw = await fetch('/dcs/api/documents/revisions?' + params.toString()).then(r => r.json());
         if (Array.isArray(raw)) revisions = raw;
     } catch (e) {
@@ -3312,8 +3375,12 @@ async function restoreSupersedeHistory() {
         const picked = document.getElementById('supersedeDocPicked');
         if (picked) {
             picked.hidden = false;
+            var sourceStatus = revisionStatusText(source.revision_status);
             picked.textContent = (source.doc_no || fromNo) + ' — ' + (source.doc_title || 'Untitled')
-                + ' (Rev ' + (source.revise_no ?? 0) + ', ' + revisionStatusText(source.revision_status) + ') was superseded.';
+                + ' (Rev ' + (source.revise_no ?? 0) + ', ' + sourceStatus + ') '
+                + (sourceStatus === 'Latest'
+                    ? 'stays the current copy until this recurring document is saved.'
+                    : 'was superseded.');
         }
     }
     await showSupersedeDocumentHistory(selfRow || {
@@ -4142,6 +4209,9 @@ function createSourceUnitWidget(opts) {
         // ── FIX: remove ALL hidden inputs for these field names,
         //    including stale blade-rendered ones without data-source-hidden
         const fieldNames = new Set([opts.officeFieldName, opts.nameFieldName, opts.fieldName].filter(Boolean));
+        if (opts.fieldName) {
+            fieldNames.add(String(opts.fieldName).endsWith('[]') ? String(opts.fieldName).slice(0, -2) : String(opts.fieldName) + '[]');
+        }
         fieldNames.forEach(name => {
             widget.querySelectorAll('input[type="hidden"][name="' + name + '"]').forEach(el => el.remove());
         });
@@ -4150,7 +4220,9 @@ function createSourceUnitWidget(opts) {
             const input = document.createElement('input');
             input.type = 'hidden';
             input.dataset.sourceHidden = 'true';
-            input.name = opts.fieldName || (item.type === 'office' ? opts.officeFieldName : opts.nameFieldName);
+            let name = opts.fieldName || (item.type === 'office' ? opts.officeFieldName : opts.nameFieldName);
+            if (opts.fieldName && name && !String(name).endsWith('[]')) name = name + '[]';
+            input.name = name;
             input.value = opts.fieldName ? item.label : (item.type === 'office' ? item.id : item.label);
             widget.appendChild(input);
         });
@@ -4236,6 +4308,7 @@ function createSourceUnitWidget(opts) {
         if (inputEl) inputEl.focus();
         syncInputText();
         document.getElementById(opts.resultsId).style.display = 'none';
+        if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
     }
 
     function positionPanel(panelEl, anchorEl) {
@@ -4293,6 +4366,7 @@ function createSourceUnitWidget(opts) {
     function removeItemAndSync(type, id) {
         removeItem(type, id);
         syncInputText();
+        if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
     }
 
     function setSelectedItems(items) {
@@ -4343,10 +4417,23 @@ function createSourceUnitWidget(opts) {
         }
     });
 
+    function commitPendingQuery() {
+        if (!inputEl || opts.singleSelect || !opts.allowFreeText) return;
+        const q = getCurrentQuery(inputEl);
+        if (!q) return;
+        const already = selected.some(i => String(i.label).toLowerCase() === q.toLowerCase());
+        if (already) return;
+        addFreeText(q);
+        syncInputText();
+        render();
+    }
+    const parentForm = inputEl ? inputEl.closest('form') : null;
+    if (parentForm) parentForm.addEventListener('submit', commitPendingQuery);
+
     render();
 
     const api = {
-        pick, removeItem: removeItemAndSync, reset, seedFromString, setSelectedItems,
+        pick, removeItem: removeItemAndSync, reset, seedFromString, setSelectedItems, commitPendingQuery,
         openPanel: togglePanel, get selected() { return selected; }
     };
     window.__sourceWidgets[opts.key] = api;
@@ -4461,33 +4548,69 @@ window.removeSourceOverlayItem = function (key, id) {
 // ══════════════════════════════════════════════
 // RELATED DOCUMENTS
 // ══════════════════════════════════════════════
-window.handleRelatedDocFocus = function () { closeRelatedDocsSelectedPanel(); };
+function relatedDocsQuery(input) {
+    const raw = String(input?.value || '');
+    const lastComma = raw.lastIndexOf(',');
+    return (lastComma === -1 ? raw : raw.slice(lastComma + 1)).trim();
+}
+
+function syncRelatedDocsInput() {
+    const input = document.getElementById('relatedDocsSearch');
+    if (!input) return;
+    if (relatedDocsSelected.length === 0) {
+        input.value = '';
+        return;
+    }
+    input.value = relatedDocsSelected.map(d => d.doc_title || d.doc_no || '').join(', ') + ', ';
+    const len = input.value.length;
+    try { input.setSelectionRange(len, len); } catch (e) {}
+}
+
+window.handleRelatedDocFocus = function (input) {
+    closeRelatedDocsSelectedPanel();
+    syncRelatedDocsInput();
+};
 
 window.handleRelatedDocSearch = function (input) {
     clearTimeout(window.__relatedDocsTimer);
-    const q = input.value.trim();
+    if (window.__relatedDocsAbort) {
+        try { window.__relatedDocsAbort.abort(); } catch (e) {}
+    }
+    const q = relatedDocsQuery(input);
     const dropdown = document.getElementById('relatedDocsResults');
     closeRelatedDocsSelectedPanel();
     if (q.length < 1) { dropdown.style.display = 'none'; return; }
 
     window.__relatedDocsTimer = setTimeout(async () => {
+        const abort = new AbortController();
+        window.__relatedDocsAbort = abort;
         try {
             const excludeId = document.getElementById('requestId')?.value || '';
-            const url = '/dcs/api/documents/search?q=' + encodeURIComponent(q)
+            const url = '/dcs/api/documents/search?latest_only=1&q=' + encodeURIComponent(q)
                 + (excludeId ? '&exclude_request_id=' + excludeId : '');
-            const data = await fetch(url).then(r => r.json());
-            relatedDocsCache = data.filter(d => !relatedDocsSelected.some(s => s.masterlist_id === d.masterlist_id));
+            const res = await fetch(url, { signal: abort.signal, headers: { 'Accept': 'application/json' } });
+            if (!res.ok) {
+                dropdown.innerHTML = '<div class="reg-reldocs-noresult">Could not search documents. Try again.</div>';
+                dropdown.style.display = 'block';
+                return;
+            }
+            const data = await res.json();
+            relatedDocsCache = (Array.isArray(data) ? data : []).filter(d => !relatedDocsSelected.some(s => s.masterlist_id === d.masterlist_id));
             if (relatedDocsCache.length === 0) {
-                dropdown.innerHTML = '<div class="reg-reldocs-noresult">No matching documents found</div>';
+                dropdown.innerHTML = '<div class="reg-reldocs-noresult">No latest document matches "' + escapeHtml(q) + '".</div>';
                 dropdown.style.display = 'block';
                 return;
             }
             dropdown.innerHTML = relatedDocsCache
-                .map(d => `<div onmousedown="pickRelatedDoc(${d.masterlist_id})">${escapeHtml(d.label)}</div>`)
+                .map(d => `<div onmousedown="pickRelatedDoc(${Number(d.masterlist_id)})">${escapeHtml(d.label || d.doc_title || '')}</div>`)
                 .join('');
             dropdown.style.display = 'block';
-        } catch (e) { console.error('Related doc search failed:', e); }
-    }, 300);
+        } catch (e) {
+            if (e && e.name === 'AbortError') return;
+            dropdown.innerHTML = '<div class="reg-reldocs-noresult">Could not search documents. Try again.</div>';
+            dropdown.style.display = 'block';
+        }
+    }, 80);
 };
 
 window.pickRelatedDoc = function (id) {
@@ -4495,15 +4618,17 @@ window.pickRelatedDoc = function (id) {
     if (!doc || relatedDocsSelected.some(d => d.masterlist_id === id)) return;
     relatedDocsSelected.push(doc);
     renderRelatedDocsChips();
-    const input = document.getElementById('relatedDocsSearch');
-    input.value = '';
+    syncRelatedDocsInput();
     document.getElementById('relatedDocsResults').style.display = 'none';
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
 };
 
 window.removeRelatedDoc = function (id, event) {
     if (event) event.stopPropagation();
     relatedDocsSelected = relatedDocsSelected.filter(d => d.masterlist_id !== id);
     renderRelatedDocsChips();
+    syncRelatedDocsInput();
+    if (typeof window.__regEditMarkDirty === 'function') window.__regEditMarkDirty();
 };
 
 window.toggleRelatedDocsSelected = function (e) {
@@ -4538,6 +4663,7 @@ function renderRelatedDocsChips() {
             <span class="reg-reldocs-chip-no">${escapeHtml(d.doc_no || '')}</span>
             <button type="button" onclick="removeRelatedDoc(${d.masterlist_id}, event)"><i class="fa-solid fa-xmark"></i></button>
         </div>`).join('');
+    syncRelatedDocsInput();
 }
 
 document.addEventListener('click', function (e) {
@@ -5244,8 +5370,10 @@ function unlockChecklist() {
     showFormActions();
     enableApproval();
     setTimeout(initFileInputs, 100);
-    const saveBtn = document.querySelector('.reg-btn-save');
-    if (saveBtn) saveBtn.style.display = "";
+    ['btnUpdateDocument', 'btnSaveDocument', 'btnSaveAndAppraise'].forEach((id) => {
+        const saveBtn = document.getElementById(id);
+        if (saveBtn) saveBtn.style.display = "";
+    });
 }
 
 function suggestedChecklistIdsForCurrentDocType() {
@@ -5355,7 +5483,7 @@ window.toggleSection = function (checklistId, show) {
         if (drfSection) drfSection.style.display = 'none';
         return;
     }
-    // Retrieval only exists once the document has been revised (revise_no > 0)
+    // Retrieval is only for a Revise registration, not New or Recur.
     if (checklistId === 4 && !allowsDocumentRetrieval()) {
         const ret = document.getElementById('section-4');
         if (ret) ret.style.display = 'none';
@@ -5794,41 +5922,32 @@ function setSyllabiContextHint(message, isError) {
 
 function setSyllabiContextTaken(taken, message) {
     window.syllabiContextTaken = !!taken;
-    const saveBtn = document.getElementById('btnUpdateDocument') || document.getElementById('btnSaveDocument');
-    const draftBtn = document.getElementById('btnSaveDraft');
+    const actionBtns = [
+        document.getElementById('btnUpdateDocument') || document.getElementById('btnSaveDocument'),
+        document.getElementById('btnSaveAndAppraise'),
+        document.getElementById('btnSaveDraft'),
+    ];
     if (taken) {
         setSyllabiContextHint(message || 'This semester and school year are already registered.', true);
-        if (saveBtn) {
-            saveBtn.disabled = true;
-            saveBtn.setAttribute('disabled', 'disabled');
-            saveBtn.style.opacity = '0.4';
-            saveBtn.style.cursor = 'not-allowed';
-            saveBtn.style.pointerEvents = 'none';
-        }
-        if (draftBtn) {
-            draftBtn.disabled = true;
-            draftBtn.setAttribute('disabled', 'disabled');
-            draftBtn.style.opacity = '0.4';
-            draftBtn.style.cursor = 'not-allowed';
-            draftBtn.style.pointerEvents = 'none';
-        }
+        actionBtns.forEach((btn) => {
+            if (!btn) return;
+            btn.disabled = true;
+            btn.setAttribute('disabled', 'disabled');
+            btn.style.opacity = '0.4';
+            btn.style.cursor = 'not-allowed';
+            btn.style.pointerEvents = 'none';
+        });
         return;
     }
     setSyllabiContextHint('', false);
-    if (saveBtn) {
-        saveBtn.disabled = false;
-        saveBtn.removeAttribute('disabled');
-        saveBtn.style.opacity = '';
-        saveBtn.style.cursor = '';
-        saveBtn.style.pointerEvents = '';
-    }
-    if (draftBtn) {
-        draftBtn.disabled = false;
-        draftBtn.removeAttribute('disabled');
-        draftBtn.style.opacity = '';
-        draftBtn.style.cursor = '';
-        draftBtn.style.pointerEvents = '';
-    }
+    actionBtns.forEach((btn) => {
+        if (!btn) return;
+        btn.disabled = false;
+        btn.removeAttribute('disabled');
+        btn.style.opacity = '';
+        btn.style.cursor = '';
+        btn.style.pointerEvents = '';
+    });
 }
 
 async function checkSyllabiContextTaken() {
@@ -8127,6 +8246,18 @@ window.confirmSave = function () {
     if (errors.length > 0) { showValidationErrors(errors); return; }
     clearValidation();
 
+    const confirmBtn = document.getElementById('btnConfirmSaveModal');
+    if (confirmBtn) {
+        const isDraft = !!document.getElementById('btnSaveDraft');
+        if (window.__openAppraisalAfterSave) {
+            confirmBtn.innerHTML = '<i class="fa-solid fa-clipboard-check"></i> '
+                + (isDraft ? 'Confirm Save and Appraise' : 'Confirm Update and Appraise');
+        } else {
+            confirmBtn.innerHTML = '<i class="fa-solid fa-check"></i> '
+                + (isDraft ? 'Confirm Save' : 'Confirm Update');
+        }
+    }
+
     const reviewContent = document.getElementById("reviewContent");
     reviewContent.innerHTML = "";
 
@@ -8340,6 +8471,8 @@ window.submitForm = function () {
     }
     const draftFlag = document.getElementById('saveAsDraft');
     if (draftFlag) draftFlag.value = '0';
+    const appraisalFlag = document.getElementById('openAppraisal');
+    if (appraisalFlag) appraisalFlag.value = window.__openAppraisalAfterSave ? '1' : '0';
     syncChecklistHiddenInputs();
     if (typeof syncSyllabiContextHidden === 'function') {
         syncSyllabiContextHidden();

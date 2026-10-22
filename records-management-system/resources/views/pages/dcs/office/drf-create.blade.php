@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Create an office DRF. Title and originator have no maxlength. Several originators go in one field, separated by commas.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;

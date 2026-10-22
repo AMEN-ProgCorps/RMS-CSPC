@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Office accounts may open only the intake routes in ALLOWED_ROUTE_NAMES. New office APIs, including print-ready, must be added there or the office receives 403.
+ */
+
 namespace App\Http\Middleware;
 
 use App\Helpers\RegisterPersistHelper;

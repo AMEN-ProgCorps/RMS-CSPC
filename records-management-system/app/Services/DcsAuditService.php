@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Writes a DCS activity event and a short admin log line.
+ */
+
 namespace App\Services;
 
 use App\Helpers\NetworkHelper;

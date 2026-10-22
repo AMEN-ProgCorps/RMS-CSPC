@@ -1,3 +1,6 @@
+{{--
+DCS file: Preview of the scan filename the register form will store.
+--}}
 {{-- Shared styles for scan filename convention preview (also in register.css / edit.css). --}}
 <style>
 .reg-scan-name-preview {

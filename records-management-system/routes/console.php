@@ -9,7 +9,6 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Artisan::command('dcs:purge-recycle-bin', function () {
-    require_once resource_path('views/pages/dcs/logic/bootstrap.blade.php');
     $count = \App\Helpers\RegisterUpdateHelper::purgeExpiredRecycleBin();
     $this->info("Purged {$count} expired Recycle Bin document(s).");
 })->purpose('Permanently delete DCS Recycle Bin items older than 1 year');

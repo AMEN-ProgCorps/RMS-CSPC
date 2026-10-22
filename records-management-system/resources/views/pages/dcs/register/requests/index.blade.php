@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Office DRF and DCN requests waiting for Admin DCS. Proceed to Registration is what links the intake to the document that gets saved.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;

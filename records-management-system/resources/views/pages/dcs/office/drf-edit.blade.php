@@ -1,5 +1,9 @@
 <?php
 
+/**
+ * DCS file: Edit an office DRF while it is still editable. Same title and originator rules as create.
+ */
+
 use App\Helpers\OfficeIntakeHelper;
 use App\Helpers\RegisterQueryHelper;
 use Livewire\Attributes\Layout;

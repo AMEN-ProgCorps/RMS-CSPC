@@ -228,7 +228,6 @@ new class extends Component {
             ->select("{$notifContentTbl}.redirect_url", "{$notifContentTbl}.content")
             ->first();
 
-        // 1. Mark notification as read
         $this->markAsRead($notificationId);
 
         // 2. Office intake submissions / correction unlocks

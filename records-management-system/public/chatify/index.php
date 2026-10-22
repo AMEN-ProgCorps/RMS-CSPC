@@ -527,7 +527,7 @@ try {
       <div class="modal-body bell-list" id="notificationBellList"></div>
       <div class="modal-footer">
         <button type="button" class="modal-button cancel-button" id="notificationBellClose">Close</button>
-        <button type="button" class="modal-button confirm-button" id="markAllNotifReadBtn" onclick="markAllNotificationsRead()">Mark All as Read</button>
+        <button type="button" class="modal-button confirm-button" id="markAllNotifReadBtn" onclick="markAllNotificationsRead()" disabled>Mark All as Read</button>
       </div>
     </div>
   </div>

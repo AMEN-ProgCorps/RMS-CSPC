@@ -2876,7 +2876,14 @@
 
     function renderBellList() {
       if (!notificationBellList) return;
-      if (bellNotifications.length === 0) {
+      const markAllBtn = document.getElementById('markAllNotifReadBtn');
+      const hasNotifications = bellNotifications && bellNotifications.length > 0;
+
+      if (markAllBtn) {
+        markAllBtn.disabled = !hasNotifications;
+      }
+
+      if (!hasNotifications) {
         notificationBellList.innerHTML = '<div class="bell-empty">No notifications</div>';
         return;
       }
@@ -2944,10 +2951,10 @@
         updateBellBadge();
         renderBellList();
         closeNotificationBellModal();
-        if (btn) { btn.disabled = false; btn.textContent = 'Mark All as Read'; }
+        if (btn) { btn.disabled = (bellNotifications.length === 0); btn.textContent = 'Mark All as Read'; }
       };
       xhr.onerror = function() {
-        if (btn) { btn.disabled = false; btn.textContent = 'Mark All as Read'; }
+        if (btn) { btn.disabled = (bellNotifications.length === 0); btn.textContent = 'Mark All as Read'; }
       };
       xhr.send();
     }

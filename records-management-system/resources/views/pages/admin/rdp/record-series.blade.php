@@ -1749,6 +1749,150 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->successMessage = "Record Series Type \"{$type->type_name}\" was removed and stored in the Recycle Bin. {$moved} record series moved to Unregistered.";
     }
 
+    /**
+     * Duplicate -> clone every record series under the chosen type into a brand
+     * new type (auto-named e.g. "CSPC (Copy)"). The hierarchy, brackets,
+     * retention periods and remarks are copied; the original list is untouched.
+     */
+    public function duplicateTypeList(string $typeId): void
+    {
+        $this->clearMessages();
+
+        $type = $this->findSeriesType($typeId);
+        if (!$type) {
+            $this->errorMessage = 'Record Series Type not found.';
+            return;
+        }
+
+        $series = DB::table('rdp_record_series')
+            ->where('series_type', $type->id)
+            ->orderBy('id', 'asc')
+            ->get();
+
+        if ($series->isEmpty()) {
+            $this->errorMessage = "There are no record series under \"{$type->type_name}\" to duplicate.";
+            return;
+        }
+
+        [$newTypeName, $newShortCode] = $this->duplicateTypeNames($type->type_name, (string) $type->shorted_type);
+
+        try {
+            $newTypeId = 0;
+            $created = 0;
+
+            DB::transaction(function () use ($series, $newTypeName, $newShortCode, &$newTypeId, &$created, $type) {
+                $newTypeId = DB::table('rdp_record_series_type')->insertGetId([
+                    'type_name'    => $newTypeName,
+                    'shorted_type' => $newShortCode,
+                    'is_active'    => (bool) $type->is_active,
+                    'created_at'   => now(),
+                    'updated_at'   => now(),
+                ]);
+
+                $cloneRow = function (object $row, ?int $newParentId) use ($newTypeId, &$created): int {
+                    $retentionId = null;
+                    if ($row->retention_period) {
+                        $retention = DB::table('rdp_retention_period')->find($row->retention_period);
+                        if ($retention) {
+                            // Cloned so later edits on one list never touch the other.
+                            $retentionId = DB::table('rdp_retention_period')->insertGetId([
+                                'active_period'  => $retention->active_period,
+                                'storage_period' => $retention->storage_period,
+                                'total_period'   => $retention->total_period,
+                                'created_at'     => now(),
+                                'updated_at'     => now(),
+                            ]);
+                        }
+                    }
+
+                    $newId = DB::table('rdp_record_series')->insertGetId([
+                        'series_title'                  => $row->series_title,
+                        'parent_id'                     => $newParentId,
+                        'bracket_id'                    => $row->bracket_id,
+                        'series_type'                   => $newTypeId,
+                        'retention_period'              => $retentionId,
+                        'is_retention_period_permanent' => (bool) $row->is_retention_period_permanent,
+                        'item_number'                   => $row->item_number,
+                        'recorded_at_office'            => $row->recorded_at_office,
+                        'created_by'                    => $row->created_by,
+                        'is_verified'                   => (bool) $row->is_verified,
+                        'is_active'                     => (bool) $row->is_active,
+                        'created_at'                    => now(),
+                        'updated_at'                    => now(),
+                    ]);
+
+                    \App\Services\RdpRemarksService::saveForSeries($newId, \App\Services\RdpRemarksService::textFor($row->remarks));
+
+                    $created++;
+
+                    return $newId;
+                };
+
+                // Clone parents first so each child can be re-pointed at its
+                // new copy; any row whose parent is missing from the set (e.g.
+                // an orphaned branch) becomes a root in the duplicate.
+                $pending = $series->keyBy('id');
+                $idMap = [];
+
+                while ($pending->isNotEmpty()) {
+                    $deferred = collect();
+
+                    foreach ($pending as $row) {
+                        if ($row->parent_id !== null && !isset($idMap[$row->parent_id])) {
+                            $deferred->push($row);
+                            continue;
+                        }
+
+                        $idMap[$row->id] = $cloneRow($row, $row->parent_id !== null ? $idMap[$row->parent_id] : null);
+                    }
+
+                    if ($deferred->count() === $pending->count()) {
+                        foreach ($deferred as $row) {
+                            $idMap[$row->id] = $cloneRow($row, null);
+                        }
+                        break;
+                    }
+
+                    $pending = $deferred->keyBy('id');
+                }
+            });
+
+            $this->activeTab = (string) $newTypeId;
+
+            $this->logTypeAction("Duplicated Record Series Type \"{$type->type_name}\" ({$type->shorted_type}) into \"{$newTypeName}\" ({$newShortCode}) - {$created} record series copied");
+
+            $this->successMessage = "Record Series Type \"{$type->type_name}\" was duplicated as \"{$newTypeName}\" with {$created} copied record series.";
+        } catch (\Exception $e) {
+            $this->errorMessage = 'Failed to duplicate Record Series Type: ' . $e->getMessage();
+        }
+    }
+
+    /**
+     * Auto name for the duplicate: "CSPC (Copy)", "CSPC (Copy 2)", ... kept
+     * unique against every type that is not in the Recycle Bin.
+     */
+    private function duplicateTypeNames(string $typeName, string $shortCode): array
+    {
+        $shortBase = mb_strtoupper(substr(str_replace(' ', '', $shortCode), 0, 8)) . ' COPY';
+        $name = $typeName . ' (Copy)';
+        $short = mb_substr($shortBase, 0, 255);
+        $n = 1;
+
+        while (DB::table('rdp_record_series_type')
+            ->whereNull('deleted_at')
+            ->where(function ($q) use ($name, $short) {
+                $q->where('type_name', 'ilike', $name)
+                  ->orWhere('shorted_type', 'ilike', $short);
+            })
+            ->exists()) {
+            $n++;
+            $name = $typeName . " (Copy {$n})";
+            $short = mb_substr($shortBase . " {$n}", 0, 255);
+        }
+
+        return [$name, $short];
+    }
+
     public function with(): array
     {
         // Removed (soft deleted) types are hidden; deactivated ones stay listed
@@ -2878,11 +3022,36 @@ RECEIPTS;
             <span>Rename</span>
         </button>
 
+        <button type="button" class="ctx-item" x-show="!ctxUnregistered"
+                wire:loading.attr="disabled"
+                @click="closeContextMenu(); $wire.duplicateTypeList(ctxTarget)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            <span>Duplicate</span>
+        </button>
+
         <button type="button" class="ctx-item ctx-danger" x-show="!ctxUnregistered"
                 @click="closeContextMenu(); $wire.openRemoveTypeConfirm(ctxTarget)">
             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
             <span>Remove</span>
         </button>
+    </div>
+
+    <!-- Duplicate-in-progress loading overlay.
+         wire:loading.flex is REQUIRED: without the ".flex" modifier Livewire sets an
+         inline "display: inline-block" while loading, which overrides .ars-modal-overlay's
+         "display: flex" and drops the card into the top-left corner instead of centering it. -->
+    <div wire:loading.flex wire:target="duplicateTypeList" class="ars-modal-overlay" style="z-index: 100000 !important;">
+        <div class="ars-modal-card" style="width: 380px; text-align: center;">
+            <div style="padding: 32px 28px;">
+                <div class="ars-loading-spinner"></div>
+                <h3 style="margin: 18px 0 6px; font-size: 16px; font-weight: 800; color: var(--ars-slate-900);">
+                    Duplicating Record Series Type
+                </h3>
+                <p style="margin: 0; font-size: 13px; color: var(--ars-slate-500); line-height: 1.6;">
+                    Copying the record series list, brackets, retention periods and remarks. Please wait&hellip;
+                </p>
+            </div>
+        </div>
     </div>
 
     <!-- Rename Record Series Type Modal -->

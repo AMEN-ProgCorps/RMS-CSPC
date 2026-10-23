@@ -60,7 +60,7 @@ return new class extends Migration
                 DB::table('rdp_record_series')->where('id', $series->id)->update(['remarks' => $logicId]);
             }
 
-            DB::statement('ALTER TABLE rdp_record_series ALTER COLUMN remarks TYPE bigint USING (NULL::bigint)');
+            DB::statement('ALTER TABLE rdp_record_series ALTER COLUMN remarks TYPE bigint USING (remarks::bigint)');
         }
 
         if (Schema::hasTable('rdp_remarks_logic') && Schema::hasColumn('rdp_record_series', 'remarks')) {
@@ -82,17 +82,29 @@ return new class extends Migration
                 $table->dropIndex(['remarks']);
             });
 
-            DB::statement('ALTER TABLE rdp_record_series ALTER COLUMN remarks TYPE varchar(255) USING (NULL::varchar)');
+            // Swap in a fresh text column, refill it from rdp_remarks_logic while
+            // the id column still holds the ids, then drop the id column. Casting
+            // bigint -> varchar directly would leave every value NULL.
+            Schema::table('rdp_record_series', function (Blueprint $table) {
+                $table->string('remarks_text', 255)->nullable();
+            });
 
-            // Restore the text from rdp_remarks_logic before those rows go away.
             if (Schema::hasTable('rdp_remarks_logic')) {
                 DB::statement('
                     UPDATE rdp_record_series
-                    SET remarks = LEFT(rl.remarks_value, 255)
+                    SET remarks_text = LEFT(rl.remarks_value, 255)
                     FROM rdp_remarks_logic rl
                     WHERE rdp_record_series.remarks = rl.id
                 ');
             }
+
+            Schema::table('rdp_record_series', function (Blueprint $table) {
+                $table->dropColumn('remarks');
+            });
+
+            Schema::table('rdp_record_series', function (Blueprint $table) {
+                $table->renameColumn('remarks_text', 'remarks');
+            });
         }
 
         Schema::dropIfExists('rdp_location_suggestion');

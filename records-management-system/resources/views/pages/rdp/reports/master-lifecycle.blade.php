@@ -629,13 +629,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Generalized 
         // 1. Base Record Series Query
         $seriesQuery = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->where('rdp_record_series.is_active', true)
             ->select([
                 'rdp_record_series.*',
                 'rdp_retention_period.active_period',
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
-            ]);
+            ])
+            ->addSelect('rdp_remarks_logic.remarks_value as remarks');
 
         if (!$hasAllOfficesClearance) {
             $seriesQuery->where('rdp_record_series.recorded_at_office', $userOfficeCode ?: '___NONE___');

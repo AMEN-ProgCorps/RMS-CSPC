@@ -235,7 +235,6 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
                     'parent_id'                    => $currentParentId,
                     'retention_period'             => $isLeaf ? $retentionId : null,
                     'is_retention_period_permanent' => $isLeaf ? $this->is_permanent : false,
-                    'remarks'                      => $isLeaf ? (trim($this->remarks) ?: null) : null,
                     'recorded_at_office'           => $userOfficeCode,
                     'created_by'                   => $user?->id,
                     'is_verified'                  => false,
@@ -252,6 +251,7 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
                 }
 
                 if ($isLeaf) {
+                    \App\Services\RdpRemarksService::saveForSeries($currentParentId, $this->remarks);
                     $lastCreatedSeriesId = $currentParentId;
                 }
             }
@@ -348,7 +348,6 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
                     'parent_id'                    => $currentParentId,
                     'retention_period'             => $isLeaf ? $retentionId : null,
                     'is_retention_period_permanent' => $isLeaf ? $this->is_permanent : false,
-                    'remarks'                      => $isLeaf ? (trim($this->remarks) ?: null) : null,
                     'recorded_at_office'           => $userOfficeCode,
                     'created_by'                   => $user?->id,
                     'is_verified'                  => $existing ? (bool)$existing->is_verified : false,
@@ -362,6 +361,10 @@ new #[Layout('layouts.rdp')] #[Title('Records and Disposition Schedule')] class 
                 } else {
                     $seriesData['created_at'] = now();
                     $currentParentId = DB::table('rdp_record_series')->insertGetId($seriesData);
+                }
+
+                if ($isLeaf) {
+                    \App\Services\RdpRemarksService::saveForSeries($currentParentId, $this->remarks);
                 }
             }
 

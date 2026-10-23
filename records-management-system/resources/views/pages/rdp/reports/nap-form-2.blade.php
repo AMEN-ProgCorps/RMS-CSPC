@@ -210,6 +210,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             $userOffice = $user?->details?->office_code ?? $user?->details?->office?->office_code ?? null;
 
             $query = DB::table('rdp_record_series')
+                ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                 ->where('rdp_record_series.is_active', true)
                 ->where(function($q) {
                     $q->where('rdp_record_series.is_verified', false)
@@ -225,12 +226,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             if (!empty($this->search)) {
                 $this->applySearchFilter($query, [
                     'rdp_record_series.series_title',
-                    'rdp_record_series.remarks',
+                    'rdp_remarks_logic.remarks_value',
                     'CAST(rdp_record_series.item_number AS TEXT)',
                 ]);
             }
 
-            $allIds = $query->pluck('id')->toArray();
+            $allIds = $query->pluck('rdp_record_series.id')->toArray();
             $this->selectedIds = array_map('strval', $allIds);
         } else {
             $this->selectedIds = [];
@@ -270,13 +271,15 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $query = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->select([
                 'rdp_record_series.*',
                 'rdp_retention_period.active_period',
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
                 'parent.series_title as parent_title',
-            ]);
+            ])
+            ->addSelect('rdp_remarks_logic.remarks_value as remarks');
 
         $record = $query->where('rdp_record_series.id', $id)->first();
         if ($record) {
@@ -324,7 +327,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             $this->editingSeriesId = $record->id;
             $this->editSeriesTitle = $record->series_title ?? '';
             $this->editItemNumber = $record->item_number !== null ? (string)$record->item_number : '';
-            $this->editRemarks = $record->remarks ?? '';
+            $this->editRemarks = \App\Services\RdpRemarksService::textFor($record->remarks) ?? '';
             $this->isRootParentForEdit = empty($record->parent_id);
 
             // Check if this record series (or any of its child series) is currently used in NAP Form 1 (rdp_record)
@@ -438,9 +441,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             return;
         }
 
-        $updateData = [
-            'remarks' => trim($this->editRemarks) ?: null,
-        ];
+        $updateData = [];
 
         if ($this->canEditDescription) {
             $updateData['series_title'] = $cleanTitle;
@@ -464,6 +465,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         $updateData['updated_at'] = Carbon::now();
 
         DB::table('rdp_record_series')->where('id', $this->editingSeriesId)->update($updateData);
+
+        \App\Services\RdpRemarksService::saveForSeries($this->editingSeriesId, $this->editRemarks);
 
         // Audit Log
         $adminId = auth()->id() ?? 1;
@@ -548,6 +551,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
                 ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
                 ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+                ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                 ->select([
                     'rdp_record_series.*',
                     'rdp_retention_period.active_period',
@@ -556,6 +560,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                     'parent.series_title as parent_title',
                     'office.office_name as recorded_office_name',
                 ])
+                ->addSelect('rdp_remarks_logic.remarks_value as remarks')
                 ->whereIn('rdp_record_series.id', $missingParentIds)
                 ->get();
 
@@ -615,6 +620,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->select([
                 'rdp_record_series.*',
                 'rdp_retention_period.active_period',
@@ -622,7 +628,8 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
                 'rdp_retention_period.total_period',
                 'parent.series_title as parent_title',
                 'office.office_name as recorded_office_name',
-            ]);
+            ])
+            ->addSelect('rdp_remarks_logic.remarks_value as remarks');
 
         $query->where('rdp_record_series.is_active', true);
 
@@ -642,7 +649,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 2')
         if (!empty($this->search)) {
             $this->applySearchFilter($query, [
                 'rdp_record_series.series_title',
-                'rdp_record_series.remarks',
+                'rdp_remarks_logic.remarks_value',
                 'parent.series_title',
                 'CAST(rdp_record_series.item_number AS TEXT)',
             ]);

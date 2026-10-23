@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
 use App\Services\RdpRetentionService;
+use App\Services\RdpRemarksService;
 
 new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')] class extends Component {
     // Top Tabs & Filters (DTS as default on Received Document Tab)
@@ -235,10 +236,10 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                         $updateData['retention_period'] = $retentionId;
                         $updateData['is_retention_period_permanent'] = $this->newIsPermanent;
                     }
-                    if (!empty(trim($this->newRemarks))) {
-                        $updateData['remarks'] = trim($this->newRemarks);
-                    }
                     DB::table('rdp_record_series')->where('id', $existing->id)->update($updateData);
+                    if (!empty(trim($this->newRemarks))) {
+                        RdpRemarksService::saveForSeries($existing->id, $this->newRemarks);
+                    }
                 }
             } else {
                 $currentParentId = DB::table('rdp_record_series')->insertGetId([
@@ -249,10 +250,12 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                     'recorded_at_office'            => $userOfficeCode,
                     'created_by'                    => auth()->id(),
                     'is_verified'                   => false,
-                    'remarks'                       => $isLeaf ? (trim($this->newRemarks) ?: null) : null,
                     'created_at'                    => now(),
                     'updated_at'                    => now(),
                 ]);
+                if ($isLeaf) {
+                    RdpRemarksService::saveForSeries($currentParentId, $this->newRemarks);
+                }
             }
         }
 
@@ -299,12 +302,13 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                 $items = DB::table('rdp_grouped_record_series')
                     ->join('rdp_record_series', 'rdp_grouped_record_series.record_series_id', '=', 'rdp_record_series.id')
                     ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+                    ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                     ->where('rdp_grouped_record_series.group_head', $clusterId)
                     ->select([
                         'rdp_record_series.item_number',
                         'rdp_record_series.series_title',
                         'rdp_retention_period.total_period',
-                        'rdp_record_series.remarks',
+                        'rdp_remarks_logic.remarks_value as remarks',
                     ])
                     ->get()
                     ->toArray();
@@ -641,6 +645,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
         $directSeries = empty($usedSeriesIds) ? collect() : DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->select([
                 'rdp_record_series.*',
                 'rdp_record_series_type.shorted_type',
@@ -648,6 +653,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
             ])
+            ->addSelect('rdp_remarks_logic.remarks_value as remarks')
             ->whereIn('rdp_record_series.id', $usedSeriesIds)
             ->where('rdp_record_series.is_active', true)
             ->get();
@@ -658,6 +664,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
             ->leftJoin($officeTbl . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->select([
                 'rdp_record_series.*',
                 'rdp_record_series_type.shorted_type',
@@ -666,6 +673,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Dashboard')]
                 'rdp_retention_period.total_period',
                 'office.office_name as recorded_office_name',
             ])
+            ->addSelect('rdp_remarks_logic.remarks_value as remarks')
             ->whereIn('rdp_record_series.id', $neededParentIds)
             ->where('rdp_record_series.is_active', true)
             ->get();

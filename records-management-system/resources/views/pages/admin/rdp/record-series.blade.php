@@ -669,7 +669,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
             ->leftJoin('rdp_record_series as parent_series', 'rdp_record_series.parent_id', '=', 'parent_series.id')
-            ->select('rdp_record_series.*', 'rdp_retention_period.active_period', 'rdp_retention_period.storage_period', 'rdp_retention_period.total_period', 'rdp_record_series_brackets.bracket_name', 'parent_series.series_title as parent_title')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
+            ->select('rdp_record_series.*', 'rdp_retention_period.active_period', 'rdp_retention_period.storage_period', 'rdp_retention_period.total_period', 'rdp_record_series_brackets.bracket_name', 'parent_series.series_title as parent_title', 'rdp_remarks_logic.remarks_value as remarks')
             ->where('rdp_record_series.id', $seriesId)
             ->first();
 
@@ -792,9 +793,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             'retention_period'             => $retentionId,
             'is_retention_period_permanent' => $this->editIsPermanent,
             'is_active'                    => $this->editIsActive,
-            'remarks'                      => trim($this->editRemarks) ?: null,
             'updated_at'                   => now(),
         ]);
+
+        // Remarks text lives in rdp_remarks_logic; the series holds its id.
+        \App\Services\RdpRemarksService::saveForSeries((int) $this->editingId, $this->editRemarks);
 
         // The rest of the branch follows into the new parent's group.
         if ($parentChanged && $newParentId !== null) {
@@ -871,7 +874,6 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 'is_retention_period_permanent' => $isLeaf ? $leafIsPermanent : ($existing->is_retention_period_permanent ?? false),
                 'is_verified'                  => true,
                 'is_active'                    => true,
-                'remarks'                      => $isLeaf ? $leafRemarks : ($existing->remarks ?? null),
                 'updated_at'                   => now(),
             ];
 
@@ -881,6 +883,12 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             } else {
                 $seriesData['created_at'] = now();
                 $currentParentId = DB::table('rdp_record_series')->insertGetId($seriesData);
+            }
+
+            // Remarks text lives in rdp_remarks_logic (leaf row only); the series
+            // holds its id, so it must never be copied between rows.
+            if ($isLeaf) {
+                \App\Services\RdpRemarksService::saveForSeries($currentParentId, $leafRemarks);
             }
 
             $lastId = $currentParentId;
@@ -1162,12 +1170,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                     if ($pendingIsPermanent) {
                         $updateData['is_retention_period_permanent'] = true;
                     }
-                    if (!empty($pendingRemarks)) {
-                        $updateData['remarks'] = trim($pendingRemarks);
-                    }
 
                     DB::table('rdp_record_series')->where('id', $existing->id)->update($updateData);
                     $seriesId = $existing->id;
+
+                    // Remarks text lives in rdp_remarks_logic; the series holds its id.
+                    if (!empty($pendingRemarks)) {
+                        \App\Services\RdpRemarksService::saveForSeries($seriesId, $pendingRemarks);
+                    }
                 } else {
                     $seriesId = DB::table('rdp_record_series')->insertGetId([
                         'item_number'                  => $pendingItemNo,
@@ -1180,10 +1190,14 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                         'is_retention_period_permanent' => $pendingIsPermanent,
                         'is_verified'                  => true,
                         'is_active'                    => true,
-                        'remarks'                      => trim($pendingRemarks ?? '') ?: null,
                         'created_at'                   => now(),
                         'updated_at'                   => now(),
                     ]);
+
+                    if (!empty($pendingRemarks)) {
+                        \App\Services\RdpRemarksService::saveForSeries($seriesId, $pendingRemarks);
+                    }
+
                     $importedCount++;
                 }
 
@@ -1845,6 +1859,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->where('rdp_record_series.is_verified', true)
             ->select([
@@ -1855,6 +1870,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 'parent.series_title as parent_title',
                 'rdp_record_series_brackets.bracket_name',
                 'office.office_name as recorded_office_name',
+                'rdp_remarks_logic.remarks_value as remarks',
             ]);
 
         $seriesTypeId = is_numeric($this->activeTab) ? (int)$this->activeTab : null;
@@ -1870,6 +1886,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
             $matchedQuery = DB::table('rdp_record_series')
                 ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
+                ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                 ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
                 ->where('rdp_record_series.is_verified', true);
 
@@ -1881,7 +1898,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
             $matchedIds = $matchedQuery->where(function ($q) use ($searchTerm) {
                 $q->where('rdp_record_series.series_title', 'ilike', $searchTerm)
-                  ->orWhere('rdp_record_series.remarks', 'ilike', $searchTerm)
+                  ->orWhere('rdp_remarks_logic.remarks_value', 'ilike', $searchTerm)
                   ->orWhere('rdp_record_series_brackets.bracket_name', 'ilike', $searchTerm)
                   ->orWhere('office.office_name', 'ilike', $searchTerm)
                   ->orWhere('rdp_record_series.recorded_at_office', 'ilike', $searchTerm)

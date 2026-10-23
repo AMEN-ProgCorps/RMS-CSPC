@@ -107,6 +107,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                     ->join('rdp_record_series', 'rdp_grouped_record_series.record_series_id', '=', 'rdp_record_series.id')
                     ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
                     ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
+                    ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                     ->where('rdp_grouped_record_series.group_head', $clusterId)
                     ->select([
                         'rdp_record_series.*',
@@ -115,6 +116,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                         'rdp_retention_period.total_period',
                         'parent.series_title as parent_title'
                     ])
+                    ->addSelect('rdp_remarks_logic.remarks_value as remarks')
                     ->get()
                     ->toArray();
             }
@@ -145,13 +147,14 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                 $items = DB::table('rdp_grouped_record')
                     ->join('rdp_record', 'rdp_grouped_record.record_id', '=', 'rdp_record.id')
                     ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
+                    ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                     ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
                     ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
                     ->where('rdp_grouped_record.group_head', $clusterId)
                     ->select([
                         'rdp_record.*',
                         'rdp_record_series.series_title',
-                        'rdp_record_series.remarks',
+                        'rdp_remarks_logic.remarks_value as series_remarks',
                         'rdp_retention_period.active_period',
                         'rdp_retention_period.storage_period',
                         'rdp_retention_period.total_period',
@@ -1030,7 +1033,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                                         @endif
                                     </td>
                                     <td>{{ $item->total_period ?? $item->active_period ?? '—' }}</td>
-                                    <td>{{ $item->remarks ?? '—' }}</td>
+                                    <td>{{ $item->series_remarks ?? $item->remarks ?? '—' }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
@@ -1103,7 +1106,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending For 
                                     </td>
                                     <td>{{ $pi->volume ?? $pi->records_location ?? '—' }}</td>
                                     <td>{{ $pi->total_period ?? $pi->active_period ?? '—' }}</td>
-                                    <td>{{ $pi->remarks ?? $pi->description ?? '—' }}</td>
+                                    <td>{{ $pi->series_remarks ?? $pi->remarks ?? $pi->description ?? '—' }}</td>
                                 </tr>
                             @endforeach
                         </tbody>

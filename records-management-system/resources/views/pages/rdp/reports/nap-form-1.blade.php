@@ -1745,6 +1745,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
         $directSeries = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->select([
                 'rdp_record_series.*',
                 'rdp_record_series_type.shorted_type',
@@ -1752,6 +1753,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
             ])
+            ->addSelect('rdp_remarks_logic.remarks_value as remarks')
             ->whereIn('rdp_record_series.id', $usedSeriesIds)
             ->where('rdp_record_series.is_active', true)
             ->get();
@@ -1762,6 +1764,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
             ->leftJoin('rdp_record_series_type', 'rdp_record_series.series_type', '=', 'rdp_record_series_type.id')
             ->leftJoin($officesTable . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->select([
                 'rdp_record_series.*',
                 'rdp_record_series_type.shorted_type',
@@ -1770,6 +1773,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - NAP Form 1')
                 'rdp_retention_period.total_period',
                 'office.office_name as recorded_office_name',
             ])
+            ->addSelect('rdp_remarks_logic.remarks_value as remarks')
             ->whereIn('rdp_record_series.id', $neededParentIds)
             ->where('rdp_record_series.is_active', true)
             ->get();

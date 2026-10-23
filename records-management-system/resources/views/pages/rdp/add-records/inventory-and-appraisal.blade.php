@@ -1474,7 +1474,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
             $visited[] = $current->id;
 
             $pId = $current->parent_id ?? null;
-            $current = $pId ? DB::table('rdp_record_series')->where('id', $pId)->first() : null;
+            $current = $pId ? DB::table('rdp_record_series')
+                ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
+                ->select(['rdp_record_series.*', 'rdp_remarks_logic.remarks_value as remarks'])
+                ->where('id', $pId)->first() : null;
         }
 
         return [
@@ -1487,7 +1490,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
 
     public function loadSeriesById(int $id): void
     {
-        $series = DB::table('rdp_record_series')->where('id', $id)->first();
+        $series = DB::table('rdp_record_series')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
+            ->select(['rdp_record_series.*', 'rdp_remarks_logic.remarks_value as remarks'])
+            ->where('id', $id)->first();
         if (!$series) return;
 
         $this->record_series_id = $series->id;
@@ -1757,7 +1763,10 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $lastNode = null;
 
         foreach ($fullPathTitles as $idx => $t) {
-            $query = DB::table('rdp_record_series')->where('series_title', 'ilike', $t);
+            $query = DB::table('rdp_record_series')
+                ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
+                ->select(['rdp_record_series.*', 'rdp_remarks_logic.remarks_value as remarks'])
+                ->where('series_title', 'ilike', $t);
             if ($idx === 0) {
                 if ($this->selectedParentId) {
                     $query->where('id', $this->selectedParentId);
@@ -1841,6 +1850,8 @@ new #[Layout('layouts.rdp')] #[Title('Inventory and Appraisal')] class extends C
         $targetSeries = $lastNode;
         if (!$targetSeries) {
             $targetSeries = DB::table('rdp_record_series')
+                ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
+                ->select(['rdp_record_series.*', 'rdp_remarks_logic.remarks_value as remarks'])
                 ->where('series_title', 'ilike', $leafTitle)
                 ->first();
         }

@@ -250,6 +250,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     ->join('rdp_record_series', 'rdp_grouped_record_series.record_series_id', '=', 'rdp_record_series.id')
                     ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
                     ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
+                    ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                     ->where('rdp_grouped_record_series.group_head', $clusterId)
                     ->select([
                         'rdp_record_series.*',
@@ -258,6 +259,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         'rdp_retention_period.total_period',
                         'parent.series_title as parent_title'
                     ])
+                    ->addSelect('rdp_remarks_logic.remarks_value as remarks')
                     ->get()
                     ->toArray();
             }
@@ -288,6 +290,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 $items = DB::table('rdp_grouped_record')
                     ->join('rdp_record', 'rdp_grouped_record.record_id', '=', 'rdp_record.id')
                     ->leftJoin('rdp_record_series', 'rdp_record.record_series_id', '=', 'rdp_record_series.id')
+                    ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                     ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
                     ->leftJoin('rdp_recorded_value', 'rdp_record.records_medium', '=', 'rdp_recorded_value.id')
                     ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
@@ -296,7 +299,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                         'rdp_record.*',
                         'rdp_record_series.series_title',
                         'rdp_record_series.item_number',
-                        'rdp_record_series.remarks',
+                        'rdp_remarks_logic.remarks_value as series_remarks',
                         'rdp_retention_period.active_period',
                         'rdp_retention_period.storage_period',
                         'rdp_retention_period.total_period',
@@ -512,7 +515,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     $it->period_covered ?? '',
                     $it->volume ?? '',
                     $it->total_period ?? '',
-                    $it->remarks ?? '',
+                    $it->series_remarks ?? $it->remarks ?? '',
                 ];
             }
         }
@@ -727,6 +730,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
             $missingParents = DB::table('rdp_record_series')
                 ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
                 ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
+                ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                 ->select([
                     'rdp_record_series.*',
                     'rdp_retention_period.active_period',
@@ -734,6 +738,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     'rdp_retention_period.total_period',
                     'parent.series_title as parent_title',
                 ])
+                ->addSelect('rdp_remarks_logic.remarks_value as remarks')
                 ->whereIn('rdp_record_series.id', $missingParentIds)
                 ->get();
 
@@ -1110,6 +1115,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
 
         $directSeries = DB::table('rdp_record_series')
             ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+            ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
             ->whereIn('rdp_record_series.id', $directSeriesIds)
             ->select([
                 'rdp_record_series.*',
@@ -1117,6 +1123,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                 'rdp_retention_period.storage_period',
                 'rdp_retention_period.total_period',
             ])
+            ->addSelect('rdp_remarks_logic.remarks_value as remarks')
             ->get();
 
         $neededParentIds = array_unique(array_filter($directSeries->pluck('parent_id')->all()));
@@ -1124,6 +1131,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
         if (!empty($neededParentIds)) {
             $parentSeries = DB::table('rdp_record_series')
                 ->leftJoin('rdp_retention_period', 'rdp_record_series.retention_period', '=', 'rdp_retention_period.id')
+                ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
                 ->whereIn('rdp_record_series.id', $neededParentIds)
                 ->select([
                     'rdp_record_series.*',
@@ -1131,6 +1139,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                     'rdp_retention_period.storage_period',
                     'rdp_retention_period.total_period',
                 ])
+                ->addSelect('rdp_remarks_logic.remarks_value as remarks')
                 ->get();
         }
 
@@ -2460,7 +2469,7 @@ new #[Layout('layouts.rdp')] #[Title('Records Disposition Program - Pending List
                                     @if(isset($item->total_period))
                                         <div>Retention: <strong>{{ $item->total_period }}</strong></div>
                                     @endif
-                                    <div style="color: #64748b;">{{ $item->remarks ?? $item->description ?? '—' }}</div>
+                                    <div style="color: #64748b;">{{ $item->series_remarks ?? $item->remarks ?? $item->description ?? '—' }}</div>
                                 </td>
                             </tr>
                         @endforeach

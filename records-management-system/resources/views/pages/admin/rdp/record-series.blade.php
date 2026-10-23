@@ -30,11 +30,13 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public bool $showImportModal = false;
     public $importFile = null;
 
-    // Record Series Type - Rename Modal State
+    // Record Series Type - Configure Modal State (formerly Rename)
     public bool $showRenameTypeModal = false;
     public ?int $renameTypeId = null;
     public string $renameTypeName = '';
     public string $renameTypeShortCode = '';
+    /** @var int|null Chosen rdp_record_series_type_id row (null = no identifier) */
+    public ?int $renameTypeIdentifier = null;
 
     // Record Series Type - Confirmation Modal State (Clear Data / Remove Type)
     public bool $showTypeActionModal = false;
@@ -86,6 +88,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
     public string $editStoragePeriod = '';
     public string $editTotalPeriod = '';
     public string $editRemarks = '';
+    public string $editRemarkActivePeriod = '';
+    public string $editRemarkStoragePeriod = '';
+    public string $editRemarkKeyWordId = '';
     public bool $editIsActive = false;
     public bool $editIsPermanent = false;
 
@@ -422,6 +427,24 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $visited = [];
 
         while ($current) {
+            $usesRemarkRetention = filter_var(
+                $current->remarks_is_action_before ?? false,
+                FILTER_VALIDATE_BOOLEAN
+            );
+            $remarkActive = trim((string) ($current->remark_active_period ?? ''));
+            $remarkStorage = trim((string) ($current->remark_storage_period ?? ''));
+            $remarkTotal = trim((string) ($current->remark_total_period ?? ''));
+
+            if ($usesRemarkRetention && ($remarkActive !== '' || $remarkStorage !== '' || $remarkTotal !== '')) {
+                return (object) [
+                    'active_period'                  => $current->remark_active_period,
+                    'storage_period'                 => $current->remark_storage_period,
+                    'total_period'                   => $current->remark_total_period,
+                    'is_retention_period_permanent' => false,
+                    'inherited'                      => $current->id !== $record->id,
+                ];
+            }
+
             $hasActive = !empty(trim($current->active_period ?? ''));
             $hasStorage = !empty(trim($current->storage_period ?? ''));
             $hasTotal = !empty(trim($current->total_period ?? ''));
@@ -670,7 +693,21 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
             ->leftJoin('rdp_record_series as parent_series', 'rdp_record_series.parent_id', '=', 'parent_series.id')
             ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
-            ->select('rdp_record_series.*', 'rdp_retention_period.active_period', 'rdp_retention_period.storage_period', 'rdp_retention_period.total_period', 'rdp_record_series_brackets.bracket_name', 'parent_series.series_title as parent_title', 'rdp_remarks_logic.remarks_value as remarks')
+            ->leftJoin('rdp_remark_key_triggers', 'rdp_remarks_logic.key_word_id', '=', 'rdp_remark_key_triggers.id')
+            ->select(
+                'rdp_record_series.*',
+                'rdp_retention_period.active_period',
+                'rdp_retention_period.storage_period',
+                'rdp_retention_period.total_period',
+                'rdp_record_series_brackets.bracket_name',
+                'parent_series.series_title as parent_title',
+                'rdp_remarks_logic.remarks_value as remarks',
+                'rdp_remarks_logic.key_word_id as remarks_key_word_id',
+                'rdp_remarks_logic.active_period_backup as remark_active_period',
+                'rdp_remarks_logic.storage_period_backup as remark_storage_period',
+                'rdp_remarks_logic.total_period_backup as remark_total_period',
+                'rdp_remark_key_triggers.is_action_before as remarks_is_action_before'
+            )
             ->where('rdp_record_series.id', $seriesId)
             ->first();
 
@@ -688,6 +725,11 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->editStoragePeriod = $this->editIsPermanent ? '' : ($series->storage_period ?? '');
         $this->editTotalPeriod = $series->total_period ?? '';
         $this->editRemarks = $series->remarks ?? '';
+        $this->editRemarkActivePeriod = $series->remark_active_period ?? '';
+        $this->editRemarkStoragePeriod = $series->remark_storage_period ?? '';
+        $this->editRemarkKeyWordId = $series->remarks_key_word_id !== null
+            ? (string) $series->remarks_key_word_id
+            : '';
         $this->editIsActive = (bool) $series->is_active;
         $this->editParentId = $series->parent_id !== null ? (int) $series->parent_id : null;
         $this->editParentInput = (string) ($series->parent_title ?? '');
@@ -713,6 +755,15 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
 
         $existingSeries = DB::table('rdp_record_series')->where('id', $this->editingId)->first();
         if (!$existingSeries) return;
+
+        if (
+            trim($this->editRemarks) !== ''
+            && $this->editRemarkKeyWordId !== ''
+            && !DB::table('rdp_remark_key_triggers')->where('id', $this->editRemarkKeyWordId)->exists()
+        ) {
+            $this->errorMessage = 'The selected remark key trigger is no longer available. Please select it again.';
+            return;
+        }
 
         // ---- Parent conversion: subsection <-> top level ----
         $oldParentId = $existingSeries->parent_id !== null ? (int) $existingSeries->parent_id : null;
@@ -797,7 +848,22 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         ]);
 
         // Remarks text lives in rdp_remarks_logic; the series holds its id.
-        \App\Services\RdpRemarksService::saveForSeries((int) $this->editingId, $this->editRemarks);
+        $remarkKeyWordId = is_numeric($this->editRemarkKeyWordId)
+            ? (int) $this->editRemarkKeyWordId
+            : null;
+        $remarkTotalPeriod = $this->computeTotalPeriod(
+            $this->editRemarkActivePeriod,
+            $this->editRemarkStoragePeriod,
+            false
+        );
+        \App\Services\RdpRemarksService::saveConfigurationForSeries(
+            (int) $this->editingId,
+            $this->editRemarks,
+            $remarkKeyWordId,
+            $this->editRemarkActivePeriod,
+            $this->editRemarkStoragePeriod,
+            $remarkTotalPeriod
+        );
 
         // The rest of the branch follows into the new parent's group.
         if ($parentChanged && $newParentId !== null) {
@@ -1508,6 +1574,9 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->renameTypeId = (int) $type->id;
         $this->renameTypeName = (string) $type->type_name;
         $this->renameTypeShortCode = (string) ($type->shorted_type ?? '');
+        $this->renameTypeIdentifier = isset($type->series_type_id) && $type->series_type_id !== null
+            ? (int) $type->series_type_id
+            : null;
         $this->showRenameTypeModal = true;
     }
 
@@ -1517,6 +1586,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
         $this->renameTypeId = null;
         $this->renameTypeName = '';
         $this->renameTypeShortCode = '';
+        $this->renameTypeIdentifier = null;
     }
 
     public function saveTypeRename(): void
@@ -1555,20 +1625,62 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             return;
         }
 
+        // Validate the chosen identifier against rdp_record_series_type_id.
+        // Empty / 0 means "no identifier" -> series_type_id is stored as NULL.
+        $identifierId = null;
+        if ($this->renameTypeIdentifier !== null && $this->renameTypeIdentifier > 0) {
+            $identifier = DB::table('rdp_record_series_type_id')
+                ->where('id', $this->renameTypeIdentifier)
+                ->first();
+
+            if (!$identifier) {
+                $this->errorMessage = 'The selected Record Series Type Identifier no longer exists. Please pick again.';
+                return;
+            }
+
+            $identifierId = (int) $identifier->id;
+        }
+
         try {
             DB::table('rdp_record_series_type')->where('id', $type->id)->update([
-                'type_name'    => $typeName,
-                'shorted_type' => $shortCode,
-                'updated_at'   => now(),
+                'type_name'      => $typeName,
+                'shorted_type'   => $shortCode,
+                'series_type_id' => $identifierId,
+                'updated_at'     => now(),
             ]);
 
-            $this->logTypeAction("Renamed Record Series Type: \"{$type->type_name}\" ({$type->shorted_type}) to \"{$typeName}\" ({$shortCode})");
+            $identifierLabel = $identifierId
+                ? DB::table('rdp_record_series_type_id')->where('id', $identifierId)->value('shorten_identifier_value')
+                : 'None';
 
-            $this->successMessage = "Record Series Type renamed to \"{$typeName}\".";
+            $this->logTypeAction("Configured Record Series Type: \"{$type->type_name}\" ({$type->shorted_type}) -> \"{$typeName}\" ({$shortCode}), identifier \"{$identifierLabel}\"");
+
+            $this->successMessage = "Record Series Type \"{$typeName}\" has been configured.";
             $this->closeRenameTypeModal();
         } catch (\Exception $e) {
-            $this->errorMessage = 'Failed to rename Record Series Type: ' . $e->getMessage();
+            $this->errorMessage = 'Failed to configure Record Series Type: ' . $e->getMessage();
         }
+    }
+
+    /**
+     * Identifier rows for the Configure modal dropdown (single choice).
+     * The type's current identifier is always kept in the list even when
+     * deactivated, so saving never silently clears an existing choice.
+     */
+    public function typeIdentifiers(): array
+    {
+        $query = DB::table('rdp_record_series_type_id');
+
+        if ($this->renameTypeIdentifier) {
+            $query->where(function ($q) {
+                $q->where('is_active', true)
+                  ->orWhere('id', $this->renameTypeIdentifier);
+            });
+        } else {
+            $query->where('is_active', true);
+        }
+
+        return $query->orderBy('id')->get()->all();
     }
 
     /**
@@ -2004,6 +2116,7 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             ->leftJoin('rdp_record_series as parent', 'rdp_record_series.parent_id', '=', 'parent.id')
             ->leftJoin('rdp_record_series_brackets', 'rdp_record_series.bracket_id', '=', 'rdp_record_series_brackets.id')
             ->leftJoin('rdp_remarks_logic', 'rdp_record_series.remarks', '=', 'rdp_remarks_logic.id')
+            ->leftJoin('rdp_remark_key_triggers', 'rdp_remarks_logic.key_word_id', '=', 'rdp_remark_key_triggers.id')
             ->leftJoin((\Illuminate\Support\Facades\Schema::hasTable('sys_office') ? 'sys_office' : 'office') . ' as office', 'rdp_record_series.recorded_at_office', '=', 'office.office_code')
             ->where('rdp_record_series.is_verified', true)
             ->select([
@@ -2015,6 +2128,10 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                 'rdp_record_series_brackets.bracket_name',
                 'office.office_name as recorded_office_name',
                 'rdp_remarks_logic.remarks_value as remarks',
+                'rdp_remarks_logic.active_period_backup as remark_active_period',
+                'rdp_remarks_logic.storage_period_backup as remark_storage_period',
+                'rdp_remarks_logic.total_period_backup as remark_total_period',
+                'rdp_remark_key_triggers.is_action_before as remarks_is_action_before',
             ]);
 
         $seriesTypeId = is_numeric($this->activeTab) ? (int)$this->activeTab : null;
@@ -2159,6 +2276,8 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
             'seriesTypes'             => $seriesTypes,
             'activeTypeUsable'        => $activeTypeUsable,
             'offices'                 => $offices,
+            'typeIdentifiers'         => $this->typeIdentifiers(),
+            'remarkKeyTriggers'       => \App\Services\RdpRemarksService::keyTriggers(),
         ];
     }
 };
@@ -2780,7 +2899,33 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Record Series')] class e
                                     {{ $this->computeTotalPeriod($editActivePeriod, $editStoragePeriod, $editIsPermanent) ?: '—' }}
                                 </td>
                                 <td style="text-align: center; border: 1px solid #cbd5e1;">
-                                    <input type="text" class="ars-input" wire:model="editRemarks" placeholder="Enter remarks..." style="width: 100%; text-align: center;">
+                                    <input type="text" class="ars-input" wire:model.live.debounce.250ms="editRemarks" placeholder="Enter remarks..." style="width: 100%; text-align: center;">
+                                    @if(trim($editRemarks) !== '')
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 6px;">
+                                            <input type="text"
+                                                   class="ars-input ars-edit-period"
+                                                   wire:model.live.debounce.200ms="editRemarkActivePeriod"
+                                                   placeholder="Remark active">
+                                            <input type="text"
+                                                   class="ars-input ars-edit-period"
+                                                   wire:model.live.debounce.200ms="editRemarkStoragePeriod"
+                                                   placeholder="Remark storage">
+                                        </div>
+                                        <div style="margin-top: 5px; font-size: 11px; color: var(--ars-slate-700);">
+                                            Total:
+                                            <strong style="color: var(--ars-blue-800);">
+                                                {{ $this->computeTotalPeriod($editRemarkActivePeriod, $editRemarkStoragePeriod, false) ?: '—' }}
+                                            </strong>
+                                        </div>
+                                        <select class="ars-input"
+                                                wire:model.live="editRemarkKeyWordId"
+                                                style="margin-top: 5px; font-size: 11px; text-align: center;">
+                                            <option value="">Select remark key trigger</option>
+                                            @foreach($remarkKeyTriggers as $trigger)
+                                                <option value="{{ $trigger->id }}">{{ $trigger->key_word }}</option>
+                                            @endforeach
+                                        </select>
+                                    @endif
                                 </td>
                                 <td style="text-align: center; white-space: nowrap; width: 200px; border: 1px solid #cbd5e1;">
                                     <div style="margin-bottom: 6px;">
@@ -3019,7 +3164,7 @@ RECEIPTS;
         <button type="button" class="ctx-item" x-show="!ctxUnregistered"
                 @click="closeContextMenu(); $wire.openRenameTypeModal(ctxTarget)">
             <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-            <span>Rename</span>
+            <span>Configure</span>
         </button>
 
         <button type="button" class="ctx-item" x-show="!ctxUnregistered"
@@ -3054,12 +3199,12 @@ RECEIPTS;
         </div>
     </div>
 
-    <!-- Rename Record Series Type Modal -->
+    <!-- Configure Record Series Type Modal -->
     @if($showRenameTypeModal)
         <div class="ars-modal-overlay">
             <div class="ars-modal-card">
                 <div class="ars-modal-header">
-                    <h3>✏️ Rename Record Series Type</h3>
+                    <h3>⚙️ Configure Record Series Type</h3>
                     <button type="button" wire:click="closeRenameTypeModal" class="ars-modal-close">&times;</button>
                 </div>
                 <div class="ars-modal-body">
@@ -3069,11 +3214,27 @@ RECEIPTS;
                         </label>
                         <input type="text" class="ars-input" wire:model="renameTypeName" placeholder="e.g. General Records Disposition Schedule" style="width: 100%;">
                     </div>
-                    <div>
+                    <div style="margin-bottom: 16px;">
                         <label style="display: block; font-size: 13px; font-weight: 700; color: var(--ars-slate-700); margin-bottom: 6px;">
                             Short Code / Abbreviation:
                         </label>
                         <input type="text" class="ars-input" wire:model="renameTypeShortCode" placeholder="e.g. GRDS (Auto-generated if blank)" style="width: 100%;">
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 13px; font-weight: 700; color: var(--ars-slate-700); margin-bottom: 6px;">
+                            Record Series Type Identifier:
+                        </label>
+                        <select class="ars-input" wire:model="renameTypeIdentifier" style="width: 100%;">
+                            <option value="">— None —</option>
+                            @foreach($typeIdentifiers as $identifier)
+                                <option value="{{ $identifier->id }}">
+                                    {{ $identifier->shorten_identifier_value }} — {{ $identifier->identifier_name }}
+                                </option>
+                            @endforeach
+                        </select>
+                        <p style="margin: 6px 0 0; font-size: 12px; color: var(--ars-slate-500);">
+                            Pick one identifier for this Record Series Type.
+                        </p>
                     </div>
                 </div>
                 <div class="ars-modal-footer">

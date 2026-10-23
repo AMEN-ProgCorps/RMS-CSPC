@@ -67,6 +67,67 @@ class RdpRemarksService
     }
 
     /**
+     * Save remarks together with their trigger and alternate retention periods.
+     */
+    public static function saveConfigurationForSeries(
+        int $seriesId,
+        ?string $text,
+        ?int $keyWordId,
+        ?string $activePeriod,
+        ?string $storagePeriod,
+        ?string $totalPeriod
+    ): ?int {
+        if (! self::enabled()) {
+            return null;
+        }
+
+        $text = trim((string) $text);
+        if ($text === '') {
+            return self::saveForSeries($seriesId, null);
+        }
+
+        if ($keyWordId !== null && ! DB::table('rdp_remark_key_triggers')->where('id', $keyWordId)->exists()) {
+            throw new \InvalidArgumentException('The selected remark key trigger is not available.');
+        }
+
+        $currentId = DB::table('rdp_record_series')->where('id', $seriesId)->value('remarks');
+        $data = [
+            'key_word_id'          => $keyWordId,
+            'remarks_value'        => $text,
+            'active_period_backup' => trim((string) $activePeriod) ?: null,
+            'storage_period_backup'=> trim((string) $storagePeriod) ?: null,
+            'total_period_backup'  => trim((string) $totalPeriod) ?: null,
+        ];
+
+        if ($currentId) {
+            DB::table('rdp_remarks_logic')->where('id', $currentId)->update($data);
+
+            return (int) $currentId;
+        }
+
+        $data['created_at'] = now();
+        $id = DB::table('rdp_remarks_logic')->insertGetId($data);
+        DB::table('rdp_record_series')->where('id', $seriesId)->update(['remarks' => $id]);
+
+        return $id;
+    }
+
+    /**
+     * Available remark key triggers for the record-series editor.
+     */
+    public static function keyTriggers(): array
+    {
+        if (! Schema::hasTable('rdp_remark_key_triggers')) {
+            return [];
+        }
+
+        return DB::table('rdp_remark_key_triggers')
+            ->orderBy('id')
+            ->get()
+            ->all();
+    }
+
+    /**
      * Read the remarks text for a single record series id.
      */
     public static function textForSeries(?int $seriesId): ?string

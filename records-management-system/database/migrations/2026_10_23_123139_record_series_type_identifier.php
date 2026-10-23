@@ -16,19 +16,24 @@ return new class extends Migration
             $table->text('identifier_name');
             $table->text('shorten_identifier_value');
             $table->boolean('is_active')->default(true);
-            $table->timestamp()->useCurrent();
+            $table->timestamp('created_at')->useCurrent();
         });
+
         DB::table('rdp_record_series_type_id')->insert([
-            'identifier_name' => 'General Records Disposition Schedule',
-            'shorten_identifier_value' => 'GRDS'
+            ['identifier_name' => 'General Records Disposition Schedule', 'shorten_identifier_value' => 'GRDS'],
+            ['identifier_name' => 'Agency Records Disposition Schedule', 'shorten_identifier_value' => 'ARDS'],
         ]);
-        DB::table('rdp_record_series_type_id')->insert([
-            'identifier_name' => 'Agency Records Disposition Schedule',
-            'shorten_identifier_value' => 'ARDS'
-        ]);
-        Schema::table('rdp_record_series_type',function(Blueprint $table){
+
+        Schema::table('rdp_record_series_type', function (Blueprint $table) {
             $table->unsignedBigInteger('series_type_id')->nullable()->after('is_active');
-            $table->foreign('series_type_id')->references('id')->on('rdp_record_series_type_id')->onDelete('cascade');
+            // nullOnDelete - NOT cascade. rdp_record_series already cascades from
+            // rdp_record_series_type, so a cascade here would mean deleting one
+            // identifier row (e.g. GRDS) wipes every type that references it AND
+            // all of their record series (181 CSPC + 530 NAP rows).
+            $table->foreign('series_type_id')
+                ->references('id')
+                ->on('rdp_record_series_type_id')
+                ->nullOnDelete();
         });
     }
 
@@ -37,6 +42,11 @@ return new class extends Migration
      */
     public function down(): void
     {
-        //
+        Schema::table('rdp_record_series_type', function (Blueprint $table) {
+            $table->dropForeign(['series_type_id']);
+            $table->dropColumn('series_type_id');
+        });
+
+        Schema::dropIfExists('rdp_record_series_type_id');
     }
 };

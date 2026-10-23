@@ -90,6 +90,17 @@ if ($isOfficeGc && $targetOfficeId) {
     }
 }
 
+// Custom GC authorization: verify membership
+$isCustomGc = str_starts_with($convId, 'gc_');
+$customGcId = 0;
+if ($isCustomGc) {
+    $customGcId = (int) substr($convId, 3);
+    if ($customGcId <= 0 || (!Auth::isAdmin($senderId) && !CustomGroupManager::isMember($customGcId, $senderId))) {
+        http_response_code(403);
+        die(json_encode(['error' => 'You are not a member of this group chat.']));
+    }
+}
+
 if ($message !== '') {
     $result = GlobalChatManager::addTextMessage($senderId, $message, $replyToUuid, $mentionedIds, $convId);
     if ($result === false) {
@@ -146,7 +157,7 @@ if (empty($errors) && !empty($allResults)) {
         }
 
         $payload = [
-            'chat_type'         => $isOfficeGc ? 'office_gc' : 'global',
+            'chat_type'         => $isOfficeGc ? 'office_gc' : ($isCustomGc ? 'custom_gc' : 'global'),
             'conv_id'           => $convId,
             'office_id'         => $targetOfficeId,
             'sender_id'         => $senderId,
@@ -160,7 +171,14 @@ if (empty($errors) && !empty($allResults)) {
             'reply_snippet'     => $replyPreview['snippet'] ?? null,
         ];
 
-        if ($isOfficeGc && $targetOfficeId) {
+        if ($isCustomGc && $customGcId > 0) {
+            // Push to group members AND all super admins for spy mode
+            $gcMembers   = CustomGroupManager::getMembers($customGcId);
+            $gcMemberIds = array_column($gcMembers, 'account_id');
+            $adminIds    = Auth::getAllSuperAdminIds();
+            $targetIds   = array_values(array_unique(array_merge($gcMemberIds, $adminIds)));
+            WsPush::push($targetIds, 'message', $payload);
+        } elseif ($isOfficeGc && $targetOfficeId) {
             $memberIds = OfficeChatManager::getOfficeMembers($targetOfficeId);
             $adminIds  = Auth::getAllSuperAdminIds();
             $targetIds = array_values(array_unique(array_merge($memberIds, $adminIds)));

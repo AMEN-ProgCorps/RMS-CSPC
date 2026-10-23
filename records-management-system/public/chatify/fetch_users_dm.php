@@ -13,6 +13,7 @@
 // =============================================================================
 
 require_once __DIR__ . '/bootstrap.php';
+require_once __DIR__ . '/core/CustomGroupManager.php';
 
 header('Content-Type: application/json');
 
@@ -35,8 +36,69 @@ $searchQuery = trim($_GET['q'] ?? '');
 $sidebarUsers = [];
 $hasMoreUsers = false;
 
+// ── Resolve current user & office context early so GCs can be unified ─────────
+$myInfo = UserResolver::getUserInfo($myAccountId);
+$freshMyOfficeId = isset($myInfo['office_id']) ? (int) $myInfo['office_id'] : 0;
+$freshMyOffice = null;
+$officeGcUnreadCount = 0;
+if ($freshMyOfficeId > 0) {
+    try {
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare('SELECT office_name, office_code FROM ' . Database::t('office') . ' WHERE id = :id LIMIT 1');
+        $stmt->execute([':id' => $freshMyOfficeId]);
+        $freshMyOffice = $stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable) {}
+    $officeGcUnreadCount = OfficeChatManager::getUnreadCount($freshMyOfficeId, $myAccountId);
+}
+
 // ── Branch: Search vs. Active Conversations ───────────────────────────────────
 if ($searchQuery !== '') {
+    // If user's office matches search query, add it to results
+    if ($freshMyOfficeId > 0 && $freshMyOffice) {
+        $oName = $freshMyOffice['office_name'] ?? '';
+        $oCode = $freshMyOffice['office_code'] ?? '';
+        if (stripos($oName, $searchQuery) !== false || stripos($oCode, $searchQuery) !== false) {
+            $sidebarUsers[] = [
+                'is_office_gc'        => true,
+                'office_id'           => $freshMyOfficeId,
+                'conv_id'             => 'office_' . $freshMyOfficeId,
+                'name'                => $oCode !== '' ? $oCode : $oName,
+                'full_name'           => $oCode !== '' ? $oCode : $oName,
+                'office_name'         => $oName,
+                'office_code'         => $oCode,
+                'username'            => 'office_' . $freshMyOfficeId,
+                'lastMessage'         => '',
+                'lastTimestamp'       => 0,
+                'unreadCount'         => $officeGcUnreadCount,
+                'is_chatify_verified' => true,
+                'avatar_url'          => 'cspc.webp',
+            ];
+        }
+    }
+
+    // If user's custom GCs match search query, add them to results
+    $myCustomGroups = CustomGroupManager::getGroupsForUser($myAccountId);
+    foreach ($myCustomGroups as $cg) {
+        if (stripos($cg['name'] ?? '', $searchQuery) !== false) {
+            $sidebarUsers[] = [
+                'is_custom_gc'        => true,
+                'gc_id'               => (int) $cg['gc_id'],
+                'conv_id'             => $cg['conv_id'],
+                'name'                => $cg['name'],
+                'full_name'           => $cg['name'],
+                'username'            => 'gc_' . $cg['gc_id'],
+                'creator_id'          => (int) $cg['creator_id'],
+                'member_count'        => (int) $cg['member_count'],
+                'lastMessage'         => $cg['last_message'] ?? '',
+                'lastTimestamp'       => (int) ($cg['last_timestamp'] ?? 0),
+                'unreadCount'         => (int) ($cg['unread_count'] ?? 0),
+                'is_newly_added'      => !empty($cg['is_newly_added']),
+                'is_chatify_verified' => true,
+                'avatar_url'          => 'cspc.webp',
+            ];
+        }
+    }
+
     // Fetch active conversations map to enrich search results if conversation exists
     $activeConvs = ConversationManager::getActiveConversations($myAccountId);
     $convByPartner = [];
@@ -96,7 +158,7 @@ if ($searchQuery !== '') {
         ];
     }
 } else {
-    // ── No search query: return active conversations (people user has chatted with) ──
+    // ── No search query: return active conversations (DMs, Office GC, Custom GCs) ──
     $activeConvs = ConversationManager::getActiveConversations($myAccountId);
 
     $convByPartner = [];
@@ -151,12 +213,76 @@ if ($searchQuery !== '') {
         ];
     }
 
-    // Sort: most recent → alphabetical (unread state no longer affects order,
-    // so a conversation doesn't jump to the top on refresh just because it
-    // has unread messages — this now matches the real-time client-side
-    // reordering in bumpSidebarUser(), which only moves a chat to the top
-    // when a new message actually arrives)
+    // ── Add User's Office GC to conversation list ──
+    if ($freshMyOfficeId > 0 && $freshMyOffice) {
+        $officeLastMsg = '';
+        $officeLastTs  = 0;
+        try {
+            $pdo = Database::getConnection();
+            $stmt = $pdo->prepare(
+                "SELECT message, msg_type, EXTRACT(EPOCH FROM created_at)::BIGINT AS ts
+                 FROM chat_messages
+                 WHERE conv_id = :conv_id AND status = 'active'
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT 1"
+            );
+            $stmt->execute([':conv_id' => 'office_' . $freshMyOfficeId]);
+            $oRow = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($oRow) {
+                $officeLastTs = (int) $oRow['ts'];
+                if ($oRow['msg_type'] === 'upload') {
+                    $officeLastMsg = 'Sent a file';
+                } else {
+                    $officeLastMsg = mb_strimwidth(safeDecrypt($oRow['message'] ?? ''), 0, 60, '…');
+                }
+            }
+        } catch (Throwable) {}
+
+        $sidebarUsers[] = [
+            'is_office_gc'        => true,
+            'office_id'           => $freshMyOfficeId,
+            'conv_id'             => 'office_' . $freshMyOfficeId,
+            'name'                => $freshMyOffice['office_code'] !== '' ? $freshMyOffice['office_code'] : $freshMyOffice['office_name'],
+            'full_name'           => $freshMyOffice['office_code'] !== '' ? $freshMyOffice['office_code'] : $freshMyOffice['office_name'],
+            'office_name'         => $freshMyOffice['office_name'],
+            'office_code'         => $freshMyOffice['office_code'],
+            'username'            => 'office_' . $freshMyOfficeId,
+            'lastMessage'         => $officeLastMsg,
+            'lastTimestamp'       => $officeLastTs,
+            'unreadCount'         => $officeGcUnreadCount,
+            'is_chatify_verified' => true,
+            'avatar_url'          => 'cspc.webp',
+        ];
+    }
+
+    // ── Add User's Custom GCs to conversation list ──
+    $myCustomGroups = CustomGroupManager::getGroupsForUser($myAccountId);
+    foreach ($myCustomGroups as $cg) {
+        $sidebarUsers[] = [
+            'is_custom_gc'        => true,
+            'gc_id'               => (int) $cg['gc_id'],
+            'conv_id'             => $cg['conv_id'],
+            'name'                => $cg['name'],
+            'full_name'           => $cg['name'],
+            'username'            => 'gc_' . $cg['gc_id'],
+            'creator_id'          => (int) $cg['creator_id'],
+            'member_count'        => (int) $cg['member_count'],
+            'lastMessage'         => $cg['last_message'] ?? '',
+            'lastTimestamp'       => (int) ($cg['last_timestamp'] ?? 0),
+            'unreadCount'         => (int) ($cg['unread_count'] ?? 0),
+            'is_newly_added'      => !empty($cg['is_newly_added']),
+            'is_chatify_verified' => true,
+            'avatar_url'          => 'cspc.webp',
+        ];
+    }
+
+    // Sort: newly added GCs first -> most recent -> alphabetical
     usort($sidebarUsers, function ($a, $b) {
+        $aNew = !empty($a['is_newly_added']) ? 1 : 0;
+        $bNew = !empty($b['is_newly_added']) ? 1 : 0;
+        if ($aNew !== $bNew) {
+            return $bNew <=> $aNew;
+        }
         if ($b['lastTimestamp'] !== $a['lastTimestamp']) {
             return $b['lastTimestamp'] <=> $a['lastTimestamp'];
         }
@@ -187,10 +313,45 @@ if ($isAdmin) {
         $convsResult = ConversationManager::getUserConversations($adminTargetId, 50, 0);
         $targetInfo  = UserResolver::getUserInfo($adminTargetId);
 
+        // Fetch custom GCs created by this target user
+        $customGcs = [];
+        try {
+            $pdo = Database::getConnection();
+            $stmt = $pdo->prepare('
+                SELECT g.id, g.name, g.creator_id,
+                       EXTRACT(EPOCH FROM g.created_at)::BIGINT AS created_ts,
+                       (SELECT COUNT(*) FROM chat_custom_group_members WHERE group_id = g.id) AS member_count,
+                       (SELECT COUNT(*) FROM chat_messages WHERE conv_id = (\'gc_\' || g.id) AND status = \'active\') AS msg_count
+                FROM chat_custom_groups g
+                WHERE g.creator_id = :target_id
+                   OR EXISTS (SELECT 1 FROM chat_custom_group_members WHERE group_id = g.id AND account_id = :target_id)
+                ORDER BY g.created_at DESC
+            ');
+            $stmt->execute([':target_id' => $adminTargetId]);
+            $gcRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            foreach ($gcRows as $gc) {
+                $customGcs[] = [
+                    'convId'        => 'gc_' . (int) $gc['id'],
+                    'isCustomGc'    => true,
+                    'title'         => $gc['name'],
+                    'name1'         => $gc['name'],
+                    'name2'         => 'Custom Group Chat',
+                    'msgCount'      => (int) $gc['msg_count'],
+                    'lastMessage'   => '',
+                    'lastTimestamp' => (int) $gc['created_ts'],
+                ];
+            }
+        } catch (Throwable $e) {
+            error_log('fetch_users_dm.php (target user custom GCs) - ' . $e->getMessage());
+        }
+
+        $allConvs = array_merge($customGcs, $convsResult['conversations']);
+
         $adminSpyResponse = [
             'type'          => 'conversations',
             'targetUser'    => $targetInfo,
-            'conversations' => $convsResult['conversations'],
+            'conversations' => $allConvs,
             'hasMore'       => !empty($convsResult['hasMore']),
             'offset'        => 0,
             'limit'         => 50,
@@ -287,6 +448,35 @@ if ($isAdmin) {
             } catch (Throwable $e) {
                 error_log('fetch_users_dm.php (admin spy office search) — ' . $e->getMessage());
             }
+
+            // Custom GC match: search by group name
+            try {
+                $stmt = $pdo->prepare('
+                    SELECT g.id, g.name,
+                           (SELECT COUNT(*) FROM chat_custom_group_members WHERE group_id = g.id) AS member_count
+                    FROM chat_custom_groups g
+                    WHERE g.name ILIKE :like_search
+                    ORDER BY g.name ASC
+                    LIMIT 11
+                ');
+                $stmt->execute([':like_search' => $likeSearch]);
+                $gcRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($gcRows as $gc) {
+                    $channels[] = [
+                        'conv_id'             => 'gc_' . (int) $gc['id'],
+                        'channel_type'        => 'custom_gc',
+                        'title'               => $gc['name'],
+                        'subtitle'            => 'Custom Group Chat',
+                        'office_id'           => null,
+                        'office_name'         => null,
+                        'office_code'         => null,
+                        'avatar_url'          => 'cspc.webp',
+                        'is_chatify_verified' => true,
+                    ];
+                }
+            } catch (Throwable $e) {
+                error_log('fetch_users_dm.php (admin spy custom gc search) — ' . $e->getMessage());
+            }
         }
 
         $totalChannelCount = count($channels);
@@ -322,6 +512,7 @@ if ($isAdmin) {
 
 $freshMyOfficeId = isset($myInfo['office_id']) ? (int) $myInfo['office_id'] : 0;
 $freshMyOffice = null;
+$officeGcUnreadCount = 0;
 if ($freshMyOfficeId > 0) {
     try {
         $pdo = Database::getConnection();
@@ -329,6 +520,8 @@ if ($freshMyOfficeId > 0) {
         $stmt->execute([':id' => $freshMyOfficeId]);
         $freshMyOffice = $stmt->fetch(PDO::FETCH_ASSOC);
     } catch (Throwable) {}
+    // Compute unread count for this user's office GC
+    $officeGcUnreadCount = OfficeChatManager::getUnreadCount($freshMyOfficeId, $myAccountId);
 }
 
 if (session_status() === PHP_SESSION_ACTIVE) {
@@ -336,17 +529,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 }
 
 echo json_encode([
-    'users'         => array_values($sidebarUsers),
-    'hasMore'       => $hasMoreUsers,
-    'currentUser'   => [
-        'account_id'  => $myAccountId,
-        'full_name'   => $myInfo['full_name'] ?? Auth::fullName(),
-        'office_id'   => $freshMyOfficeId > 0 ? $freshMyOfficeId : null,
-        'office_name' => $freshMyOffice['office_name'] ?? null,
-        'office_code' => $freshMyOffice['office_code'] ?? null,
-        'is_admin'    => $isAdmin,
-        'avatar_url'  => $myInfo['avatar_url'] ?? ($_SESSION['avatar_url'] ?? null),
+    'users'                => array_values($sidebarUsers),
+    'hasMore'              => $hasMoreUsers,
+    'currentUser'          => [
+        'account_id'           => $myAccountId,
+        'full_name'            => $myInfo['full_name'] ?? Auth::fullName(),
+        'office_id'            => $freshMyOfficeId > 0 ? $freshMyOfficeId : null,
+        'office_name'          => $freshMyOffice['office_name'] ?? null,
+        'office_code'          => $freshMyOffice['office_code'] ?? null,
+        'is_admin'             => $isAdmin,
+        'avatar_url'           => $myInfo['avatar_url'] ?? ($_SESSION['avatar_url'] ?? null),
+        'office_gc_unread'     => $officeGcUnreadCount,
     ],
-    'conversations' => $adminSpyResponse['conversations'] ?? [],
-    'adminConvs'    => $adminSpyResponse,
+    'conversations'        => $adminSpyResponse['conversations'] ?? [],
+    'adminConvs'           => $adminSpyResponse,
 ]);

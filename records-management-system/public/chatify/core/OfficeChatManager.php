@@ -107,4 +107,94 @@ class OfficeChatManager
             return Auth::getAllSuperAdminIds();
         }
     }
+
+    // ── Unread tracking ───────────────────────────────────────────────────────
+
+    /**
+     * Ensure the office GC read-tracking table exists (auto-creates on first call).
+     */
+    private static bool $_readTableEnsured = false;
+    private static function ensureReadTable(PDO $pdo): void
+    {
+        if (self::$_readTableEnsured) return;
+        try {
+            $pdo->exec(
+                'CREATE TABLE IF NOT EXISTS chat_office_gc_reads (
+                    account_id  INT    NOT NULL,
+                    office_id   INT    NOT NULL,
+                    last_read_msg_id BIGINT DEFAULT 0,
+                    PRIMARY KEY (account_id, office_id)
+                )'
+            );
+        } catch (Throwable $e) {
+            error_log('OfficeChatManager::ensureReadTable() — ' . $e->getMessage());
+        }
+        self::$_readTableEnsured = true;
+    }
+
+    /**
+     * Mark all messages in an office GC as read for the given user.
+     */
+    public static function markAsRead(int $officeId, int $accountId): void
+    {
+        if ($officeId <= 0 || $accountId <= 0) return;
+        try {
+            $pdo    = Database::getConnection();
+            self::ensureReadTable($pdo);
+            $convId = self::convId($officeId);
+            $pdo->prepare(
+                'INSERT INTO chat_office_gc_reads (account_id, office_id, last_read_msg_id)
+                 VALUES (:aid, :oid,
+                     COALESCE((SELECT MAX(id) FROM chat_messages WHERE conv_id = :cid AND status = \'active\'), 0)
+                 )
+                 ON CONFLICT (account_id, office_id)
+                 DO UPDATE SET last_read_msg_id = EXCLUDED.last_read_msg_id'
+            )->execute([':aid' => $accountId, ':oid' => $officeId, ':cid' => $convId]);
+        } catch (Throwable $e) {
+            error_log('OfficeChatManager::markAsRead() — ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Return the number of unread messages for a user in an office GC.
+     */
+    public static function getUnreadCount(int $officeId, int $accountId): int
+    {
+        if ($officeId <= 0 || $accountId <= 0) return 0;
+        try {
+            $pdo    = Database::getConnection();
+            self::ensureReadTable($pdo);
+            $convId = self::convId($officeId);
+
+            $rStmt = $pdo->prepare(
+                'SELECT last_read_msg_id FROM chat_office_gc_reads
+                 WHERE account_id = :aid AND office_id = :oid LIMIT 1'
+            );
+            $rStmt->execute([':aid' => $accountId, ':oid' => $officeId]);
+            $lastRead = $rStmt->fetchColumn();
+
+            // If user has never had a read entry, initialize to latest message so old history isn't unread!
+            if ($lastRead === false) {
+                self::markAsRead($officeId, $accountId);
+                return 0;
+            }
+
+            $stmt = $pdo->prepare(
+                "SELECT COUNT(*) FROM chat_messages
+                 WHERE conv_id = :cid
+                   AND status = 'active'
+                   AND sender_id != :aid
+                   AND id > :last_read_id"
+            );
+            $stmt->execute([
+                ':cid'          => $convId,
+                ':aid'          => $accountId,
+                ':last_read_id' => (int) $lastRead,
+            ]);
+            return (int) $stmt->fetchColumn();
+        } catch (Throwable $e) {
+            error_log('OfficeChatManager::getUnreadCount() — ' . $e->getMessage());
+            return 0;
+        }
+    }
 }

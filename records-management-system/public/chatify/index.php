@@ -278,21 +278,10 @@ try {
         </div>
       </div>
 
-      <!-- Pinned Office Group Chat entry (only visible when user belongs to an office) -->
-      <div class="user-item" id="officeChatItem" onclick="selectOfficeChat()" style="border-bottom:1px solid var(--border-color);<?php echo $current_office_id <= 0 ? 'display:none;' : ''; ?>">
-        <div class="user-avatar" style="position:relative;">
-          <img src="cspc.webp" width="48" height="48" alt="CSPC logo" class="avatar-img" style="width:48px;height:48px;object-fit:cover;background:transparent;" draggable="false" ondragstart="return false;" oncontextmenu="return false;">
+      <div class="sidebar-scrollable-container" style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;background-color:var(--bg-secondary);scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;touch-action:pan-y;">
+        <div class="sidebar-users" id="sidebarUsers" style="min-height:auto;flex:none;overflow-y:visible;contain:none;">
+          <!-- Users will be populated here via JS -->
         </div>
-        <div class="user-info">
-          <div class="user-name-row" style="display:flex;align-items:center;justify-content:flex-start;gap:4px;min-width:0;">
-            <div class="user-name" id="officeGcTitle"><?php echo htmlspecialchars($current_office_code !== '' ? $current_office_code : $current_office_name); ?></div>
-            <span class="verified-badge"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-          </div>
-          <div class="user-last-msg" id="officeGcLastMsg"><?php echo htmlspecialchars($current_office_name); ?></div>
-        </div>
-      </div>
-      <div class="sidebar-users" id="sidebarUsers">
-        <!-- Users will be populated here via JS -->
       </div>
       <!-- Admin: View all users chats view -->
       <div id="adminConvsSection" style="display:none;position:relative;">
@@ -537,7 +526,23 @@ try {
       </div>
       <div class="modal-body bell-list" id="notificationBellList"></div>
       <div class="modal-footer">
-        <button class="modal-button cancel-button" id="notificationBellClose">Close</button>
+        <button type="button" class="modal-button cancel-button" id="notificationBellClose">Close</button>
+        <button type="button" class="modal-button confirm-button" id="markAllNotifReadBtn" onclick="markAllNotificationsRead()" disabled>Mark All as Read</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Generic Danger Confirmation Modal (Same design & size as editExpiredModal) -->
+  <div class="modal" id="dangerConfirmModal" aria-hidden="true" style="display:none;align-items:center;justify-content:center;z-index:99999;">
+    <div class="modal-content" style="max-width:340px;width:calc(100% - 32px);min-height:0;box-sizing:border-box;">
+      <div class="modal-header">
+        <h3 id="dangerConfirmTitle" style="color:#c0392b;word-break:break-word;overflow-wrap:anywhere;">Confirm Action</h3>
+      </div>
+      <div class="modal-body" id="dangerConfirmMessage" style="word-break:break-word;overflow-wrap:anywhere;line-height:1.5;">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button cancel-button" id="dangerConfirmCancelBtn" onclick="closeDangerConfirmModal()">Cancel</button>
+        <button type="button" class="modal-button confirm-button" id="dangerConfirmOkBtn" style="color:#c0392b;">Confirm</button>
       </div>
     </div>
   </div>
@@ -545,20 +550,27 @@ try {
   <!-- Office Members Modal (View users in Office GC) -->
   <div class="modal" id="officeMembersModal" aria-hidden="true">
     <div class="modal-content" style="max-width:440px;height:460px;max-height:85vh;display:flex;flex-direction:column;box-sizing:border-box;">
-      <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;flex-shrink:0;">
+      <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0;">
         <div style="min-width:0;flex:1;">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <h3 id="officeMembersModalTitle" style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Office Members</h3>
+          <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+            <h3 id="officeMembersModalTitle" style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:210px;">Office Members</h3>
             <span id="officeMembersCountBadge" style="font-size:11px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:2px 7px;border-radius:10px;flex-shrink:0;">0</span>
           </div>
           <div id="officeMembersModalSubtitle" style="font-size:11px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;">Group Chat Directory</div>
         </div>
+        <button type="button" id="officeMembersAddUserBtn" style="display:none;width:34px;height:34px;border-radius:50%;border:none;background:#1b74e4;color:#ffffff;align-items:center;justify-content:center;cursor:pointer;padding:0;outline:none;flex-shrink:0;transition:opacity 0.15s;" title="Add member to group chat" onclick="openAddGcMembersModal()" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
       </div>
       <div class="modal-body" id="officeMembersList" style="padding:16px;overflow-y:auto;flex:1;min-height:0;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scroll-behavior:smooth;touch-action:pan-y;display:flex;flex-direction:column;gap:8px;">
         <!-- Members populated dynamically via JS -->
       </div>
       <div class="modal-footer" style="flex-shrink:0;">
-        <button type="button" class="modal-button cancel-button" onclick="closeOfficeMembersModal()">Close</button>
+        <button type="button" class="modal-button cancel-button" id="officeMembersCancelBtn" onclick="closeOfficeMembersModal()">Close</button>
+        <button type="button" class="modal-button confirm-button" id="disbandGcBtn" style="display:none;" onclick="disbandCustomGc()">Remove Group</button>
       </div>
     </div>
   </div>
@@ -671,6 +683,19 @@ try {
           </button>
         </div>
         <?php endif; ?>
+
+        <div style="border-top:1px solid var(--border-color);margin-top:8px;padding-top:14px;">
+          <p style="margin:0 0 10px 0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-secondary);">Group Chats</p>
+          <button type="button" id="openCreateCustomGcBtn"
+            style="display:flex;align-items:center;gap:10px;width:100%;background:none;border:1px solid var(--border-color);border-radius:8px;padding:10px 14px;cursor:pointer;color:var(--text-primary);font-size:14px;font-weight:600;text-align:left;transition:background 0.15s;"
+            onmouseover="this.style.background='var(--bg-drop-overlay)'"
+            onmouseout="this.style.background='none'"
+            onclick="openCreateCustomGcModal()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+            Create Custom GC
+            <svg style="margin-left:auto;opacity:0.4;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="modal-button cancel-button" onclick="closeCommSettingsModal()">Close</button>
@@ -696,6 +721,66 @@ try {
       </div>
       <div class="modal-footer">
         <button type="button" class="modal-button cancel-button" onclick="closeUserVerificationModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Custom Group Chat Modal -->
+  <div class="modal" id="createCustomGcModal" aria-hidden="true">
+    <div class="modal-content" style="max-width:440px;">
+      <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:10px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+        <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Create Custom GC</h3>
+      </div>
+      <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px;text-align:left;">
+        <div>
+          <label for="gcNameInput" style="display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">GROUP CHAT NAME</label>
+          <input type="text" id="gcNameInput" placeholder="Enter custom GC name..." maxlength="40" autocomplete="off"
+            style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;outline:none;">
+        </div>
+
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">ADD MEMBERS</label>
+          <div style="position:relative;">
+            <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:0.45;pointer-events:none;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="gcMemberSearchInput" placeholder="Search user to add..." autocomplete="off"
+              style="width:100%;box-sizing:border-box;padding:9px 12px 9px 34px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;outline:none;">
+          </div>
+          <div id="gcMemberSearchResults" style="display:flex;flex-direction:column;gap:8px;min-height:0;margin-top:8px;"></div>
+        </div>
+
+
+      </div>
+      <div class="modal-footer" style="display:flex;justify-content:space-between;">
+        <button type="button" class="modal-button cancel-button" onclick="closeCreateCustomGcModal()">Cancel</button>
+        <button type="button" class="modal-button confirm-button" id="createCustomGcSubmitBtn" onclick="submitCreateCustomGc()">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Members to Custom GC Modal (Same look as User Verification modal) -->
+  <div class="modal" id="addGcMembersModal" aria-hidden="true">
+    <div class="modal-content" style="max-width:460px;">
+      <div class="modal-header" style="padding:16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
+          <div style="min-width:0;flex:1;">
+            <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Add Members</h3>
+            <div id="addGcModalSubtitle" style="font-size:11px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;">Group Chat</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px;text-align:left;">
+        <p style="margin:0;font-size:13px;color:var(--text-secondary);line-height:1.5;">Search for a user by name and toggle to add them to this group chat.</p>
+        <div style="position:relative;">
+          <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:0.45;pointer-events:none;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="addGcSearchInput" placeholder="Search by first or last name..." autocomplete="off"
+            style="width:100%;box-sizing:border-box;padding:9px 12px 9px 34px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;outline:none;">
+        </div>
+        <div id="addGcSearchResults" style="display:flex;flex-direction:column;gap:8px;min-height:40px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="modal-button cancel-button" onclick="closeAddGcMembersModal()">Close</button>
       </div>
     </div>
   </div>

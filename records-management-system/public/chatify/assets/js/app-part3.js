@@ -58,9 +58,16 @@
       const displayName = u.name || u.full_name || '';
       const initials = getInitials(displayName || '?');
       const avatarUrl = u.avatar_url || '';
+      if (avatarUrl) {
+        chatHeaderAvatar.style.background = 'transparent';
+        chatHeaderAvatar.style.backgroundColor = 'transparent';
+      } else {
+        chatHeaderAvatar.style.background = '';
+        chatHeaderAvatar.style.backgroundColor = '';
+      }
       // Cache last-rendered values so re-syncing on every poll doesn't
       // needlessly rebuild the <img> (and re-trigger its network load).
-      if (chatHeaderAvatar.dataset.avatarUrl === avatarUrl && chatHeaderAvatar.dataset.initials === initials && chatHeaderAvatar.style.display === 'flex') {
+      if (chatHeaderAvatar.dataset.avatarUrl === avatarUrl && chatHeaderAvatar.dataset.initials === initials && chatHeaderAvatar.style.display === 'flex' && (!avatarUrl || chatHeaderAvatar.querySelector('img'))) {
         return;
       }
       chatHeaderAvatar.innerHTML = avatarInnerHtml(u.avatar_url, initials);
@@ -74,6 +81,7 @@
         headerImg.ondragstart = function() { return false; };
       }
     }
+    window.applyHeaderAvatar = applyHeaderAvatar;
 
     // ── Verified badge on the chat header (1-on-1 DM title) ──
     // Re-checks every time so switching between conversations correctly adds/removes the badge.
@@ -354,14 +362,9 @@
       openImageViewer(img.dataset.fullSrc || img.src, img.alt);
     });
 
-    // Close: X button, clicking the dark backdrop, or Escape key.
+    // Close: X button or Escape key.
     if (imageViewerCloseBtn) {
       imageViewerCloseBtn.addEventListener('click', closeImageViewer);
-    }
-    if (imageViewerModal) {
-      imageViewerModal.addEventListener('click', function(e) {
-        if (e.target === imageViewerModal) closeImageViewer();
-      });
     }
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape' && imageViewerModal && imageViewerModal.classList.contains('active')) {
@@ -712,14 +715,6 @@
       document.body.style.overflow = '';
     }
 
-    // Close logout modal when clicking outside modal-content
-    if (logoutModal) {
-      logoutModal.addEventListener('click', function(e) {
-        if (e.target === logoutModal) {
-          closeLogoutModal();
-        }
-      });
-    }
 
     // Logout modal buttons
     if (logoutConfirmBtn) {
@@ -1462,12 +1457,6 @@
       if (closeBtn) {
         closeBtn.addEventListener('click', closeReactionsModal);
       }
-
-      modal.addEventListener('click', function(e) {
-        if (e.target === modal) {
-          closeReactionsModal();
-        }
-      });
 
       return modal;
     }
@@ -2471,12 +2460,14 @@
       }
 
       if (rec.type === 'append') {
+        let actuallyAddedCount = 0;
         rec.items.forEach(el => {
           if (el.classList.contains('message-container')) {
             const msgId = el.getAttribute('data-msg-id');
             if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
               return;
             }
+            actuallyAddedCount++;
             if (chatFullyLoaded && !isFirstLoad) {
               const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
               el.classList.add(animClass);
@@ -2492,9 +2483,8 @@
           } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
             scrollToBottom(true, true);
           } else if (userScrolledUp || window.replyJumpActive) {
-            const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
-            if (newlyAppendedCount > 0) {
-              showScrollIndicator(newlyAppendedCount);
+            if (actuallyAddedCount > 0) {
+              showScrollIndicator(actuallyAddedCount);
             } else if (window.replyJumpActive) {
               showScrollIndicator(0);
             }
@@ -2507,10 +2497,16 @@
 
       // Full re-render (only when we truly can't reconcile, e.g. chat was cleared)
       const prevST = chatBox.scrollTop; const prevSH = chatBox.scrollHeight;
+      const curMsgIdSet = new Set(
+        Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'))
+          .map(el => el.getAttribute('data-msg-id'))
+      );
       const curKeySet = new Set(curKeys);
-      const genuinelyNewCount = newMessages.filter(el =>
-        el.classList.contains('message-container') && !curKeySet.has(getMessageKey(el))
-      ).length;
+      const genuinelyNewCount = newMessages.filter(el => {
+        if (!el.classList.contains('message-container')) return false;
+        const msgId = el.getAttribute('data-msg-id');
+        return msgId ? !curMsgIdSet.has(msgId) : !curKeySet.has(getMessageKey(el));
+      }).length;
       chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
       // Deduplicate newMessages during full re-render
@@ -2807,12 +2803,14 @@
       }
 
       if (rec.type === 'append') {
+        let actuallyAddedCount = 0;
         rec.items.forEach(el => {
           if (el.classList.contains('message-container')) {
             const msgId = el.getAttribute('data-msg-id');
             if (msgId && chatBox.querySelector(`.message-container[data-msg-id="${msgId}"]`)) {
               return;
             }
+            actuallyAddedCount++;
             if (chatFullyLoaded && !isFirstLoad) {
               const animClass = el.classList.contains('sent') ? 'msg-animate-sent' : 'msg-animate-received';
               el.classList.add(animClass);
@@ -2832,9 +2830,8 @@
           } else if ((wasAtBottom || !userScrolledUp) && !window.replyJumpActive) {
             scrollToBottom(true, true);
           } else if (userScrolledUp || window.replyJumpActive) {
-            const newlyAppendedCount = rec.items.filter(el => el.classList.contains('message-container')).length;
-            if (newlyAppendedCount > 0) {
-              showScrollIndicator(newlyAppendedCount);
+            if (actuallyAddedCount > 0) {
+              showScrollIndicator(actuallyAddedCount);
             } else if (window.replyJumpActive) {
               showScrollIndicator(0);
             }
@@ -2846,10 +2843,16 @@
 
       // Full re-render (only when we truly can't reconcile, e.g. chat was cleared)
       const prevSTF = chatBox.scrollTop; const prevSHF = chatBox.scrollHeight;
+      const curMsgIdSetF = new Set(
+        Array.from(chatBox.querySelectorAll('.message-container[data-msg-id]'))
+          .map(el => el.getAttribute('data-msg-id'))
+      );
       const curKeySetF = new Set(curKeys);
-      const genuinelyNewCountF = newMessages.filter(el =>
-        el.classList.contains('message-container') && !curKeySetF.has(getMessageKey(el))
-      ).length;
+      const genuinelyNewCountF = newMessages.filter(el => {
+        if (!el.classList.contains('message-container')) return false;
+        const msgId = el.getAttribute('data-msg-id');
+        return msgId ? !curMsgIdSetF.has(msgId) : !curKeySetF.has(getMessageKey(el));
+      }).length;
       chatBox.querySelectorAll('.message-container, .seen-indicator, .empty-chat, #loadOlderBtn, #noMoreOlderNotice').forEach(el => el.remove());
       
       const renderedIdsF = new Set();
@@ -3059,8 +3062,38 @@
               chatFullyLoaded = false;
               isLoadingAdminConv = false;
               loadAdminConv(clearedAdminConv, false);
+            } else if (clearedAdminConv.startsWith('gc_')) {
+              // Custom GC spy mode clear — reset all loading flags before reloading
+              chatBox.innerHTML = '<div class="empty-chat"></div>';
+              isFirstLoad = true;
+              chatFullyLoaded = false;
+              isLoadingAdminConv = false;
+              if (typeof adminConvXhr !== 'undefined' && adminConvXhr) {
+                try { adminConvXhr.abort(); } catch(e) {}
+                adminConvXhr = null;
+              }
+              adminConvCursor = '';
+              adminConvHasMore = false;
+              adminConvViewingOlder = false;
+              // Immediately update spy list item count in memory
+              if (typeof adminSpyConvs !== 'undefined' && Array.isArray(adminSpyConvs)) {
+                const foundConv = adminSpyConvs.find(c => c.convId === clearedAdminConv);
+                if (foundConv) {
+                  foundConv.msgCount = 0;
+                  if (typeof renderAdminConvs === 'function') renderAdminConvs();
+                }
+              }
+              loadAdminConv(clearedAdminConv, false);
+              // Refresh the admin convs list from server so the message count updates
+              if (typeof window.fetchAdminConvs === 'function' && window.adminSpyTargetUser) {
+                window.fetchAdminConvs('', 0, false, window.adminSpyTargetUser.account_id);
+              } else if (typeof window.fetchAdminConvs === 'function') {
+                const _adminQ = document.getElementById('adminSearchInput');
+                if (_adminQ && _adminQ.value.trim() !== '') window.fetchAdminConvs(_adminQ.value.trim(), 0, false, 0);
+              }
             } else {
               chatBox.innerHTML = '<div class="empty-chat"></div>';
+              isLoadingAdminConv = false;
               loadAdminConv(clearedAdminConv, false);
               fetchUsers();
             }
@@ -3080,11 +3113,13 @@
               const targetConvId = (typeof getActiveChannelConvId === 'function')
                 ? getActiveChannelConvId()
                 : (window.activeChannel === 'office' ? (window.currentOfficeInfo && window.currentOfficeInfo.conv_id) : 'global');
+              const isCustomGcClear = targetConvId && targetConvId.startsWith('gc_');
+              const isOfficeClear   = targetConvId && targetConvId.startsWith('office_');
               ws.send(JSON.stringify({
                 type: 'chat_cleared',
-                chat_type: (targetConvId && targetConvId.startsWith('office_')) ? 'office_gc' : 'global',
+                chat_type: isCustomGcClear ? 'custom_gc' : (isOfficeClear ? 'office_gc' : 'global'),
                 conv_id: targetConvId || 'global',
-                office_id: (targetConvId && targetConvId.startsWith('office_')) ? (window.currentOfficeInfo && window.currentOfficeInfo.office_id) : null,
+                office_id: isOfficeClear ? (window.currentOfficeInfo && window.currentOfficeInfo.office_id) : null,
                 sender_id: wsConfig.accountId
               }));
             } else if (clearedDM && clearedDMAccId) {
@@ -3105,6 +3140,13 @@
                   chat_type: targetOfficeId ? 'office_gc' : 'global',
                   conv_id: clearedAdminConv,
                   office_id: targetOfficeId,
+                  sender_id: wsConfig.accountId
+                }));
+              } else if (clearedAdminConv.startsWith('gc_')) {
+                ws.send(JSON.stringify({
+                  type: 'chat_cleared',
+                  chat_type: 'custom_gc',
+                  conv_id: clearedAdminConv,
                   sender_id: wsConfig.accountId
                 }));
               } else {
@@ -3136,16 +3178,22 @@
 
       let params = "secret=" + encodeURIComponent(secret);
       if (isGlobalChat) {
-        params += "&global=1";
         const targetConvId = (typeof getActiveChannelConvId === 'function')
           ? getActiveChannelConvId()
           : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
-        params += "&conv_id=" + encodeURIComponent(targetConvId);
+        // Custom GC — do NOT send global=1, just send the gc_ conv_id directly
+        if (targetConvId && targetConvId.startsWith('gc_')) {
+          params += "&conv_id=" + encodeURIComponent(targetConvId);
+        } else {
+          params += "&global=1";
+          params += "&conv_id=" + encodeURIComponent(targetConvId);
+        }
       } else if (activeDMAccountId) {
         params += "&target_id=" + encodeURIComponent(activeDMAccountId) + "&target_user=" + encodeURIComponent(activeDM);
       } else if (activeDM) {
         params += "&target_user=" + encodeURIComponent(activeDM);
       } else if (activeAdminConv) {
+        // Custom GC spy mode — send conv_id directly (no global flag)
         params += "&conv_id=" + encodeURIComponent(activeAdminConv);
       }
       xhr.send(params);
@@ -3875,9 +3923,10 @@
             const wasEditing = !!capturedEditingMsgId;
             const targetConvId = (typeof getActiveChannelConvId === 'function')
               ? getActiveChannelConvId()
-              : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : 'global');
+              : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
             const isOffice = isGlobalChat && Boolean(targetConvId && targetConvId.startsWith('office_'));
-            const effectiveChatType = isGlobalChat ? (isOffice ? 'office_gc' : 'global') : 'private';
+            const isCustomGc = isGlobalChat && Boolean(targetConvId && targetConvId.startsWith('gc_'));
+            const effectiveChatType = isGlobalChat ? (isCustomGc ? 'custom_gc' : (isOffice ? 'office_gc' : 'global')) : 'private';
 
             if (wasEditing) {
               ws.send(JSON.stringify({
@@ -3925,10 +3974,15 @@
 
           // Bump the conversation to the top of the sidebar after a successful send.
           // No fetch needed — we just move the user row up in-place.
-          if (!isGlobalChat && activeDM) {
-            if (!bumpSidebarUser(activeDM, {})) {
-              // Conversation partner isn't in the currently loaded/filtered
-              // sidebar list (e.g. still under a search filter).
+          if (isGlobalChat) {
+            const targetConvId = (typeof getActiveChannelConvId === 'function')
+              ? getActiveChannelConvId()
+              : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+            if (targetConvId && (targetConvId.startsWith('gc_') || targetConvId.startsWith('office_'))) {
+              bumpSidebarUser(targetConvId, { lastMessage: message });
+            }
+          } else if (activeDM) {
+            if (!bumpSidebarUser(activeDM, { lastMessage: message })) {
               fetchUsers();
             }
           }
@@ -4312,11 +4366,6 @@
       closeCommSettingsModal();
     };
 
-    // Backdrop click listener for closing comm settings modal
-    document.getElementById('commSettingsModal')?.addEventListener('click', function(e) {
-      if (e.target === this) closeCommSettingsModal();
-    });
-
     // Attach click listener directly to settings button
     const commBtn = document.getElementById('commSettingsBtn');
     if (commBtn) {
@@ -4352,11 +4401,6 @@
       }
     };
 
-    // Backdrop click closes the modal
-    document.getElementById('userVerificationModal')?.addEventListener('click', function(e) {
-      if (e.target === this) closeUserVerificationModal();
-    });
-
     // Search on input with 400ms debounce — no fetch-all
     const verifyInput = document.getElementById('verifySearchInput');
     if (verifyInput) {
@@ -4382,6 +4426,7 @@
               users.forEach(u => {
                 const row = document.createElement('div');
                 row.dataset.accountId = u.account_id;
+                row.setAttribute('data-account-id', u.account_id);
                 row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
 
                 // Name + badge
@@ -4573,7 +4618,8 @@
     }
 
     window._syncVerifyModalRow = function(accountId, isVerified) {
-      const row = document.querySelector(`#verifySearchResults [data-account-id="${accountId}"]`);
+      const row = document.querySelector(`#verifySearchResults [data-account-id="${accountId}"]`) ||
+        Array.from(document.querySelectorAll('#verifySearchResults > div')).find(el => Number(el.dataset?.accountId || el.getAttribute?.('data-account-id')) === Number(accountId));
       if (!row) return;
 
       const chk = row.querySelector('input[type="checkbox"]');
@@ -4736,12 +4782,6 @@
         xhr.send('secretKey=' + encodeURIComponent(secretInput.value));
       });
       
-      // Close modal when clicking outside
-      confirmModal.addEventListener("click", function(e) {
-        if (e.target === confirmModal) {
-          closeModal();
-        }
-      });
     }
 
     // ── "/backup" modal wiring (mirrors the /clear wiring above) ──────────────
@@ -4808,18 +4848,9 @@
         }
         runBackup();
       });
-
-      backupConfirmModalEl.addEventListener('click', function(e) {
-        if (e.target === backupConfirmModalEl) closeBackupConfirmModal();
-      });
     }
 
     const backupAlreadyDoneModalEl = document.getElementById('backupAlreadyDoneModal');
-    if (backupAlreadyDoneModalEl) {
-      backupAlreadyDoneModalEl.addEventListener('click', function(e) {
-        if (e.target === backupAlreadyDoneModalEl) closeBackupAlreadyDoneModal();
-      });
-    }
 
     // User Mention Autocomplete System Completely Removed
 
@@ -5423,15 +5454,6 @@
     window.showEditLimitModal = showEditLimitModal;
     window.closeEditExpiredModal = closeEditExpiredModal;
 
-    const editExpiredModalEl = document.getElementById('editExpiredModal');
-    if (editExpiredModalEl) {
-      editExpiredModalEl.addEventListener('click', function(e) {
-        if (e.target === editExpiredModalEl) {
-          closeEditExpiredModal();
-        }
-      });
-    }
-
     // ── Scroll anchoring for content that resizes above the viewport ──────
     // The backread "glitch": messages are prepended above the current
     // scroll position, and their image thumbnails don't have a reserved
@@ -5644,8 +5666,15 @@
               if (isGlobalChat) {
                 isLoadingGC = false;
                 loadGlobalChat(false);
+                const targetConvId = (typeof getActiveChannelConvId === 'function')
+                  ? getActiveChannelConvId()
+                  : (window.activeChannel === 'office' ? window.currentOfficeInfo?.conv_id : (window.activeChannel === 'gc' ? window.activeCustomGc?.conv_id : 'global'));
+                if (targetConvId && (targetConvId.startsWith('gc_') || targetConvId.startsWith('office_'))) {
+                  bumpSidebarUser(targetConvId, { lastMessage: 'Sent a file' });
+                }
               } else if (activeDM) {
                 loadChatForced();
+                bumpSidebarUser(activeDM, { lastMessage: 'Sent a file' });
               }
             }
           } else {
@@ -5835,6 +5864,7 @@
       window._startSidebarPoll = startSidebarPoll;
       startSidebarPoll();
       fetchUsers();
+      if (typeof loadCustomGcs === 'function') loadCustomGcs();
 
       // One-shot catch-up for any notify/mention toasts that arrived while we
       // were offline (e.g. a missed WS push before this tab connected). Live
@@ -5856,10 +5886,19 @@
         }
 
         // 2. Immediately catch up on any messages missed while hidden (only if not backreading)
+        const isBackreading = (gcViewingOlder || userScrolledUp || (typeof isAtBottom === 'function' && !isAtBottom(60)));
         if (isGlobalChat) {
-          if (!gcViewingOlder) loadGlobalChat(false);
+          if (!isBackreading) {
+            // Reset the scroll indicator unread count before reloading so the
+            // reconcile computes a fresh genuinely-new count from the DOM diff
+            // rather than stacking on top of WS-push increments that fired
+            // while the tab was hidden / WS was reconnecting.
+            hideScrollIndicator(true);
+            loadGlobalChat(false);
+          }
         } else if (activeDM) {
-          if (!dmViewingOlder) {
+          const isDmBackreading = (dmViewingOlder || userScrolledUp || (typeof isAtBottom === 'function' && !isAtBottom(60)));
+          if (!isDmBackreading) {
             loadChat(false);
             if (typeof shouldMarkReadNow === 'function' && shouldMarkReadNow()) {
               markRead(activeDM);
@@ -5871,6 +5910,7 @@
 
         // 3. Also refresh sidebar so unread badges are current
         fetchUsers();
+        if (typeof loadCustomGcs === 'function') loadCustomGcs();
 
         // 3b. Catch up immediately on session validity + own-name changes,
         // since checkSession()/refreshOwnName() now skip ticks while hidden.
@@ -6075,3 +6115,420 @@
       const wsAlive = ws && ws.readyState === WebSocket.OPEN;
       if (!wsAlive) refreshOwnName();
     }, 15000);
+
+    // =========================================================================
+    // Custom Group Chat (GC) Modals & Interactions
+    // =========================================================================
+
+    window._gcSelectedMembers = new Map(); // account_id -> { account_id, full_name, avatar_url, is_chatify_verified }
+    let _gcSearchTimer = null;
+    let _addGcSearchTimer = null;
+
+    function renderGcSelectedChips() {
+      // Selected chips display removed per UI update
+    }
+
+    window.openCreateCustomGcModal = function() {
+      if (typeof closeCommSettingsModal === 'function') closeCommSettingsModal();
+      const modal = document.getElementById('createCustomGcModal');
+      if (!modal) return;
+
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+
+      const nameInput = document.getElementById('gcNameInput');
+      if (nameInput) {
+        nameInput.value = '';
+        setTimeout(() => nameInput.focus(), 80);
+      }
+      const searchInput = document.getElementById('gcMemberSearchInput');
+      if (searchInput) searchInput.value = '';
+
+      const results = document.getElementById('gcMemberSearchResults');
+      if (results) results.innerHTML = '';
+
+      window._gcSelectedMembers.clear();
+    };
+
+    window.closeCreateCustomGcModal = function() {
+      const modal = document.getElementById('createCustomGcModal');
+      if (!modal) return;
+      modal.classList.remove('active');
+      modal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    };
+
+    // Search user for Create Custom GC (max 3 results)
+    const gcSearchInput = document.getElementById('gcMemberSearchInput');
+    if (gcSearchInput) {
+      gcSearchInput.addEventListener('input', function() {
+        clearTimeout(_gcSearchTimer);
+        const q = this.value.trim();
+        const resultsEl = document.getElementById('gcMemberSearchResults');
+        if (!resultsEl) return;
+
+        if (q === '') {
+          resultsEl.innerHTML = '';
+          return;
+        }
+
+        _gcSearchTimer = setTimeout(() => {
+          resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Searching...</div>';
+          fetch('search_users_gc.php?q=' + encodeURIComponent(q))
+            .then(r => r.json())
+            .then(data => {
+              const users = (data.users || []).slice(0, 1);
+              if (users.length === 0) {
+                resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">No users found.</div>';
+                return;
+              }
+              resultsEl.innerHTML = '';
+              users.forEach(u => {
+                const isSelected = window._gcSelectedMembers.has(u.account_id);
+                const row = document.createElement('div');
+                row.dataset.accountId = u.account_id;
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
+
+                const nameSpan = document.createElement('span');
+                nameSpan.style.cssText = 'flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px;';
+
+                const nameTextSpan = document.createElement('span');
+                nameTextSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                nameTextSpan.textContent = u.full_name;
+                nameTextSpan.title = u.full_name;
+                nameSpan.appendChild(nameTextSpan);
+
+                if (u.is_chatify_verified) {
+                  const b = document.createElement('span');
+                  b.className = 'verified-badge';
+                  b.style.cssText = 'flex-shrink:0;';
+                  b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                  nameSpan.appendChild(b);
+                }
+
+                // Toggle switch
+                const label = document.createElement('label');
+                label.style.cssText = 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;';
+                const chk = document.createElement('input');
+                chk.type = 'checkbox';
+                chk.checked = isSelected;
+                chk.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
+                const slider = document.createElement('span');
+                slider.className = 'slider-bg';
+                slider.style.cssText = `position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:${chk.checked ? '#1b74e4' : 'var(--border-color)'};`;
+                const knob = document.createElement('span');
+                knob.className = 'slider-knob';
+                knob.style.cssText = `position:absolute;top:3px;left:${chk.checked ? '21px' : '3px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s,background 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);`;
+                slider.appendChild(knob);
+                label.appendChild(chk);
+                label.appendChild(slider);
+
+                chk.addEventListener('change', function() {
+                  const checked = this.checked;
+                  slider.style.background = checked ? '#1b74e4' : 'var(--border-color)';
+                  knob.style.left = checked ? '21px' : '3px';
+                  if (checked) {
+                    window._gcSelectedMembers.set(u.account_id, u);
+                  } else {
+                    window._gcSelectedMembers.delete(u.account_id);
+                  }
+                });
+
+                row.appendChild(nameSpan);
+                row.appendChild(label);
+                resultsEl.appendChild(row);
+              });
+            })
+            .catch(() => {
+              resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Error searching users.</div>';
+            });
+        }, 300);
+      });
+    }
+
+    window.submitCreateCustomGc = function() {
+      const nameInput = document.getElementById('gcNameInput');
+      const groupName = nameInput ? nameInput.value.trim() : '';
+
+      if (groupName === '') {
+        alert('Please enter a group chat name.');
+        if (nameInput) nameInput.focus();
+        return;
+      }
+
+      if (groupName.length > 50) {
+        alert('Group chat name must be 50 characters or less.');
+        if (nameInput) nameInput.focus();
+        return;
+      }
+
+      if (!window._gcSelectedMembers || window._gcSelectedMembers.size === 0) {
+        alert('Please select at least one member to add to the group chat.');
+        return;
+      }
+
+      const submitBtn = document.getElementById('createCustomGcSubmitBtn');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creating...';
+      }
+
+      const memberIds = Array.from(window._gcSelectedMembers.keys());
+      const bodyData = new FormData();
+      bodyData.append('name', groupName);
+      bodyData.append('member_ids', JSON.stringify(memberIds));
+
+      fetch('create_custom_gc.php', {
+        method: 'POST',
+        body: bodyData,
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Create';
+          }
+          if (!data || !data.success) {
+            alert(data.error || 'Failed to create group chat.');
+            return;
+          }
+
+          closeCreateCustomGcModal();
+          if (typeof loadCustomGcs === 'function') {
+            loadCustomGcs();
+          }
+
+          // Open the new group chat
+          const newGc = {
+            gc_id: data.group_id,
+            conv_id: data.conv_id,
+            name: data.name,
+            member_count: memberIds.length + 1,
+            creator_id: wsConfig.accountId
+          };
+          if (typeof selectCustomGc === 'function') {
+            selectCustomGc(newGc);
+          }
+        })
+        .catch(err => {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Create';
+          }
+          alert('Network error while creating group chat.');
+        });
+    };
+
+    // =========================================================================
+    // Add Members to Existing Custom GC Modal (Same look as User Verification)
+    // =========================================================================
+
+    window.openAddGcMembersModal = function() {
+      if (!window.activeCustomGc) return;
+      const modal = document.getElementById('addGcMembersModal');
+      if (!modal) return;
+
+      const subEl = document.getElementById('addGcModalSubtitle');
+      if (subEl) {
+        const rawName = window.activeCustomGc.name || 'Group Chat';
+        subEl.textContent = rawName.length > 25 ? (rawName.slice(0, 25).trimEnd() + '...') : rawName;
+        subEl.title = rawName;
+      }
+
+      const searchInput = document.getElementById('addGcSearchInput');
+      if (searchInput) {
+        searchInput.value = '';
+        setTimeout(() => searchInput.focus(), 80);
+      }
+
+      const results = document.getElementById('addGcSearchResults');
+      if (results) results.innerHTML = '';
+
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+
+      // Fetch fresh members for this specific GC so isAlreadyInGc is always accurate
+      const gcId = window.activeCustomGc.gc_id;
+      fetch('fetch_custom_gc_members.php?group_id=' + encodeURIComponent(gcId))
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.success) {
+            window.activeCustomGcMembers = data.members || [];
+          }
+        })
+        .catch(() => {});
+    };
+
+    window.closeAddGcMembersModal = function() {
+      const modal = document.getElementById('addGcMembersModal');
+      if (!modal) return;
+      modal.classList.remove('active');
+      modal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+
+      // Refresh members modal if open
+      if (typeof reloadOfficeMembersList === 'function') {
+        reloadOfficeMembersList(false);
+      }
+      if (typeof loadCustomGcs === 'function') {
+        loadCustomGcs();
+      }
+    };
+
+    const addGcSearchInput = document.getElementById('addGcSearchInput');
+    if (addGcSearchInput) {
+      addGcSearchInput.addEventListener('input', function() {
+        clearTimeout(_addGcSearchTimer);
+        const q = this.value.trim();
+        const resultsEl = document.getElementById('addGcSearchResults');
+        if (!resultsEl) return;
+
+        if (q === '') {
+          resultsEl.innerHTML = '';
+          return;
+        }
+
+        _addGcSearchTimer = setTimeout(() => {
+          resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Searching...</div>';
+          const gcId = window.activeCustomGc ? window.activeCustomGc.gc_id : 0;
+          fetch('search_users_gc.php?q=' + encodeURIComponent(q) + (gcId ? '&group_id=' + encodeURIComponent(gcId) : ''))
+            .then(r => r.json())
+            .then(data => {
+              const currentMembers = Array.isArray(window.activeCustomGcMembers) ? window.activeCustomGcMembers : [];
+              const rawUsers = data.users || [];
+              const availableUsers = rawUsers.filter(u => !currentMembers.some(m => Number(m.account_id) === Number(u.account_id)));
+              const users = availableUsers.slice(0, 1); // max 1 result only
+              if (users.length === 0) {
+                resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">No users found.</div>';
+                return;
+              }
+
+              resultsEl.innerHTML = '';
+
+              users.forEach(u => {
+                const isAlreadyInGc = false;
+                const row = document.createElement('div');
+                row.dataset.accountId = u.account_id;
+                row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);';
+
+                const nameSpan = document.createElement('span');
+                nameSpan.style.cssText = 'flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:6px;';
+
+                const nameTextSpan = document.createElement('span');
+                nameTextSpan.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                nameTextSpan.textContent = u.full_name;
+                nameTextSpan.title = u.full_name;
+                nameSpan.appendChild(nameTextSpan);
+
+                if (u.is_chatify_verified) {
+                  const b = document.createElement('span');
+                  b.className = 'verified-badge';
+                  b.style.cssText = 'flex-shrink:0;';
+                  b.innerHTML = `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="#1b74e4"/><path d="M7 12.5l3.5 3.5 6.5-7" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                  nameSpan.appendChild(b);
+                }
+
+                row.appendChild(nameSpan);
+
+                const isCreator = (window.activeCustomGc && Number(window.activeCustomGc.creator_id) === Number(u.account_id));
+
+                // Toggle switch
+                const label = document.createElement('label');
+                label.style.cssText = 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;cursor:pointer;';
+                const chk = document.createElement('input');
+                chk.type = 'checkbox';
+                chk.checked = false;
+                if (isCreator) chk.disabled = true;
+                chk.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
+                const slider = document.createElement('span');
+                slider.className = 'slider-bg';
+                slider.style.cssText = 'position:absolute;inset:0;border-radius:22px;transition:background 0.2s;background:var(--border-color);';
+                const knob = document.createElement('span');
+                knob.className = 'slider-knob';
+                knob.style.cssText = 'position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left 0.2s,background 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.3);';
+                slider.appendChild(knob);
+                label.appendChild(chk);
+                label.appendChild(slider);
+                row.appendChild(label);
+
+                chk.addEventListener('change', function() {
+                  if (!window.activeCustomGc) return;
+                  // Only allow adding (checking ON) in this modal — cannot uncheck
+                  if (!this.checked) {
+                    // Prevent unchecking: snap back to checked
+                    this.checked = true;
+                    slider.style.background = '#1b74e4';
+                    knob.style.left = '21px';
+                    return;
+                  }
+                  const targetId = Number(u.account_id);
+                  const groupId = window.activeCustomGc.gc_id;
+
+                  this.disabled = true;
+                  label.style.cursor = 'not-allowed';
+                  slider.style.background = '#1b74e4';
+                  knob.style.left = '21px';
+
+                  const bodyData = new FormData();
+                  bodyData.append('group_id', groupId);
+                  bodyData.append('member_ids', JSON.stringify([targetId]));
+
+                  fetch('add_custom_gc_members.php', {
+                    method: 'POST',
+                    body: bodyData,
+                  })
+                    .then(r => r.json())
+                    .then(res => {
+                      if (res && res.success) {
+                        // Keep permanently checked and disabled — added successfully
+                        chk.disabled = true;
+                        label.title = 'Already added';
+                        slider.style.background = '#1b74e4'; // blue = confirmed added
+                        if (!Array.isArray(window.activeCustomGcMembers)) {
+                          window.activeCustomGcMembers = [];
+                        }
+                        if (!window.activeCustomGcMembers.some(m => Number(m.account_id) === targetId)) {
+                          window.activeCustomGcMembers.push({
+                            account_id: u.account_id,
+                            full_name: u.full_name,
+                            avatar_url: u.avatar_url,
+                            is_chatify_verified: u.is_chatify_verified
+                          });
+                        }
+                        if (typeof reloadOfficeMembersList === 'function') {
+                          reloadOfficeMembersList(true);
+                        }
+                        if (typeof loadGlobalChat === 'function') {
+                          loadGlobalChat(false, false, true);
+                        }
+                      } else {
+                        // Failed — reset to unchecked so they can retry
+                        chk.disabled = false;
+                        chk.checked = false;
+                        label.style.cursor = 'pointer';
+                        slider.style.background = 'var(--border-color)';
+                        knob.style.left = '3px';
+                        alert(res?.error || 'Failed to add member.');
+                      }
+                    })
+                    .catch(() => {
+                      chk.disabled = false;
+                      chk.checked = false;
+                      label.style.cursor = 'pointer';
+                      slider.style.background = 'var(--border-color)';
+                      knob.style.left = '3px';
+                      alert('Network error adding member.');
+                    });
+                });
+
+                resultsEl.appendChild(row);
+              });
+            })
+            .catch(() => {
+              resultsEl.innerHTML = '<div style="font-size:13px;color:var(--text-secondary);padding:6px 0;">Error searching users.</div>';
+            });
+        }, 300);
+      });
+    }

@@ -54,11 +54,12 @@ if (!$group) {
     exit;
 }
 
-// Authorization: strictly group creator only
+// Authorization: group creator or promoted group admin
 $isCreator = ((int) $group['creator_id'] === $requesterId);
-if (!$isCreator) {
+$isGroupAdmin = CustomGroupManager::isGroupAdmin($groupId, $requesterId);
+if (!$isCreator && !$isGroupAdmin) {
     http_response_code(403);
-    echo json_encode(['success' => false, 'error' => 'Only the group creator can add members.']);
+    echo json_encode(['success' => false, 'error' => 'Only group admins can add members.']);
     exit;
 }
 

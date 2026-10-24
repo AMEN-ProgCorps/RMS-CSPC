@@ -42,13 +42,23 @@ if (!Auth::isAdmin() && !CustomGroupManager::isMember($groupId, $myAccountId)) {
 }
 
 $isCreator = ((int) $group['creator_id'] === $myAccountId);
-$isGcAdmin = $isCreator; // Strictly only the user who created the group is the admin
+$isGcAdmin = $isCreator || CustomGroupManager::isGroupAdmin($groupId, $myAccountId);
 
 $members = CustomGroupManager::getMembers($groupId);
 foreach ($members as &$m) {
     $m['is_creator'] = ((int) $m['account_id'] === (int) $group['creator_id']);
+    $m['is_admin'] = (bool) (!empty($m['is_admin']) || $m['is_creator']);
 }
 unset($m);
+
+usort($members, function ($a, $b) {
+    $aPriority = !empty($a['is_creator']) ? 2 : (!empty($a['is_admin']) ? 1 : 0);
+    $bPriority = !empty($b['is_creator']) ? 2 : (!empty($b['is_admin']) ? 1 : 0);
+    if ($aPriority !== $bPriority) {
+        return $bPriority <=> $aPriority; // Creator first, then admins, then members
+    }
+    return strcasecmp($a['full_name'] ?? '', $b['full_name'] ?? '');
+});
 
 echo json_encode([
     'success' => true,

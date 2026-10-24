@@ -38,10 +38,12 @@ if (!$group) {
 }
 
 $isCreator = ((int) $group['creator_id'] === $myAccountId);
+$isGroupAdmin = CustomGroupManager::isGroupAdmin($groupId, $myAccountId);
+$isSuperAdmin = Auth::isAdmin();
 
-if (!$isCreator) {
+if (!$isCreator && !$isGroupAdmin && !$isSuperAdmin) {
     http_response_code(403);
-    echo json_encode(['success' => false, 'error' => 'Only the group creator can disband this group.']);
+    echo json_encode(['success' => false, 'error' => 'Only group admins can remove this group.']);
     exit;
 }
 

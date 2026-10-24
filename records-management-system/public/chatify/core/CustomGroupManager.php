@@ -42,6 +42,7 @@ class CustomGroupManager
                 ALTER TABLE chat_custom_group_members ADD COLUMN IF NOT EXISTS last_read_msg_id BIGINT DEFAULT 0;
                 ALTER TABLE chat_custom_group_members ADD COLUMN IF NOT EXISTS last_opened_at TIMESTAMP WITH TIME ZONE;
                 ALTER TABLE chat_custom_group_members ADD COLUMN IF NOT EXISTS new_member_seen BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE chat_custom_group_members ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
             ");
         } catch (Throwable $t) {
             error_log('CustomGroupManager::ensureTables() — ' . $t->getMessage());
@@ -325,6 +326,7 @@ class CustomGroupManager
 
             $stmt = $pdo->prepare(
                 "SELECT m.account_id,
+                        COALESCE(m.is_admin, FALSE) AS is_admin,
                         ad.first_name,
                         ad.last_name,
                         ad.avatar_url,
@@ -348,8 +350,9 @@ class CustomGroupManager
                     'account_id'          => (int) $row['account_id'],
                     'full_name'           => $fullName,
                     'avatar_url'          => $row['avatar_url'] ?? null,
-                    'is_chatify_verified' => filter_var($row['is_chatify_verified'] ?? false, FILTER_VALIDATE_BOOLEAN),
-                    'is_online'           => (bool) $row['is_currently_online'],
+                    'is_chatify_verified' => in_array($row['is_chatify_verified'] ?? false, [true, 1, '1', 't', 'true', 'TRUE'], true),
+                    'is_online'           => in_array($row['is_currently_online'] ?? false, [true, 1, '1', 't', 'true', 'TRUE'], true),
+                    'is_admin'            => in_array($row['is_admin'] ?? false, [true, 1, '1', 't', 'true', 'TRUE'], true),
                 ];
             }
             return $members;
@@ -377,7 +380,8 @@ class CustomGroupManager
         if (!$group) return false;
 
         $isCreator = ((int) $group['creator_id'] === $requesterId);
-        if (!$isCreator) {
+        $isGroupAdmin = self::isGroupAdmin($groupId, $requesterId);
+        if (!$isCreator && !$isGroupAdmin) {
             return false;
         }
 
@@ -434,6 +438,117 @@ class CustomGroupManager
             return true;
         } catch (Throwable $e) {
             error_log('CustomGroupManager::removeMember() — ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Check if a user is an admin of a custom group (either creator or promoted admin).
+     */
+    public static function isGroupAdmin(int $groupId, int $accountId): bool
+    {
+        if ($groupId <= 0 || $accountId <= 0) return false;
+        try {
+            $pdo = Database::getConnection();
+            self::ensureTables($pdo);
+
+            $stmt = $pdo->prepare('SELECT creator_id FROM chat_custom_groups WHERE id = :id');
+            $stmt->execute([':id' => $groupId]);
+            $creatorId = $stmt->fetchColumn();
+            if ($creatorId !== false && (int)$creatorId === $accountId) {
+                return true;
+            }
+
+            $mStmt = $pdo->prepare('SELECT is_admin FROM chat_custom_group_members WHERE group_id = :gid AND account_id = :aid');
+            $mStmt->execute([':gid' => $groupId, ':aid' => $accountId]);
+            $val = $mStmt->fetchColumn();
+            return in_array($val, [true, 1, '1', 't', 'true', 'TRUE'], true);
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Rename a custom group chat.
+     * Can only be called by a group admin (creator or promoted admin) or super admin.
+     */
+    public static function renameGroup(int $groupId, string $newName, int $requesterId): bool
+    {
+        $newName = mb_substr(trim($newName), 0, 40);
+        if ($newName === '' || $groupId <= 0) {
+            return false;
+        }
+
+        try {
+            $pdo = Database::getConnection();
+            self::ensureTables($pdo);
+
+            $group = self::getGroup($groupId);
+            if (!$group) {
+                return false;
+            }
+
+            $isCreator = ((int)$group['creator_id'] === $requesterId);
+            $isSuperAdmin = Auth::isAdmin();
+            $isGroupAdmin = self::isGroupAdmin($groupId, $requesterId);
+
+            if (!$isCreator && !$isSuperAdmin && !$isGroupAdmin) {
+                return false;
+            }
+
+            $stmt = $pdo->prepare('UPDATE chat_custom_groups SET name = :name WHERE id = :id');
+            return $stmt->execute([
+                ':name' => $newName,
+                ':id'   => $groupId,
+            ]);
+        } catch (Throwable $e) {
+            error_log('CustomGroupManager::renameGroup() — ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Promote or demote a group member to/from admin.
+     * Can only be called by a group admin (creator or admin) or super admin.
+     * Cannot modify creator's admin status.
+     */
+    public static function setMemberAdmin(int $groupId, int $targetAccountId, bool $isAdmin, int $requesterId): bool
+    {
+        if ($groupId <= 0 || $targetAccountId <= 0) return false;
+        try {
+            $pdo = Database::getConnection();
+            self::ensureTables($pdo);
+
+            $group = self::getGroup($groupId);
+            if (!$group) return false;
+
+            // Creator is always admin, cannot demote creator
+            if ((int)$group['creator_id'] === $targetAccountId) {
+                return false;
+            }
+
+            $isCreator = ((int)$group['creator_id'] === $requesterId);
+            $isSuperAdmin = Auth::isAdmin();
+            $isGroupAdmin = self::isGroupAdmin($groupId, $requesterId);
+
+            if (!$isCreator && !$isSuperAdmin && !$isGroupAdmin) {
+                return false;
+            }
+
+            if (!self::isMember($groupId, $targetAccountId)) {
+                return false;
+            }
+
+            $stmt = $pdo->prepare(
+                'UPDATE chat_custom_group_members SET is_admin = :is_admin WHERE group_id = :gid AND account_id = :aid'
+            );
+            return $stmt->execute([
+                ':is_admin' => $isAdmin ? 'true' : 'false',
+                ':gid'      => $groupId,
+                ':aid'      => $targetAccountId,
+            ]);
+        } catch (Throwable $e) {
+            error_log('CustomGroupManager::setMemberAdmin() — ' . $e->getMessage());
             return false;
         }
     }

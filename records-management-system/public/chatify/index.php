@@ -728,9 +728,10 @@ try {
   <!-- Create Custom Group Chat Modal -->
   <div class="modal" id="createCustomGcModal" aria-hidden="true">
     <div class="modal-content" style="max-width:440px;">
-      <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:10px;">
+      <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:8px;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
         <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Create Custom GC</h3>
+        <span id="gcSelectedCountBadge" style="display:none;font-size:11px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:2px 7px;border-radius:10px;">0</span>
       </div>
       <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px;text-align:left;">
         <div>
@@ -753,7 +754,28 @@ try {
       </div>
       <div class="modal-footer" style="display:flex;justify-content:space-between;">
         <button type="button" class="modal-button cancel-button" onclick="closeCreateCustomGcModal()">Cancel</button>
-        <button type="button" class="modal-button confirm-button" id="createCustomGcSubmitBtn" onclick="submitCreateCustomGc()">Create</button>
+        <button type="button" class="modal-button confirm-button" id="createCustomGcSubmitBtn" onclick="submitCreateCustomGc()" disabled>Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename Custom Group Chat Modal -->
+  <div class="modal" id="renameCustomGcModal" aria-hidden="true">
+    <div class="modal-content" style="max-width:440px;">
+      <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:10px;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+        <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Change Group Name</h3>
+      </div>
+      <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px;text-align:left;">
+        <div>
+          <label for="renameGcInput" style="display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">GROUP CHAT NAME</label>
+          <input type="text" id="renameGcInput" placeholder="Enter new group name..." maxlength="40" autocomplete="off"
+            style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary);color:var(--text-primary);font-size:14px;outline:none;">
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex;justify-content:space-between;">
+        <button type="button" class="modal-button cancel-button" onclick="closeRenameCustomGcModal()">Cancel</button>
+        <button type="button" class="modal-button confirm-button" id="renameGcSubmitBtn" onclick="submitRenameCustomGc()">Save</button>
       </div>
     </div>
   </div>
@@ -765,7 +787,10 @@ try {
         <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
           <div style="min-width:0;flex:1;">
-            <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Add Members</h3>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Add Members</h3>
+              <span id="addGcSelectedCountBadge" style="display:none;font-size:11px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:2px 7px;border-radius:10px;">0</span>
+            </div>
             <div id="addGcModalSubtitle" style="font-size:11px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;">Group Chat</div>
           </div>
         </div>

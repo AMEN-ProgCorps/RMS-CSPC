@@ -276,15 +276,17 @@ if ($searchQuery !== '') {
         ];
     }
 
-    // Sort: newly added GCs first -> most recent -> alphabetical
+    // Sort: latest chat timestamp first -> newly added GCs -> alphabetical
     usort($sidebarUsers, function ($a, $b) {
+        $aTs = (int) ($a['lastTimestamp'] ?? 0);
+        $bTs = (int) ($b['lastTimestamp'] ?? 0);
+        if ($bTs !== $aTs) {
+            return $bTs <=> $aTs;
+        }
         $aNew = !empty($a['is_newly_added']) ? 1 : 0;
         $bNew = !empty($b['is_newly_added']) ? 1 : 0;
         if ($aNew !== $bNew) {
             return $bNew <=> $aNew;
-        }
-        if ($b['lastTimestamp'] !== $a['lastTimestamp']) {
-            return $b['lastTimestamp'] <=> $a['lastTimestamp'];
         }
         return strcmp($a['full_name'], $b['full_name']);
     });

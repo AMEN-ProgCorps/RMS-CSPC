@@ -1058,7 +1058,7 @@
           showNotifyToast(data);
           if (data && data.id && !bellNotifications.some(function(x) { return x.id === data.id; })) {
             // Mark GC-related notifications so we don't show "mentioned you"
-            const _gcMsgPatterns = ['added to the group', 'removed from the group', 'disbanded by the admin', 'has been disbanded'];
+            const _gcMsgPatterns = ['added to the group', 'removed from the group', 'disbanded by the admin', 'has been disbanded', 'admin of the group'];
             if (_gcMsgPatterns.some(p => (data.message || '').toLowerCase().includes(p))) {
               data.is_gc_event = true;
             }
@@ -1351,6 +1351,91 @@
               resetToHome();
             }
           }
+        } else if (data.type === 'custom_gc_renamed') {
+          const gid = Number(data.group_id);
+          const newName = data.name || '';
+          if (Array.isArray(allUsersData)) {
+            const u = allUsersData.find(x => x.is_custom_gc && Number(x.gc_id) === gid);
+            if (u) {
+              u.name = newName;
+              u.full_name = newName;
+              renderSidebarUsers();
+            }
+          }
+          if (window.activeChannel === 'gc' && window.activeCustomGc && Number(window.activeCustomGc.gc_id) === gid) {
+            window.activeCustomGc.name = newName;
+            if (chatHeaderTitle) chatHeaderTitle.innerHTML = escapeHtml(newName);
+            const modalTitleEl = document.getElementById('officeMembersModalTitle');
+            if (modalTitleEl) {
+              modalTitleEl.textContent = newName.length > 20 ? (newName.slice(0, 20).trimEnd() + '...') : newName;
+              modalTitleEl.title = 'Click to rename group (' + newName + ')';
+            }
+          }
+        } else if (data.type === 'custom_gc_admin_changed') {
+          const gid = Number(data.group_id);
+          const targetAccId = Number(data.target_account_id);
+          const newIsAdmin = Boolean(data.is_admin);
+          const myId = (typeof wsConfig !== 'undefined' && wsConfig.accountId)
+            ? Number(wsConfig.accountId)
+            : (typeof myAccountId !== 'undefined' ? Number(myAccountId) : 0);
+
+          // Update in-memory members list immediately
+          if (Array.isArray(window.activeCustomGcMembers)) {
+            const m = window.activeCustomGcMembers.find(x => Number(x.account_id) === targetAccId);
+            if (m) m.is_admin = newIsAdmin;
+          }
+
+          // If the current user was promoted or demoted
+          if (targetAccId === myId) {
+            // Always update in-memory groupInfo regardless of which channel user is viewing
+            if (window.activeCustomGcGroupInfo && Number(window.activeCustomGcGroupInfo.id) === gid) {
+              window.activeCustomGcGroupInfo.is_gc_admin = newIsAdmin;
+            }
+
+            // Immediately update the add button in modal regardless of channel check
+            const addBtnInModal = document.getElementById('officeMembersAddUserBtn');
+            if (addBtnInModal) {
+              addBtnInModal.style.display = newIsAdmin ? 'flex' : 'none';
+            }
+
+            // If demoted, immediately close add members modal and rename modal if open
+            if (!newIsAdmin) {
+              if (typeof closeAddGcMembersModal === 'function') closeAddGcMembersModal();
+              if (typeof closeRenameCustomGcModal === 'function') closeRenameCustomGcModal();
+            }
+
+            const titleEl = document.getElementById('officeMembersModalTitle');
+            if (titleEl) {
+              const currentGcName = (window.activeCustomGc ? window.activeCustomGc.name : '') || 'Group Chat';
+              if (newIsAdmin) {
+                titleEl.style.cursor = 'pointer';
+                titleEl.title = 'Click to rename group (' + currentGcName + ')';
+                titleEl.onclick = () => openRenameCustomGcModal();
+              } else {
+                titleEl.style.cursor = 'default';
+                titleEl.title = currentGcName;
+                titleEl.onclick = null;
+              }
+            }
+
+            // Always trigger a fresh fetch of the members list so the modal
+            // reflects the correct admin state next time it is opened.
+            if (typeof reloadOfficeMembersList === 'function') {
+              reloadOfficeMembersList(false);
+            }
+          }
+
+          // Real-time re-render of members list for ALL viewers of this GC
+          if (window.activeChannel === 'gc' && window.activeCustomGc && Number(window.activeCustomGc.gc_id) === gid) {
+            if (typeof renderOfficeMembersList === 'function' && Array.isArray(window.activeCustomGcMembers)) {
+              renderOfficeMembersList(window.activeCustomGcMembers, false, window.activeCustomGcGroupInfo);
+            }
+            // Only call reloadOfficeMembersList for non-target users here
+            // (target user already called it above in the targetAccId === myId block)
+            if (targetAccId !== myId && typeof reloadOfficeMembersList === 'function') {
+              reloadOfficeMembersList(false);
+            }
+          }
         } else if (data.type === 'verification_update') {
           // Broadcast from set_verification.php when Super Admin toggles a user's badge
           const changedId = Number(data.account_id);
@@ -1610,7 +1695,6 @@
         user.is_currently_online = isOnline;
         if (!isOnline && data.timestamp) {
           user.last_online_time = data.timestamp;
-          user.lastTimestamp = data.timestamp;
           // Persist in map so fetchUsers() re-fetches can't overwrite it
           wsLastOnlineTime.set(accId, data.timestamp);
         }
@@ -1663,7 +1747,6 @@
         user.is_currently_online = isOnline;
         if (!isOnline && wsLastOnlineTime.has(accId)) {
           user.last_online_time = wsLastOnlineTime.get(accId);
-          user.lastTimestamp = wsLastOnlineTime.get(accId);
         }
 
         const item = sidebarUserItems.get(user.username);
@@ -1825,7 +1908,6 @@
         // to the DB-fetched last_online_time, which is what used to cause
         // stale/incorrect "Active X ago" text.
         user.last_online_time = isOnline ? null : (wsLastOnlineTime.get(accId) || user.last_online_time || null);
-        user.lastTimestamp = user.last_online_time;
       });
     }
 
@@ -1928,10 +2010,13 @@
         } catch (e) {}
 
         allUsersData.sort((a, b) => {
+          const aTs = Number(a.lastTimestamp) || 0;
+          const bTs = Number(b.lastTimestamp) || 0;
+          if (bTs !== aTs) return bTs - aTs;
           const aNew = (a.is_custom_gc && (a.is_newly_added || (window.newlyAddedGcIds && window.newlyAddedGcIds.has(Number(a.gc_id))))) ? 1 : 0;
           const bNew = (b.is_custom_gc && (b.is_newly_added || (window.newlyAddedGcIds && window.newlyAddedGcIds.has(Number(b.gc_id))))) ? 1 : 0;
           if (aNew !== bNew) return bNew - aNew;
-          return (Number(b.lastTimestamp) || 0) - (Number(a.lastTimestamp) || 0);
+          return (a.full_name || a.name || '').localeCompare(b.full_name || b.name || '');
         });
       }
 
@@ -2434,7 +2519,7 @@
           if (u.is_custom_gc) {
             newOffice = 'Custom GC';
           } else if (u.is_office_gc) {
-            newOffice = u.office_name || 'Office Group Chat';
+            newOffice = 'OFFICE GC';
           } else {
             newOffice = u.office_name ? u.office_name : 'No office assigned';
           }
@@ -2619,7 +2704,7 @@
           // Server response is the full, authoritative set of this user's
           // currently-unseen mentions — replace the bell's cache with it
           // (newest first for display) rather than merging.
-          const _gcPats = ['added to the group', 'removed from the group', 'disbanded by the admin', 'has been disbanded'];
+          const _gcPats = ['added to the group', 'removed from the group', 'disbanded by the admin', 'has been disbanded', 'admin of the group'];
           list.forEach(function(n) {
             if (_gcPats.some(p => (n.message || '').toLowerCase().includes(p))) {
               n.is_gc_event = true;
@@ -3768,10 +3853,29 @@
         _openedSet.add(_openedGcId);
         localStorage.setItem(_openedKey, JSON.stringify([..._openedSet]));
       } catch (e) {}
-      // Also clear it in allUsersData in-memory
+      // Also clear it in allUsersData in-memory (or add if brand new)
       if (Array.isArray(allUsersData)) {
-        const _gcEntry = allUsersData.find(u => u.is_custom_gc && Number(u.gc_id) === _openedGcId);
-        if (_gcEntry) _gcEntry.is_newly_added = false;
+        const _gcIdx = allUsersData.findIndex(u => u.is_custom_gc && Number(u.gc_id) === _openedGcId);
+        if (_gcIdx !== -1) {
+          allUsersData[_gcIdx].is_newly_added = false;
+        } else {
+          allUsersData.unshift({
+            is_custom_gc: true,
+            gc_id: Number(group.gc_id),
+            conv_id: group.conv_id || ('gc_' + group.gc_id),
+            name: group.name,
+            full_name: group.name,
+            username: 'gc_' + group.gc_id,
+            creator_id: Number(group.creator_id || 0),
+            member_count: Number(group.member_count || 1),
+            lastMessage: group.lastMessage || '',
+            lastTimestamp: Number(group.lastTimestamp) || Math.floor(Date.now() / 1000),
+            unreadCount: 0,
+            is_newly_added: false,
+            is_chatify_verified: true,
+            avatar_url: 'cspc.webp'
+          });
+        }
       }
 
       const _hEl = document.querySelector('.header');
@@ -4989,7 +5093,9 @@
         const myIdForAddBtn = (typeof wsConfig !== 'undefined' && wsConfig.accountId) ? Number(wsConfig.accountId) : 0;
         const gcCreatorIdForAddBtn = (window.activeCustomGc && window.activeCustomGc.creator_id) ? Number(window.activeCustomGc.creator_id) : 0;
         const isCreatorForAddBtn = (!isCustomGcAdminSpy && myIdForAddBtn > 0 && gcCreatorIdForAddBtn > 0 && myIdForAddBtn === gcCreatorIdForAddBtn);
-        if (addBtn) addBtn.style.display = isCreatorForAddBtn ? 'flex' : 'none';
+        // Also check in-memory groupInfo for promoted-admin status (avoids flash before fetch)
+        const isCachedGcAdmin = isCreatorForAddBtn || (!isCustomGcAdminSpy && Boolean(window.activeCustomGcGroupInfo && Number(window.activeCustomGcGroupInfo.id) === gcId && window.activeCustomGcGroupInfo.is_gc_admin));
+        if (addBtn) addBtn.style.display = isCachedGcAdmin ? 'flex' : 'none';
 
         if (!silent && listEl) {
           listEl.innerHTML = '<div style="padding:32px 16px;text-align:center;color:var(--text-secondary);font-size:13px;font-weight:500;">Loading members...</div>';
@@ -5013,10 +5119,11 @@
             const myId = (typeof wsConfig !== 'undefined' && wsConfig.accountId) ? Number(wsConfig.accountId) : 0;
             const creatorId = data.group ? Number(data.group.creator_id) : 0;
             const isCreator = (!isCustomGcAdminSpy && myId > 0 && creatorId > 0 && myId === creatorId);
+            const isGcAdmin = (!isCustomGcAdminSpy && (isCreator || Boolean(data.group && data.group.is_gc_admin)));
 
-            // Also update the + add button visibility — only creator can add members
+            // Also update the + add button visibility — creator and promoted admins can add members
             const addBtnInModal = document.getElementById('officeMembersAddUserBtn');
-            if (addBtnInModal) addBtnInModal.style.display = isCreator ? 'flex' : 'none';
+            if (addBtnInModal) addBtnInModal.style.display = isGcAdmin ? 'flex' : 'none';
 
             const disbandBtn = document.getElementById('disbandGcBtn');
             const cancelBtn = document.getElementById('officeMembersCancelBtn') || document.querySelector('#officeMembersModal .cancel-button');
@@ -5031,7 +5138,15 @@
             if (titleEl && data.group) {
               const rawGroupName = data.group.name || 'Group Chat';
               titleEl.textContent = rawGroupName.length > 20 ? (rawGroupName.slice(0, 20).trimEnd() + '...') : rawGroupName;
-              titleEl.title = rawGroupName;
+              if (isGcAdmin) {
+                titleEl.style.cursor = 'pointer';
+                titleEl.title = 'Click to rename group (' + rawGroupName + ')';
+                titleEl.onclick = () => openRenameCustomGcModal();
+              } else {
+                titleEl.style.cursor = 'default';
+                titleEl.title = rawGroupName;
+                titleEl.onclick = null;
+              }
             }
             if (subtitleEl) {
               subtitleEl.textContent = isCustomGcAdminSpy ? 'Custom Group Chat' : 'Group Chat Members';
@@ -5091,6 +5206,7 @@
       }
 
       // ── Fixed Office GC branch ──────────────────────────────────────────────
+      if (titleEl) { titleEl.onclick = null; titleEl.style.cursor = 'default'; }
       if (addBtn) addBtn.style.display = 'none';
       const _disbandBtn = document.getElementById('disbandGcBtn');
       if (_disbandBtn) _disbandBtn.style.display = 'none';
@@ -5404,6 +5520,169 @@
     }
     window.disbandCustomGc = disbandCustomGc;
 
+    function toggleCustomGcAdmin(groupId, targetAccountId, makeAdmin, memberName) {
+      const actionText = makeAdmin ? `promote "${memberName}" to Group Admin` : `dismiss "${memberName}" as Group Admin`;
+      const title = makeAdmin ? 'Promote to Admin' : 'Dismiss Admin';
+      const promptMsg = `Are you sure you want to ${actionText}?`;
+
+      const doAction = () => {
+        // Optimistic UI update immediately in-place
+        if (Array.isArray(window.activeCustomGcMembers)) {
+          const mem = window.activeCustomGcMembers.find(x => Number(x.account_id) === Number(targetAccountId));
+          if (mem) mem.is_admin = makeAdmin;
+        }
+        if (typeof renderOfficeMembersList === 'function' && Array.isArray(window.activeCustomGcMembers)) {
+          renderOfficeMembersList(window.activeCustomGcMembers, false, window.activeCustomGcGroupInfo);
+        }
+
+        const bodyData = new FormData();
+        bodyData.append('group_id', groupId);
+        bodyData.append('target_account_id', targetAccountId);
+        bodyData.append('is_admin', makeAdmin ? '1' : '0');
+
+        fetch('set_custom_gc_admin.php', {
+          method: 'POST',
+          body: bodyData,
+        })
+          .then(r => r.json())
+          .then(res => {
+            if (res && res.success) {
+              if (Array.isArray(window.activeCustomGcMembers)) {
+                const mem = window.activeCustomGcMembers.find(x => Number(x.account_id) === Number(targetAccountId));
+                if (mem) mem.is_admin = makeAdmin;
+              }
+              if (typeof reloadOfficeMembersList === 'function') {
+                reloadOfficeMembersList(false);
+              }
+            } else {
+              alert(res?.error || 'Failed to update member role.');
+              if (typeof reloadOfficeMembersList === 'function') {
+                reloadOfficeMembersList(false);
+              }
+            }
+          })
+          .catch(() => {
+            alert('Network error updating member role.');
+            if (typeof reloadOfficeMembersList === 'function') {
+              reloadOfficeMembersList(false);
+            }
+          });
+      };
+
+      if (typeof showDangerConfirm === 'function') {
+        showDangerConfirm(title, promptMsg, doAction);
+      } else if (confirm(promptMsg)) {
+        doAction();
+      }
+    }
+    window.toggleCustomGcAdmin = toggleCustomGcAdmin;
+
+    function openRenameCustomGcModal() {
+      const modal = document.getElementById('renameCustomGcModal');
+      if (!modal) return;
+      const input = document.getElementById('renameGcInput');
+      const currentName = (window.activeCustomGcGroupInfo && window.activeCustomGcGroupInfo.name)
+        ? window.activeCustomGcGroupInfo.name
+        : (window.activeCustomGc ? window.activeCustomGc.name : '');
+      if (input) {
+        input.value = currentName || '';
+        setTimeout(() => input.focus(), 80);
+      }
+      modal.classList.add('active');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+    window.openRenameCustomGcModal = openRenameCustomGcModal;
+
+    function closeRenameCustomGcModal() {
+      const modal = document.getElementById('renameCustomGcModal');
+      if (!modal) return;
+      modal.classList.remove('active');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    window.closeRenameCustomGcModal = closeRenameCustomGcModal;
+
+    function submitRenameCustomGc() {
+      const input = document.getElementById('renameGcInput');
+      const newName = input ? input.value.trim() : '';
+      if (!newName) {
+        alert('Group chat name cannot be empty.');
+        return;
+      }
+      if (newName.length > 40) {
+        alert('Group chat name must not exceed 40 characters.');
+        return;
+      }
+      const groupId = window.activeCustomGc ? window.activeCustomGc.gc_id : (window.activeCustomGcGroupInfo ? window.activeCustomGcGroupInfo.id : 0);
+      if (!groupId) return;
+
+      const submitBtn = document.getElementById('renameGcSubmitBtn');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving...';
+      }
+
+      const bodyData = new FormData();
+      bodyData.append('group_id', groupId);
+      bodyData.append('name', newName);
+
+      fetch('rename_custom_gc.php', {
+        method: 'POST',
+        body: bodyData,
+      })
+        .then(r => r.json())
+        .then(res => {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Save';
+          }
+          if (res && res.success) {
+            closeRenameCustomGcModal();
+            // Update activeCustomGc in-memory
+            if (window.activeCustomGc && Number(window.activeCustomGc.gc_id) === Number(groupId)) {
+              window.activeCustomGc.name = res.name;
+              if (chatHeaderTitle) chatHeaderTitle.innerHTML = escapeHtml(res.name);
+            }
+            if (window.activeCustomGcGroupInfo && Number(window.activeCustomGcGroupInfo.id) === Number(groupId)) {
+              window.activeCustomGcGroupInfo.name = res.name;
+            }
+            const modalTitleEl = document.getElementById('officeMembersModalTitle');
+            if (modalTitleEl) {
+              modalTitleEl.textContent = res.name.length > 20 ? (res.name.slice(0, 20).trimEnd() + '...') : res.name;
+              modalTitleEl.title = 'Click to rename group (' + res.name + ')';
+            }
+            // Update sidebar
+            if (Array.isArray(allUsersData)) {
+              const u = allUsersData.find(x => x.is_custom_gc && Number(x.gc_id) === Number(groupId));
+              if (u) {
+                u.name = res.name;
+                u.full_name = res.name;
+                renderSidebarUsers();
+              }
+            }
+          } else {
+            alert(res?.error || 'Failed to rename group chat.');
+          }
+        })
+        .catch(() => {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Save';
+          }
+          alert('Network error renaming group chat.');
+        });
+    }
+    window.submitRenameCustomGc = submitRenameCustomGc;
+
+    document.getElementById('renameCustomGcModal')?.addEventListener('click', function(e) {
+      if (e.target === this) closeRenameCustomGcModal();
+    });
+    document.getElementById('renameGcInput')?.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submitRenameCustomGc();
+      }
+    });
+
     function renderOfficeMembersList(members, isSilent = false, groupInfo = null) {
       const listEl = document.getElementById('officeMembersList');
       if (!listEl) return;
@@ -5415,8 +5694,14 @@
       const isCustomGcAdminSpy = (typeof activeAdminConv === 'string' && activeAdminConv.startsWith('gc_'));
       const isGc = (window.activeChannel === 'gc') || isCustomGcAdminSpy || !!(groupInfo && groupInfo.id);
       const creatorId = isGc ? Number(groupInfo?.creator_id || (window.activeCustomGc ? window.activeCustomGc.creator_id : 0)) : 0;
-      const isGcAdmin = !isCustomGcAdminSpy && isGc && (myId > 0 && creatorId > 0 && myId === creatorId);
+      const isGcAdmin = !isCustomGcAdminSpy && isGc && (myId > 0 && ((creatorId > 0 && myId === creatorId) || (groupInfo && Boolean(groupInfo.is_gc_admin)) || (Array.isArray(members) && members.some(x => Number(x.account_id) === myId && Boolean(x.is_admin || x.is_creator)))));
       const effectiveGroupId = isGc ? Number(groupInfo?.id || (window.activeCustomGc ? window.activeCustomGc.gc_id : (isCustomGcAdminSpy ? Number(activeAdminConv.replace('gc_', '')) : 0))) : 0;
+
+      // Sync Add Member plus button visibility in real time
+      if (isGc) {
+        const addBtnInModal = document.getElementById('officeMembersAddUserBtn');
+        if (addBtnInModal) addBtnInModal.style.display = isGcAdmin ? 'flex' : 'none';
+      }
 
       if (!members || members.length === 0) {
         if (!isGc) {
@@ -5429,8 +5714,8 @@
       }
 
       const existingRows = listEl.querySelectorAll('.mention-user-row');
-      const oldKeys = ((isGc ? window.activeCustomGcMembers : window.currentOfficeMembers) || []).map(m => `${m.account_id}_${m.is_chatify_verified ? 1 : 0}_${m.role_name || ''}`).join('|');
-      const newKeys = (members || []).map(m => `${m.account_id}_${m.is_chatify_verified ? 1 : 0}_${m.role_name || ''}`).join('|');
+      const oldKeys = ((isGc ? window.activeCustomGcMembers : window.currentOfficeMembers) || []).map(m => `${m.account_id}_${m.is_chatify_verified ? 1 : 0}_${m.is_admin ? 1 : 0}_${m.role_name || ''}`).join('|');
+      const newKeys = (members || []).map(m => `${m.account_id}_${m.is_chatify_verified ? 1 : 0}_${m.is_admin ? 1 : 0}_${m.role_name || ''}`).join('|');
 
       // Only skip re-render during background silent sync if the list already contains all rows and keys didn't change
       if (isSilent && existingRows.length === members.length && oldKeys === newKeys) {
@@ -5489,21 +5774,47 @@
         item.appendChild(avatar);
         item.appendChild(info);
 
-        // ── Custom GC: Admin badge and Remove member button ──
+        // ── Custom GC: Admin badge, Admin promotion button, and Remove member button ──
         if (isGc) {
           const isThisUserCreator = (Number(m.account_id) === creatorId);
-          if (isThisUserCreator) {
+          const isThisUserAdmin = isThisUserCreator || Boolean(m.is_admin);
+
+          const actionsContainer = document.createElement('div');
+          actionsContainer.style.cssText = 'display:flex;align-items:center;gap:6px;margin-left:auto;flex-shrink:0;';
+
+          if (isThisUserAdmin) {
             const adminBadge = document.createElement('span');
-            adminBadge.style.cssText = 'font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;background:rgba(27,116,228,0.12);color:#1b74e4;padding:2px 7px;border-radius:10px;margin-left:auto;flex-shrink:0;';
+            adminBadge.style.cssText = 'font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;background:rgba(27,116,228,0.12);color:#1b74e4;padding:2px 7px;border-radius:10px;flex-shrink:0;';
             adminBadge.textContent = 'Admin';
-            item.appendChild(adminBadge);
-          } else if (isGcAdmin && Number(m.account_id) !== Number(myId)) {
+            actionsContainer.appendChild(adminBadge);
+          }
+
+          if (isGcAdmin && Number(m.account_id) !== Number(myId) && !isThisUserCreator) {
+            // Admin promotion/demotion button
+            const adminToggleBtn = document.createElement('button');
+            adminToggleBtn.type = 'button';
+            adminToggleBtn.className = 'toggle-gc-admin-btn';
+            adminToggleBtn.title = m.is_admin ? 'Dismiss as group admin' : 'Make group admin';
+            adminToggleBtn.setAttribute('aria-label', adminToggleBtn.title);
+            adminToggleBtn.style.cssText = 'border:none;background:none;color:' + (m.is_admin ? '#e67e22' : '#1b74e4') + ';cursor:pointer;padding:6px;display:flex;align-items:center;justify-content:center;border-radius:6px;transition:background 0.15s;flex-shrink:0;';
+            adminToggleBtn.innerHTML = m.is_admin
+              ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="9" y1="12" x2="15" y2="12"/></svg>`
+              : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>`;
+            adminToggleBtn.onmouseover = () => { adminToggleBtn.style.background = m.is_admin ? 'rgba(230,126,34,0.12)' : 'rgba(27,116,228,0.12)'; };
+            adminToggleBtn.onmouseout  = () => { adminToggleBtn.style.background = 'none'; };
+            adminToggleBtn.onclick = (e) => {
+              e.stopPropagation();
+              toggleCustomGcAdmin(effectiveGroupId, m.account_id, !m.is_admin, m.full_name);
+            };
+            actionsContainer.appendChild(adminToggleBtn);
+
+            // Remove member button
             const removeBtn = document.createElement('button');
             removeBtn.type = 'button';
             removeBtn.className = 'remove-gc-member-btn';
             removeBtn.title = 'Remove from group';
             removeBtn.setAttribute('aria-label', `Remove ${m.full_name} from group`);
-            removeBtn.style.cssText = 'border:none;background:none;color:#e74c3c;cursor:pointer;padding:6px;display:flex;align-items:center;justify-content:center;border-radius:6px;margin-left:auto;transition:background 0.15s;flex-shrink:0;';
+            removeBtn.style.cssText = 'border:none;background:none;color:#e74c3c;cursor:pointer;padding:6px;display:flex;align-items:center;justify-content:center;border-radius:6px;transition:background 0.15s;flex-shrink:0;';
             removeBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="18" y1="8" x2="23" y2="13"></line><line x1="23" y1="8" x2="18" y2="13"></line></svg>`;
             removeBtn.onmouseover = () => { removeBtn.style.background = 'rgba(231,76,60,0.12)'; };
             removeBtn.onmouseout  = () => { removeBtn.style.background = 'none'; };
@@ -5511,8 +5822,10 @@
               e.stopPropagation();
               removeCustomGcMember(effectiveGroupId, m.account_id, m.full_name);
             };
-            item.appendChild(removeBtn);
+            actionsContainer.appendChild(removeBtn);
           }
+
+          item.appendChild(actionsContainer);
         }
 
         listEl.appendChild(item);

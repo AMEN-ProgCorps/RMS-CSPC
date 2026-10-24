@@ -3649,15 +3649,15 @@
         const overlay3 = getSendingOverlay();
         if (overlay3) overlay3.appendChild(sendingBubble);
         else chatBox.appendChild(sendingBubble);
-        if (!window.replyJumpActive) {
-          shouldAutoScroll = true;
-          userScrolledUp = false;
-          // Always scroll for the user's own outgoing message — isAtBottom() can read
-          // stale while the virtual keyboard is open (viewport/chatBox height is still
-          // reflowing), which silently blocked this scroll and left the new message
-          // hidden below the fold when the keyboard was up.
-          scrollToBottom(true, true);
-        }
+        window.replyJumpActive = false;
+        shouldAutoScroll = true;
+        userScrolledUp = false;
+        // Always scroll for the user's own outgoing message — isAtBottom() can read
+        // stale while the virtual keyboard is open (viewport/chatBox height is still
+        // reflowing), which silently blocked this scroll and left the new message
+        // hidden below the fold when the keyboard was up.
+        scrollToBottom(true, true);
+        hideScrollIndicator(true);
       }
 
       const xhr = new XMLHttpRequest();
@@ -3899,15 +3899,12 @@
                       const trimmed = trimChatMessages(MAX_WINDOW);
                       if (trimmed) refreshCursorAfterTopTrim();
                     }
-                    // Always scroll for the user's own confirmed message — see note
-                    // above the optimistic-bubble scroll for why isAtBottom() is
-                    // unreliable while the virtual keyboard is open.
-                    if (!window.replyJumpActive) {
-                      scrollToBottom(true, true);
-                      hideScrollIndicator();
-                    } else {
-                      showScrollIndicator(0);
-                    }
+                    // Always scroll to bottom for confirmed message
+                    window.replyJumpActive = false;
+                    shouldAutoScroll = true;
+                    userScrolledUp = false;
+                    scrollToBottom(true, true);
+                    hideScrollIndicator(true);
                     updateSeenIndicator();
                   }
                 } else {
@@ -3967,6 +3964,11 @@
             if (wasViewingOlder) {
               returnToLatestChat();
             } else {
+              window.replyJumpActive = false;
+              userScrolledUp = false;
+              shouldAutoScroll = true;
+              scrollToBottom(true, true);
+              hideScrollIndicator(true);
               if (isGlobalChat) { isLoadingGC = false; loadGlobalChat(false); }
               else loadChatForced();
             }
@@ -5663,6 +5665,11 @@
             if (wasViewingOlder) {
               returnToLatestChat();
             } else {
+              window.replyJumpActive = false;
+              userScrolledUp = false;
+              shouldAutoScroll = true;
+              scrollToBottom(true, true);
+              hideScrollIndicator(true);
               if (isGlobalChat) {
                 isLoadingGC = false;
                 loadGlobalChat(false);
@@ -6124,6 +6131,18 @@
     let _gcSearchTimer = null;
     let _addGcSearchTimer = null;
 
+    function updateGcSelectedCountBadge() {
+      const badge = document.getElementById('gcSelectedCountBadge');
+      if (!badge) return;
+      const count = window._gcSelectedMembers ? window._gcSelectedMembers.size : 0;
+      if (count > 0) {
+        badge.textContent = count > 99 ? '99+' : String(count);
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
     function renderGcSelectedChips() {
       // Selected chips display removed per UI update
     }
@@ -6149,6 +6168,7 @@
       if (results) results.innerHTML = '';
 
       window._gcSelectedMembers.clear();
+      updateGcSelectedCountBadge();
     };
 
     window.closeCreateCustomGcModal = function() {
@@ -6233,6 +6253,7 @@
                   } else {
                     window._gcSelectedMembers.delete(u.account_id);
                   }
+                  updateGcSelectedCountBadge();
                 });
 
                 row.appendChild(nameSpan);
@@ -6295,18 +6316,39 @@
           }
 
           closeCreateCustomGcModal();
+
+          // Immediately unshift new GC to allUsersData and render at top of sidebar
+          const nowTs = Math.floor(Date.now() / 1000);
+          const newGc = {
+            is_custom_gc: true,
+            gc_id: data.group_id,
+            conv_id: data.conv_id,
+            name: data.name,
+            full_name: data.name,
+            username: 'gc_' + data.group_id,
+            member_count: memberIds.length + 1,
+            creator_id: wsConfig.accountId,
+            lastMessage: '',
+            lastTimestamp: nowTs,
+            unreadCount: 0,
+            is_newly_added: false,
+            is_chatify_verified: true,
+            avatar_url: 'cspc.webp'
+          };
+          if (Array.isArray(allUsersData)) {
+            const existingIdx = allUsersData.findIndex(u => u.is_custom_gc && Number(u.gc_id) === Number(data.group_id));
+            if (existingIdx !== -1) {
+              allUsersData.splice(existingIdx, 1);
+            }
+            allUsersData.unshift(newGc);
+            renderSidebarUsers();
+          }
+
           if (typeof loadCustomGcs === 'function') {
             loadCustomGcs();
           }
 
           // Open the new group chat
-          const newGc = {
-            gc_id: data.group_id,
-            conv_id: data.conv_id,
-            name: data.name,
-            member_count: memberIds.length + 1,
-            creator_id: wsConfig.accountId
-          };
           if (typeof selectCustomGc === 'function') {
             selectCustomGc(newGc);
           }
@@ -6326,6 +6368,15 @@
 
     window.openAddGcMembersModal = function() {
       if (!window.activeCustomGc) return;
+      const myId = (typeof wsConfig !== 'undefined' && wsConfig.accountId) ? Number(wsConfig.accountId) : 0;
+      const creatorId = window.activeCustomGc ? Number(window.activeCustomGc.creator_id) : 0;
+      const isCreator = (myId > 0 && creatorId > 0 && myId === creatorId);
+      const isGcAdmin = isCreator || Boolean(window.activeCustomGcGroupInfo && window.activeCustomGcGroupInfo.is_gc_admin) || (Array.isArray(window.activeCustomGcMembers) && window.activeCustomGcMembers.some(x => Number(x.account_id) === myId && Boolean(x.is_admin || x.is_creator)));
+      if (!isGcAdmin) {
+        const addBtn = document.getElementById('officeMembersAddUserBtn');
+        if (addBtn) addBtn.style.display = 'none';
+        return;
+      }
       const modal = document.getElementById('addGcMembersModal');
       if (!modal) return;
 
@@ -6344,6 +6395,10 @@
 
       const results = document.getElementById('addGcSearchResults');
       if (results) results.innerHTML = '';
+
+      window._addGcNewlyAddedCount = 0;
+      const addBadge = document.getElementById('addGcSelectedCountBadge');
+      if (addBadge) addBadge.style.display = 'none';
 
       modal.classList.add('active');
       modal.setAttribute('aria-hidden', 'false');
@@ -6486,6 +6541,13 @@
                         chk.disabled = true;
                         label.title = 'Already added';
                         slider.style.background = '#1b74e4'; // blue = confirmed added
+
+                        window._addGcNewlyAddedCount = (window._addGcNewlyAddedCount || 0) + 1;
+                        const addBadge = document.getElementById('addGcSelectedCountBadge');
+                        if (addBadge) {
+                          addBadge.textContent = window._addGcNewlyAddedCount > 99 ? '99+' : String(window._addGcNewlyAddedCount);
+                          addBadge.style.display = 'inline-block';
+                        }
                         if (!Array.isArray(window.activeCustomGcMembers)) {
                           window.activeCustomGcMembers = [];
                         }

@@ -42,11 +42,12 @@ if (!Auth::isAdmin() && !CustomGroupManager::isMember($groupId, $myAccountId)) {
 }
 
 $isCreator = ((int) $group['creator_id'] === $myAccountId);
-$isGcAdmin = $isCreator; // Strictly only the user who created the group is the admin
+$isGcAdmin = $isCreator || CustomGroupManager::isGroupAdmin($groupId, $myAccountId);
 
 $members = CustomGroupManager::getMembers($groupId);
 foreach ($members as &$m) {
     $m['is_creator'] = ((int) $m['account_id'] === (int) $group['creator_id']);
+    $m['is_admin'] = (bool) (!empty($m['is_admin']) || $m['is_creator']);
 }
 unset($m);
 

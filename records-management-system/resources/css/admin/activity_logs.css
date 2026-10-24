@@ -259,6 +259,37 @@
     color: #0f172a;
 }
 
+.btn-export {
+    background: #0f172a;
+    color: #ffffff;
+    border: 1px solid #0f172a;
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    line-height: 1;
+}
+
+.btn-export:hover {
+    background: #1e293b;
+    border-color: #1e293b;
+    color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+}
+
+.btn-export:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
 /* Data Table Card */
 .logs-table-card {
     background: #ffffff;
@@ -713,6 +744,17 @@
 [data-theme="dark"] .btn-clear-filters:hover {
     background: #1e293b !important;
     color: #f8fafc !important;
+}
+
+[data-theme="dark"] .btn-export {
+    background: #2563eb !important;
+    border-color: #3b82f6 !important;
+    color: #ffffff !important;
+}
+
+[data-theme="dark"] .btn-export:hover {
+    background: #1d4ed8 !important;
+    border-color: #2563eb !important;
 }
 
 [data-theme="dark"] .logs-table-card,

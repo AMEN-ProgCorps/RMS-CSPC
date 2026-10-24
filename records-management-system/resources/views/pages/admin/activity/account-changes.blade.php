@@ -55,6 +55,95 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Account Changes')] class
     }
 
     /**
+     * Stream Excel-compatible CSV export of administrative account change logs.
+     */
+    public function exportCsv(): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $perms = auth()->user()?->permissions;
+        if (!$perms || (!$perms->is_sadm && !$perms->can_access_activity_logs)) {
+            abort(403, 'Unauthorized access.');
+        }
+
+        $adminLogsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_admin_logs') ? 'sys_admin_logs' : 'admin_logs';
+        $accountTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account') ? 'sys_account' : 'account';
+        $accountDetailsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_account_details') ? 'sys_account_details' : 'account_details';
+        $subsystemsTable = \Illuminate\Support\Facades\Schema::hasTable('sys_subsystems') ? 'sys_subsystems' : 'subsystems';
+
+        $query = \DB::table($adminLogsTable . ' as admin_logs')
+            ->leftJoin($accountTable . ' as account', 'admin_logs.admin_id', '=', 'account.id')
+            ->leftJoin($accountDetailsTable . ' as account_details', 'account.id', '=', 'account_details.account_id')
+            ->leftJoin($subsystemsTable . ' as subsystems', 'admin_logs.what_system', '=', 'subsystems.subsystem_id')
+            ->select([
+                'admin_logs.id',
+                'admin_logs.changes',
+                'admin_logs.when_changes',
+                'admin_logs.what_system',
+                'account.username',
+                'account_details.first_name',
+                'account_details.last_name',
+                'subsystems.subsystem_name',
+            ]);
+
+        if ($this->search !== '') {
+            $searchVal = '%' . $this->search . '%';
+            $query->where(function ($q) use ($searchVal) {
+                $q->where('admin_logs.changes', 'ilike', $searchVal)
+                  ->orWhere('account.username', 'ilike', $searchVal)
+                  ->orWhere('account_details.first_name', 'ilike', $searchVal)
+                  ->orWhere('account_details.last_name', 'ilike', $searchVal)
+                  ->orWhere('subsystems.subsystem_name', 'ilike', $searchVal);
+            });
+        }
+
+        if ($this->subsystemFilter !== '') {
+            $query->where('admin_logs.what_system', $this->subsystemFilter);
+        }
+
+        $records = $query->orderBy('admin_logs.when_changes', 'desc')->get();
+
+        $filename = 'account_changes_logs_' . date('Y-m-d_His') . '.csv';
+        $headers = [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Cache-Control'       => 'no-cache, no-store, must-revalidate',
+            'Pragma'              => 'no-cache',
+            'Expires'             => '0',
+        ];
+
+        return new \Symfony\Component\HttpFoundation\StreamedResponse(function () use ($records) {
+            $handle = fopen('php://output', 'w');
+            fwrite($handle, "\xEF\xBB\xBF");
+
+            fputcsv($handle, [
+                'Log ID',
+                'Timestamp',
+                'Administrator Name',
+                'Username',
+                'Subsystem',
+                'Action Details / Changes',
+            ]);
+
+            foreach ($records as $log) {
+                $fullName = trim(($log->first_name ?? '') . ' ' . ($log->last_name ?? ''));
+                if (empty($fullName)) {
+                    $fullName = $log->username ?: 'System Automated';
+                }
+
+                fputcsv($handle, [
+                    $log->id,
+                    \Carbon\Carbon::parse($log->when_changes)->format('Y-m-d H:i:s'),
+                    $fullName,
+                    $log->username ?? 'N/A',
+                    $log->subsystem_name ?? 'General',
+                    $log->changes,
+                ]);
+            }
+
+            fclose($handle);
+        }, 200, $headers);
+    }
+
+    /**
      * Fetch admin logs and pass them to the Blade template.
      */
     public function with(): array
@@ -123,30 +212,41 @@ new #[Layout('layouts.admin')] #[Title('Admin Console - Account Changes')] class
 
     <!-- Controls Panel -->
     <div class="logs-controls-card">
-        <div class="search-filter-group">
-            <!-- Search Input -->
-            <div class="search-box-wrapper">
-                <i class="fa-solid fa-magnifying-glass search-icon"></i>
-                <input type="text" 
-                       class="search-input" 
-                       placeholder="Search by details, admin name, subsystem..." 
-                       wire:model.live="search">
+        <div class="search-filter-group" style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: 1;">
+                <!-- Search Input -->
+                <div class="search-box-wrapper">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" 
+                           class="search-input" 
+                           placeholder="Search by details, admin name, subsystem..." 
+                           wire:model.live="search">
+                </div>
+
+                <!-- Subsystem Dropdown -->
+                <select class="filter-select" wire:model.live="subsystemFilter">
+                    <option value="">All Subsystems</option>
+                    @foreach($subsystems as $subsystem)
+                        <option value="{{ $subsystem->subsystem_id }}">{{ $subsystem->subsystem_name }}</option>
+                    @endforeach
+                </select>
+
+                <!-- Clear Button -->
+                @if($search !== '' || $subsystemFilter !== '')
+                    <button type="button" class="btn-clear-filters" wire:click="clearFilters">
+                        <i class="fa-solid fa-filter-circle-xmark"></i> Clear Filters
+                    </button>
+                @endif
             </div>
 
-            <!-- Subsystem Dropdown -->
-            <select class="filter-select" wire:model.live="subsystemFilter">
-                <option value="">All Subsystems</option>
-                @foreach($subsystems as $subsystem)
-                    <option value="{{ $subsystem->subsystem_id }}">{{ $subsystem->subsystem_name }}</option>
-                @endforeach
-            </select>
-
-            <!-- Clear Button -->
-            @if($search !== '' || $subsystemFilter !== '')
-                <button type="button" class="btn-clear-filters" wire:click="clearFilters">
-                    <i class="fa-solid fa-filter-circle-xmark"></i> Clear Filters
+            <div>
+                <button type="button" class="btn-export" wire:click="exportCsv" wire:loading.attr="disabled" title="Export filtered account changes as CSV">
+                    <i class="fa-solid fa-file-csv" wire:loading.remove wire:target="exportCsv"></i>
+                    <i class="fa-solid fa-spinner fa-spin" wire:loading wire:target="exportCsv"></i>
+                    <span wire:loading.remove wire:target="exportCsv">Export CSV</span>
+                    <span wire:loading wire:target="exportCsv">Exporting...</span>
                 </button>
-            @endif
+            </div>
         </div>
     </div>
 

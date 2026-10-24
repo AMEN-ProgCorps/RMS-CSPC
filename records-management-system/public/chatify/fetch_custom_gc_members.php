@@ -51,6 +51,15 @@ foreach ($members as &$m) {
 }
 unset($m);
 
+usort($members, function ($a, $b) {
+    $aPriority = !empty($a['is_creator']) ? 2 : (!empty($a['is_admin']) ? 1 : 0);
+    $bPriority = !empty($b['is_creator']) ? 2 : (!empty($b['is_admin']) ? 1 : 0);
+    if ($aPriority !== $bPriority) {
+        return $bPriority <=> $aPriority; // Creator first, then admins, then members
+    }
+    return strcasecmp($a['full_name'] ?? '', $b['full_name'] ?? '');
+});
+
 echo json_encode([
     'success' => true,
     'group'   => [

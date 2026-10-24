@@ -1392,10 +1392,20 @@
               window.activeCustomGcGroupInfo.is_gc_admin = newIsAdmin;
             }
 
-            // Immediately update the add button in modal regardless of channel check
+            // Immediately update the add button and disband button in modal regardless of channel check
             const addBtnInModal = document.getElementById('officeMembersAddUserBtn');
             if (addBtnInModal) {
               addBtnInModal.style.display = newIsAdmin ? 'flex' : 'none';
+            }
+
+            const disbandBtn = document.getElementById('disbandGcBtn');
+            const cancelBtn = document.getElementById('officeMembersCancelBtn') || document.querySelector('#officeMembersModal .cancel-button');
+            if (disbandBtn) {
+              disbandBtn.style.display = newIsAdmin ? '' : 'none';
+            }
+            if (cancelBtn) {
+              cancelBtn.textContent = newIsAdmin ? 'Cancel' : 'Close';
+              cancelBtn.style.borderRight = newIsAdmin ? '' : 'none';
             }
 
             // If demoted, immediately close add members modal and rename modal if open
@@ -5115,7 +5125,7 @@
             window.activeCustomGcMembers = data.members || [];
             window.activeCustomGcGroupInfo = data.group || null;
 
-            // Show/hide Disband button: strictly creator only (not in spy mode)
+            // Show/hide Remove Group button: creator and promoted group admins (not in spy mode)
             const myId = (typeof wsConfig !== 'undefined' && wsConfig.accountId) ? Number(wsConfig.accountId) : 0;
             const creatorId = data.group ? Number(data.group.creator_id) : 0;
             const isCreator = (!isCustomGcAdminSpy && myId > 0 && creatorId > 0 && myId === creatorId);
@@ -5128,11 +5138,11 @@
             const disbandBtn = document.getElementById('disbandGcBtn');
             const cancelBtn = document.getElementById('officeMembersCancelBtn') || document.querySelector('#officeMembersModal .cancel-button');
             if (disbandBtn) {
-              disbandBtn.style.display = isCreator ? '' : 'none';
+              disbandBtn.style.display = isGcAdmin ? '' : 'none';
             }
             if (cancelBtn) {
-              cancelBtn.textContent = isCreator ? 'Cancel' : 'Close';
-              cancelBtn.style.borderRight = isCreator ? '' : 'none';
+              cancelBtn.textContent = isGcAdmin ? 'Cancel' : 'Close';
+              cancelBtn.style.borderRight = isGcAdmin ? '' : 'none';
             }
 
             if (titleEl && data.group) {
@@ -5482,8 +5492,11 @@
       if (!window.activeCustomGc) return;
       const myId = (typeof wsConfig !== 'undefined' && wsConfig.accountId) ? Number(wsConfig.accountId) : 0;
       const creatorId = Number(window.activeCustomGc.creator_id);
-      if (myId <= 0 || creatorId <= 0 || myId !== creatorId) {
-        alert('Only the group creator can disband this group.');
+      const isCreator = (myId > 0 && creatorId > 0 && myId === creatorId);
+      const isGcAdmin = isCreator || Boolean(window.activeCustomGcGroupInfo && window.activeCustomGcGroupInfo.is_gc_admin) || (Array.isArray(window.activeCustomGcMembers) && window.activeCustomGcMembers.some(x => Number(x.account_id) === myId && Boolean(x.is_admin || x.is_creator)));
+
+      if (!isGcAdmin) {
+        alert('Only group admins can remove this group.');
         return;
       }
 
@@ -5697,10 +5710,32 @@
       const isGcAdmin = !isCustomGcAdminSpy && isGc && (myId > 0 && ((creatorId > 0 && myId === creatorId) || (groupInfo && Boolean(groupInfo.is_gc_admin)) || (Array.isArray(members) && members.some(x => Number(x.account_id) === myId && Boolean(x.is_admin || x.is_creator)))));
       const effectiveGroupId = isGc ? Number(groupInfo?.id || (window.activeCustomGc ? window.activeCustomGc.gc_id : (isCustomGcAdminSpy ? Number(activeAdminConv.replace('gc_', '')) : 0))) : 0;
 
-      // Sync Add Member plus button visibility in real time
+      // Priority sort for Custom GC: Creator first, then Promoted Admins, then Regular Members
+      if (isGc && Array.isArray(members)) {
+        members.sort((a, b) => {
+          const aCreator = (Number(a.account_id) === creatorId) || Boolean(a.is_creator);
+          const bCreator = (Number(b.account_id) === creatorId) || Boolean(b.is_creator);
+          const aPriority = aCreator ? 2 : (Boolean(a.is_admin) ? 1 : 0);
+          const bPriority = bCreator ? 2 : (Boolean(b.is_admin) ? 1 : 0);
+          if (aPriority !== bPriority) {
+            return bPriority - aPriority; // Creator & Admins on top
+          }
+          return (a.full_name || '').localeCompare(b.full_name || '');
+        });
+      }
+
+      // Sync Add Member plus button and Remove Group button visibility in real time
       if (isGc) {
         const addBtnInModal = document.getElementById('officeMembersAddUserBtn');
         if (addBtnInModal) addBtnInModal.style.display = isGcAdmin ? 'flex' : 'none';
+
+        const disbandBtn = document.getElementById('disbandGcBtn');
+        const cancelBtn = document.getElementById('officeMembersCancelBtn') || document.querySelector('#officeMembersModal .cancel-button');
+        if (disbandBtn) disbandBtn.style.display = isGcAdmin ? '' : 'none';
+        if (cancelBtn) {
+          cancelBtn.textContent = isGcAdmin ? 'Cancel' : 'Close';
+          cancelBtn.style.borderRight = isGcAdmin ? '' : 'none';
+        }
       }
 
       if (!members || members.length === 0) {

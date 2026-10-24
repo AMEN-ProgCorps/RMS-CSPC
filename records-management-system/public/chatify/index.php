@@ -728,9 +728,10 @@ try {
   <!-- Create Custom Group Chat Modal -->
   <div class="modal" id="createCustomGcModal" aria-hidden="true">
     <div class="modal-content" style="max-width:440px;">
-      <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:10px;">
+      <div class="modal-header" style="padding:14px 16px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:8px;">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
         <h3 style="margin:0;font-size:16px;font-weight:600;color:var(--text-primary);">Create Custom GC</h3>
+        <span id="gcSelectedCountBadge" style="display:none;font-size:11px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:2px 7px;border-radius:10px;">0</span>
       </div>
       <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px;text-align:left;">
         <div>
@@ -740,10 +741,7 @@ try {
         </div>
 
         <div>
-          <label style="display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">
-            <span>ADD MEMBERS</span>
-            <span id="gcSelectedCountBadge" style="display:none;font-size:11px;font-weight:700;background:rgba(27,116,228,0.12);color:#1b74e4;padding:2px 7px;border-radius:10px;">0</span>
-          </label>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">ADD MEMBERS</label>
           <div style="position:relative;">
             <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);opacity:0.45;pointer-events:none;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" id="gcMemberSearchInput" placeholder="Search user to add..." autocomplete="off"
@@ -756,7 +754,7 @@ try {
       </div>
       <div class="modal-footer" style="display:flex;justify-content:space-between;">
         <button type="button" class="modal-button cancel-button" onclick="closeCreateCustomGcModal()">Cancel</button>
-        <button type="button" class="modal-button confirm-button" id="createCustomGcSubmitBtn" onclick="submitCreateCustomGc()">Create</button>
+        <button type="button" class="modal-button confirm-button" id="createCustomGcSubmitBtn" onclick="submitCreateCustomGc()" disabled>Create</button>
       </div>
     </div>
   </div>

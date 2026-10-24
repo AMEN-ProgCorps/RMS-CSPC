@@ -6133,13 +6133,23 @@
 
     function updateGcSelectedCountBadge() {
       const badge = document.getElementById('gcSelectedCountBadge');
-      if (!badge) return;
       const count = window._gcSelectedMembers ? window._gcSelectedMembers.size : 0;
-      if (count > 0) {
-        badge.textContent = count > 99 ? '99+' : String(count);
-        badge.style.display = 'inline-block';
-      } else {
-        badge.style.display = 'none';
+      if (badge) {
+        if (count > 0) {
+          badge.textContent = count > 99 ? '99+' : String(count);
+          badge.style.display = 'inline-block';
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+
+      // Update Create button state: disabled (not blue) unless both name and members are present
+      const submitBtn = document.getElementById('createCustomGcSubmitBtn');
+      const nameInput = document.getElementById('gcNameInput');
+      const hasName = nameInput ? Boolean(nameInput.value.trim()) : false;
+      const hasMembers = count > 0;
+      if (submitBtn) {
+        submitBtn.disabled = !(hasName && hasMembers);
       }
     }
 
@@ -6178,6 +6188,12 @@
       modal.setAttribute('aria-hidden', 'true');
       document.body.style.overflow = '';
     };
+
+    // Monitor group name input to toggle Create button state
+    const gcNameInput = document.getElementById('gcNameInput');
+    if (gcNameInput) {
+      gcNameInput.addEventListener('input', updateGcSelectedCountBadge);
+    }
 
     // Search user for Create Custom GC (max 3 results)
     const gcSearchInput = document.getElementById('gcMemberSearchInput');
